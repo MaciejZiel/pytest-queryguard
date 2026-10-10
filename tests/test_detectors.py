@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.detectors import (
     RelationshipFinding,
@@ -118,3 +120,41 @@ def test_ordering_relationships_first_then_repeats_by_count_desc() -> None:
     f = detect(c, relationship_threshold=2, repeat_threshold=5)
     assert [type(x) for x in f] == [RelationshipFinding] * 2 + [RepeatFinding] * 2
     assert [x.count for x in f] == [5, 2, 8, 5]
+
+
+@pytest.mark.parametrize(
+    ("many", "one"),
+    [
+        ("IN (%s, %s, %s)", "IN (%s)"),
+        ("IN ($1, $2, $3)", "IN ($1)"),
+        ("IN (:id_1, :id_2)", "IN (:id_1)"),
+        ("IN (%(id_1)s, %(id_2)s)", "IN (%(id_1)s)"),
+        ("IN ('a', 'b')", "IN ('a')"),
+        ("IN (1, 2, 3)", "IN (4)"),
+    ],
+)
+def test_normalize_collapses_in_lists_for_all_placeholder_styles(
+    many: str, one: str
+) -> None:
+    assert normalize(f"SELECT * FROM t WHERE id {many}") == normalize(
+        f"SELECT * FROM t WHERE id {one}"
+    )
+
+
+def test_normalize_numbered_params_are_stable() -> None:
+    a = normalize("SELECT * FROM t WHERE id = $1")
+    assert (
+        a
+        == normalize("SELECT * FROM t WHERE id = $2")
+        == ("SELECT * FROM t WHERE id = ?")
+    )
+
+
+def test_first_callsite_skips_none() -> None:
+    c = QueryCollector()
+    c.relationship_loads.append(RelationshipLoadEvent("A.b", 1, None))
+    c.relationship_loads.append(RelationshipLoadEvent("A.b", 2, SITE))
+    c.statements.append(StatementEvent("SELECT 1", None, None))
+    c.statements.extend(_stmts("SELECT 1", 4))
+    rel, rep = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert rel.first == SITE and rep.first == SITE

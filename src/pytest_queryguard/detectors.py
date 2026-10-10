@@ -9,17 +9,25 @@ from .events import CallSite
 
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
-_IN_LIST = re.compile(r"\bIN\s*\(\s*\?(?:\s*,\s*\?)*\s*\)", re.IGNORECASE)
+_PLACEHOLDER = r"""\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+(?:\.\d+)?|'(?:[^']|'')*'"""
+_IN_LIST = re.compile(
+    rf"\bIN\s*\(\s*(?:{_PLACEHOLDER})(?:\s*,\s*(?:{_PLACEHOLDER}))*\s*\)",
+    re.IGNORECASE,
+)
+_DOLLAR_PARAM = re.compile(r"\$\d+")
 _WS = re.compile(r"\s+")
 _WRITES = ("INSERT", "UPDATE", "DELETE")
 
 
 def normalize(sql: str) -> str:
     """Reduce a statement to a shape shared by all its executions."""
-    out = _STRING.sub("?", sql)
-    out = _NUMBER.sub("?", out)
-    out = _WS.sub(" ", out).strip()
-    return _IN_LIST.sub("IN (...)", out)
+    out = _WS.sub(" ", sql).strip()
+    # Lists first, so every placeholder style collapses to the same text.
+    out = _IN_LIST.sub("IN (...)", out)
+    out = _STRING.sub("?", out)
+    # Numbered parameters ($1, $2) become "?" so they compare equal.
+    out = _DOLLAR_PARAM.sub("?", out)
+    return _NUMBER.sub("?", out)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +60,8 @@ def _relationship_findings(
         name = load.relationship
         parents.setdefault(name, set()).add(load.parent_key)
         counts[name] += 1
-        first.setdefault(name, load.callsite)
+        if first.get(name) is None:
+            first[name] = load.callsite
     samples: dict[str, str] = {}
     for stmt in collector.statements:
         if stmt.relationship is not None:
@@ -75,7 +84,8 @@ def _repeat_findings(collector: QueryCollector, threshold: int) -> list[RepeatFi
             continue
         key = normalize(stmt.sql)
         counts[key] += 1
-        first.setdefault(key, stmt.callsite)
+        if first.get(key) is None:
+            first[key] = stmt.callsite
     found = [
         RepeatFinding(sql, n, first[sql]) for sql, n in counts.items() if n >= threshold
     ]
