@@ -324,6 +324,17 @@ queryguard_repeat_threshold = 10
 
 `pytest.ini` and `setup.cfg` work as usual.
 
+The warning classes, `pytest_queryguard.QueryGuardWarning` for N+1 in
+`warn` mode and `pytest_queryguard.QueryGuardInternalWarning` for an
+internal error, work with pytest's usual warning filters. For example, to
+turn N+1 warnings back into failures for one job:
+
+```toml
+[tool.pytest.ini_options]
+queryguard_mode = "warn"
+filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]
+```
+
 Command-line options:
 
 | Option | Meaning |

@@ -66,6 +66,30 @@ def test_warn_mode_passes_with_warning(project: pytest.Pytester) -> None:
     result.stdout.fnmatch_lines(["*QueryGuardWarning*N+1 detected*"])
 
 
+def test_warning_can_be_escalated_by_its_public_path(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    project.makepyprojecttoml(
+        "[tool.pytest.ini_options]\n"
+        'queryguard_mode = "warn"\n'
+        'filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]\n'
+    )
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*QueryGuardWarning*N+1 detected*"])
+
+
+def test_warning_can_be_ignored_by_its_public_path(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    result = project.runpytest(
+        "--queryguard-mode=warn",
+        "-W",
+        "ignore::pytest_queryguard.QueryGuardWarning",
+    )
+    result.assert_outcomes(passed=1)
+
+
 def test_off_mode_ignores(project: pytest.Pytester) -> None:
     project.makepyfile(test_a=NPLUSONE_TEST)
     project.makeini("[pytest]\nqueryguard_mode = off\n")
