@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -13,9 +13,12 @@ license-files = ["LICENSE"]
 authors = [{ name = "Maciej Zieliński" }]
 keywords = ["pytest", "sqlalchemy", "n+1", "testing", "fastapi"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Framework :: Pytest",
     "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -25,6 +28,12 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = ["pytest>=8", "sqlalchemy>=2.0"]
+
+[project.urls]
+Homepage = "https://github.com/MaciejZiel/pytest-queryguard"
+Repository = "https://github.com/MaciejZiel/pytest-queryguard"
+Changelog = "https://github.com/MaciejZiel/pytest-queryguard/blob/main/CHANGELOG.md"
+Issues = "https://github.com/MaciejZiel/pytest-queryguard/issues"
 
 [project.entry-points.pytest11]
 queryguard = "pytest_queryguard.plugin"
@@ -43,6 +52,19 @@ dev = [
 
 [tool.hatch.version]
 path = "src/pytest_queryguard/__init__.py"
+
+# An allowlist, so CI config and any untracked local files stay out of the sdist.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "src",
+    "tests",
+    "docs",
+    "3rdparty_licenses.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "pyproject.toml",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pytest_queryguard"]
