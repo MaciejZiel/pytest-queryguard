@@ -8,12 +8,13 @@ import pytest
 
 from .collector import QueryCollector, pop, push
 from .detectors import detect
-from .listeners import install, internal_error, record_error, reset_error
+from .listeners import install, internal_error, record_error, swap_error
 from .messages import format_findings
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
 _MODES = ("fail", "warn", "off")
 _internal_reported = pytest.StashKey[bool]()
+_outer_error = pytest.StashKey[BaseException | None]()
 _settings = pytest.StashKey["_Settings"]()
 
 
@@ -61,16 +62,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def _threshold(config: pytest.Config, name: str) -> int:
+    detail = ""
     try:
         raw: Any = config.getini(name)
-    except (TypeError, ValueError):
-        raw = None
+    except (TypeError, ValueError) as exc:
+        raw, detail = None, f": {exc}"
     try:
         value = 0 if isinstance(raw, bool) else int(raw)
     except (TypeError, ValueError):
         value = 0
     if value < 2:
-        raise pytest.UsageError(f"{name} must be an integer >= 2, got {raw!r}")
+        shown = detail or f", got {raw!r}"
+        raise pytest.UsageError(f"{name} must be an integer >= 2{shown}")
     return value
 
 
@@ -100,7 +103,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "allow_nplusone: do not report N+1 query findings for this test.",
     )
-    reset_error()
+    config.stash[_outer_error] = swap_error(None)
     settings = _read_settings(config)
     config.stash[_settings] = settings
     if settings.mode != "off":
@@ -108,7 +111,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
-    reset_error()
+    swap_error(config.stash.get(_outer_error, None))
 
 
 def _report_internal_error(config: pytest.Config) -> None:

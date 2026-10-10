@@ -97,10 +97,15 @@ def record_error(exc: Exception) -> None:
     _fail(exc)
 
 
-def reset_error() -> None:
-    """Forget a previous error; the plugin calls this at session start and end."""
+def swap_error(new: BaseException | None) -> BaseException | None:
+    """Replace the recorded error and return the previous one.
+
+    The plugin clears it for each session and restores the outer session's
+    error afterwards, so in-process nested sessions stay independent.
+    """
     global _error
-    _error = None
+    old, _error = _error, new
+    return old
 
 
 def install() -> None:
