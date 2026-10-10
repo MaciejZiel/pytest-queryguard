@@ -32,16 +32,21 @@ def _first_at(site: CallSite | None, cwd: Path | None) -> str:
 def _block(finding: Finding, cwd: Path | None) -> list[str]:
     if isinstance(finding, RelationshipFinding):
         parent = finding.relationship.split(".", 1)[0]
-        return [
+        lines = [
             f"  {finding.relationship} was lazy-loaded {finding.count} times",
             _first_at(finding.first, cwd),
+        ]
+        if finding.sample_sql is not None:
+            lines.append(f"  sql: {_truncate(finding.sample_sql)}")
+        return [
+            *lines,
             "  fix: load it with the parent query, e.g.",
             f"       select({parent}).options(selectinload({finding.relationship}))",
         ]
     return [
         f"  the same statement ran {finding.count} times",
         _first_at(finding.first, cwd),
-        f"  {finding.sql}",
+        f"  {_truncate(finding.sql)}",
         f"  {_REPEAT_FIX}",
     ]
 

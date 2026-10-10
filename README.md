@@ -103,6 +103,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/orders.py:9 in list_orders
+  sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(selectinload(Order.customer))
 _____________________________ test_fetch_customers _____________________________
@@ -127,7 +128,7 @@ queryguard: expected at most 2 queries, got 4
 FAILED tests/test_orders.py::test_list_orders - Failed: queryguard: N+1 detected
 FAILED tests/test_orders.py::test_fetch_customers - Failed: queryguard: N+1 d...
 FAILED tests/test_orders.py::test_rename_customers - Failed: queryguard: expe...
-============================== 3 failed in 0.06s ===============================
+============================== 3 failed in 0.07s ===============================
 ```
 
 The fixed code loads related rows with the parent query and fetches many

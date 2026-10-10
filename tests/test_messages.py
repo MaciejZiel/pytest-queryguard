@@ -22,6 +22,20 @@ def test_relationship_message_has_fix_hint() -> None:
     ]
 
 
+def test_relationship_message_shows_sample_sql_truncated() -> None:
+    site = CallSite("/work/project/app/api/orders.py", 42, "list_orders")
+    sql = "SELECT customer.id\nFROM customer\nWHERE customer.id = ?"
+    finding = RelationshipFinding("Order.customer", 50, site, sql)
+    lines = format_findings([finding], cwd=CWD).splitlines()
+    assert lines[3:5] == [
+        "  first at app/api/orders.py:42 in list_orders",
+        "  sql: SELECT customer.id FROM customer WHERE customer.id = ?",
+    ]
+    long_sql = "SELECT " + "x" * 300
+    long = RelationshipFinding("Order.customer", 50, site, long_sql)
+    assert f"  sql: {long_sql[:200]}..." in format_findings([long]).splitlines()
+
+
 def test_repeat_message() -> None:
     site = CallSite("/work/project/app/services/orders.py", 18, "fetch_customers")
     sql = "SELECT customer.id, customer.name FROM customer WHERE customer.id = ?"
@@ -46,6 +60,13 @@ def test_budget_message_lists_statements() -> None:
     assert lines[0] == "queryguard: expected at most 1 queries, got 2"
     assert "  1. SELECT 1  (app/a.py:7 in run)" in lines
     assert f"  2. {long_sql[:200]}..." in lines
+
+
+def test_repeat_message_truncates_long_sql() -> None:
+    long_sql = "SELECT " + "x" * 300
+    lines = format_findings([RepeatFinding(long_sql, 9, None)]).splitlines()
+    assert f"  {long_sql[:200]}..." in lines
+    assert all(len(line) < 220 for line in lines)
 
 
 def test_missing_callsite_prints_unknown_location() -> None:

@@ -59,11 +59,17 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/api/orders.py:42 in list_orders
+  sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(selectinload(Order.customer))
 ```
 
-When the cause is repeated SQL rather than a relationship load:
+The `sql:` line shows the first lazy-load statement, shortened to 200
+characters; it is left out when no statement was recorded for the
+relationship.
+
+When the cause is repeated SQL rather than a relationship load (the
+statement is shortened to 200 characters in the same way):
 
 ```
 queryguard: N+1 detected

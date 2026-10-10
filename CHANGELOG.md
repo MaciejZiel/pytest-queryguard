@@ -15,7 +15,8 @@ First release, planned as 0.1.0.
   configuration. Two rules: one relationship lazy-loaded for several parent
   objects, and one normalized `SELECT` repeated several times.
 - Failure messages that point to the line of application code that caused
-  the N+1 and, for relationship loads, suggest a `selectinload` fix.
+  the N+1, show the SQL involved and, for relationship loads, suggest a
+  `selectinload` fix.
 - `@pytest.mark.max_queries(n)` marker (also `max_queries(n=...)`) that fails
   a test running more than `n` SQL statements and lists every statement with
   its call site.
