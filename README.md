@@ -89,7 +89,10 @@ def test_rename_customers(session):
 ```
 
 All three tests pass without the plugin. With it installed,
-`pytest --queryguard-report` gives:
+`pytest --queryguard-report` gives the output below. It comes from Python
+3.13 with SQLAlchemy 2.1; Python 3.12 prints the same. Older versions print
+slightly different SQL or function names, for example `in <listcomp>` on
+Python 3.10 and 3.11, or column aliases in the SQL on SQLAlchemy 2.0.
 
 ```
 tests/test_orders.py FFF                                                 [100%]
@@ -252,7 +255,9 @@ still enforced.
 ### Async and FastAPI
 
 Nothing changes for async code. `AsyncSession` and `create_async_engine` run
-on a sync engine underneath, which the plugin already watches. The failure
+on a sync engine underneath, which the plugin already watches. On SQLAlchemy
+2.1 and newer, async support needs `pip install "sqlalchemy[asyncio]"`,
+which provides greenlet. The failure
 points to the `await` in your code, not to SQLAlchemy internals:
 
 ```python
