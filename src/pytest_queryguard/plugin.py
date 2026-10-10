@@ -9,7 +9,7 @@ import pytest
 from .collector import QueryCollector, pop, push
 from .detectors import detect
 from .listeners import install, internal_error, record_error, swap_error
-from .messages import format_findings
+from .messages import format_budget, format_findings
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
 _MODES = ("fail", "warn", "off")
@@ -147,11 +147,43 @@ def _analyse(
         return None
 
 
+def _budget(item: pytest.Item) -> int | None:
+    marker = item.get_closest_marker("max_queries")
+    if marker is None:
+        return None
+    limit = marker.args[0] if marker.args else None
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+        pytest.fail(
+            f"max_queries on {item.nodeid} needs a non-negative integer "
+            f"as its first argument, got {limit!r}",
+            pytrace=False,
+        )
+    return limit
+
+
+def _budget_report(
+    item: pytest.Item, collector: QueryCollector, limit: int
+) -> str | None:
+    """The budget failure text, or None; a bug here never fails the test."""
+    try:
+        if len(collector.statements) <= limit:
+            return None
+        return format_budget(limit, collector.statements, cwd=item.config.rootpath)
+    except Exception as exc:  # noqa: BLE001
+        record_error(exc)
+        return None
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     settings = item.config.stash.get(_settings, None)
-    if settings is None or settings.mode == "off":
+    if settings is None:
         return (yield)
+    limit = _budget(item)
+    if settings.mode == "off" and limit is None:
+        return (yield)
+    if limit is not None:
+        install()  # idempotent; budgets also work when the mode is off
     collector = QueryCollector()
     push(collector)
     try:
@@ -159,11 +191,18 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     finally:
         pop(collector)
         _report_internal_error(item.config)
-    message = _analyse(item, collector, settings)
+    parts: list[str] = []
+    if limit is not None:
+        budget = _budget_report(item, collector, limit)
+        if budget is not None:
+            parts.append(budget)
+    message = None
+    if settings.mode != "off":
+        message = _analyse(item, collector, settings)
     _report_internal_error(item.config)
-    if message is not None:
-        if settings.mode == "fail":
-            pytest.fail(message, pytrace=False)
+    if message is not None and settings.mode == "fail":
+        parts.append(message)
+    if message is not None and settings.mode == "warn":
         path, line, _ = item.reportinfo()
         std_warnings.warn_explicit(
             QueryGuardWarning(message),
@@ -171,4 +210,6 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
             str(path),
             (line or 0) + 1,
         )
+    if parts:
+        pytest.fail("\n\n".join(parts), pytrace=False)
     return result

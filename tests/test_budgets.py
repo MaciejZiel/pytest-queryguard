@@ -92,18 +92,20 @@ def test_context_manager_counts_only_inside_block() -> None:
 
 def test_context_manager_raises_when_exceeded() -> None:
     engine = create_engine("sqlite://")
-    with pytest.raises(QueryBudgetExceeded, match="at most 1 queries, got 2"):
-        with max_queries(1), engine.connect() as conn:
-            conn.execute(text("select 1"))
-            conn.execute(text("select 2"))
+    with (
+        pytest.raises(QueryBudgetExceeded, match="at most 1 queries, got 2"),
+        max_queries(1),
+        engine.connect() as conn,
+    ):
+        conn.execute(text("select 1"))
+        conn.execute(text("select 2"))
 
 
 def test_context_manager_keeps_original_exception() -> None:
     engine = create_engine("sqlite://")
-    with pytest.raises(KeyError):
-        with max_queries(0), engine.connect() as conn:
-            conn.execute(text("select 1"))
-            raise KeyError("boom")
+    with pytest.raises(KeyError), max_queries(0), engine.connect() as conn:
+        conn.execute(text("select 1"))
+        raise KeyError("boom")
 
 
 def test_context_manager_works_without_pytest() -> None:
@@ -120,7 +122,10 @@ def test_context_manager_works_without_pytest() -> None:
         """
     )
     proc = subprocess.run(
-        [sys.executable, "-I", "-c", script], capture_output=True, text=True
+        [sys.executable, "-I", "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert proc.returncode == 1
     assert "expected at most 1 queries" in proc.stderr
