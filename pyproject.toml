@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytest-queryguard"
+dynamic = ["version"]
+description = "Detect N+1 queries and enforce query budgets for SQLAlchemy 2 in pytest."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Maciej Zieliński" }]
+keywords = ["pytest", "sqlalchemy", "n+1", "testing", "fastapi"]
+classifiers = [
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+dependencies = ["pytest>=8", "sqlalchemy>=2.0"]
+
+[project.entry-points.pytest11]
+queryguard = "pytest_queryguard.plugin"
+
+[dependency-groups]
+dev = ["aiosqlite", "fastapi", "httpx>=0.28,<0.29", "pytest-cov", "ruff", "mypy"]
+
+[tool.hatch.version]
+path = "src/pytest_queryguard/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pytest_queryguard"]
+
+[tool.uv]
+exclude-newer = "2026-09-27T00:00:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+src = ["src", "tests"]
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "B"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
