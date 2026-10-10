@@ -21,6 +21,18 @@ def internal_error() -> BaseException | None:
     return _error
 
 
+def _set_pending(name: str | None) -> None:
+    _local.pending = None if name is None else (collector.generation(), name)
+
+
+def _take_pending() -> str | None:
+    pending = getattr(_local, "pending", None)
+    _local.pending = None
+    if pending is not None and pending[0] == collector.generation():
+        return str(pending[1])
+    return None
+
+
 def _reset_for_tests() -> None:
     global _error
     _error = None
@@ -35,7 +47,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         if not targets:
             return
         if not state.is_relationship_load:
-            _local.pending = None
+            _set_pending(None)
             return
         name = str(state.loader_strategy_path[-1])  # type: ignore[index]
         parent = state.lazy_loaded_from
@@ -43,8 +55,8 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         if parent is not None:
             key = parent.identity_key
             if key is None:
-                key = id(parent.obj())
-        _local.pending = name
+                key = id(parent)
+        _set_pending(name)
         site = find_callsite()
         load = RelationshipLoadEvent(name, key, site)
         for target in targets:
@@ -67,9 +79,7 @@ def _on_cursor_execute(
         targets = collector.active()
         if not targets:
             return
-        pending = getattr(_local, "pending", None)
-        _local.pending = None
-        stmt = StatementEvent(statement, find_callsite(), pending)
+        stmt = StatementEvent(statement, find_callsite(), _take_pending())
         for target in targets:
             target.statements.append(stmt)
     except Exception as exc:  # noqa: BLE001

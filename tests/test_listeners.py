@@ -35,13 +35,26 @@ def rec() -> Iterator[collector.QueryCollector]:
     collector.pop(c)
 
 
-def test_nothing_recorded_without_active_collector(session: Session) -> None:
-    c = collector.QueryCollector()
-    for order in session.scalars(select(Order)):
+def test_nothing_recorded_without_active_collector(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom() -> None:
+        raise RuntimeError("must not be called without a collector")
+
+    monkeypatch.setattr(listeners, "find_callsite", boom)
+    for order in session.scalars(select(Order)).all():
         _ = order.customer
-    assert c.statements == []
-    assert c.relationship_loads == []
+    assert listeners.internal_error() is None
     assert collector.active() == ()
+    monkeypatch.undo()
+
+    c = collector.QueryCollector()
+    collector.push(c)
+    try:
+        session.execute(select(Customer)).all()
+    finally:
+        collector.pop(c)
+    assert len(c.statements) == 1
 
 
 def test_lazy_load_recorded_with_relationship_name(
@@ -68,13 +81,44 @@ def test_statement_tagged_with_relationship(
 def test_pending_relationship_does_not_leak(
     session: Session, rec: collector.QueryCollector
 ) -> None:
-    session.execute(select(Customer).where(Customer.id == 1)).scalar_one()
     orders = session.scalars(select(Order).where(Order.customer_id == 1)).all()
     assert len(orders) == 2
-    for order in orders:
-        _ = order.customer  # served from the identity map
+    first_customer = orders[0].customer  # real lazy load
+    assert len(rec.relationship_loads) == 1
+    assert orders[1].customer is first_customer  # identity map, no load
+    assert len(rec.relationship_loads) == 1
     session.execute(select(Customer))
     assert rec.statements[-1].relationship is None
+
+
+def test_stale_pending_tag_does_not_cross_measurements(
+    session: Session,
+) -> None:
+    first = collector.QueryCollector()
+    collector.push(first)
+    listeners._set_pending("Order.customer")
+    collector.pop(first)
+
+    second = collector.QueryCollector()
+    collector.push(second)
+    try:
+        session.execute(select(Customer)).all()
+    finally:
+        collector.pop(second)
+    assert second.statements[-1].relationship is None
+
+
+def test_pop_removes_by_identity_not_equality(session: Session) -> None:
+    outer, inner = collector.QueryCollector(), collector.QueryCollector()
+    collector.push(outer)
+    collector.push(inner)
+    collector.pop(inner)
+    try:
+        session.execute(select(Customer)).all()
+    finally:
+        collector.pop(outer)
+    assert len(outer.statements) == 1
+    assert inner.statements == []
 
 
 def test_nested_collectors_both_receive_events(session: Session) -> None:
