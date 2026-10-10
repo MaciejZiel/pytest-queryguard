@@ -54,6 +54,9 @@ def _parent_greenlet_frames() -> Iterator[FrameType]:
     so the awaiting user code is only reachable through the parent greenlet.
     """
     # greenlet comes with SQLAlchemy's async support; only used if already loaded.
+    # Code running inside a SQLAlchemy greenlet has imported it already, while
+    # an import here, after pytester purges sys.modules between runs, could
+    # create a second greenlet module object next to the one SQLAlchemy uses.
     module = sys.modules.get("greenlet")
     if module is None:
         return
