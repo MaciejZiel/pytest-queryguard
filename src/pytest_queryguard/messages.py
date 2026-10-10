@@ -39,7 +39,7 @@ def _block(finding: Finding, cwd: Path | None) -> list[str]:
             f"       select({parent}).options(selectinload({finding.relationship}))",
         ]
     return [
-        f"  the same statement ran {finding.count} times with different parameters",
+        f"  the same statement ran {finding.count} times",
         _first_at(finding.first, cwd),
         f"  {finding.sql}",
         f"  {_REPEAT_FIX}",

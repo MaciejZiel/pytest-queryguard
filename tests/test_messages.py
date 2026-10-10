@@ -28,7 +28,7 @@ def test_repeat_message() -> None:
     assert format_findings([RepeatFinding(sql, 50, site)], cwd=CWD).splitlines() == [
         "queryguard: N+1 detected",
         "",
-        "  the same statement ran 50 times with different parameters",
+        "  the same statement ran 50 times",
         "  first at app/services/orders.py:18 in fetch_customers",
         f"  {sql}",
         "  fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop",
