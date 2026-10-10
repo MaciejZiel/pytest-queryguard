@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# pytester drops modules first imported by an inner run from sys.modules when
+# that run ends. SQLAlchemy 2.1 imports greenlet lazily, inside the first async
+# run, and the call site lookup only uses greenlet when sys.modules has it, so
+# later async runs lost their call sites. Importing it here keeps it loaded.
+import greenlet  # noqa: F401
 import pytest
 
 # pytester runs sessions in-process, so the outer plugin sees their queries too.
