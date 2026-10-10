@@ -151,11 +151,21 @@ def _budget(item: pytest.Item) -> int | None:
     marker = item.get_closest_marker("max_queries")
     if marker is None:
         return None
-    limit = marker.args[0] if marker.args else None
+    if len(marker.args) > 1 or set(marker.kwargs) - {"n"}:
+        pytest.fail(
+            f"max_queries on {item.nodeid} takes a single argument, the limit",
+            pytrace=False,
+        )
+    if marker.args and "n" in marker.kwargs:
+        pytest.fail(
+            f"max_queries on {item.nodeid} got the limit twice, positionally and as n=",
+            pytrace=False,
+        )
+    limit = marker.args[0] if marker.args else marker.kwargs.get("n")
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         pytest.fail(
             f"max_queries on {item.nodeid} needs a non-negative integer "
-            f"as its first argument, got {limit!r}",
+            f"as its limit, got {limit!r}",
             pytrace=False,
         )
     return limit
@@ -178,6 +188,8 @@ def _budget_report(
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     settings = item.config.stash.get(_settings, None)
     if settings is None:
+        # pytest_configure did not complete (for example it raised a UsageError
+        # for a bad option), so there is nothing to measure with.
         return (yield)
     limit = _budget(item)
     if settings.mode == "off" and limit is None:
@@ -200,9 +212,9 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     if settings.mode != "off":
         message = _analyse(item, collector, settings)
     _report_internal_error(item.config)
-    if message is not None and settings.mode == "fail":
-        parts.append(message)
-    if message is not None and settings.mode == "warn":
+    if message is not None and (parts or settings.mode == "fail"):
+        parts.append(message)  # one failure: budget first, N+1 after it
+    elif message is not None:
         path, line, _ = item.reportinfo()
         std_warnings.warn_explicit(
             QueryGuardWarning(message),
