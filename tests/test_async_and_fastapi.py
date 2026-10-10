@@ -32,19 +32,21 @@ async def make_session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine(
         "sqlite+aiosqlite://", poolclass=StaticPool
     )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    session = async_sessionmaker(engine, expire_on_commit=False)()
     try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        session = async_sessionmaker(engine, expire_on_commit=False)()
         for c in range(1, 4):
             customer = Customer(id=c, name=f"customer {c}")
             customer.orders = [Order(id=c * 10 + o) for o in range(2)]
             session.add(customer)
         await session.commit()
         session.expunge_all()
-        yield session
+        try:
+            yield session
+        finally:
+            await session.close()
     finally:
-        await session.close()
         await engine.dispose()
 """
 
