@@ -14,6 +14,8 @@ class QueryBudgetExceeded(AssertionError):
 
 @contextmanager
 def _measure(limit: int) -> Iterator[QueryCollector]:
+    # The budget failure is raised here; pytest should show the user's with block.
+    __tracebackhide__ = True
     install()
     collector = QueryCollector()
     push(collector)

@@ -294,3 +294,24 @@ def test_failure_lists_statements_with_locations(
     result.stdout.fnmatch_lines(
         ["*1. select 1*(test_a.py:*)*", "*3. select 1*(test_a.py:*)*"]
     )
+
+
+def test_context_manager_failure_hides_plugin_frame(project: pytest.Pytester) -> None:
+    project.makepyfile(
+        test_a="""
+        from sqlalchemy import create_engine, text
+
+        from pytest_queryguard import max_queries
+
+
+        def test_cm():
+            engine = create_engine("sqlite://")
+            with engine.connect() as conn, max_queries(1):
+                conn.execute(text("select 1"))
+                conn.execute(text("select 2"))
+        """
+    )
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*with engine.connect() as conn, max_queries(1):*"])
+    result.stdout.no_fnmatch_line("*raise QueryBudgetExceeded*")
