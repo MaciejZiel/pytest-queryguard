@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from pytest_queryguard import plugin
+
 # pytester runs sessions in-process, so the outer plugin sees their queries too.
 pytestmark = pytest.mark.allow_nplusone
 
@@ -153,3 +155,104 @@ def test_repeat_threshold_from_ini(project: pytest.Pytester) -> None:
     )
     project.makeini("[pytest]\nqueryguard_repeat_threshold = 3\n")
     project.runpytest().assert_outcomes(failed=1)
+
+
+def test_threshold_from_native_toml_int(project: pytest.Pytester) -> None:
+    project.makepyfile(
+        test_a="""
+        from qgmodels import Customer, make_sync_session
+
+
+        def test_loop():
+            session = make_sync_session()
+            for i in (1, 2, 3):
+                session.get(Customer, i)
+        """
+    )
+    project.path.joinpath("pytest.toml").write_text(
+        "[pytest]\nqueryguard_repeat_threshold = 3\n"
+    )
+    project.runpytest().assert_outcomes(failed=1)
+
+
+def test_threshold_from_pyproject_ini_options(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    project.makepyprojecttoml(
+        '[tool.pytest.ini_options]\nqueryguard_relationship_threshold = "4"\n'
+    )
+    project.runpytest().assert_outcomes(passed=1)
+
+
+def test_non_integer_threshold_is_usage_error(project: pytest.Pytester) -> None:
+    project.makeini("[pytest]\nqueryguard_repeat_threshold = many\n")
+    result = project.runpytest()
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*queryguard_repeat_threshold*"])
+
+
+BROKEN_CALLSITE = """
+import pytest
+from pytest_queryguard import listeners
+
+
+@pytest.fixture(autouse=True)
+def _broken(monkeypatch):
+    def boom():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(listeners, "find_callsite", boom)
+"""
+
+
+def test_internal_error_warned_once_even_if_test_fails(
+    project: pytest.Pytester,
+) -> None:
+    project.makeconftest(BROKEN_CALLSITE)
+    project.makepyfile(
+        test_a="""
+        from qgmodels import Customer, make_sync_session
+
+
+        def test_first():
+            make_sync_session().get(Customer, 1)
+            assert False
+
+
+        def test_second():
+            make_sync_session().get(Customer, 1)
+        """
+    )
+    result = project.runpytest()
+    result.assert_outcomes(passed=1, failed=1, warnings=1)
+    result.stdout.fnmatch_lines(["*QueryGuardInternalWarning*boom*"])
+
+
+def test_detection_error_does_not_fail_test(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise ValueError("detect broke")
+
+    monkeypatch.setattr(plugin, "detect", boom)
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    result = project.runpytest()
+    result.assert_outcomes(passed=1, warnings=1)
+    result.stdout.fnmatch_lines(["*QueryGuardInternalWarning*detect broke*"])
+
+
+def test_inner_internal_error_does_not_leak_into_outer_session(
+    project: pytest.Pytester,
+) -> None:
+    from pytest_queryguard import listeners
+
+    project.makeconftest(BROKEN_CALLSITE)
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    project.runpytest()
+    assert listeners.internal_error() is None
+
+
+def test_warn_mode_points_at_the_test(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    result = project.runpytest("--queryguard-mode=warn")
+    result.stdout.fnmatch_lines(["*test_a.py:*: QueryGuardWarning*"])
+    result.stdout.no_fnmatch_line("*plugin.py*")

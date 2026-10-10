@@ -6,21 +6,24 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pytest_queryguard import collector, listeners
+from pytest_queryguard import collector, listeners, plugin
 from tests.models import Customer, Order, make_sync_session
-
-# The plugin measures these tests too; they drive the listeners by hand.
-pytestmark = pytest.mark.allow_nplusone
 
 
 @pytest.fixture(autouse=True)
-def _isolated() -> Iterator[None]:
+def _isolated(request: pytest.FixtureRequest) -> Iterator[None]:
+    # These tests drive the listeners by hand: switch the plugin's own
+    # measurement of this session off (it is read when the test body starts).
+    stash = request.config.stash
+    saved = stash[plugin._settings]
+    stash[plugin._settings] = plugin._Settings("off", 2, 5)
     listeners.install()
     collector._reset_for_tests()
     listeners._reset_for_tests()
     yield
     collector._reset_for_tests()
     listeners._reset_for_tests()
+    stash[plugin._settings] = saved
 
 
 @pytest.fixture
@@ -45,7 +48,6 @@ def test_nothing_recorded_without_active_collector(
         raise RuntimeError("must not be called without a collector")
 
     monkeypatch.setattr(listeners, "find_callsite", boom)
-    collector._reset_for_tests()  # drop the collector the plugin pushed for this test
     for order in session.scalars(select(Order)).all():
         _ = order.customer
     assert listeners.internal_error() is None
