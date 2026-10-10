@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 
+# pytester runs sessions in-process, so the outer plugin sees their queries too.
+pytestmark = pytest.mark.allow_nplusone
+
 MODELS = (Path(__file__).parent / "models.py").read_text()
 
 NPLUSONE_TEST = """

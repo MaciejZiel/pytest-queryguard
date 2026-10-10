@@ -9,6 +9,9 @@ from sqlalchemy.orm import Session
 from pytest_queryguard import collector, listeners
 from tests.models import Customer, Order, make_sync_session
 
+# The plugin measures these tests too; they drive the listeners by hand.
+pytestmark = pytest.mark.allow_nplusone
+
 
 @pytest.fixture(autouse=True)
 def _isolated() -> Iterator[None]:
@@ -42,6 +45,7 @@ def test_nothing_recorded_without_active_collector(
         raise RuntimeError("must not be called without a collector")
 
     monkeypatch.setattr(listeners, "find_callsite", boom)
+    collector._reset_for_tests()  # drop the collector the plugin pushed for this test
     for order in session.scalars(select(Order)).all():
         _ = order.customer
     assert listeners.internal_error() is None
@@ -134,6 +138,9 @@ def test_nested_collectors_both_receive_events(session: Session) -> None:
     assert len(inner.statements) == 1
 
 
+@pytest.mark.filterwarnings(
+    "ignore::pytest_queryguard.warnings.QueryGuardInternalWarning"
+)
 def test_listener_error_is_swallowed_and_disables(
     session: Session,
     rec: collector.QueryCollector,
