@@ -61,7 +61,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         load = RelationshipLoadEvent(name, key, site)
         for target in targets:
             target.relationship_loads.append(load)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc)
 
 
@@ -82,7 +82,7 @@ def _on_cursor_execute(
         stmt = StatementEvent(statement, find_callsite(), _take_pending())
         for target in targets:
             target.statements.append(stmt)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc)
 
 

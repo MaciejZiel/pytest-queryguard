@@ -64,7 +64,7 @@ def _parent_greenlet_frames() -> Iterator[FrameType]:
             if frame is not None:
                 yield frame
             parent = parent.parent
-    except Exception:
+    except Exception:  # noqa: BLE001  # a plugin bug must never break the user suite
         return
 
 

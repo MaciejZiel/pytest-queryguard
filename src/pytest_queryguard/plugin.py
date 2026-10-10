@@ -142,7 +142,7 @@ def _analyse(
         if not findings:
             return None
         return format_findings(findings, cwd=item.config.rootpath)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc)
         return None
 
@@ -179,7 +179,7 @@ def _budget_report(
         if len(collector.statements) <= limit:
             return None
         return format_budget(limit, collector.statements, cwd=item.config.rootpath)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc)
         return None
 
