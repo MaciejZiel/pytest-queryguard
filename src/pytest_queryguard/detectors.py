@@ -10,8 +10,11 @@ from .events import CallSite
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
 _PLACEHOLDER = r"""\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+(?:\.\d+)?|'(?:[^']|'')*'"""
+# PostgreSQL drivers may cast each bound value: $1::INTEGER, ?::VARCHAR(20)[].
+_CAST = r"(?:\s*::\s*\w+(?:\s*\(\s*\d+(?:\s*,\s*\d+)*\s*\))?(?:\s*\[\])*)?"
+_ITEM = rf"(?:{_PLACEHOLDER}){_CAST}"
 _IN_LIST = re.compile(
-    rf"\bIN\s*\(\s*(?:{_PLACEHOLDER})(?:\s*,\s*(?:{_PLACEHOLDER}))*\s*\)",
+    rf"\bIN\s*\(\s*{_ITEM}(?:\s*,\s*{_ITEM})*\s*\)",
     re.IGNORECASE,
 )
 _DOLLAR_PARAM = re.compile(r"\$\d+")

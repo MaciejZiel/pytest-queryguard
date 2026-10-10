@@ -131,6 +131,11 @@ def test_ordering_relationships_first_then_repeats_by_count_desc() -> None:
         ("IN (%(id_1)s, %(id_2)s)", "IN (%(id_1)s)"),
         ("IN ('a', 'b')", "IN ('a')"),
         ("IN (1, 2, 3)", "IN (4)"),
+        ("IN ($1::INTEGER, $2::INTEGER)", "IN ($1::INTEGER)"),
+        ("IN (%(id_1)s::INTEGER, %(id_2)s::INTEGER)", "IN (%(id_1)s::INTEGER)"),
+        ("IN (?::int[], ?::int[])", "IN (?::int[])"),
+        ("IN ($1::VARCHAR(20), $2::VARCHAR(20))", "IN ($1::VARCHAR(20))"),
+        ("IN ($1::INTEGER, $2::INTEGER)", "IN (?)"),
     ],
 )
 def test_normalize_collapses_in_lists_for_all_placeholder_styles(
