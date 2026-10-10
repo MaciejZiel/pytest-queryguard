@@ -191,6 +191,7 @@ def _budget_report(
 def _record(item: pytest.Item, collector: QueryCollector, settings: _Settings) -> None:
     """Remember the test's statement count for the session report."""
     counts = item.config.stash.get(_report, None)
+    # After an internal error the listeners stop recording, so a count would be wrong.
     if counts is None or settings.mode == "off" or internal_error() is not None:
         return
     counts.append((item.nodeid, len(collector.statements)))
@@ -200,11 +201,22 @@ def _write_report(
     terminalreporter: pytest.TerminalReporter, settings: _Settings
 ) -> None:
     terminalreporter.write_sep("=", "queryguard report")
+    # dsession is registered only on the xdist controller when it distributes
+    # tests; the counts live in the workers, so the report would be empty.
+    if terminalreporter.config.pluginmanager.has_plugin("dsession"):
+        terminalreporter.write_line(
+            "queryguard report: not available with pytest-xdist"
+        )
+        return
     if settings.mode == "off":
         terminalreporter.write_line(
             "queryguard report: measurement is off (queryguard_mode = off)"
         )
         return
+    if internal_error() is not None:
+        terminalreporter.write_line(
+            "queryguard report: incomplete, measurement stopped after an internal error"
+        )
     counts = terminalreporter.config.stash.get(_report, [])
     if not counts:
         terminalreporter.write_line("no tests were measured")
