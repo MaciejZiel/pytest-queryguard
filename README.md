@@ -22,7 +22,7 @@ queries and gets slow. Nothing in the test run warned you.
 
 pytest-queryguard watches the SQL each test sends. When it sees the N+1
 pattern, it fails the test and points to the line that caused it, even if
-the test database has only two rows.
+the test database has only a few rows.
 
 ## Before and after
 
@@ -64,8 +64,9 @@ def rename_customers(session: Session, names: dict[int, str]) -> None:
         session.flush()
 ```
 
-`tests/test_orders.py` (the `session` fixture creates 50 customers with one
-order each):
+`tests/test_orders.py` (the `session` fixture in `tests/conftest.py`
+creates 50 customers with one order each; `tests/__init__.py` exists, so
+pytest puts the project root on `sys.path` and `app` can be imported):
 
 ```python
 import pytest
@@ -104,7 +105,7 @@ queryguard: N+1 detected
 _____________________________ test_fetch_customers _____________________________
 queryguard: N+1 detected
 
-  the same statement ran 50 times with different parameters
+  the same statement ran 50 times
   first at app/customers.py:9 in fetch_customers
   SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
@@ -123,19 +124,37 @@ queryguard: expected at most 2 queries, got 4
 FAILED tests/test_orders.py::test_list_orders - Failed: queryguard: N+1 detected
 FAILED tests/test_orders.py::test_fetch_customers - Failed: queryguard: N+1 d...
 FAILED tests/test_orders.py::test_rename_customers - Failed: queryguard: expe...
-============================== 3 failed in 0.05s ===============================
+============================== 3 failed in 0.06s ===============================
 ```
 
 The fixed code loads related rows with the parent query and fetches many
-rows with one `IN` query:
+rows with one `IN` query.
+
+`app/orders.py`, fixed:
 
 ```python
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from app.models import Order
+
+
 def list_orders(session: Session) -> list[dict[str, object]]:
     orders = session.scalars(select(Order).options(selectinload(Order.customer))).all()
     return [{"id": order.id, "customer": order.customer.name} for order in orders]
 ```
 
+`app/customers.py`, fixed:
+
 ```python
+from collections.abc import Sequence
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import Customer
+
+
 def fetch_customers(session: Session, ids: list[int]) -> Sequence[Customer]:
     return session.scalars(select(Customer).where(Customer.id.in_(ids))).all()
 
@@ -237,12 +256,23 @@ on a sync engine underneath, which the plugin already watches. The failure
 points to the `await` in your code, not to SQLAlchemy internals:
 
 ```python
-# Order and Customer use SQLAlchemy's AsyncAttrs mixin.
-async def test_orders(async_session):
-    orders = (await async_session.scalars(select(Order))).all()
-    for order in orders:
-        customer = await order.awaitable_attrs.customer  # reported as N+1
+# app/orders.py; the models use SQLAlchemy's AsyncAttrs mixin.
+async def customer_names(session: AsyncSession) -> list[str]:
+    orders = (await session.scalars(select(Order))).all()
+    return [(await order.awaitable_attrs.customer).name for order in orders]
 ```
+
+```python
+# tests/test_async.py; main() creates the engine and data, then calls
+# customer_names(session).
+def test_customer_names():
+    asyncio.run(main())
+```
+
+This fails with `Order.customer was lazy-loaded 3 times`, first at the line
+with the `await`. pytest cannot run `async def` tests by itself. With
+pytest-asyncio or anyio you can write the test as `async def` instead of
+calling `asyncio.run`.
 
 FastAPI's `TestClient` runs the application in another thread. Queries from
 any thread are counted, so an N+1 inside an endpoint fails the test that
@@ -298,7 +328,9 @@ Command-line options:
 
 ## How it works
 
-1. When pytest starts, the plugin adds two class-level SQLAlchemy listeners:
+1. When pytest starts (unless `queryguard_mode = off`; budgets still install
+   the listeners when a test needs them), the plugin adds two class-level
+   SQLAlchemy listeners:
    `do_orm_execute` on `Session` sees relationship lazy loads, and
    `before_cursor_execute` on `Engine` sees every SQL statement.
 2. Measurement covers only the test function body, so queries in fixture
@@ -315,9 +347,10 @@ Command-line options:
 
 - SQLAlchemy only. Raw DB-API connections and other ORMs are not seen.
 - One measurement is active per process at a time, so tests in one process
-  must run sequentially. Under pytest-xdist each worker is a separate
-  process with its own measurement, but `--queryguard-report` is not
-  available there.
+  must run sequentially. Under pytest-xdist each worker measures its own
+  tests, so detection and budgets work. The report needs a single process,
+  so under pytest-xdist it prints
+  `queryguard report: not available with pytest-xdist`.
 - Tests that use `pytester` to run pytest in-process are also measured by the
   outer test, which sees the inner run's queries. Mark such tests with
   `allow_nplusone` or use `pytester.runpytest_subprocess()`.
@@ -363,4 +396,4 @@ import-time lines.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT, see the LICENSE file.
