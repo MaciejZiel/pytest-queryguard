@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-First release, planned as 0.1.0.
+## [0.1.0] - 2026-10-11
+
+First release.
 
 ### Added
 
@@ -35,3 +37,6 @@ First release, planned as 0.1.0.
 - Only the test function body is measured; fixture setup and teardown are not.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
+
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/MaciejZiel/pytest-queryguard/tree/v0.1.0
