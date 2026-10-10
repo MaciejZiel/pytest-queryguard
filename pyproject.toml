@@ -30,7 +30,7 @@ dependencies = ["pytest>=8", "sqlalchemy>=2.0"]
 queryguard = "pytest_queryguard.plugin"
 
 [dependency-groups]
-dev = ["aiosqlite", "fastapi", "httpx>=0.28,<0.29", "pytest-cov", "ruff", "mypy"]
+dev = ["aiosqlite", "coverage[toml]", "fastapi", "httpx>=0.28,<0.29", "ruff", "mypy"]
 
 [tool.hatch.version]
 path = "src/pytest_queryguard/__init__.py"
