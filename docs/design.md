@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft, awaiting review |
+| Status | Accepted |
 | Author | Maciej Zieliński |
 | Date | 2026-10-11 |
 | Target release | 0.1.0 |
@@ -59,16 +59,22 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/api/orders.py:42 in list_orders
+  sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(selectinload(Order.customer))
 ```
 
-When the cause is repeated SQL rather than a relationship load:
+The `sql:` line shows the first lazy-load statement, shortened to 200
+characters; it is left out when no statement was recorded for the
+relationship.
+
+When the cause is repeated SQL rather than a relationship load (the
+statement is shortened to 200 characters in the same way):
 
 ```
 queryguard: N+1 detected
 
-  the same statement ran 50 times with different parameters
+  the same statement ran 50 times
   first at app/services/orders.py:18 in fetch_customers
   SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
@@ -161,7 +167,10 @@ The active collector is a process-wide variable, not thread-local or
 context-local, because FastAPI's `TestClient` runs the application in a
 separate thread. Tests in one process run sequentially, so there is one
 active collector at a time. `pytest-xdist` workers are separate processes
-and need no special handling.
+and need no special handling for detection and budgets. The
+`--queryguard-report` summary needs the counts in a single process, so
+under xdist the controller prints
+`queryguard report: not available with pytest-xdist` instead.
 
 ### 5.4 Detection rules
 
@@ -170,9 +179,10 @@ and need no special handling.
   objects within one measurement.
 - Repeated SQL: the same normalized statement executed at least
   `queryguard_repeat_threshold` times within one measurement, excluding statements already
-  reported as relationship N+1 and excluding `INSERT`, `UPDATE`, `DELETE`
-  issued by the unit of work (bulk writes are reported by budgets, not as
-  N+1).
+  reported as relationship N+1 and excluding every `INSERT`, `UPDATE` and
+  `DELETE`. The cursor-level event cannot tell a unit-of-work flush from a
+  write the application issued itself, so all writes are left out, not only
+  those of the unit of work. Write loops are caught by budgets, not as N+1.
 
 ### 5.5 Call sites
 
@@ -198,7 +208,9 @@ must never break a test suite because of its own bug.
 - SQLite in CI, so no database service is required.
 - CI matrix: Python 3.10 to 3.14, SQLAlchemy 2.0.x and latest 2.x; plus
   `ruff` and `mypy --strict`.
-- Coverage target: 90% of lines.
+- Coverage target: 90% of lines, measured with `coverage run -m pytest`.
+  `pytest --cov` starts measuring after pytest has imported the
+  entry-point plugin, so it misses the plugin's import-time lines.
 
 ## 7. Packaging and release
 
@@ -218,7 +230,7 @@ must never break a test suite because of its own bug.
 | Risk | Mitigation |
 |---|---|
 | False positives on legitimate loops | Thresholds, `allow_nplusone` marker, `warn` mode |
-| Stack inspection slows large suites | Only while a collector is active; measured in a benchmark test |
+| Stack inspection slows large suites | Only while a collector is active; about 15 µs per statement, measured on 1500 tests × 20 statements during review; a benchmark test is planned for 0.2 |
 | SQLAlchemy changes internal attributes | Only public, documented event APIs are used; CI tests the latest 2.x |
 | Repeated-SQL rule misreads batch jobs | Writes are excluded from N+1; budgets cover them |
 
