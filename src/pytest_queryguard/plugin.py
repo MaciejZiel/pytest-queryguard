@@ -8,7 +8,7 @@ import pytest
 
 from .collector import QueryCollector, pop, push
 from .detectors import detect
-from .listeners import install, internal_error
+from .listeners import install, internal_error, record_error, reset_error
 from .messages import format_findings
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
@@ -22,6 +22,12 @@ class _Settings:
         self.mode = mode
         self.relationship = relationship
         self.repeat = repeat
+
+
+# pytest 9 reads native [tool.pytest] TOML, where thresholds are real integers
+# and a string-typed option would crash; older versions only know strings.
+_NATIVE_INT = pytest.version_tuple >= (9,)
+_INT_TYPE: dict[str, Any] = {"type": "int"} if _NATIVE_INT else {}
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -43,19 +49,24 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addini(
         "queryguard_relationship_threshold",
         "Lazy loads of one relationship treated as N+1 (integer >= 2)",
-        default="2",
+        default=2 if _NATIVE_INT else "2",
+        **_INT_TYPE,
     )
     parser.addini(
         "queryguard_repeat_threshold",
         "Executions of one statement treated as N+1 (integer >= 2)",
-        default="5",
+        default=5 if _NATIVE_INT else "5",
+        **_INT_TYPE,
     )
 
 
 def _threshold(config: pytest.Config, name: str) -> int:
-    raw = config.getini(name)
     try:
-        value = int(raw)
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError):
+        raw = None
+    try:
+        value = 0 if isinstance(raw, bool) else int(raw)
     except (TypeError, ValueError):
         value = 0
     if value < 2:
@@ -89,10 +100,15 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "allow_nplusone: do not report N+1 query findings for this test.",
     )
+    reset_error()
     settings = _read_settings(config)
     config.stash[_settings] = settings
     if settings.mode != "off":
         install()
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    reset_error()
 
 
 def _report_internal_error(config: pytest.Config) -> None:
@@ -108,6 +124,26 @@ def _report_internal_error(config: pytest.Config) -> None:
     )
 
 
+def _analyse(
+    item: pytest.Item, collector: QueryCollector, settings: _Settings
+) -> str | None:
+    """The report for the finished test, or None; never raises."""
+    if internal_error() is not None or item.get_closest_marker("allow_nplusone"):
+        return None
+    try:
+        findings = detect(
+            collector,
+            relationship_threshold=settings.relationship,
+            repeat_threshold=settings.repeat,
+        )
+        if not findings:
+            return None
+        return format_findings(findings, cwd=item.config.rootpath)
+    except Exception as exc:  # noqa: BLE001
+        record_error(exc)
+        return None
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     settings = item.config.stash.get(_settings, None)
@@ -119,16 +155,17 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         result = yield
     finally:
         pop(collector)
+        _report_internal_error(item.config)
+    message = _analyse(item, collector, settings)
     _report_internal_error(item.config)
-    if item.get_closest_marker("allow_nplusone") is None:
-        findings = detect(
-            collector,
-            relationship_threshold=settings.relationship,
-            repeat_threshold=settings.repeat,
+    if message is not None:
+        if settings.mode == "fail":
+            pytest.fail(message, pytrace=False)
+        path, line, _ = item.reportinfo()
+        std_warnings.warn_explicit(
+            QueryGuardWarning(message),
+            QueryGuardWarning,
+            str(path),
+            (line or 0) + 1,
         )
-        if findings:
-            message = format_findings(findings, cwd=item.config.rootpath)
-            if settings.mode == "fail":
-                pytest.fail(message, pytrace=False)
-            std_warnings.warn(QueryGuardWarning(message), stacklevel=1)
     return result

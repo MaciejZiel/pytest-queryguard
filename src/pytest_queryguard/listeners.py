@@ -92,6 +92,17 @@ def _fail(exc: Exception) -> None:
         _error = exc
 
 
+def record_error(exc: Exception) -> None:
+    """Disable measurement after a bug outside the listeners (first error wins)."""
+    _fail(exc)
+
+
+def reset_error() -> None:
+    """Forget a previous error; the plugin calls this at session start and end."""
+    global _error
+    _error = None
+
+
 def install() -> None:
     """Register the class-level listeners once per process."""
     global _installed
