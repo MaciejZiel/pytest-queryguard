@@ -54,3 +54,10 @@ extend-select = ["I", "UP", "B"]
 [tool.mypy]
 strict = true
 files = ["src"]
+
+[tool.coverage.run]
+source = ["pytest_queryguard"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true

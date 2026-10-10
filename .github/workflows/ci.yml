@@ -37,4 +37,6 @@ jobs:
       - name: Pin SQLAlchemy to the 2.0 series
         if: matrix.sqlalchemy == '2.0'
         run: uv pip install "sqlalchemy==2.0.*"
-      - run: uv run --no-sync pytest --cov=pytest_queryguard
+      # coverage run (not --cov) so the module-level lines of the entry-point plugin count
+      - run: uv run --no-sync coverage run -m pytest
+      - run: uv run --no-sync coverage report
