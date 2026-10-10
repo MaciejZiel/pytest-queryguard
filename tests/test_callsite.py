@@ -38,11 +38,10 @@ def test_callsite_found_through_parent_greenlet(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import contextlib
-    import importlib
 
     from pytest_queryguard import callsite
 
-    greenlet = importlib.import_module("greenlet")
+    greenlet = pytest.importorskip("greenlet")
     found: list[object] = []
     original = callsite._first_external
 

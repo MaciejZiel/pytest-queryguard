@@ -53,6 +53,7 @@ def _parent_greenlet_frames() -> Iterator[FrameType]:
     SQLAlchemy runs the sync code behind an async session in a child greenlet,
     so the awaiting user code is only reachable through the parent greenlet.
     """
+    # greenlet comes with SQLAlchemy's async support; only used if already loaded.
     module = sys.modules.get("greenlet")
     if module is None:
         return
