@@ -13,7 +13,7 @@ First release, planned as 0.1.0.
 
 - Automatic N+1 detection for SQLAlchemy 2 in every test, with no
   configuration. Two rules: one relationship lazy-loaded for several parent
-  objects, and one normalized `SELECT` repeated with different parameters.
+  objects, and one normalized `SELECT` repeated several times.
 - Failure messages that point to the line of application code that caused
   the N+1 and, for relationship loads, suggest a `selectinload` fix.
 - `@pytest.mark.max_queries(n)` marker (also `max_queries(n=...)`) that fails

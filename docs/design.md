@@ -68,7 +68,7 @@ When the cause is repeated SQL rather than a relationship load:
 ```
 queryguard: N+1 detected
 
-  the same statement ran 50 times with different parameters
+  the same statement ran 50 times
   first at app/services/orders.py:18 in fetch_customers
   SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
@@ -161,7 +161,10 @@ The active collector is a process-wide variable, not thread-local or
 context-local, because FastAPI's `TestClient` runs the application in a
 separate thread. Tests in one process run sequentially, so there is one
 active collector at a time. `pytest-xdist` workers are separate processes
-and need no special handling.
+and need no special handling for detection and budgets. The
+`--queryguard-report` summary needs the counts in a single process, so
+under xdist the controller prints
+`queryguard report: not available with pytest-xdist` instead.
 
 ### 5.4 Detection rules
 
