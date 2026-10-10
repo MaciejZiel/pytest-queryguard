@@ -224,7 +224,8 @@ def test_order_page_again(client):
 The test fails when its body runs more SQL statements than the limit. The
 failure lists every statement with the line that issued it. Budgets count
 all statements, writes included, and they always fail, whatever
-`queryguard_mode` is set to.
+`queryguard_mode` is set to. If the test already fails on its own, an
+exceeded budget is not reported, because the original failure wins.
 
 ### Query budgets with the `max_queries()` context manager
 
@@ -363,6 +364,10 @@ Command-line options:
 ## Limitations
 
 - SQLAlchemy only. Raw DB-API connections and other ORMs are not seen.
+- Everything in `site-packages` counts as library code. If your application
+  is installed non-editable (for example `pip install .` in a Docker CI
+  image), its frames are skipped too, and call sites point to the test file
+  instead of the application line.
 - One measurement is active per process at a time, so tests in one process
   must run sequentially. Under pytest-xdist each worker measures its own
   tests, so detection and budgets work. The report needs a single process,

@@ -315,3 +315,11 @@ def test_context_manager_failure_hides_plugin_frame(project: pytest.Pytester) ->
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*with engine.connect() as conn, max_queries(1):*"])
     result.stdout.no_fnmatch_line("*raise QueryBudgetExceeded*")
+
+
+def test_own_failure_wins_over_exceeded_budget(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=BODY.format(limit=1) + "    assert False\n")
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*assert False*"])
+    result.stdout.no_fnmatch_line("*expected at most*")

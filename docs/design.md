@@ -230,7 +230,7 @@ must never break a test suite because of its own bug.
 | Risk | Mitigation |
 |---|---|
 | False positives on legitimate loops | Thresholds, `allow_nplusone` marker, `warn` mode |
-| Stack inspection slows large suites | Only while a collector is active; measured in a benchmark test |
+| Stack inspection slows large suites | Only while a collector is active; about 15 µs per statement, measured on 1500 tests × 20 statements during review; a benchmark test is planned for 0.2 |
 | SQLAlchemy changes internal attributes | Only public, documented event APIs are used; CI tests the latest 2.x |
 | Repeated-SQL rule misreads batch jobs | Writes are excluded from N+1; budgets cover them |
 
