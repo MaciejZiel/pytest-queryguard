@@ -25,8 +25,9 @@ def _compute_prefixes() -> tuple[str, ...]:
     for key in ("stdlib", "platstdlib"):
         path = sysconfig.get_paths().get(key)
         if path:
+            paths.append(path.rstrip(os.sep) + os.sep)
             paths.append(str(Path(path).resolve()) + os.sep)
-    return tuple(dict.fromkeys(p for p in paths if p))
+    return tuple(dict.fromkeys(os.path.normcase(p) for p in paths if p))
 
 
 _prefixes: tuple[str, ...] | None = None
@@ -38,7 +39,7 @@ def _is_internal(filename: str) -> bool:
         return True
     if _prefixes is None:
         _prefixes = _compute_prefixes()
-    if filename.startswith(_prefixes):
+    if os.path.normcase(filename).startswith(_prefixes):
         return True
     parts = Path(filename).parts
     return "site-packages" in parts or "dist-packages" in parts
