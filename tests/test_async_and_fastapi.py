@@ -11,6 +11,8 @@ MODELS = (Path(__file__).parent / "models.py").read_text()
 
 ASYNC_SETUP = """
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import (
@@ -25,20 +27,25 @@ from sqlalchemy.pool import StaticPool
 from qgmodels import Base, Customer, Order
 
 
-async def make_session() -> AsyncSession:
+@asynccontextmanager
+async def make_session() -> AsyncIterator[AsyncSession]:
     engine = create_async_engine(
         "sqlite+aiosqlite://", poolclass=StaticPool
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     session = async_sessionmaker(engine, expire_on_commit=False)()
-    for c in range(1, 4):
-        customer = Customer(id=c, name=f"customer {c}")
-        customer.orders = [Order(id=c * 10 + o) for o in range(2)]
-        session.add(customer)
-    await session.commit()
-    session.expunge_all()
-    return session
+    try:
+        for c in range(1, 4):
+            customer = Customer(id=c, name=f"customer {c}")
+            customer.orders = [Order(id=c * 10 + o) for o in range(2)]
+            session.add(customer)
+        await session.commit()
+        session.expunge_all()
+        yield session
+    finally:
+        await session.close()
+        await engine.dispose()
 """
 
 # AsyncAttrs must be on the mapped classes, so the async scenarios use their own models.
@@ -75,28 +82,44 @@ def project(pytester: pytest.Pytester) -> pytest.Pytester:
     return pytester
 
 
-def _async_scenario(project: pytest.Pytester, body: str) -> None:
+def _async_scenario(project: pytest.Pytester, body: str) -> Path:
     setup = ASYNC_SETUP.replace("from qgmodels import", "from qgasync import")
-    project.makepyfile(test_a=setup + "\n\n" + body)
+    return project.makepyfile(test_a=setup + "\n\n" + body)
+
+
+def _marked_line(path: Path) -> int:
+    """1-based line of the single `# QG_LINE` marker in a scenario file."""
+    lines = [
+        n
+        for n, text in enumerate(path.read_text().splitlines(), start=1)
+        if "# QG_LINE" in text
+    ]
+    assert len(lines) == 1
+    return lines[0]
 
 
 def test_async_session_get_in_loop_fails(project: pytest.Pytester) -> None:
-    _async_scenario(
+    path = _async_scenario(
         project,
         """
-def test_loop():
-    async def main():
-        session = await make_session()
+async def main():
+    async with make_session() as session:
         for i in range(5):
-            await session.get(Customer, i + 1)
+            await session.get(Customer, i + 1)  # QG_LINE
 
+
+def test_loop():
     asyncio.run(main())
 """,
     )
     result = project.runpytest()
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
-        ["*N+1 detected*", "*the same statement ran *", "*first at *test_a.py:*"]
+        [
+            "*N+1 detected*",
+            "*the same statement ran *",
+            f"*first at test_a.py:{_marked_line(path)} in main",
+        ]
     )
 
 
@@ -104,14 +127,13 @@ def test_async_in_query_passes(project: pytest.Pytester) -> None:
     _async_scenario(
         project,
         """
-def test_ok():
-    async def main():
-        session = await make_session()
-        rows = (await session.scalars(
-            select(Customer).where(Customer.id.in_([1, 2, 3]))
-        )).all()
-        assert len(rows) == 3
+async def main():
+    async with make_session() as session:
+        stmt = select(Customer).where(Customer.id.in_([1, 2, 3]))
+        assert len((await session.scalars(stmt)).all()) == 3
 
+
+def test_ok():
     asyncio.run(main())
 """,
     )
@@ -119,17 +141,18 @@ def test_ok():
 
 
 def test_async_awaitable_attrs_relationship_fails(project: pytest.Pytester) -> None:
-    _async_scenario(
+    path = _async_scenario(
         project,
         """
-def test_loop():
-    async def main():
-        session = await make_session()
+async def main():
+    async with make_session() as session:
         orders = (await session.scalars(select(Order))).all()
         for order in orders:
-            customer = await order.awaitable_attrs.customer
+            customer = await order.awaitable_attrs.customer  # QG_LINE
             assert customer.name
 
+
+def test_loop():
     asyncio.run(main())
 """,
     )
@@ -139,7 +162,7 @@ def test_loop():
         [
             "*N+1 detected*",
             "*Order.customer was lazy-loaded*",
-            "*first at *test_a.py:*",
+            f"*first at test_a.py:{_marked_line(path)} in main",
         ]
     )
 
@@ -148,14 +171,15 @@ def test_async_selectinload_passes(project: pytest.Pytester) -> None:
     _async_scenario(
         project,
         """
-def test_ok():
-    async def main():
-        session = await make_session()
+async def main():
+    async with make_session() as session:
         stmt = select(Order).options(selectinload(Order.customer))
         for order in (await session.scalars(stmt)).all():
             customer = await order.awaitable_attrs.customer
             assert customer.name
 
+
+def test_ok():
     asyncio.run(main())
 """,
     )
@@ -177,7 +201,7 @@ session = make_sync_session()
 def orders_nplusone():
     result = []
     for order in session.query(Order).all():
-        result.append(order.customer.name)
+        result.append(order.customer.name)  # QG_LINE
     return result
 
 
@@ -189,8 +213,8 @@ def orders_fixed():
 
 
 def test_fastapi_testclient_endpoint_nplusone_fails(project: pytest.Pytester) -> None:
+    app_path = project.makepyfile(app_module=APP)
     project.makepyfile(
-        app_module=APP,
         test_a="""
 from fastapi.testclient import TestClient
 
@@ -207,7 +231,7 @@ def test_endpoint():
         [
             "*N+1 detected*",
             "*Order.customer was lazy-loaded*",
-            "*first at *app_module.py:*",
+            f"*first at app_module.py:{_marked_line(app_path)} in orders_nplusone",
         ]
     )
 
@@ -229,7 +253,7 @@ def test_endpoint():
 
 
 def test_plain_thread_queries_are_collected(project: pytest.Pytester) -> None:
-    project.makepyfile(
+    path = project.makepyfile(
         test_a="""
 import threading
 
@@ -241,7 +265,7 @@ def test_thread():
 
     def work():
         for order in session.query(Order).all():
-            _ = order.customer.name
+            _ = order.customer.name  # QG_LINE
 
     thread = threading.Thread(target=work)
     thread.start()
@@ -251,7 +275,10 @@ def test_thread():
     result = project.runpytest()
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
-        ["*Order.customer was lazy-loaded*", "*first at *test_a.py:*"]
+        [
+            "*Order.customer was lazy-loaded*",
+            f"*first at test_a.py:{_marked_line(path)} in work",
+        ]
     )
 
 
