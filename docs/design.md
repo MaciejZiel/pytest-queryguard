@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Draft, awaiting review |
+| Status | Accepted |
 | Author | Maciej Zieliński |
 | Date | 2026-10-11 |
 | Target release | 0.1.0 |
@@ -170,9 +170,10 @@ and need no special handling.
   objects within one measurement.
 - Repeated SQL: the same normalized statement executed at least
   `queryguard_repeat_threshold` times within one measurement, excluding statements already
-  reported as relationship N+1 and excluding `INSERT`, `UPDATE`, `DELETE`
-  issued by the unit of work (bulk writes are reported by budgets, not as
-  N+1).
+  reported as relationship N+1 and excluding every `INSERT`, `UPDATE` and
+  `DELETE`. The cursor-level event cannot tell a unit-of-work flush from a
+  write the application issued itself, so all writes are left out, not only
+  those of the unit of work. Write loops are caught by budgets, not as N+1.
 
 ### 5.5 Call sites
 
@@ -198,7 +199,9 @@ must never break a test suite because of its own bug.
 - SQLite in CI, so no database service is required.
 - CI matrix: Python 3.10 to 3.14, SQLAlchemy 2.0.x and latest 2.x; plus
   `ruff` and `mypy --strict`.
-- Coverage target: 90% of lines.
+- Coverage target: 90% of lines, measured with `coverage run -m pytest`.
+  `pytest --cov` starts measuring after pytest has imported the
+  entry-point plugin, so it misses the plugin's import-time lines.
 
 ## 7. Packaging and release
 
