@@ -123,6 +123,19 @@ def test_invalid_mode_is_usage_error(project: pytest.Pytester) -> None:
     result.stderr.fnmatch_lines(["*queryguard_mode*fail*warn*off*"])
 
 
+@pytest.mark.skipif(
+    pytest.version_tuple < (9,), reason="native TOML config needs pytest 9"
+)
+def test_non_string_mode_from_native_toml_is_usage_error(
+    project: pytest.Pytester,
+) -> None:
+    project.path.joinpath("pytest.toml").write_text("[pytest]\nqueryguard_mode = 1\n")
+    result = project.runpytest()
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*queryguard_mode*fail*warn*off*"])
+    result.stderr.no_fnmatch_line("*INTERNALERROR*")
+
+
 def test_invalid_cli_mode_is_usage_error(project: pytest.Pytester) -> None:
     result = project.runpytest("--queryguard-mode=loud")
     assert result.ret == pytest.ExitCode.USAGE_ERROR

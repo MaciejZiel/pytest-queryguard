@@ -84,7 +84,14 @@ def _read_settings(config: pytest.Config) -> _Settings:
     if cli_mode is not None:
         mode, source = cli_mode, "--queryguard-mode"
     else:
-        mode, source = config.getini("queryguard_mode"), "queryguard_mode"
+        source = "queryguard_mode"
+        try:
+            mode = config.getini(source)
+        except (TypeError, ValueError) as exc:
+            # pytest 9 rejects a non-string value from native TOML on its own.
+            raise pytest.UsageError(
+                f"{source} must be one of {', '.join(_MODES)}: {exc}"
+            ) from None
     if mode not in _MODES:
         raise pytest.UsageError(
             f"{source} must be one of {', '.join(_MODES)}, got {mode!r}"
