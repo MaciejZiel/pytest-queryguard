@@ -157,6 +157,9 @@ def test_repeat_threshold_from_ini(project: pytest.Pytester) -> None:
     project.runpytest().assert_outcomes(failed=1)
 
 
+@pytest.mark.skipif(
+    pytest.version_tuple < (9,), reason="native TOML config needs pytest 9"
+)
 def test_threshold_from_native_toml_int(project: pytest.Pytester) -> None:
     project.makepyfile(
         test_a="""
@@ -171,6 +174,26 @@ def test_threshold_from_native_toml_int(project: pytest.Pytester) -> None:
     )
     project.path.joinpath("pytest.toml").write_text(
         "[pytest]\nqueryguard_repeat_threshold = 3\n"
+    )
+    project.runpytest().assert_outcomes(failed=1)
+
+
+def test_repeat_threshold_from_pyproject_ini_options(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a="""
+        from qgmodels import Customer, make_sync_session
+
+
+        def test_loop():
+            session = make_sync_session()
+            for i in (1, 2, 3):
+                session.get(Customer, i)
+        """
+    )
+    project.makepyprojecttoml(
+        '[tool.pytest.ini_options]\nqueryguard_repeat_threshold = "3"\n'
     )
     project.runpytest().assert_outcomes(failed=1)
 
@@ -256,3 +279,16 @@ def test_warn_mode_points_at_the_test(project: pytest.Pytester) -> None:
     result = project.runpytest("--queryguard-mode=warn")
     result.stdout.fnmatch_lines(["*test_a.py:*: QueryGuardWarning*"])
     result.stdout.no_fnmatch_line("*plugin.py*")
+
+
+def test_outer_error_survives_nested_session(
+    project: pytest.Pytester,
+) -> None:
+    from pytest_queryguard import listeners
+
+    outer = RuntimeError("outer")
+    listeners.record_error(outer)
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    project.runpytest().assert_outcomes(failed=1)  # the inner session is unaffected
+    assert listeners.internal_error() is outer
+    listeners.swap_error(None)
