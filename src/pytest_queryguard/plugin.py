@@ -16,6 +16,8 @@ _MODES = ("fail", "warn", "off")
 _internal_reported = pytest.StashKey[bool]()
 _outer_error = pytest.StashKey[BaseException | None]()
 _settings = pytest.StashKey["_Settings"]()
+_report = pytest.StashKey[list[tuple[str, int]]]()
+_REPORT_SIZE = 10
 
 
 class _Settings:
@@ -106,6 +108,8 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[_outer_error] = swap_error(None)
     settings = _read_settings(config)
     config.stash[_settings] = settings
+    if config.getoption("queryguard_report"):
+        config.stash[_report] = []
     if settings.mode != "off":
         install()
 
@@ -184,6 +188,45 @@ def _budget_report(
         return None
 
 
+def _record(item: pytest.Item, collector: QueryCollector, settings: _Settings) -> None:
+    """Remember the test's statement count for the session report."""
+    counts = item.config.stash.get(_report, None)
+    if counts is None or settings.mode == "off" or internal_error() is not None:
+        return
+    counts.append((item.nodeid, len(collector.statements)))
+
+
+def _write_report(
+    terminalreporter: pytest.TerminalReporter, settings: _Settings
+) -> None:
+    terminalreporter.write_sep("=", "queryguard report")
+    if settings.mode == "off":
+        terminalreporter.write_line(
+            "queryguard report: measurement is off (queryguard_mode = off)"
+        )
+        return
+    counts = terminalreporter.config.stash.get(_report, [])
+    if not counts:
+        terminalreporter.write_line("no tests were measured")
+        return
+    # sorted() is stable, so tests with equal counts keep the order they ran in.
+    heaviest = sorted(counts, key=lambda entry: entry[1], reverse=True)
+    for nodeid, count in heaviest[:_REPORT_SIZE]:
+        terminalreporter.write_line(f"{count:>5}  {nodeid}")
+
+
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
+    config = terminalreporter.config
+    settings = config.stash.get(_settings, None)
+    if settings is None or not config.getoption("queryguard_report"):
+        return
+    try:
+        _write_report(terminalreporter, settings)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc)
+    _report_internal_error(config)
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     settings = item.config.stash.get(_settings, None)
@@ -203,6 +246,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     finally:
         pop(collector)
         _report_internal_error(item.config)
+        _record(item, collector, settings)  # failing tests are reported too
     parts: list[str] = []
     if limit is not None:
         budget = _budget_report(item, collector, limit)
