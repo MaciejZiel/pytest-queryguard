@@ -6,6 +6,7 @@ Direct dependencies of this repository.
 |---|---|---|---|
 | https://github.com/pytest-dev/pytest | pytest | MIT | https://github.com/pytest-dev/pytest/blob/main/LICENSE |
 | https://github.com/sqlalchemy/sqlalchemy | SQLAlchemy | MIT | https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE |
+| https://github.com/python-greenlet/greenlet | greenlet | MIT AND PSF-2.0 | https://github.com/python-greenlet/greenlet/blob/master/LICENSE |
 | https://github.com/omnilib/aiosqlite | aiosqlite | MIT | https://github.com/omnilib/aiosqlite/blob/main/LICENSE |
 | https://github.com/fastapi/fastapi | FastAPI | MIT | https://github.com/fastapi/fastapi/blob/master/LICENSE |
 | https://github.com/encode/httpx | httpx | BSD-3-Clause | https://github.com/encode/httpx/blob/master/LICENSE.md |
