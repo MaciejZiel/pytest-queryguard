@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `pytest_queryguard.record_queries()`, a context manager that records the
+  SQL statements a block sends and yields a `QueryLog`. The log has the
+  statements as `Query` objects (`sql`, `callsite`, `relationship`), their
+  `count`, and `assert_no_nplusone()`, which applies the N+1 rules to the
+  block and raises `NPlusOneDetected`. `Query`, `QueryLog`, `CallSite` and
+  `NPlusOneDetected` are exported for type hints. It works in pytest and
+  outside it, and changes nothing else.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
