@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from .detectors import Finding, RelationshipFinding
@@ -111,3 +112,18 @@ def format_index_findings(scans: list[ScanEvent], *, cwd: Path | None = None) ->
         ]
     )
     return "\n".join(lines)
+
+
+def format_index_notes(
+    notices: Iterable[str], errors: int, first_error: tuple[str, str] | None
+) -> list[str]:
+    """The session summary lines for statements the index check skipped."""
+    lines = list(notices)
+    if errors and first_error is not None:
+        message, sql = first_error
+        noun = "statement" if errors == 1 else "statements"
+        lines.append(
+            f"{errors} {noun} could not be explained; the first: {_truncate(message)}"
+        )
+        lines.append(f"  {_truncate(sql)}")
+    return lines

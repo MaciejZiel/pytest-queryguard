@@ -8,6 +8,7 @@ from pytest_queryguard.messages import (
     format_budget,
     format_findings,
     format_index_findings,
+    format_index_notes,
 )
 
 CWD = Path("/work/project")
@@ -167,3 +168,18 @@ def test_index_message_separates_blocks_and_truncates() -> None:
     assert out.count("is read in full") == 2
     assert out.count("small lookup table") == 1
     assert all(len(line) < 260 for line in out.splitlines())
+
+
+def test_index_notes_list_notices_then_the_first_error() -> None:
+    notices = {"sqlite statements were not checked": None}
+    assert format_index_notes(notices, 0, None) == [
+        "sqlite statements were not checked"
+    ]
+    assert format_index_notes(notices, 3, ("boom", "SELECT\n  1")) == [
+        "sqlite statements were not checked",
+        "3 statements could not be explained; the first: boom",
+        "  SELECT 1",
+    ]
+    assert format_index_notes([], 1, ("boom", "SELECT 1"))[0] == (
+        "1 statement could not be explained; the first: boom"
+    )
