@@ -909,6 +909,18 @@ def _event(table: str, condition: str, schema: str = "public") -> ScanEvent:
     return ScanEvent(issue, f"SELECT * FROM {table}", None)
 
 
+def test_select_findings_dedupes_one_column_under_several_aliases() -> None:
+    def scan(condition: str) -> ScanEvent:
+        issue = ScanIssue(
+            "public", "orders", "Seq Scan", "filter", condition, "customer_id"
+        )
+        return ScanEvent(issue, "SELECT 1", None)
+
+    first = scan("(orders.customer_id = $1)")
+    union = scan("(orders_1.customer_id = $1)")
+    assert select_findings([first, union], []) == [first]
+
+
 def test_select_findings_dedupes_by_table_and_condition() -> None:
     a1 = _event("orders", "(orders.a = $1)")
     a2 = _event("orders", "(orders.a = $1)")

@@ -905,6 +905,28 @@ def test_pg_statements_after_comments_are_checked(
 
 
 @needs_pg
+def test_pg_one_finding_for_one_column_under_two_aliases(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _items_project(
+        project,
+        pg16,
+        """
+        def test_union(db):
+            sql = (
+                "SELECT i.id FROM items i WHERE i.owner_id = :o "
+                "UNION ALL SELECT j.id FROM items j WHERE j.owner_id = :p"
+            )
+            db.execute(text(sql), {"o": 1, "p": 2}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    failures = result.stdout.str().split("short test summary info")[0]
+    assert failures.count("is read in full") == 2  # once per parametrized test
+
+
+@needs_pg
 @pytest.mark.parametrize(
     "sql",
     [

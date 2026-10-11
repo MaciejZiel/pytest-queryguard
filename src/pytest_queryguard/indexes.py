@@ -382,13 +382,21 @@ def is_ignored(issue: ScanIssue, patterns: Iterable[str]) -> bool:
 def select_findings(
     scans: Sequence[ScanEvent], ignore: Iterable[str]
 ) -> list[ScanEvent]:
-    """One event per table and condition, first occurrence first, minus ignored."""
+    """One event per missing index, first occurrence first, minus ignored.
+
+    Scans are the same finding when they name the same column of the same
+    table (the same query under two aliases), or else the same condition.
+    """
     patterns = tuple(ignore)
     seen: set[tuple[object, ...]] = set()
     found: list[ScanEvent] = []
     for scan in scans:
         issue = scan.issue
-        key = (issue.schema, issue.table, issue.node, issue.kind, issue.condition)
+        key: tuple[object, ...]
+        if issue.column is not None:
+            key = (issue.schema, issue.table, issue.column)
+        else:
+            key = (issue.schema, issue.table, issue.node, issue.kind, issue.condition)
         if key in seen or is_ignored(issue, patterns):
             continue
         seen.add(key)
