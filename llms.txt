@@ -1,6 +1,6 @@
 # pytest-queryguard
 
-> A pytest plugin that fails tests with N+1 queries and enforces query budgets for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer it can also fail tests whose queries have no index to use. Current release: 0.2.0, MIT license.
+> A pytest plugin that fails tests with N+1 queries and enforces query budgets for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer it can also fail tests whose queries have no index to use. Current release: 0.3.0, MIT license.
 
 It watches the SQL each test function body sends (fixture setup and teardown are not measured) and points to the application line that caused a finding, even when the test database has only a few rows.
 
@@ -63,8 +63,27 @@ def test_lookup(session): ...
 
 - `max_queries` marker: fails the test when its body runs more SQL statements than the limit, writes included, whatever `queryguard_mode` is. The failure lists every statement with its call site.
 - `max_queries(limit)` context manager: raises `QueryBudgetExceeded` (a subclass of `AssertionError`) above the limit. It does not depend on pytest. It checks the budget only, not N+1.
-- Public names: `max_queries`, `QueryBudgetExceeded`, `QueryGuardWarning` (N+1 and missing indexes in `warn` mode), `QueryGuardInternalWarning` (internal error; the plugin disables itself instead of failing tests).
+- Public API in 0.x: `max_queries()`, `QueryBudgetExceeded`, `record_queries()`, `QueryLog`, `Query`, `CallSite`, `NPlusOneDetected`, `QueryGuardWarning` (N+1 and missing indexes in `warn` mode), `QueryGuardInternalWarning` (internal error; the plugin disables itself instead of failing tests), the three markers, the `queryguard_*` ini options and the `--queryguard-*` flags. `QueryLog`, `Query` and `CallSite` are not constructible by users. The object that `with max_queries(n) as c` yields is internal.
 - Async: `AsyncSession` and `create_async_engine` work unchanged; failures point to the `await` in your code. FastAPI `TestClient`: queries from any thread are counted.
+
+## Reading the queries of a block
+
+```python
+from pytest_queryguard import record_queries
+
+
+def test_orders_use_one_query(session):
+    with record_queries() as log:
+        list_orders(session)
+    assert log.count == 1
+    assert log.queries[0].sql.startswith("SELECT")
+    log.assert_no_nplusone(repeat_threshold=5)
+```
+
+- `record_queries()` records the statements a block sends, from any thread, and yields a `QueryLog`. It works outside pytest and changes nothing else.
+- `log.queries` is a tuple of `Query` objects (`sql`, `callsite` as a `CallSite` with `filename`, `lineno` and `function`, or `None`, and `relationship`, such as `"Order.customer"`, or `None`). `log.count`, `len(log)`, iteration and indexing also work; a `QueryLog` is not a `collections.abc.Sequence`.
+- `log.assert_no_nplusone()` raises `NPlusOneDetected` (a subclass of `AssertionError`) with the plugin's two rules. Thresholds are the keyword arguments `relationship_threshold=2` and `repeat_threshold=5`; the `queryguard_*` ini options, `queryguard_mode` and `allow_nplusone` are not read.
+- After an internal error, a block that ends normally issues `QueryGuardInternalWarning` (the log may be incomplete), and `assert_no_nplusone()` raises `RuntimeError` instead of passing.
 
 ## Configuration
 
@@ -105,7 +124,7 @@ queryguard: missing index
   fix: CREATE INDEX ON orders (customer_id)
 ```
 
-Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_index_ignore_tables` or `@pytest.mark.allow_missing_index`. Statements that cannot be checked (other databases, PostgreSQL before 16, async engines, statements PostgreSQL cannot plan) do not fail the test; they are summed up once at the end of the session. Cost: a few round trips per distinct statement per test.
+Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_index_ignore_tables` or `@pytest.mark.allow_missing_index`. Async engines on asyncpg are checked too: asyncpg prepares statements, so the `EXPLAIN` runs in a PL/pgSQL `DO` block on the test's own connection (PL/pgSQL is installed by default; without it one notice is reported). Statements that cannot be checked (other databases, PostgreSQL before 16, async drivers other than asyncpg, statements PostgreSQL cannot plan) do not fail the test; they are summed up once at the end of the session. Cost: a few round trips per distinct statement per test.
 
 ## Limitations
 
@@ -113,7 +132,7 @@ Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_
 - Code in `site-packages` counts as library code; a non-editable install of your app makes call sites point to the test file.
 - One measurement per process at a time. Under pytest-xdist detection and budgets work per worker, but the report and the index-check summary are not shown.
 - unittest `setUp`/`tearDown` queries are counted. A non-strict `xfail` test with an N+1 is reported as xfailed.
-- The index check needs a sync engine; async engines (asyncpg, psycopg async) are skipped with a notice. It checks only `SELECT` and `WITH` statements and judges plans, not data. Join conditions alone are never reported.
+- The index check needs PostgreSQL 16 or newer and a sync engine or an async engine on asyncpg; other async drivers (such as psycopg async) are skipped with a notice. It reads index and column definitions from the catalog once per session and drops that cache on DDL it sees through SQLAlchemy; DDL run another way is not seen. It checks only `SELECT` and `WITH` statements and judges plans, not data. Join conditions alone are never reported.
 - Partitioned tables are reported under the partition's name.
 - No detection of unused eager loads, and no Django support.
 
