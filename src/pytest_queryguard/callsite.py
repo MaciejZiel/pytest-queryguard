@@ -75,7 +75,11 @@ def _first_external(frame: FrameType | None) -> CallSite | None:
     while frame is not None:
         filename = frame.f_code.co_filename
         if not _is_internal(filename):
-            return CallSite(filename, frame.f_lineno, frame.f_code.co_name)
+            return CallSite(
+                filename=filename,
+                lineno=frame.f_lineno,
+                function=frame.f_code.co_name,
+            )
         frame = frame.f_back
     return None
 

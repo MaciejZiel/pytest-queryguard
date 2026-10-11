@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings as std_warnings
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from .messages import (
     format_findings,
     format_index_findings,
     format_index_notes,
+    swap_root,
 )
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
@@ -30,6 +32,7 @@ _internal_reported = pytest.StashKey[bool]()
 _outer_error = pytest.StashKey[BaseException | None]()
 _outer_stopped = pytest.StashKey[str | None]()
 _outer_catalog_error = pytest.StashKey[str | None]()
+_outer_root = pytest.StashKey[Path | None]()
 _settings = pytest.StashKey["_Settings"]()
 _report = pytest.StashKey[list[tuple[str, int]]]()
 _index_notes = pytest.StashKey["_IndexNotes"]()
@@ -209,6 +212,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[_outer_error] = swap_error(None)
     config.stash[_outer_stopped] = indexes.swap_stopped(None)
     config.stash[_outer_catalog_error] = indexes.swap_catalog_error(None)
+    config.stash[_outer_root] = swap_root(config.rootpath)
     # A nested session (pytester) may change the database; start afresh.
     catalog.reset()
     settings = _read_settings(config)
@@ -225,6 +229,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     swap_error(config.stash.get(_outer_error, None))
     indexes.swap_stopped(config.stash.get(_outer_stopped, None))
     indexes.swap_catalog_error(config.stash.get(_outer_catalog_error, None))
+    swap_root(config.stash.get(_outer_root, None))
     catalog.reset()
 
 

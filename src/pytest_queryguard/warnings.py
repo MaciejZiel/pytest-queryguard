@@ -6,4 +6,9 @@ class QueryGuardWarning(UserWarning):
 
 
 class QueryGuardInternalWarning(UserWarning):
-    """A bug inside pytest-queryguard; the plugin stops measuring."""
+    """A bug inside pytest-queryguard; the plugin stops measuring.
+
+    Also issued when a ``record_queries()`` block ends after such an error:
+    its ``QueryLog`` may then be incomplete, and ``assert_no_nplusone()``
+    raises ``RuntimeError`` instead of checking it.
+    """

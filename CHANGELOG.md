@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `pytest_queryguard.record_queries()`, a context manager that records the
+  SQL statements a block sends and yields a `QueryLog`. The log has the
+  statements as `Query` objects (`sql`, `callsite`, `relationship`), their
+  `count`, and `assert_no_nplusone()`, which applies the N+1 rules to the
+  block and raises `NPlusOneDetected`. `Query`, `QueryLog`, `CallSite` and
+  `NPlusOneDetected` are exported for type hints. It works in pytest and
+  outside it, and changes nothing else. A `QueryLog` is also sized, iterable and
+  indexable (`len()`, `for`, `log[i]`, `log[a:b]`) but not a
+  `collections.abc.Sequence`.
+- `QueryGuardInternalWarning` (exported since 0.2.0) is now documented. A
+  `record_queries()` block that ends after an internal error (including one
+  recorded before the block, which had already stopped the recording) issues
+  it, saying that the log may be incomplete, and
+  `QueryLog.assert_no_nplusone()` raises `RuntimeError` instead of passing
+  on such a log. This also applies outside pytest and with
+  `--queryguard-mode=off`, where the plugin itself reports nothing.
+
 ### Changed
 
 - The index check reads the first column of each btree index and the
@@ -22,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connection is garbage collected, and when a two-phase transaction with
   DDL ends. A statement that cannot be planned is counted once in the
   "could not be explained" summary even when DDL made the check retry it.
+- `QueryLog.assert_no_nplusone()` is documented as ignoring the
+  `queryguard_*` ini options: a project with a custom
+  `queryguard_repeat_threshold` passes `repeat_threshold` explicitly.
+- Paths in the `NPlusOneDetected` message, and in the `QueryBudgetExceeded`
+  message of a `with max_queries(n):` block, are relative to pytest's rootdir,
+  as in the plugin's own failures, instead of the working directory (which is
+  still the base outside pytest).
 
 ### Fixed
 
