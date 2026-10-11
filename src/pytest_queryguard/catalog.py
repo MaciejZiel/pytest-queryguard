@@ -101,8 +101,10 @@ def clear() -> None:
     statement is explained again against the new state of the catalog.
     """
     for entry in list(_cache.values()):
-        entry.leading.clear()
-        entry.varchar.clear()
+        # Rebound, not cleared: a lookup that is reading the old dicts, in
+        # this thread or another, must not see them change size.
+        entry.leading = {}
+        entry.varchar = {}
     for target in collector.active():
         target.explained.clear()
 

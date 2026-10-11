@@ -564,9 +564,14 @@ def _rows(cursor: Any, sql: str | None) -> list[Any]:
 def _read_catalog(
     cursor: Any, plan: Mapping[str, Any], catalog: Catalog, leading: bool
 ) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], frozenset[str]]]:
-    """Fill ``catalog`` for this plan; raises on a database error."""
+    """Fill ``catalog`` for this plan; raises on a database error.
+
+    The cache can be cleared at any moment, from another thread or by the
+    garbage collector, so the answer is built from what this call read and
+    from a copy of the entries, never from the live dicts while they change.
+    """
+    names = index_names(plan) if leading else set()
     if leading:
-        names = index_names(plan)
         missing = names - catalog.leading.keys()
         found = {
             (str(r[0]), str(r[1])): str(r[2])
@@ -575,19 +580,19 @@ def _read_catalog(
         for name in missing:
             catalog.leading[name] = found.get(name)
     tables = _text_cast_tables(plan)
-    missing_tables = tables - catalog.varchar.keys()
+    known = {t: v for t in tables if (v := catalog.varchar.get(t)) is not None}
+    missing_tables = tables - known.keys()
     columns: dict[tuple[str, str], set[str]] = {t: set() for t in missing_tables}
     for r in _rows(cursor, _varchar_lookup(missing_tables)):
         columns.setdefault((str(r[0]), str(r[1])), set()).add(str(r[2]))
     for table, names_ in columns.items():
-        catalog.varchar[table] = frozenset(names_)
+        known[table] = catalog.varchar[table] = frozenset(names_)
     leading_map = {
         name: col
-        for name, col in catalog.leading.items()
-        if col is not None and name in index_names(plan)
+        for name, col in list(catalog.leading.items())
+        if col is not None and name in names
     }
-    varchar_map = {t: catalog.varchar[t] for t in tables if t in catalog.varchar}
-    return leading_map, varchar_map
+    return leading_map, known
 
 
 def _read_plan(value: object) -> Mapping[str, Any] | None:

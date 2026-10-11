@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from pytest_queryguard import catalog as catalogs
 from pytest_queryguard import indexes
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.events import Catalog, ScanEvent, ScanIssue
@@ -1442,3 +1443,53 @@ def test_swap_stopped_returns_the_previous_state(fresh_index_state: None) -> Non
 def test_swap_catalog_error_returns_the_previous_state() -> None:
     assert indexes.swap_catalog_error("x") is None
     assert indexes.swap_catalog_error(None) == "x"
+
+
+# ----------------------------------------------------------- catalog clearing
+
+
+class _ClearsWhileIterated(dict[Any, Any]):
+    """Clears the cache once its items are being read, like another thread."""
+
+    def items(self) -> Any:  # type: ignore[override]
+        entries = super().items()
+
+        def walk() -> Iterator[Any]:
+            iterator = iter(entries)
+            yield next(iterator)
+            catalogs.clear()
+            yield from iterator
+
+        return walk()
+
+
+def test_clearing_the_cache_while_a_plan_is_read_keeps_the_lookups() -> None:
+    class Engine:
+        pass
+
+    plan = {
+        "Node Type": "Index Scan",
+        "Schema": "public",
+        "Relation Name": "t",
+        "Index Name": "t_idx",
+        "Index Cond": "(t.b = $1)",
+        "Plans": [
+            {
+                "Node Type": "Index Scan",
+                "Schema": "public",
+                "Relation Name": "u",
+                "Index Name": "u_idx",
+                "Index Cond": "(u.b = $1)",
+            }
+        ],
+    }
+    engine = Engine()
+    entry = catalogs.for_engine(engine)
+    entry.leading = _ClearsWhileIterated(
+        {("public", "t_idx"): "a", ("public", "u_idx"): "a"}
+    )
+    try:
+        leading, _ = indexes._read_catalog(FakeConnection().cursor(), plan, entry, True)
+    finally:
+        catalogs.reset()
+    assert leading == {("public", "t_idx"): "a", ("public", "u_idx"): "a"}
