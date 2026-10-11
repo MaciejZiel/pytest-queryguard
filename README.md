@@ -9,7 +9,8 @@ it can also fail tests whose queries have no index to use.
 ## Why
 
 ORM code that looks correct can send one query per row instead of one query
-per page:
+per page. These are N+1 queries: one query for the list, then one more for
+each row:
 
 ```python
 orders = session.scalars(select(Order)).all()  # 1 query
