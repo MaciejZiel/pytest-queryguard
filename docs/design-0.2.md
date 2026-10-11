@@ -124,14 +124,21 @@ a whole index, to apply a condition that an index could serve directly:
    just to avoid the disabled sequential scan. Without this rule
    `WHERE customer_id = $1 ORDER BY id LIMIT 10` would pass. Ranges and
    `IS NULL` (`WHERE total > 0 ORDER BY id LIMIT 20`) are left out: that is
-   ordinary pagination, which walks the primary key on purpose.
+   ordinary pagination, which walks the primary key on purpose. A
+   `Bitmap Heap Scan` with such a filter, no `Recheck Cond` and a
+   `Bitmap Index Scan` without `Index Cond` below it is the same whole-index
+   read; PostgreSQL picks it for an `INCLUDE` index before `ANALYZE` and an
+   `Index Only Scan` after it, so both must be reported.
 3. `Index Scan`, `Index Only Scan` or `Bitmap Index Scan` whose
    `Index Cond` is an equality on one column and does not use the first key
-   column of the index: with only `(tenant_id, status)`, `WHERE status = $1`
-   reads the whole index on PostgreSQL 16 and 17. The first key column comes
-   from `pg_index.indkey[0]` and `pg_attribute`, read inside the same
-   savepoint, once per index per test. PostgreSQL 18 can skip-scan, so the
-   rule and its lookup are not used there.
+   column of a btree index: with only `(tenant_id, status)`,
+   `WHERE status = $1` reads the whole index on PostgreSQL 16 and 17. The
+   first key column comes from `pg_index.indkey[0]` and `pg_attribute`,
+   read inside the same savepoint, once per index per test, for btree
+   indexes only (`pg_am.amname`): BRIN and GIN serve any of their columns.
+   PostgreSQL 18 can skip-scan, so the rule and its lookup are not used
+   there. If a catalog lookup fails, lookups stop for the session with one
+   line in the summary, and rule 3 and the `::text` hint are not applied.
 
 Not reported: a `Seq Scan` without a filter (`SELECT * FROM t`,
 `count(*)`, a join without `WHERE`), because the statement reads the whole
@@ -149,10 +156,15 @@ column does not change the production plan anyway.
 
 `CREATE INDEX ON <table> (<column>)` is shown when the condition uses
 exactly one column of the scanned table, compared with `=`, `<`, `<=`, `>`
-or `>=` (`= ANY (...)` included), either directly or through the `::text`
-cast the plan prints for `varchar` and `char` columns. Not inside a function
-call such as `lower(...)`, and not through another cast (`total::int`,
-`created_at::date`): an index on the plain column does not serve those.
+or `>=` (`= ANY (...)` included), either directly or through `::text` on a
+`varchar` column. The plan prints `(col)::text` for every cast to text, but
+an index on the plain column serves it only for `varchar` (checked against
+PostgreSQL 17: not for integers, enums, `char(n)` or `name`), so the check
+reads the `varchar` columns of the tables involved from `pg_attribute` and
+`pg_type`, inside the savepoint and once per table per test. Not inside a
+function call such as `lower(...)`, and not through another cast
+(`total::int`, `created_at::date`, `id::text` on an integer): an index on
+the plain column does not serve those.
 Then the message says `add an index that matches this condition (an
 expression index may be needed)`. For other conditions it says `add an
 index that matches this condition`, without guessing. The schema is shown
@@ -169,10 +181,11 @@ returns, so the hint works as written on that connection.
   known (the same query under two aliases, as in a `UNION ALL`), otherwise
   by table and condition; each is reported once with the first statement
   and call site that produced it.
-- There is no cache across tests: another test can have other tables,
-  indexes or a different `search_path`. The check costs a few round trips
-  per distinct statement, about 3–4 ms with pg8000 against a local
-  PostgreSQL in Docker.
+- There is no cache across tests, for plans or for catalog lookups: another
+  test can have other tables, indexes or a different `search_path`. The
+  check costs a few round trips per distinct statement, about 2–5 ms with
+  pg8000 against a local PostgreSQL in Docker. A session-wide catalog
+  cache, cleared when a test runs DDL, is left for 0.3.
 - `queryguard_index_ignore_tables` lists table names or `fnmatch` patterns
   (`countries`, `audit.*`, `lookup_*`) matched against `table` and
   `schema.table`. Small lookup tables, where a sequential scan is the right

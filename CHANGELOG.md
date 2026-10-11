@@ -16,8 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside a savepoint on the statement's own connection. The test fails (or
   warns, in `warn` mode) when the plan reads a whole table to apply a
   filter, walks a whole index for an equality filter, or uses an index
-  condition that leaves out the index's first column (PostgreSQL 16 and
-  17). The message names the table, the condition, the SQL and the call
+  condition that leaves out a btree index's first column (PostgreSQL 16
+  and 17). The message names the table, the condition, the SQL and the call
   site and, when the column is obvious, gives a `CREATE INDEX` hint.
 - `--no-queryguard-index-check` to turn the check off for one run.
 - `queryguard_index_ignore_tables` ini option and
