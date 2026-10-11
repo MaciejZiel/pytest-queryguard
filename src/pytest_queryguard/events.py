@@ -31,10 +31,11 @@ class ScanIssue:
     schema: str | None
     table: str
     node: str  # "Seq Scan" or "Index Scan using orders_pkey"
-    kind: str  # "filter" or "join"
+    kind: str  # "filter" or "index condition"
     condition: str
     column: str | None  # the column for a CREATE INDEX hint, when obvious
     show_schema: bool = True  # False when the table is in the current schema
+    expression: bool = False  # the column sits in a function or a non-text cast
 
 
 @dataclass(frozen=True, slots=True)

@@ -86,9 +86,11 @@ def format_budget(
 def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
     issue = scan.issue
     table = table_label(issue)
-    where = "with filter" if issue.kind == "filter" else "for join condition"
+    where = f"with {issue.kind}"
     if issue.column is None:
         fix = "add an index that matches this condition"
+        if issue.expression:
+            fix += " (an expression index may be needed)"
     else:
         fix = f"CREATE INDEX ON {table} ({issue.column})"
     return [

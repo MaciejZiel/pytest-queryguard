@@ -7,6 +7,7 @@ example ``postgresql+pg8000://postgres:pg@localhost:5432/postgres``.
 from __future__ import annotations
 
 import os
+import textwrap
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -472,32 +473,6 @@ def test_pg_joinedload_reports_the_joined_table(
 
 
 @needs_pg
-def test_pg_join_condition_is_reported(
-    project: pytest.Pytester, pg16: Postgres
-) -> None:
-    _pg_project(project, pg16).makepyfile(
-        test_a="""
-        from sqlalchemy import select
-
-        from qgmodels import Customer, Order
-
-
-        def test_join(session):
-            stmt = select(Customer.name, Order.id).join(Order.customer)
-            assert len(session.execute(stmt).all()) == 6
-        """
-    )
-    result = project.runpytest("--queryguard-index-check")
-    result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(
-        [
-            "  orders is read in full: Seq Scan for join condition *customer_id*",
-            "  fix: CREATE INDEX ON orders (customer_id)",
-        ]
-    )
-
-
-@needs_pg
 def test_pg_primary_key_order_scan_is_reported(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:
@@ -741,3 +716,194 @@ def test_pg_before_16_gets_one_notice(
             )
         ]
     )
+
+
+# A table with columns for the pagination and cast cases, created inside the
+# test's own transaction (the check sees it), with or without statistics.
+ITEMS = """
+import pytest
+from sqlalchemy import text
+
+SETUP = [
+    "CREATE TABLE owners (id int PRIMARY KEY, name text)",
+    "CREATE TABLE items (id serial PRIMARY KEY, owner_id int, tenant_id int, "
+    "status text, total numeric, created_at timestamp)",
+    "CREATE INDEX items_tenant_status ON items (tenant_id, status)",
+    "INSERT INTO owners SELECT g, 'o' || g FROM generate_series(1, 5) g",
+    "INSERT INTO items (owner_id, tenant_id, status, total, created_at) "
+    "SELECT g % 5 + 1, g % 3, 's' || (g % 4), g, now() "
+    "FROM generate_series(1, 30) g",
+]
+
+
+@pytest.fixture(params=[False, True], ids=["no-stats", "analyzed"])
+def db(session, request):
+    for statement in SETUP:
+        session.execute(text(statement))
+    if request.param:
+        session.execute(text("ANALYZE owners"))
+        session.execute(text("ANALYZE items"))
+    return session
+"""
+
+
+def _items_project(project: pytest.Pytester, pg: Postgres, body: str) -> None:
+    _pg_project(project, pg)
+    project.makepyfile(test_a=ITEMS + "\n\n" + textwrap.dedent(body))
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM items WHERE total > 0 ORDER BY id LIMIT 20",
+        "SELECT * FROM items WHERE created_at IS NULL ORDER BY id DESC LIMIT 20",
+    ],
+)
+def test_pg_pagination_on_the_primary_key_is_not_reported(
+    project: pytest.Pytester, pg16: Postgres, sql: str
+) -> None:
+    _items_project(
+        project,
+        pg16,
+        f"""
+        def test_page(db):
+            db.execute(text("{sql}")).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=2)
+
+
+@needs_pg
+def test_pg_equality_behind_order_by_limit_is_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _items_project(
+        project,
+        pg16,
+        """
+        def test_page(db):
+            sql = "SELECT * FROM items WHERE owner_id = :o ORDER BY id LIMIT 10"
+            db.execute(text(sql), {"o": 1}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    lines = [
+        (
+            "  items is read in full: Index Scan using items_pkey with filter "
+            "(items.owner_id = $1)"
+        ),
+        "*",
+        "*",
+        "  fix: CREATE INDEX ON items (owner_id)",
+    ]
+    result.stdout.fnmatch_lines(lines + lines)
+
+
+@needs_pg
+def test_pg_leading_column_of_a_multicolumn_index_passes(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _items_project(
+        project,
+        pg16,
+        """
+        def test_tenant(db):
+            sql = "SELECT * FROM items WHERE tenant_id = :t AND status = :s"
+            db.execute(text(sql), {"t": 1, "s": "s1"}).all()
+            db.execute(text("SELECT * FROM items WHERE tenant_id = :t"), {"t": 1}).all()
+        """,
+    )
+    project.runpytest("--queryguard-index-check").assert_outcomes(passed=2)
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    "condition", ["total::int = :x", "created_at::date = CAST(:x AS date)"]
+)
+def test_pg_cast_column_gets_no_create_index_hint(
+    project: pytest.Pytester, pg16: Postgres, condition: str
+) -> None:
+    value = '"2026-01-01"' if "date" in condition else "3"
+    _items_project(
+        project,
+        pg16,
+        f"""
+        def test_cast(db):
+            db.execute(text("CREATE INDEX ON items (total)"))
+            db.execute(text("CREATE INDEX ON items (created_at)"))
+            sql = "SELECT * FROM items WHERE {condition}"
+            db.execute(text(sql), {{"x": {value}}}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "  items is read in full: Seq Scan with filter *",
+            "*",
+            "*",
+            (
+                "  fix: add an index that matches this condition "
+                "(an expression index may be needed)"
+            ),
+        ]
+    )
+    result.stdout.no_fnmatch_line("*CREATE INDEX ON*")
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # a correlated scalar subquery: the sub-plan scans with a filter
+        (
+            "SELECT o.id, (SELECT count(*) FROM items i WHERE i.owner_id = o.id) "
+            "FROM owners o"
+        ),
+        # EXISTS behind a selective outer filter
+        (
+            "SELECT * FROM owners o WHERE o.id = :o "
+            "AND EXISTS (SELECT 1 FROM items i WHERE i.owner_id = o.id)"
+        ),
+    ],
+)
+def test_pg_subqueries_are_reported_through_their_filter(
+    project: pytest.Pytester, pg16: Postgres, sql: str
+) -> None:
+    _items_project(
+        project,
+        pg16,
+        f"""
+        def test_subquery(db):
+            db.execute(text("{sql}"), {{"o": 1}}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "  items is read in full: Seq Scan with filter (i.owner_id = *)",
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON items (owner_id)",
+        ]
+    )
+
+
+@needs_pg
+def test_pg_join_without_a_filter_is_not_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _items_project(
+        project,
+        pg16,
+        """
+        def test_join(db):
+            sql = "SELECT o.name, i.id FROM owners o JOIN items i ON i.owner_id = o.id"
+            assert len(db.execute(text(sql)).all()) == 30
+        """,
+    )
+    project.runpytest("--queryguard-index-check").assert_outcomes(passed=2)

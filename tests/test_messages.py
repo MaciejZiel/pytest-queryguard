@@ -123,20 +123,56 @@ def test_index_message_for_a_filter_with_hint() -> None:
     ]
 
 
-def test_index_message_for_a_join_without_hint_in_another_schema() -> None:
+def test_index_message_without_hint_in_another_schema() -> None:
     issue = ScanIssue(
-        "Sales", "order", "Seq Scan", "join", "(lower(o.code) = c.code)", None
+        "Sales", "order", "Seq Scan", "filter", "((o.a = $1) AND (o.b = $2))", None
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
     assert lines[2:6] == [
         (
-            '  "Sales"."order" is read in full: Seq Scan for join condition '
-            "(lower(o.code) = c.code)"
+            '  "Sales"."order" is read in full: Seq Scan with filter '
+            "((o.a = $1) AND (o.b = $2))"
         ),
         "  first at <unknown location>",
         "  sql: SELECT 1",
         "  fix: add an index that matches this condition",
     ]
+
+
+def test_index_message_suggests_an_expression_index() -> None:
+    issue = ScanIssue(
+        "public",
+        "orders",
+        "Seq Scan",
+        "filter",
+        "((orders.total)::integer = $1)",
+        None,
+        show_schema=False,
+        expression=True,
+    )
+    lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
+    assert lines[5] == (
+        "  fix: add an index that matches this condition "
+        "(an expression index may be needed)"
+    )
+
+
+def test_index_message_for_a_trailing_index_column() -> None:
+    issue = ScanIssue(
+        "public",
+        "orders",
+        "Index Scan using orders_tenant_id_status_idx",
+        "index condition",
+        "(orders.status = $1)",
+        "status",
+        show_schema=False,
+    )
+    lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
+    assert lines[2] == (
+        "  orders is read in full: Index Scan using orders_tenant_id_status_idx "
+        "with index condition (orders.status = $1)"
+    )
+    assert lines[5] == "  fix: CREATE INDEX ON orders (status)"
 
 
 def test_index_message_names_the_index_and_quotes_the_hint() -> None:

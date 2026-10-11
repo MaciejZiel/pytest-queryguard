@@ -86,39 +86,62 @@ def to_numbered(sql: str, paramstyle: str) -> str | None:
 # ---------------------------------------------------------------- plan walk
 
 _SYSTEM_SCHEMAS = frozenset({"pg_catalog", "information_schema", "pg_toast"})
-_JOIN_KEYS = ("Hash Cond", "Merge Cond", "Join Filter")
 _INDEX_SCANS = ("Index Scan", "Index Only Scan")
-_SUBPLANS = ("SubPlan", "InitPlan")
+_BITMAP_SCAN = "Bitmap Index Scan"
+# The PostgreSQL release that can skip-scan the leading column of an index.
+SKIP_SCAN_VERSION = 18
+
+# (schema, index name) -> name of the index's first key column
+LeadingColumns = Mapping[tuple[str, str], str]
+
+
+@dataclass(frozen=True, slots=True)
+class _Relation:
+    schema: str | None
+    table: str
+    alias: str
 
 
 def find_scans(
-    plan: Mapping[str, Any], current_schema: str | None = None
+    plan: Mapping[str, Any],
+    current_schema: str | None = None,
+    leading: LeadingColumns | None = None,
 ) -> list[ScanIssue]:
-    """Plan nodes that read a whole table although the statement narrows it.
+    """Plan nodes that read a whole table, or a whole index, to apply a condition.
 
     Tables in ``current_schema`` (``public`` when unknown) are named without
     their schema, so the fix hint works as written on that connection.
+    ``leading`` enables the check for an index condition on a trailing
+    column of a multicolumn index.
     """
     found: list[ScanIssue] = []
-    _walk(plan, (), current_schema or "public", found)
+    _walk(plan, None, current_schema or "public", leading or {}, found)
     return found
 
 
-def _walk(
-    node: object, joins: tuple[str, ...], current: str, found: list[ScanIssue]
-) -> None:
-    if not isinstance(node, Mapping):
-        return
-    if node.get("Parent Relationship") in _SUBPLANS:
-        joins = ()  # a subquery is planned on its own; outer joins do not apply
-    issue = _issue(node, joins, current)
-    if issue is not None:
-        found.append(issue)
-    own = tuple(c for c in (node.get(k) for k in _JOIN_KEYS) if isinstance(c, str))
+def index_names(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
+    """(schema, index) of every index scan in the plan that has an Index Cond."""
+    names: set[tuple[str, str]] = set()
+
+    def visit(node: object, heap: _Relation | None) -> None:
+        if not isinstance(node, Mapping):
+            return
+        rel = _relation(node)
+        index = _text(node, "Index Name")
+        owner = rel or heap
+        if index and node.get("Index Cond") and owner is not None and owner.schema:
+            names.add((owner.schema, index))
+        below = rel if node.get("Node Type") == "Bitmap Heap Scan" else heap
+        for child in _children(node):
+            visit(child, below)
+
+    visit(plan, None)
+    return names
+
+
+def _children(node: Mapping[str, Any]) -> list[object]:
     children = node.get("Plans")
-    if isinstance(children, list):
-        for child in children:
-            _walk(child, own + joins, current, found)
+    return children if isinstance(children, list) else []
 
 
 def _text(node: Mapping[str, Any], key: str) -> str | None:
@@ -126,62 +149,118 @@ def _text(node: Mapping[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _issue(
-    node: Mapping[str, Any], joins: tuple[str, ...], current: str
-) -> ScanIssue | None:
+def _relation(node: Mapping[str, Any]) -> _Relation | None:
     table = _text(node, "Relation Name")
-    schema = _text(node, "Schema")
-    if table is None or schema in _SYSTEM_SCHEMAS:
+    if table is None:
         return None
-    alias = _text(node, "Alias") or table
+    return _Relation(_text(node, "Schema"), table, _text(node, "Alias") or table)
+
+
+def _walk(
+    node: object,
+    heap: _Relation | None,
+    current: str,
+    leading: LeadingColumns,
+    found: list[ScanIssue],
+) -> None:
+    if not isinstance(node, Mapping):
+        return
+    rel = _relation(node)
+    issue = _issue(node, rel or heap, current, leading)
+    if issue is not None:
+        found.append(issue)
+    # A Bitmap Index Scan names no table; it reads the one of its heap scan.
+    below = rel if node.get("Node Type") == "Bitmap Heap Scan" else heap
+    for child in _children(node):
+        _walk(child, below, current, leading, found)
+
+
+def _issue(
+    node: Mapping[str, Any],
+    rel: _Relation | None,
+    current: str,
+    leading: LeadingColumns,
+) -> ScanIssue | None:
+    if rel is None or rel.schema in _SYSTEM_SCHEMAS:
+        return None
     node_type = node.get("Node Type")
-    condition = _text(node, "Filter")
-    kind = "filter"
+    index = _text(node, "Index Name")
+    label = f"{node_type} using {index}" if index else str(node_type)
     if node_type == "Seq Scan":
+        # Rule 1: the table is read in full to apply its filter.
+        condition = _text(node, "Filter")
         if condition is None:
-            kind = "join"
-            condition = next(
-                (j for j in joins if _column_refs(_strip_literals(j), alias)), None
-            )
-            if condition is None:
-                return None
-        label = "Seq Scan"
-    elif node_type in _INDEX_SCANS and condition and not node.get("Index Cond"):
-        # A whole index walked only to avoid the disabled sequential scan.
-        index = _text(node, "Index Name")
-        label = f"{node_type} using {index}" if index else str(node_type)
-    else:
+            return None
+        return _make(rel, "Seq Scan", "filter", condition, current)
+    if node_type not in (*_INDEX_SCANS, _BITMAP_SCAN):
         return None
+    index_cond = _text(node, "Index Cond")
+    if index_cond is None:
+        # Rule 2: a whole index walked to avoid the disabled sequential scan,
+        # for example the primary key for ORDER BY id LIMIT n. Pagination with
+        # a range or IS NULL filter does that on purpose, so only an equality
+        # on one column, which an index would serve directly, is reported.
+        condition = _text(node, "Filter")
+        if node_type == _BITMAP_SCAN or condition is None:
+            return None
+        if equality_column(condition, rel.alias) is None:
+            return None
+        return _make(rel, label, "filter", condition, current)
+    # Rule 3: the index condition uses only trailing columns of a multicolumn
+    # index, which PostgreSQL before 18 serves by reading the whole index.
+    first = leading.get((rel.schema or "", index or ""))
+    if first is None:
+        return None
+    columns = {_unquote(ref["col"]) for ref in _column_refs(index_cond, rel.alias)}
+    if first in columns or equality_column(index_cond, rel.alias) is None:
+        return None
+    return _make(rel, label, "index condition", index_cond, current)
+
+
+def _make(
+    rel: _Relation, node: str, kind: str, condition: str, current: str
+) -> ScanIssue:
+    column = hint_column(condition, rel.alias)
     return ScanIssue(
-        schema,
-        table,
-        label,
+        rel.schema,
+        rel.table,
+        node,
         kind,
         condition,
-        hint_column(condition, alias),
-        show_schema=schema not in (None, current),
+        column,
+        show_schema=rel.schema not in (None, current),
+        expression=column is None and _needs_expression(condition, rel.alias),
     )
 
 
 # ---------------------------------------------------------------- fix hint
 
 _LITERAL = re.compile(r"'(?:[^']|'')*'")
-_OP = r"(?<![-<>=!~#@&|*+/%^])(?:<=|>=|=|<|>)(?![-<>=~#@&|])"
-_CAST = r"""(?:::[\w ."\[\]]+?)?"""
-_LEFT_OPERAND = re.compile(rf"\)*{_CAST}\)*\s*{_OP}\s")
-_RIGHT_OPERAND = re.compile(rf"\)*{_CAST}\)*(?:$|\s+(?:AND|OR)\b)")
+_OP = r"(?<![-<>=!~#@&|*+/%^])(?P<op><=|>=|=|<|>)(?![-<>=~#@&|])"
+# The only cast an index on the plain column still serves: varchar or char
+# compared as text, which the plan prints as (col)::text.
+_TEXT_CAST = r"(?:::text)?"
+_LEFT_OPERAND = re.compile(rf"\)*{_TEXT_CAST}\)*\s*{_OP}\s")
+_RIGHT_OPERAND = re.compile(rf"\)*{_TEXT_CAST}\)*(?:$|\s+(?:AND|OR)\b)")
 _BEFORE_RIGHT = re.compile(rf"{_OP}\s+\(*$")
+_OTHER_CAST = re.compile(r"\)*::(?!text\b)")
 
 
 def _strip_literals(condition: str) -> str:
     return _LITERAL.sub("''", condition)
 
 
+def _unquote(name: str) -> str:
+    if name.startswith('"'):
+        return name[1:-1].replace('""', '"')
+    return name
+
+
 def _column_refs(text: str, alias: str) -> list[re.Match[str]]:
     quoted = '"' + alias.replace('"', '""') + '"'
     names = "|".join(re.escape(a) for a in dict.fromkeys((alias, quoted)))
     pattern = rf'(?<![\w$."])(?:{names})\.(?P<col>"(?:[^"]|"")+"|[A-Za-z_][\w$]*)'
-    return list(re.finditer(pattern, text))
+    return list(re.finditer(pattern, _strip_literals(text)))
 
 
 def _inside_function(text: str, start: int) -> bool:
@@ -198,26 +277,58 @@ def _inside_function(text: str, start: int) -> bool:
     return False
 
 
-def _compared(text: str, start: int, end: int) -> bool:
+def _operator(text: str, start: int, end: int) -> str | None:
+    """The comparison a plain column reference takes part in, if any."""
+    if _inside_function(text, start):
+        return None
     before, after = text[:start], text[end:]
-    if before.endswith("(") and _LEFT_OPERAND.match(after):
-        return True
-    return bool(_BEFORE_RIGHT.search(before)) and bool(_RIGHT_OPERAND.match(after))
+    if before.endswith("("):
+        left = _LEFT_OPERAND.match(after)
+        if left:
+            return left["op"]
+    right = _BEFORE_RIGHT.search(before)
+    if right and _RIGHT_OPERAND.match(after):
+        return right["op"]
+    return None
 
 
-def hint_column(condition: str, alias: str) -> str | None:
-    """The one column an index on the scanned table would serve, if obvious."""
+def _comparisons(condition: str, alias: str) -> tuple[str, set[str]] | None:
+    """(column, operators) when the condition compares exactly one plain column."""
     text = _strip_literals(condition)
     refs = _column_refs(text, alias)
     columns = {ref["col"] for ref in refs}
     if len(columns) != 1:
         return None
+    ops: set[str] = set()
     for ref in refs:
-        if _inside_function(text, ref.start()) or not _compared(
-            text, ref.start(), ref.end()
-        ):
+        op = _operator(text, ref.start(), ref.end())
+        if op is None:
             return None
-    return columns.pop()
+        ops.add(op)
+    return columns.pop(), ops
+
+
+def hint_column(condition: str, alias: str) -> str | None:
+    """The one column an index on the scanned table would serve, if obvious."""
+    found = _comparisons(condition, alias)
+    return None if found is None else found[0]
+
+
+def equality_column(condition: str, alias: str) -> str | None:
+    """The column when the condition is only equalities (= or = ANY) on it."""
+    found = _comparisons(condition, alias)
+    if found is None or found[1] != {"="}:
+        return None
+    return found[0]
+
+
+def _needs_expression(condition: str, alias: str) -> bool:
+    """True when a column is wrapped in a function or cast an index cannot see."""
+    text = _strip_literals(condition)
+    return any(
+        _inside_function(text, ref.start()) or _OTHER_CAST.match(text, ref.end())
+        for ref in _column_refs(text, alias)
+    )
 
 
 # PostgreSQL's reserved keywords, which need quotes as table names.

@@ -13,6 +13,7 @@ from pytest_queryguard.indexes import (
     check,
     find_scans,
     hint_column,
+    index_names,
     is_checked_statement,
     quote_ident,
     run_explain,
@@ -148,9 +149,39 @@ def test_seq_scan_with_filter_is_reported() -> None:
     )
 
 
-def test_seq_scan_without_filter_or_join_is_not_reported() -> None:
+def test_seq_scan_without_filter_is_not_reported() -> None:
     assert find_scans(_seq()) == []
     assert find_scans({"Node Type": "Aggregate", "Plans": [_seq()]}) == []
+
+
+def test_seq_scan_below_a_join_without_filter_is_not_reported() -> None:
+    # Whether a join reads the unindexed side in full depends on statistics,
+    # so join conditions alone are never reported.
+    plan = {
+        "Node Type": "Hash Join",
+        "Hash Cond": "(o.customer_id = c.id)",
+        "Plans": [_seq("o"), {"Node Type": "Hash", "Plans": []}],
+    }
+    assert find_scans(plan) == []
+
+
+def test_correlated_subplan_is_reported_through_its_filter() -> None:
+    plan = {
+        "Node Type": "Index Only Scan",
+        "Index Name": "customers_pkey",
+        "Relation Name": "customers",
+        "Schema": "public",
+        "Alias": "c",
+        "Plans": [
+            {
+                "Node Type": "Aggregate",
+                "Parent Relationship": "SubPlan",
+                "Plans": [_seq("o", Filter="(o.customer_id = c.id)")],
+            }
+        ],
+    }
+    [issue] = find_scans(plan)
+    assert (issue.table, issue.column) == ("orders", "customer_id")
 
 
 def test_index_scan_without_index_cond_but_with_filter_is_reported() -> None:
@@ -171,6 +202,156 @@ def test_index_scan_without_index_cond_but_with_filter_is_reported() -> None:
     assert issue.node == "Index Scan using orders_pkey"
     assert issue.kind == "filter"
     assert issue.column == "customer_id"
+
+
+def _pkey_scan(condition: str, node_type: str = "Index Scan") -> dict[str, Any]:
+    return {
+        "Node Type": "Limit",
+        "Plans": [
+            {
+                "Node Type": node_type,
+                "Index Name": "orders_pkey",
+                "Relation Name": "orders",
+                "Schema": "public",
+                "Alias": "orders",
+                "Filter": condition,
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "(orders.customer_id = $1)",
+        "(orders.customer_id = ANY ($1))",
+        "(orders.customer_id = ANY (ARRAY[$1, $2]))",
+        "((orders.status)::text = $1)",
+        "((orders.customer_id = $1) OR (orders.customer_id = $2))",
+    ],
+)
+@pytest.mark.parametrize("node_type", ["Index Scan", "Index Only Scan"])
+def test_whole_index_scan_with_an_equality_filter_is_reported(
+    condition: str, node_type: str
+) -> None:
+    [issue] = find_scans(_pkey_scan(condition, node_type))
+    assert issue.column in ("customer_id", "status")
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        # pagination: ORDER BY id LIMIT n walks the primary key on purpose
+        "(orders.total > '0'::numeric)",
+        "(orders.created_at IS NULL)",
+        "(orders.total <= $1)",
+        "((orders.total > $1) AND (orders.total < $2))",
+        # equality on more than one column, or not on a plain column
+        "((orders.customer_id = $1) AND (orders.status = $2))",
+        "(lower(orders.status) = $1)",
+        "((orders.total)::integer = $1)",
+    ],
+)
+def test_whole_index_scan_without_an_equality_on_one_column_is_not_reported(
+    condition: str,
+) -> None:
+    assert find_scans(_pkey_scan(condition)) == []
+
+
+# Leading key columns, as run_explain() reads them from pg_index.
+LEADING = {("public", "orders_tenant_id_status_idx"): "tenant_id"}
+
+
+def _composite(node_type: str, condition: str) -> dict[str, Any]:
+    if node_type == "Bitmap Index Scan":
+        return {
+            "Node Type": "Bitmap Heap Scan",
+            "Relation Name": "orders",
+            "Schema": "public",
+            "Alias": "orders",
+            "Recheck Cond": condition,
+            "Plans": [
+                {
+                    "Node Type": "BitmapAnd",
+                    "Plans": [
+                        {
+                            "Node Type": "Bitmap Index Scan",
+                            "Index Name": "orders_tenant_id_status_idx",
+                            "Index Cond": condition,
+                        }
+                    ],
+                }
+            ],
+        }
+    return {
+        "Node Type": node_type,
+        "Index Name": "orders_tenant_id_status_idx",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Index Cond": condition,
+    }
+
+
+@pytest.mark.parametrize(
+    "node_type", ["Index Scan", "Index Only Scan", "Bitmap Index Scan"]
+)
+def test_index_cond_on_a_trailing_column_only_is_reported(node_type: str) -> None:
+    [issue] = find_scans(_composite(node_type, "(orders.status = $1)"), None, LEADING)
+    assert issue.node == f"{node_type} using orders_tenant_id_status_idx"
+    assert issue.kind == "index condition"
+    assert issue.condition == "(orders.status = $1)"
+    assert issue.column == "status"
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "(orders.tenant_id = $1)",
+        "((orders.tenant_id = $1) AND (orders.status = $2))",
+        # a range on the trailing column: same constraints as for filters
+        "(orders.status > $1)",
+    ],
+)
+@pytest.mark.parametrize("node_type", ["Index Scan", "Bitmap Index Scan"])
+def test_index_cond_on_the_leading_column_is_not_reported(
+    node_type: str, condition: str
+) -> None:
+    assert find_scans(_composite(node_type, condition), None, LEADING) == []
+
+
+def test_index_cond_is_not_judged_without_the_leading_column() -> None:
+    plan = _composite("Index Scan", "(orders.status = $1)")
+    assert find_scans(plan) == []
+    assert find_scans(plan, None, {("public", "other_idx"): "x"}) == []
+
+
+def test_index_names_lists_indexes_used_with_a_condition() -> None:
+    plan = {
+        "Node Type": "Nested Loop",
+        "Plans": [
+            _composite("Bitmap Index Scan", "(orders.status = $1)"),
+            {
+                "Node Type": "Index Scan",
+                "Index Name": "customers_pkey",
+                "Relation Name": "customers",
+                "Schema": "sales",
+                "Alias": "c",
+                "Index Cond": "(c.id = $1)",
+            },
+            {
+                "Node Type": "Index Scan",
+                "Index Name": "orders_pkey",
+                "Relation Name": "orders",
+                "Schema": "public",
+                "Alias": "orders",
+            },
+        ],
+    }
+    assert index_names(plan) == {
+        ("public", "orders_tenant_id_status_idx"),
+        ("sales", "customers_pkey"),
+    }
 
 
 @pytest.mark.parametrize("node_type", ["Index Scan", "Index Only Scan"])
@@ -208,91 +389,6 @@ def test_bitmap_heap_scan_is_not_reported() -> None:
         "Filter": "(orders.total > $2)",
     }
     assert find_scans(node) == []
-
-
-def test_seq_scan_below_a_join_on_its_column_is_reported() -> None:
-    plan = {
-        "Node Type": "Hash Join",
-        "Hash Cond": "(o.customer_id = c.id)",
-        "Plans": [
-            _seq("o"),
-            {
-                "Node Type": "Hash",
-                "Plans": [
-                    {
-                        "Node Type": "Index Scan",
-                        "Index Name": "customers_pkey",
-                        "Relation Name": "customers",
-                        "Schema": "public",
-                        "Alias": "c",
-                    }
-                ],
-            },
-        ],
-    }
-    [issue] = find_scans(plan)
-    assert (issue.table, issue.kind, issue.condition, issue.column) == (
-        "orders",
-        "join",
-        "(o.customer_id = c.id)",
-        "customer_id",
-    )
-
-
-@pytest.mark.parametrize("key", ["Hash Cond", "Merge Cond", "Join Filter"])
-def test_join_conditions_reach_scans_through_intermediate_nodes(key: str) -> None:
-    plan = {
-        "Node Type": "Nested Loop",
-        key: "(c.id = o.customer_id)",
-        "Plans": [
-            {
-                "Node Type": "Hash",
-                "Plans": [{"Node Type": "Aggregate", "Plans": [_seq("o")]}],
-            }
-        ],
-    }
-    [issue] = find_scans(plan)
-    assert issue.kind == "join"
-    assert issue.column == "customer_id"
-
-
-def test_join_condition_on_other_tables_is_not_reported() -> None:
-    plan = {
-        "Node Type": "Hash Join",
-        "Hash Cond": "(a.x = b.y)",
-        "Plans": [_seq("o")],
-    }
-    assert find_scans(plan) == []
-
-
-def test_nearest_join_that_uses_the_table_wins() -> None:
-    plan = {
-        "Node Type": "Hash Join",
-        "Hash Cond": "(o.customer_id = c.id)",
-        "Plans": [
-            {
-                "Node Type": "Hash Join",
-                "Hash Cond": "(o.status = s.code)",
-                "Plans": [_seq("o")],
-            }
-        ],
-    }
-    [issue] = find_scans(plan)
-    assert issue.condition == "(o.status = s.code)"
-
-
-def test_join_conditions_do_not_reach_subplans() -> None:
-    plan = {
-        "Node Type": "Hash Join",
-        "Hash Cond": "(o.customer_id = c.id)",
-        "Plans": [
-            {
-                "Node Type": "Result",
-                "Plans": [{**_seq("o"), "Parent Relationship": "SubPlan"}],
-            }
-        ],
-    }
-    assert find_scans(plan) == []
 
 
 @pytest.mark.parametrize("schema", ["pg_catalog", "information_schema", "pg_toast"])
@@ -366,7 +462,6 @@ def test_find_scans_on_real_postgres_json() -> None:
         ("(orders.customer_id = $1)", "orders", "customer_id"),
         ("(orders.customer_id = ANY (ARRAY[$1, $2]))", "orders", "customer_id"),
         ("((orders.status)::text = $1)", "orders", "status"),
-        ("((o.created)::timestamp without time zone >= $1)", "o", "created"),
         ("(o.total < $1)", "o", "total"),
         ("(o.total <= $1)", "o", "total"),
         ("(o.total > $1)", "o", "total"),
@@ -391,6 +486,11 @@ def test_hint_column_finds_the_obvious_column(
         ("((o.a = $1) AND (o.b = $2))", "o"),
         # a function around the column needs an expression index
         ("(lower((o.name)::text) = $1)", "o"),
+        # so does a cast other than the varchar-to-text one the plan prints
+        ("((o.total)::integer = $1)", "o"),
+        ("((o.created_at)::date = $1)", "o"),
+        ("((o.created)::timestamp without time zone >= $1)", "o"),
+        ("($1 = (o.total)::integer)", "o"),
         # LIKE, <> and IS NULL are not served by a plain btree index here
         ("((o.name)::text ~~ $1)", "o"),
         ("(o.status <> $1)", "o"),
@@ -409,6 +509,22 @@ def test_hint_column_finds_the_obvious_column(
 )
 def test_hint_column_gives_up_when_not_obvious(condition: str, alias: str) -> None:
     assert hint_column(condition, alias) is None
+
+
+@pytest.mark.parametrize(
+    ("condition", "expression"),
+    [
+        ("((o.total)::integer = $1)", True),
+        ("(lower((o.name)::text) = $1)", True),
+        ("((o.created_at)::date = $1)", True),
+        ("((o.a = $1) AND (o.b = $2))", False),
+        ("((o.name)::text ~~ $1)", False),
+        ("(o.total = $1)", False),
+    ],
+)
+def test_expression_conditions_are_flagged(condition: str, expression: bool) -> None:
+    [issue] = find_scans(_seq("o", Filter=condition))
+    assert issue.expression is expression
 
 
 # ------------------------------------------------------- quoting and labels
