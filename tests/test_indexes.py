@@ -1109,6 +1109,7 @@ def test_run_explain_keeps_the_plan_when_the_lookup_fails() -> None:
     outcome = run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
     assert isinstance(outcome, Explained)
     assert (outcome.leading, outcome.varchar) == ({}, {})
+    assert outcome.catalog_error == "no pg_index today"
     # the aborted lookup is not followed by the varchar one
     assert len([sql for sql in conn.log if sql.startswith("SELECT n.nspname")]) == 1
     assert conn.log[-2] == "ROLLBACK TO SAVEPOINT queryguard_explain"
@@ -1167,6 +1168,26 @@ def test_check_gives_the_text_cast_hint_for_varchar_only(
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
     [scan] = target.scans
     assert scan.issue.column == column
+
+
+def test_failed_catalog_lookup_is_not_retried_in_the_session() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    conn.raw.fail["SELECT n.nspname"] = RuntimeError("permission denied for pg_index")
+    first, second = _collector(), _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [first])
+    check(conn, "SELECT id FROM orders WHERE status = %s", False, [second])
+    lookups = [sql for sql in conn.raw.log if sql.startswith("SELECT n.nspname")]
+    assert len(lookups) == 1
+    notice = (
+        "the index check stopped reading the catalog for the rest of the session: "
+        "permission denied for pg_index; trailing index columns and casts to "
+        "text are not judged"
+    )
+    assert list(first.index_notices) == [notice]
+    assert list(second.index_notices) == [notice]
+    # explaining goes on
+    assert len([sql for sql in conn.raw.log if sql.startswith("EXPLAIN")]) == 2
 
 
 @pytest.mark.parametrize(
@@ -1240,8 +1261,10 @@ def test_check_unescapes_quoted_percent_except_for_pg8000(
 @pytest.fixture(autouse=True)
 def fresh_index_state() -> Iterator[None]:
     old = indexes.swap_stopped(None)
+    old_catalog = indexes.swap_catalog_error(None)
     yield
     indexes.swap_stopped(old)
+    indexes.swap_catalog_error(old_catalog)
 
 
 @pytest.mark.parametrize("step", ["SAVEPOINT", "ROLLBACK TO SAVEPOINT"])
@@ -1288,3 +1311,8 @@ def test_broken_savepoint_keeps_the_rest_of_the_plugin_running(
 def test_swap_stopped_returns_the_previous_state(fresh_index_state: None) -> None:
     assert indexes.swap_stopped("x") is None
     assert indexes.swap_stopped(None) == "x"
+
+
+def test_swap_catalog_error_returns_the_previous_state() -> None:
+    assert indexes.swap_catalog_error("x") is None
+    assert indexes.swap_catalog_error(None) == "x"

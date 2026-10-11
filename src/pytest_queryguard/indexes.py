@@ -499,6 +499,7 @@ class Explained:
     current_schema: str | None
     leading: LeadingColumns = field(default_factory=dict)
     varchar: VarcharColumns = field(default_factory=dict)
+    catalog_error: str | None = None
 
 
 class SavepointError(Exception):
@@ -638,7 +639,7 @@ def run_explain(
     to text and, with ``leading``, the first key column of each btree index
     used with an index condition are read inside the same savepoint, unless
     ``catalog`` already has them; it is updated. A failed lookup leaves the
-    plan usable.
+    plan usable and is returned as ``catalog_error``.
     Database errors from EXPLAIN come back as ExplainError. An error while
     opening or rolling back the savepoint raises SavepointError: the
     connection's state is then unknown, and the caller stops checking.
@@ -659,6 +660,7 @@ def run_explain(
         error: ExplainError | None = None
         columns: dict[tuple[str, str], str] = {}
         varchar: dict[tuple[str, str], frozenset[str]] = {}
+        catalog_error: str | None = None
         try:
             cursor.execute(_SETTINGS)
             settings = cursor.fetchone()
@@ -670,8 +672,8 @@ def run_explain(
         if plan is not None and catalog is not None:
             try:
                 columns, varchar = _read_catalog(cursor, plan, catalog, leading)
-            except Exception:  # noqa: BLE001  # without it, those rules do not apply
-                columns, varchar = {}, {}
+            except Exception as exc:  # noqa: BLE001  # reported once by check()
+                catalog_error = _error_message(exc)
         _manage(cursor, undo)
     finally:
         cursor.close()
@@ -685,6 +687,7 @@ def run_explain(
         schema if isinstance(schema, str) else None,
         columns,
         varchar,
+        catalog_error,
     )
 
 
@@ -706,6 +709,17 @@ def swap_stopped(new: str | None) -> str | None:
     """Replace the stopped state and return the previous one (per session)."""
     global _stopped
     old, _stopped = _stopped, new
+    return old
+
+
+# Why the catalog lookups stopped for this session, after one failed.
+_catalog_error: str | None = None
+
+
+def swap_catalog_error(new: str | None) -> str | None:
+    """Replace the catalog lookup state and return the previous one."""
+    global _catalog_error
+    old, _catalog_error = _catalog_error, new
     return old
 
 
@@ -743,7 +757,7 @@ def check(
     conn: Any, statement: str, executemany: bool, targets: Sequence[QueryCollector]
 ) -> None:
     """Explain one executed statement for the collectors that want it."""
-    global _stopped
+    global _stopped, _catalog_error
     if executemany or not is_checked_statement(statement):
         return
     dialect = conn.dialect
@@ -766,9 +780,14 @@ def check(
     )
     assert numbered is not None  # unsupported_reason() checked the paramstyle
     version = getattr(dialect, "server_version_info", None)
-    catalog = fresh[0].catalogs.setdefault(id(conn.engine), Catalog())
-    for target in fresh[1:]:
-        target.catalogs.setdefault(id(conn.engine), catalog)
+    catalog = None
+    if _catalog_error is None:
+        catalog = fresh[0].catalogs.setdefault(id(conn.engine), Catalog())
+        for target in fresh[1:]:
+            target.catalogs.setdefault(id(conn.engine), catalog)
+    else:
+        for target in targets:
+            target.index_notices[_catalog_error] = None
     try:
         outcome = run_explain(
             conn.connection.dbapi_connection,
@@ -786,6 +805,14 @@ def check(
         for target in targets:
             target.index_notices[_stopped] = None
         return
+    if isinstance(outcome, Explained) and outcome.catalog_error is not None:
+        _catalog_error = (
+            "the index check stopped reading the catalog for the rest of the "
+            f"session: {outcome.catalog_error}; trailing index columns and "
+            "casts to text are not judged"
+        )
+        for target in targets:
+            target.index_notices[_catalog_error] = None
     if isinstance(outcome, ExplainError):
         for target in fresh:
             target.explain_errors.append((outcome.message, statement))
