@@ -1071,6 +1071,76 @@ def test_pg_text_cast_hint_only_for_varchar_columns(
 
 
 @needs_pg
+def test_pg_temporary_table_reports_the_trailing_column(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # EXPLAIN VERBOSE says "pg_temp"; pg_namespace has "pg_temp_<n>".
+    if pg16.version >= (18,):
+        pytest.skip("PostgreSQL 18 can skip-scan the leading column")
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+
+        def test_temp(session):
+            for sql in [
+                "CREATE TEMPORARY TABLE tmp_items (id int PRIMARY KEY, "
+                "tenant_id int, status text)",
+                "CREATE INDEX ON tmp_items (tenant_id, status)",
+                "INSERT INTO tmp_items SELECT g, g % 3, 's' || g % 4 "
+                "FROM generate_series(1, 30) g",
+            ]:
+                session.execute(text(sql))
+            sql = "SELECT * FROM tmp_items WHERE status = :s"
+            session.execute(text(sql), {"s": "s1"}).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "  pg_temp.tmp_items is read in full: *Index Scan using *",
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON pg_temp.tmp_items (status)",
+        ]
+    )
+
+
+@needs_pg
+def test_pg_temporary_table_with_a_varchar_column_gets_the_index_hint(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+
+        def test_temp(session):
+            for sql in [
+                "CREATE TEMPORARY TABLE tmp_casts (id int PRIMARY KEY, "
+                "label varchar(20))",
+                "INSERT INTO tmp_casts SELECT g, 'l' || g FROM "
+                "generate_series(1, 20) g",
+            ]:
+                session.execute(text(sql))
+            sql = "SELECT * FROM tmp_casts WHERE label::text = :s"
+            session.execute(text(sql), {"s": "x"}).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "  pg_temp.tmp_casts is read in full: *",
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON pg_temp.tmp_casts (label)",
+        ]
+    )
+
+
+@needs_pg
 @pytest.mark.parametrize("method", ["brin", "gin"])
 def test_pg_trailing_column_of_brin_and_gin_indexes_passes(
     project: pytest.Pytester, pg16: Postgres, method: str

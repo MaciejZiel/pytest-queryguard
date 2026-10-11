@@ -1184,13 +1184,13 @@ def test_run_explain_without_index_conditions_skips_the_lookup() -> None:
 def test_run_explain_keeps_the_plan_when_the_lookup_fails() -> None:
     plan = [{"Plan": _composite("Index Scan", "((orders.status)::text = $1)")}]
     conn = FakeConnection(result=plan)
-    conn.fail["SELECT n.nspname"] = RuntimeError("no pg_index today")
+    conn.fail["SELECT CASE"] = RuntimeError("no pg_index today")
     outcome = run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
     assert isinstance(outcome, Explained)
     assert (outcome.leading, outcome.varchar) == ({}, {})
     assert outcome.catalog_error == "no pg_index today"
     # the aborted lookup is not followed by the varchar one
-    assert len([sql for sql in conn.log if sql.startswith("SELECT n.nspname")]) == 1
+    assert len([sql for sql in conn.log if sql.startswith("SELECT CASE")]) == 1
     assert conn.log[-2] == "ROLLBACK TO SAVEPOINT queryguard_explain"
 
 
@@ -1202,6 +1202,39 @@ def test_leading_lookup_reads_btree_indexes_only() -> None:
     [lookup] = [sql for sql in conn.log if "pg_index" in sql]
     assert "JOIN pg_am am ON am.oid = c.relam" in lookup
     assert "am.amname = 'btree'" in lookup
+
+
+def test_temporary_tables_are_looked_up_by_the_connections_temp_schema() -> None:
+    node = _composite("Index Scan", "(t.status = $1)")
+    node["Schema"] = "pg_temp"
+    node["Relation Name"] = "t"
+    node["Index Name"] = "t_idx"
+    node["Filter"] = "((t.name)::text = $1)"
+    conn = FakeConnection(result=[{"Plan": node}])
+    run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
+    [lookup] = [sql for sql in conn.log if "pg_index" in sql]
+    assert "n.oid = pg_my_temp_schema() AND c.relname IN ('t_idx')" in lookup
+    assert "n.nspname, c.relname) IN" not in lookup
+    [varchar] = [sql for sql in conn.log if "typname" in sql]
+    assert "n.oid = pg_my_temp_schema() AND c.relname IN ('t')" in varchar
+
+
+def test_temporary_tables_are_not_kept_in_the_session_cache() -> None:
+    # pg_temp is a different schema on every connection.
+    node = _composite("Index Scan", "(t.status = $1)")
+    node["Schema"] = "pg_temp"
+    node["Relation Name"] = "t"
+    node["Index Name"] = "t_idx"
+    node["Filter"] = "((t.name)::text = $1)"
+    conn = FakeConnection(result=[{"Plan": node}])
+    conn.leading_rows = [("pg_temp", "t_idx", "tenant_id")]
+    conn.varchar_rows = [("pg_temp", "t", "name")]
+    catalog = Catalog()
+    outcome = run_explain(conn, "SELECT 1", leading=True, catalog=catalog)
+    assert isinstance(outcome, Explained)
+    assert outcome.leading == {("pg_temp", "t_idx"): "tenant_id"}
+    assert outcome.varchar == {("pg_temp", "t"): frozenset({"name"})}
+    assert (catalog.leading, catalog.varchar) == ({}, {})
 
 
 def test_run_explain_looks_up_varchar_columns_of_text_casts() -> None:
@@ -1231,7 +1264,7 @@ def test_run_explain_without_a_catalog_looks_nothing_up() -> None:
     conn = FakeConnection(result=plan)
     outcome = run_explain(conn, "SELECT 1", leading=True)
     assert isinstance(outcome, Explained)
-    assert not [sql for sql in conn.log if sql.startswith("SELECT n.nspname")]
+    assert not [sql for sql in conn.log if sql.startswith("SELECT CASE")]
 
 
 @pytest.mark.parametrize(
@@ -1252,11 +1285,11 @@ def test_check_gives_the_text_cast_hint_for_varchar_only(
 def test_failed_catalog_lookup_is_not_retried_in_the_session() -> None:
     plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
     conn = FakeSAConnection(FakeDialect(), result=plan)
-    conn.raw.fail["SELECT n.nspname"] = RuntimeError("permission denied for pg_index")
+    conn.raw.fail["SELECT CASE"] = RuntimeError("permission denied for pg_index")
     first, second = _collector(), _collector()
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [first])
     check(conn, "SELECT id FROM orders WHERE status = %s", False, [second])
-    lookups = [sql for sql in conn.raw.log if sql.startswith("SELECT n.nspname")]
+    lookups = [sql for sql in conn.raw.log if sql.startswith("SELECT CASE")]
     assert len(lookups) == 1
     notice = (
         "the index check stopped reading the catalog for the rest of the session: "

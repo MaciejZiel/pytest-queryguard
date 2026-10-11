@@ -491,42 +491,63 @@ def _sql_literal(text: str) -> str | None:
     return "'" + text.replace("'", "''") + "'"
 
 
-def _name_pairs(names: Iterable[tuple[str, str]]) -> str | None:
-    pairs = []
+# EXPLAIN VERBOSE prints the schema of a temporary table as "pg_temp", but
+# pg_namespace has "pg_temp_<n>" for it: the connection's own one is found
+# with pg_my_temp_schema(). Such entries belong to one connection.
+TEMP_SCHEMA = "pg_temp"
+_SCHEMA_NAME = (
+    f"CASE WHEN n.oid = pg_my_temp_schema() THEN '{TEMP_SCHEMA}' ELSE n.nspname END"
+)
+
+
+def _name_filter(names: Iterable[tuple[str, str]]) -> str | None:
+    """A condition on ``n`` and ``c`` that matches these (schema, name) pairs."""
+    pairs, temp = [], []
     for schema, name in sorted(names):
         schema_sql, name_sql = _sql_literal(schema), _sql_literal(name)
-        if schema_sql is not None and name_sql is not None:
+        if schema_sql is None or name_sql is None:
+            continue
+        if schema == TEMP_SCHEMA:
+            temp.append(name_sql)
+        else:
             pairs.append(f"({schema_sql}, {name_sql})")
-    return ", ".join(pairs) if pairs else None
+    conditions = []
+    if pairs:
+        conditions.append(f"(n.nspname, c.relname) IN ({', '.join(pairs)})")
+    if temp:
+        conditions.append(
+            f"(n.oid = pg_my_temp_schema() AND c.relname IN ({', '.join(temp)}))"
+        )
+    return " OR ".join(conditions) if conditions else None
 
 
 def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
     # Only btree: a BRIN or GIN index on (a, b) serves b = $1 as well as a.
-    pairs = _name_pairs(names)
-    if pairs is None:
+    condition = _name_filter(names)
+    if condition is None:
         return None
     return (
-        "SELECT n.nspname, c.relname, a.attname "
+        f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
         "FROM pg_index i "
         "JOIN pg_class c ON c.oid = i.indexrelid "
         "JOIN pg_am am ON am.oid = c.relam "
         "JOIN pg_namespace n ON n.oid = c.relnamespace "
         "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
-        f"WHERE (n.nspname, c.relname) IN ({pairs}) AND am.amname = 'btree'"
+        f"WHERE ({condition}) AND am.amname = 'btree'"
     )
 
 
 def _varchar_lookup(tables: Iterable[tuple[str, str]]) -> str | None:
-    pairs = _name_pairs(tables)
-    if pairs is None:
+    condition = _name_filter(tables)
+    if condition is None:
         return None
     return (
-        "SELECT n.nspname, c.relname, a.attname "
+        f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
         "FROM pg_attribute a "
         "JOIN pg_class c ON c.oid = a.attrelid "
         "JOIN pg_namespace n ON n.oid = c.relnamespace "
         "JOIN pg_type t ON t.oid = a.atttypid "
-        f"WHERE (n.nspname, c.relname) IN ({pairs}) "
+        f"WHERE ({condition}) "
         "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
     )
 
@@ -571,13 +592,17 @@ def _read_catalog(
     from a copy of the entries, never from the live dicts while they change.
     """
     names = index_names(plan) if leading else set()
-    if leading:
-        missing = names - catalog.leading.keys()
-        found = {
-            (str(r[0]), str(r[1])): str(r[2])
-            for r in _rows(cursor, _leading_lookup(missing))
-        }
-        for name in missing:
+    known_leading = {
+        name: col for name, col in list(catalog.leading.items()) if name in names
+    }
+    missing = names - known_leading.keys()
+    found = {
+        (str(r[0]), str(r[1])): str(r[2])
+        for r in _rows(cursor, _leading_lookup(missing))
+    }
+    for name in missing:
+        known_leading[name] = found.get(name)
+        if name[0] != TEMP_SCHEMA:
             catalog.leading[name] = found.get(name)
     tables = _text_cast_tables(plan)
     known = {t: v for t in tables if (v := catalog.varchar.get(t)) is not None}
@@ -586,12 +611,10 @@ def _read_catalog(
     for r in _rows(cursor, _varchar_lookup(missing_tables)):
         columns.setdefault((str(r[0]), str(r[1])), set()).add(str(r[2]))
     for table, names_ in columns.items():
-        known[table] = catalog.varchar[table] = frozenset(names_)
-    leading_map = {
-        name: col
-        for name, col in list(catalog.leading.items())
-        if col is not None and name in names
-    }
+        known[table] = frozenset(names_)
+        if table[0] != TEMP_SCHEMA:
+            catalog.varchar[table] = known[table]
+    leading_map = {name: col for name, col in known_leading.items() if col is not None}
     return leading_map, known
 
 
