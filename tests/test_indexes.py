@@ -342,12 +342,66 @@ def test_bitmap_scan_of_a_whole_index_with_an_equality_filter_is_reported() -> N
     assert (issue.kind, issue.column) == ("filter", "note")
 
 
+def test_bitmap_scan_of_a_whole_partial_index_is_reported() -> None:
+    # Before ANALYZE, a partial index ... WHERE deleted_at IS NULL is read in
+    # full as a bitmap; the Recheck Cond is then only the index predicate.
+    plan = _bitmap_whole_index(
+        "(orders.email = $1)", recheck="(orders.deleted_at IS NULL)"
+    )
+    [issue] = find_scans(plan)
+    assert issue.node == "Bitmap Heap Scan using o_inc"
+    assert (issue.kind, issue.condition, issue.column) == (
+        "filter",
+        "(orders.email = $1)",
+        "email",
+    )
+
+
+def _bitmap_combined(node_type: str, *arms: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "Node Type": "Bitmap Heap Scan",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Recheck Cond": "((orders.a = $1) OR (orders.deleted_at IS NULL))",
+        "Filter": "(orders.email = $2)",
+        "Plans": [{"Node Type": node_type, "Plans": list(arms)}],
+    }
+
+
+_WHOLE_ARM = {"Node Type": "Bitmap Index Scan", "Index Name": "o_live"}
+_COND_ARM = {
+    "Node Type": "Bitmap Index Scan",
+    "Index Name": "o_a",
+    "Index Cond": "(orders.a = $1)",
+}
+
+
 @pytest.mark.parametrize(
     "plan",
     [
+        # a range filter: pagination-like, as for Index Scan (rule 2)
         _bitmap_whole_index("(orders.total > $1)"),
-        _bitmap_whole_index("(orders.note = $1)", recheck="(orders.a = $2)"),
+        _bitmap_whole_index(
+            "(orders.created_at > $1)", recheck="(orders.deleted_at IS NULL)"
+        ),
+        # equalities on two columns
+        _bitmap_whole_index(
+            "((orders.status = $1) AND (orders.email = $2))",
+            recheck="(orders.deleted_at IS NULL)",
+        ),
+        # the bitmap has a real index condition
+        _bitmap_whole_index(
+            "(orders.note = $1)",
+            recheck="(orders.a = $2)",
+            index_cond="(orders.a = $2)",
+        ),
         _bitmap_whole_index("(orders.note = $1)", index_cond="(orders.a = $2)"),
+        # BitmapOr and BitmapAnd combine several indexes; one arm reading a
+        # whole partial index does not mean the heap is read in full
+        _bitmap_combined("BitmapOr", _WHOLE_ARM, _COND_ARM),
+        _bitmap_combined("BitmapAnd", _WHOLE_ARM, _COND_ARM),
+        _bitmap_combined("BitmapAnd", _COND_ARM, _COND_ARM),
     ],
 )
 def test_other_bitmap_scans_are_not_reported_by_rule_2(plan: dict[str, Any]) -> None:

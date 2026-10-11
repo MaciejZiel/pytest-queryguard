@@ -1153,3 +1153,126 @@ def test_pg_whole_include_index_is_reported_with_and_without_statistics(
             ),
         ]
     )
+
+
+# A partial index serves only the rows of its predicate. Before ANALYZE, the
+# planner reads it in full as a bitmap, after it as an index scan; in both
+# cases nothing narrows the read by email (issue #4).
+USERS = """
+import pytest
+from sqlalchemy import text
+
+SETUP = [
+    "CREATE TABLE users (id serial PRIMARY KEY, email text, status text, "
+    "a int, b int, created_at timestamp, deleted_at timestamp)",
+    "CREATE INDEX users_live ON users (id) WHERE deleted_at IS NULL",
+    "CREATE INDEX users_status ON users (status)",
+    "CREATE INDEX users_a ON users (a)",
+    "CREATE INDEX users_b ON users (b)",
+    "INSERT INTO users (email, status, a, b, created_at, deleted_at) "
+    "SELECT 'e' || g, 's' || (g % 4), g % 7, g % 11, now(), "
+    "CASE WHEN g % 5 = 0 THEN now() END FROM generate_series(1, 30) g",
+]
+
+
+@pytest.fixture(params=[False, True], ids=["no-stats", "analyzed"])
+def db(session, request):
+    for statement in SETUP:
+        session.execute(text(statement))
+    if request.param:
+        session.execute(text("ANALYZE users"))
+    return session
+"""
+
+
+def _users_project(project: pytest.Pytester, pg: Postgres, body: str) -> None:
+    _pg_project(project, pg)
+    project.makepyfile(test_a=USERS + "\n\n" + textwrap.dedent(body))
+
+
+@needs_pg
+def test_pg_whole_partial_index_is_reported_with_and_without_statistics(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _users_project(
+        project,
+        pg16,
+        """
+        def test_live_user(db):
+            sql = "SELECT id FROM users WHERE deleted_at IS NULL AND email = :e"
+            db.execute(text(sql), {"e": "e1"}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "*test_live_user?no-stats?*",
+            (
+                "  users is read in full: Bitmap Heap Scan using users_live "
+                "with filter (users.email = $1)"
+            ),
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON users (email)",
+            "*test_live_user?analyzed?*",
+            (
+                "  users is read in full: Index Scan using users_live "
+                "with filter (users.email = $1)"
+            ),
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON users (email)",
+        ]
+    )
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    ("sql", "params"),
+    [
+        # BitmapOr of two indexed conditions
+        ("SELECT id FROM users WHERE a = :a OR b = :b", "a=1, b=2"),
+        # BitmapAnd before ANALYZE, one index condition after it
+        ("SELECT id FROM users WHERE a = :a AND b = :b", "a=1, b=2"),
+        # a bitmap with a real index condition, filtered further
+        ("SELECT id FROM users WHERE status = :s AND email = :e", "s='s1', e='e1'"),
+        # the partial index plus an indexed equality
+        (
+            (
+                "SELECT id FROM users WHERE deleted_at IS NULL AND status = :s "
+                "AND email = :e"
+            ),
+            "s='s1', e='e1'",
+        ),
+        # a whole partial index with a range filter: pagination-like
+        (
+            "SELECT id FROM users WHERE deleted_at IS NULL AND created_at > :t",
+            "t=datetime.datetime(2026, 1, 1)",
+        ),
+        # one arm of a BitmapOr reads the whole partial index
+        (
+            (
+                "SELECT id FROM users WHERE (deleted_at IS NULL AND email = :e) "
+                "OR a = :a"
+            ),
+            "e='e1', a=1",
+        ),
+    ],
+)
+def test_pg_other_bitmap_scans_are_not_reported(
+    project: pytest.Pytester, pg16: Postgres, sql: str, params: str
+) -> None:
+    _users_project(
+        project,
+        pg16,
+        f"""
+        import datetime
+
+
+        def test_bitmap(db):
+            db.execute(text("{sql}"), dict({params})).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=2)

@@ -218,9 +218,14 @@ def _walk(
 
 
 def _whole_bitmap_index(node: Mapping[str, Any]) -> str | None:
-    """The index a Bitmap Heap Scan reads in full, without an index condition."""
-    if node.get("Recheck Cond"):
-        return None
+    """The index a Bitmap Heap Scan reads in full, without an index condition.
+
+    Only a Bitmap Index Scan directly below the heap scan counts: below a
+    BitmapAnd or BitmapOr another index narrows the read or adds to it. The
+    heap scan's Recheck Cond does not matter here; without an Index Cond it
+    is only the predicate of a partial index, which every row of the index
+    meets.
+    """
     for child in _children(node):
         if (
             isinstance(child, Mapping)
@@ -247,8 +252,9 @@ def _issue(
             return None
         return _make(rel, "Seq Scan", "filter", condition, ctx)
     if node_type == "Bitmap Heap Scan":
-        # Rule 2 again: before ANALYZE, a whole index (an INCLUDE index, say)
-        # can be read as a bitmap instead of an index-only scan.
+        # Rule 2 again: before ANALYZE, a whole index (an INCLUDE index or a
+        # partial index, say) can be read as a bitmap instead of an index or
+        # index-only scan.
         whole = _whole_bitmap_index(node)
         condition = _text(node, "Filter")
         if whole is None or condition is None:
