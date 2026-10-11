@@ -332,11 +332,23 @@ exported from `pytest_queryguard`), and `log.assert_no_nplusone()` raises
 `RuntimeError` instead of passing on a log that may be empty. This also holds
 outside pytest and with `--queryguard-mode=off`.
 
-What is public API in 0.x: `max_queries()` (and its `ValueError` for a bad
-limit), `QueryBudgetExceeded`, `record_queries()`, `QueryLog` (its
-properties and methods, not its constructor), `Query`, `CallSite`,
-`NPlusOneDetected`, `QueryGuardWarning` and `QueryGuardInternalWarning`. What
-is not: the object `with max_queries(n) as c` yields. It is still the internal
+What is public API in 0.x:
+
+- the functions and classes `max_queries()` (and its `ValueError` for a bad
+  limit), `QueryBudgetExceeded`, `record_queries()`, `QueryLog` (its
+  properties and methods, not its constructor), `Query` and `CallSite` (their
+  fields, not their constructors, which are keyword-only and may change),
+  `NPlusOneDetected`, `QueryGuardWarning` and `QueryGuardInternalWarning`;
+- the markers `max_queries(n)`, `allow_nplusone` and
+  `allow_missing_index(*tables)`;
+- the ini options `queryguard_mode`, `queryguard_relationship_threshold`,
+  `queryguard_repeat_threshold`, `queryguard_index_check` and
+  `queryguard_index_ignore_tables`;
+- the command-line flags `--queryguard-mode`, `--queryguard-report`,
+  `--queryguard-index-check` and `--no-queryguard-index-check`.
+
+What is not: the constructors of `QueryLog`, `Query` and `CallSite`, and the
+object `with max_queries(n) as c` yields. That object is still the internal
 collector in 0.x, kept as it was in 0.2, and may change in any release. Use
 `record_queries()` to read the queries.
 

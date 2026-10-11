@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outside it, and changes nothing else. A `QueryLog` is also sized, iterable and
   indexable (`len()`, `for`, `log[i]`, `log[a:b]`) but not a
   `collections.abc.Sequence`.
-- `QueryGuardInternalWarning` is now documented and exported. A
+- `QueryGuardInternalWarning` (exported since 0.2.0) is now documented. A
   `record_queries()` block that ends after an internal error (including one
   recorded before the block, which had already stopped the recording) issues
   it, saying that the log may be incomplete, and
@@ -28,11 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Public API in 0.x, stated precisely: `QueryLog` is not constructible by
-  users (only `record_queries()` creates one; its constructor takes an
-  internal type), and `max_queries()` still yields the internal collector,
-  unchanged from 0.2 and not part of the public API. Use `record_queries()`
-  to read queries.
 - `QueryLog.assert_no_nplusone()` is documented as ignoring the
   `queryguard_*` ini options: a project with a custom
   `queryguard_repeat_threshold` passes `repeat_threshold` explicitly.
