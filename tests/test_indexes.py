@@ -1063,6 +1063,21 @@ def test_check_records_explain_errors() -> None:
     assert target.scans == []
 
 
+def test_check_records_a_statement_that_keeps_failing_once() -> None:
+    # DDL forgets what was explained, so the statement is planned again.
+    conn = FakeSAConnection(FakeDialect())
+    conn.raw.fail["EXPLAIN"] = RuntimeError("cannot plan")
+    target = _collector()
+    check(conn, "SELECT $1", False, [target])
+    target.explained.clear()
+    check(conn, "SELECT $1", False, [target])
+    check(conn, "SELECT $2", False, [target])
+    assert target.explain_errors == [
+        ("cannot plan", "SELECT $1"),
+        ("cannot plan", "SELECT $2"),
+    ]
+
+
 def test_check_records_nothing_for_a_clean_plan() -> None:
     conn = FakeSAConnection(FakeDialect())
     target = _collector()

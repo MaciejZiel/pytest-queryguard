@@ -789,8 +789,10 @@ def check(
         for target in targets:
             target.index_notices[_catalog_error] = None
     if isinstance(outcome, ExplainError):
+        error = (outcome.message, statement)
         for target in fresh:
-            target.explain_errors.append((outcome.message, statement))
+            if error not in target.explain_errors:
+                target.explain_errors.append(error)
         return
     issues = find_scans(
         outcome.plan, outcome.current_schema, outcome.leading, outcome.varchar
