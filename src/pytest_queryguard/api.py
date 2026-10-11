@@ -69,12 +69,18 @@ class QueryLog:
     """The statements recorded by one ``record_queries()`` block.
 
     Inside the block it grows as statements run; after the block it no
-    longer changes.
+    longer changes. It is a sequence of ``Query`` objects: ``len()``,
+    iteration and indexing (an index or a slice) work, and an empty log is
+    falsy.
+
+    Not constructible by users: ``record_queries()`` is the only way to get
+    one. Its constructor takes an internal type and may change in any release.
     """
 
     __slots__ = ("_collector", "_done", "_error", "_frozen")
 
     def __init__(self, collector: QueryCollector) -> None:
+        # Not for direct use: only record_queries() creates a QueryLog.
         self._collector = collector
         # Set by _finish() when the block ends: an internal error during the
         # block, or the one that had already switched recording off.
@@ -136,6 +142,16 @@ class QueryLog:
         relationship lazy-loaded for ``relationship_threshold`` different
         parent objects, or one ``SELECT``, without its literals and
         parameters, run ``repeat_threshold`` times.
+
+        The thresholds are these two arguments only. The ``queryguard_*`` ini
+        options, ``queryguard_mode`` and the ``allow_nplusone`` marker are not
+        read, so a project that changes ``queryguard_repeat_threshold`` or
+        ``queryguard_relationship_threshold`` must pass the same values here.
+
+        Raises ``RuntimeError`` instead of checking when pytest-queryguard hit
+        an internal error and stopped recording, because the log may then be
+        incomplete (``record_queries()`` also warns with
+        ``QueryGuardInternalWarning`` when the block ends).
         """
         __tracebackhide__ = True
         error = self._incomplete()
