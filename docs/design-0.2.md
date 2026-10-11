@@ -140,7 +140,7 @@ a whole index, to apply a condition that an index could serve directly:
    column of a btree index: with only `(tenant_id, status)`,
    `WHERE status = $1` reads the whole index on PostgreSQL 16 and 17. The
    first key column comes from `pg_index.indkey[0]` and `pg_attribute`,
-   read inside the same savepoint, once per index per test, for btree
+   read inside the same savepoint, once per index per session (section 4.6), for btree
    indexes only (`pg_am.amname`): BRIN and GIN serve any of their columns.
    PostgreSQL 18 can skip-scan, so the rule and its lookup are not used
    there. If a catalog lookup fails, lookups stop for the session with one
@@ -167,7 +167,7 @@ or `>=` (`= ANY (...)` included), either directly or through `::text` on a
 an index on the plain column serves it only for `varchar` (checked against
 PostgreSQL 17: not for integers, enums, `char(n)` or `name`), so the check
 reads the `varchar` columns of the tables involved from `pg_attribute` and
-`pg_type`, inside the savepoint and once per table per test. Not inside a
+`pg_type`, inside the savepoint and once per table per session. Not inside a
 function call such as `lower(...)`, and not through another cast
 (`total::int`, `created_at::date`, `id::text` on an integer): an index on
 the plain column does not serve those.
@@ -187,11 +187,44 @@ returns, so the hint works as written on that connection.
   known (the same query under two aliases, as in a `UNION ALL`), otherwise
   by table and condition; each is reported once with the first statement
   and call site that produced it.
-- There is no cache across tests, for plans or for catalog lookups: another
-  test can have other tables, indexes or a different `search_path`. The
-  check costs a few round trips per distinct statement, about 2–5 ms with
-  pg8000 against a local PostgreSQL in Docker. A session-wide catalog
-  cache, cleared when a test runs DDL, is left for 0.3.
+- Plans are not cached across tests: another test can have other tables,
+  indexes, rows or a different `search_path`.
+- Catalog lookups are cached for the session (since 0.3, issue #5; 0.2.0
+  cached them per test). The cache holds, per engine, the first key column
+  of each btree index by `(schema, index)` and the `varchar` columns of
+  each table by `(schema, table)`; plans name both with their schema, so
+  `search_path` does not matter. The engine is held weakly, so an engine
+  created per test is looked up afresh. The whole cache, for every engine,
+  is dropped:
+  - when a statement seen in `after_cursor_execute`, on any engine, in a
+    test or a fixture, may change the catalog. Anything that does not start
+    with a keyword known to be safe (`SELECT`, `WITH`, `INSERT`, `UPDATE`,
+    `DELETE`, `SET`, `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `ANALYZE`,
+    `VACUUM`, `LOCK`, `COPY` and a few more) counts, as does a second
+    statement after a semicolon: `CREATE`, `DROP`, `ALTER`, `REINDEX`,
+    `TRUNCATE`, `DO`, `CALL`, `DISCARD`, `EXPLAIN` and so on. Creating a
+    new object alone could not make an entry wrong, since nothing is cached
+    for a name that did not exist, but the rule does not try to tell;
+  - when a transaction that ran such a statement commits, rolls back or
+    rolls back to a savepoint (SQLAlchemy's `commit`, `rollback` and
+    `rollback_savepoint` events, or the same statements as text). A
+    rollback can bring back an index the transaction dropped, and a commit
+    shows the change to the other connections, whose entries were read
+    before it;
+  - when such a connection is invalidated or garbage-collected with its
+    transaction open, and when `COMMIT PREPARED` or `ROLLBACK PREPARED`
+    runs;
+  - at the start and end of every pytest session, so nested `pytester`
+    sessions do not share it.
+
+  DDL that SQLAlchemy does not run in this process is not seen: a raw
+  DB-API connection, `psql`, another process (including other
+  pytest-xdist workers on a shared database) or a function called from a
+  `SELECT`. Such a change in the middle of a session can leave an index
+  judged by its old definition; this is documented as a limitation.
+  The check costs a few round trips per distinct statement, about 1 ms with
+  pg8000 against a local PostgreSQL in Docker
+  ([scripts/bench_index_check.py](../scripts/bench_index_check.py)).
 - `queryguard_index_ignore_tables` lists table names or `fnmatch` patterns
   (`countries`, `audit.*`, `lookup_*`) matched against `table` and
   `schema.table`. Small lookup tables, where a sequential scan is the right

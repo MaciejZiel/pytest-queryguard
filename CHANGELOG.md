@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The index check reads the first column of each btree index and the
+  `varchar` columns of each table from the catalog once per engine for the
+  whole session instead of once per test. Any statement that may change
+  them (`CREATE`, `DROP`, `ALTER`, `REINDEX`, `TRUNCATE` and other DDL,
+  seen in tests and fixtures alike) clears the cache, as does the end of a
+  transaction that ran one. On 100 tests with 10 indexed statements each
+  against PostgreSQL 17, the check went from about 2.3 ms to 1.2 ms per
+  statement (#5).
+
 ### Fixed
 
 - The index check now reports a partial index read in full as a bitmap.
