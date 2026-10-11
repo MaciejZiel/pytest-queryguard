@@ -25,9 +25,9 @@ from . import collector
 from .events import Catalog
 from .sqltext import QUOTED, skip_prefix
 
-# Statements that cannot drop, rename or alter an index or a column. A new
-# table or index needs no clearing: nothing is cached for a name that did
-# not exist, and reusing a name needs a DROP or ALTER first.
+# Statements that cannot drop, rename or alter an index or a column. CREATE
+# is not among them: like any statement not known to be safe, it clears the
+# cache.
 _SAFE_WORDS = """
     SELECT WITH VALUES TABLE INSERT UPDATE DELETE MERGE SHOW SET RESET
     BEGIN START SAVEPOINT RELEASE COMMIT END ROLLBACK ABORT ANALYZE ANALYSE
