@@ -562,12 +562,6 @@ Command-line options:
   and give the same findings for plain statements, `%` in SQL, expanding
   `IN`, autocommit and `stream_results`; they are LGPL-licensed, so this
   project does not depend on them or run them in CI.
-- The index check clears its catalog cache on DDL it sees through
-  SQLAlchemy in the same process. DDL run another way while the session
-  runs, through a raw DB-API connection, `psql`, another process or a
-  function called from a `SELECT`, is not seen, and the check may judge an
-  index by its old definition. A fresh pytest session starts with an empty
-  cache.
 - The index check looks only at `SELECT` and `WITH` statements and judges
   plans, not data: it says that no index can serve a filter, not that an
   existing index is a good one. A missing index that only a join would use
@@ -576,6 +570,12 @@ Command-line options:
 - A partitioned table is reported under the partition's name, and
   `queryguard_index_ignore_tables` matches partition names, not the parent
   table's.
+- The index check clears its catalog cache on DDL it sees through
+  SQLAlchemy in the same process. DDL run another way while the session
+  runs, through a raw DB-API connection, `psql`, another process or a
+  function called from a `SELECT`, is not seen, and the check may judge an
+  index by its old definition. A fresh pytest session starts with an empty
+  cache.
 - The index check's session summary is printed by the process that runs the
   tests, so under pytest-xdist it is not shown. Findings in tests are
   reported as usual.
