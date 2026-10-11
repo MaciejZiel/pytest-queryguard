@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from typing import Any
@@ -457,16 +457,27 @@ def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
     )
 
 
-def _read_leading(cursor: Any, plan: Mapping[str, Any]) -> dict[tuple[str, str], str]:
-    lookup = _leading_lookup(index_names(plan))
-    if lookup is None:
-        return {}
-    try:
-        cursor.execute(lookup)
-        rows = cursor.fetchall()
-    except Exception:  # noqa: BLE001  # without it, rule 3 is simply not applied
-        return {}
-    return {(str(r[0]), str(r[1])): str(r[2]) for r in rows or ()}
+# (schema, index) -> first key column, or None for an expression index or an
+# index the lookup did not find; filled per test, as indexes can change.
+KnownColumns = MutableMapping[tuple[str, str], str | None]
+
+
+def _read_leading(
+    cursor: Any, plan: Mapping[str, Any], known: KnownColumns
+) -> dict[tuple[str, str], str]:
+    names = index_names(plan)
+    lookup = _leading_lookup(names - known.keys())
+    if lookup is not None:
+        try:
+            cursor.execute(lookup)
+            rows = cursor.fetchall()
+        except Exception:  # noqa: BLE001  # without it, rule 3 is simply not applied
+            rows = None
+        if rows is not None:
+            found = {(str(r[0]), str(r[1])): str(r[2]) for r in rows}
+            for name in names - known.keys():
+                known[name] = found.get(name)
+    return {name: col for name in names if (col := known.get(name)) is not None}
 
 
 def _read_plan(value: object) -> Mapping[str, Any] | None:
@@ -483,12 +494,17 @@ def _read_plan(value: object) -> Mapping[str, Any] | None:
 
 
 def run_explain(
-    dbapi_connection: Any, sql: str, *, leading: bool = False
+    dbapi_connection: Any,
+    sql: str,
+    *,
+    leading: bool = False,
+    known: KnownColumns | None = None,
 ) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
     With ``leading``, the first key column of each index the plan uses with
-    an index condition is read from pg_index inside the same savepoint.
+    an index condition is read from pg_index inside the same savepoint,
+    except for the indexes already in ``known``, which is updated.
     Database errors from EXPLAIN come back as ExplainError. An error while
     opening or rolling back the savepoint raises SavepointError: the
     connection's state is then unknown, and the caller stops checking.
@@ -517,7 +533,7 @@ def run_explain(
             error = ExplainError(_error_message(exc))
         plan = None if error else _read_plan(row[0] if row else None)
         if plan is not None and leading:
-            columns = _read_leading(cursor, plan)
+            columns = _read_leading(cursor, plan, {} if known is None else known)
         _manage(cursor, undo)
     finally:
         cursor.close()
@@ -607,11 +623,13 @@ def check(
     )
     assert numbered is not None  # unsupported_reason() checked the paramstyle
     version = getattr(dialect, "server_version_info", None)
+    known = fresh[0].index_columns.setdefault(id(conn.engine), {})
     try:
         outcome = run_explain(
             conn.connection.dbapi_connection,
             numbered,
             leading=not version or version[0] < SKIP_SCAN_VERSION,
+            known=known,
         )
     except SavepointError as exc:
         # The test's transaction may be broken now; N+1 detection and budgets
@@ -623,6 +641,8 @@ def check(
         for target in targets:
             target.index_notices[_stopped] = None
         return
+    for target in fresh[1:]:
+        target.index_columns.setdefault(id(conn.engine), {}).update(known)
     if isinstance(outcome, ExplainError):
         for target in fresh:
             target.explain_errors.append((outcome.message, statement))

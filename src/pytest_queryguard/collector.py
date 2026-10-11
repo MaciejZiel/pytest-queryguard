@@ -15,6 +15,10 @@ class QueryCollector:
     scans: list[ScanEvent] = field(default_factory=list)
     index_notices: dict[str, None] = field(default_factory=dict)  # ordered set
     explain_errors: list[tuple[str, str]] = field(default_factory=list)
+    # per engine: (schema, index) -> first key column, see indexes.py
+    index_columns: dict[int, dict[tuple[str, str], str | None]] = field(
+        default_factory=dict
+    )
 
 
 # Process-wide on purpose: the code under test may run in another thread.

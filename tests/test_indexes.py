@@ -1025,6 +1025,34 @@ def test_check_looks_up_leading_columns_before_postgres_18(
     assert len(target.scans) == lookups
 
 
+def test_check_looks_up_each_index_once_per_test() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
+    target = _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
+    check(conn, "SELECT id FROM orders WHERE status = %s", False, [target])
+    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == 1
+    assert len(target.scans) == 2
+    # an index without a plain first column is remembered too
+    conn.raw.leading_rows = []
+    other = _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [other])
+    check(conn, "SELECT id FROM orders WHERE status = %s", False, [other])
+    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == 2
+    assert other.scans == []
+
+
+def test_run_explain_skips_the_lookup_for_known_indexes() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeConnection(result=plan)
+    known = {("public", "orders_tenant_id_status_idx"): "tenant_id"}
+    outcome = run_explain(conn, "SELECT 1", leading=True, known=known)
+    assert isinstance(outcome, Explained)
+    assert outcome.leading == LEADING
+    assert not [sql for sql in conn.log if "pg_index" in sql]
+
+
 # ------------------------------------------------- quoted %% per driver
 
 
