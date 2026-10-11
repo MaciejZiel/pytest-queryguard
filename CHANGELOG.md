@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-11
+
 ### Added
 
 - Missing-index check for PostgreSQL 16 and newer, off by default. With
@@ -65,5 +67,6 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MaciejZiel/pytest-queryguard/tree/v0.1.0
