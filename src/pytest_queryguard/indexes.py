@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from typing import Any
 
+from . import catalog as catalogs
 from .callsite import find_callsite
 from .collector import QueryCollector
 from .detectors import collapse_lists
@@ -758,9 +759,7 @@ def check(
     version = getattr(dialect, "server_version_info", None)
     catalog = None
     if _catalog_error is None:
-        catalog = fresh[0].catalogs.setdefault(id(conn.engine), Catalog())
-        for target in fresh[1:]:
-            target.catalogs.setdefault(id(conn.engine), catalog)
+        catalog = catalogs.for_engine(conn.engine)
     else:
         for target in targets:
             target.index_notices[_catalog_error] = None

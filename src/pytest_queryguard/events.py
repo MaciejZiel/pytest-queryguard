@@ -47,7 +47,7 @@ class ScanEvent:
 
 @dataclass(slots=True)
 class Catalog:
-    """What the index check read from the system catalogs, per engine and test."""
+    """What the index check read from the system catalogs, for one engine."""
 
     # (schema, index) -> first key column of a btree index, or None
     leading: dict[tuple[str, str], str | None] = field(default_factory=dict)

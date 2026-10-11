@@ -1276,3 +1276,112 @@ def test_pg_other_bitmap_scans_are_not_reported(
     )
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(passed=2)
+
+
+# The catalog lookups are cached for the session, per engine (issue #5). A
+# session-scoped engine keeps its cache from test to test, so DDL in a
+# fixture, and a rollback of DDL inside a test, must clear it.
+SESSION_ENGINE_CONFTEST = """
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
+
+URL = {url!r}
+SCHEMA = {schema!r}
+
+
+@pytest.fixture(scope="session")
+def engine():
+    engine = create_engine(
+        URL, connect_args={{"startup_params": {{"search_path": SCHEMA}}}}
+    )
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE events (id int PRIMARY KEY, a int, b int)"))
+        conn.execute(text("CREATE INDEX events_ab ON events (a, b)"))
+        conn.execute(text(
+            "INSERT INTO events SELECT g, g % 3, g % 4 FROM generate_series(1, 30) g"
+        ))
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def session(engine):
+    with Session(engine) as session:
+        yield session
+
+
+@pytest.fixture
+def redefined(engine):
+    with engine.begin() as conn:
+        conn.execute(text("DROP INDEX events_ab"))
+        conn.execute(text("CREATE INDEX events_ab ON events (b, a)"))
+"""
+
+
+@needs_pg
+def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    if pg16.version >= (18,):
+        pytest.skip("PostgreSQL 18 can skip-scan the leading column")
+    project.makeconftest(
+        SESSION_ENGINE_CONFTEST.format(url=pg16.url, schema=pg16.schema)
+    )
+    project.makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+
+        def test_leading_column(session):
+            session.execute(text("SELECT id FROM events WHERE a = :v"), {"v": 1}).all()
+
+
+        def test_redefined_in_a_fixture(redefined, session):
+            # events_ab is (b, a) now: a is its trailing column
+            session.execute(text("SELECT id FROM events WHERE a = :v"), {"v": 1}).all()
+
+
+        def test_redefinition_rolled_back(session):
+            session.execute(text("DROP INDEX events_ab"))
+            session.execute(text("CREATE INDEX events_ab ON events (a, b)"))
+            session.execute(text("SELECT id FROM events WHERE a = :v"), {"v": 1}).all()
+            session.rollback()
+            # events_ab is (b, a) again
+            sql = "SELECT id, b FROM events WHERE a = :v"
+            session.execute(text(sql), {"v": 1}).all()  # QG_LINE
+        """
+    )
+    path = project.path / "test_a.py"
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1, failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "*_ test_redefined_in_a_fixture _*",
+            (
+                "  events is read in full: *Index * using events_ab "
+                "with index condition (events.a = $1)"
+            ),
+            "*_ test_redefinition_rolled_back _*",
+            (
+                "  events is read in full: *Index * using events_ab "
+                "with index condition (events.a = $1)"
+            ),
+            f"  first at test_a.py:{_line(path)} in test_redefinition_rolled_back",
+        ]
+    )
+
+
+def test_each_session_starts_with_an_empty_catalog_cache(
+    project: pytest.Pytester,
+) -> None:
+    from pytest_queryguard import catalog
+
+    class Engine:
+        pass
+
+    engine = Engine()
+    catalog.for_engine(engine).leading[("public", "i")] = "a"
+    project.makepyfile(test_a=SQLITE_TEST)
+    project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
+    assert catalog.for_engine(engine).leading == {}

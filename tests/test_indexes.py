@@ -950,12 +950,21 @@ class FakeProxy:
         self.dbapi_connection = dbapi_connection
 
 
+class FakeEngine:
+    pass
+
+
 class FakeSAConnection:
     """The parts of a SQLAlchemy Connection that check() uses."""
 
-    def __init__(self, dialect: FakeDialect, result: Any = PLAN) -> None:
+    def __init__(
+        self,
+        dialect: FakeDialect,
+        result: Any = PLAN,
+        engine: FakeEngine | None = None,
+    ) -> None:
         self.dialect = dialect
-        self.engine = object()
+        self.engine = engine or FakeEngine()
         self.raw = FakeConnection(result=result)
         self.connection = FakeProxy(self.raw)
 
@@ -1260,22 +1269,66 @@ def test_check_looks_up_leading_columns_before_postgres_18(
     assert len(target.scans) == lookups
 
 
-def test_check_looks_up_each_index_once_per_test() -> None:
+def _lookups(conn: FakeSAConnection, table: str = "pg_index") -> int:
+    return len([sql for sql in conn.raw.log if table in sql])
+
+
+def test_check_looks_up_each_index_once_per_session() -> None:
     plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
-    conn = FakeSAConnection(FakeDialect(), result=plan)
+    engine = FakeEngine()
+    conn = FakeSAConnection(FakeDialect(), result=plan, engine=engine)
     conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
     target = _collector()
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
     check(conn, "SELECT id FROM orders WHERE status = %s", False, [target])
-    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == 1
+    assert _lookups(conn) == 1
     assert len(target.scans) == 2
-    # an index without a plain first column is remembered too
-    conn.raw.leading_rows = []
+    # the next test, on another connection of the same engine
+    other_conn = FakeSAConnection(FakeDialect(), result=plan, engine=engine)
     other = _collector()
-    check(conn, "SELECT * FROM orders WHERE status = %s", False, [other])
-    check(conn, "SELECT id FROM orders WHERE status = %s", False, [other])
-    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == 2
-    assert other.scans == []
+    check(other_conn, "SELECT * FROM orders WHERE status = %s", False, [other])
+    assert _lookups(other_conn) == 0
+    assert len(other.scans) == 1
+    # another engine looks it up again
+    third = FakeSAConnection(FakeDialect(), result=plan)
+    check(third, "SELECT * FROM orders WHERE status = %s", False, [_collector()])
+    assert _lookups(third) == 1
+
+
+def test_check_remembers_an_index_without_a_plain_first_column() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    first, second = _collector(), _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [first])
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [second])
+    assert _lookups(conn) == 1
+    assert first.scans == second.scans == []
+
+
+def test_check_looks_up_varchar_columns_once_per_session() -> None:
+    plan = [{"Plan": _seq(Filter="((orders.status)::text = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    conn.raw.varchar_rows = [("public", "orders", "status")]
+    for _ in range(3):
+        target = _collector()
+        check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
+        assert target.scans[0].issue.column == "status"
+    assert _lookups(conn, "pg_type") == 1
+
+
+def test_check_looks_up_again_after_ddl() -> None:
+    from pytest_queryguard import catalog
+
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [_collector()])
+    catalog.observe(conn, "DROP INDEX orders_tenant_id_status_idx")
+    conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "status")]
+    target = _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
+    assert _lookups(conn) == 2
+    assert target.scans == []
 
 
 def test_run_explain_skips_the_lookup_for_known_indexes() -> None:
@@ -1314,9 +1367,13 @@ def test_check_unescapes_quoted_percent_except_for_pg8000(
 
 @pytest.fixture(autouse=True)
 def fresh_index_state() -> Iterator[None]:
+    from pytest_queryguard import catalog
+
     old = indexes.swap_stopped(None)
     old_catalog = indexes.swap_catalog_error(None)
+    catalog.reset()
     yield
+    catalog.reset()
     indexes.swap_stopped(old)
     indexes.swap_catalog_error(old_catalog)
 
