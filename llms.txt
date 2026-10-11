@@ -1,0 +1,128 @@
+# pytest-queryguard
+
+> A pytest plugin that fails tests with N+1 queries and enforces query budgets for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer it can also fail tests whose queries have no index to use. Current release: 0.2.0, MIT license.
+
+It watches the SQL each test function body sends (fixture setup and teardown are not measured) and points to the application line that caused a finding, even when the test database has only a few rows.
+
+## Install
+
+```bash
+pip install pytest-queryguard
+```
+
+Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
+
+## Quick start
+
+Every test is checked automatically. This code passes its tests without the plugin:
+
+```python
+def list_orders(session: Session) -> list[dict[str, object]]:
+    orders = session.scalars(select(Order)).all()
+    return [{"id": order.id, "customer": order.customer.name} for order in orders]
+```
+
+With the plugin installed, a test that calls it with 50 orders fails:
+
+```
+queryguard: N+1 detected
+
+  Order.customer was lazy-loaded 50 times
+  first at app/orders.py:9 in list_orders
+  sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+  fix: load it with the parent query, e.g.
+       select(Order).options(selectinload(Order.customer))
+```
+
+A test fails when, inside the test function, one relationship is lazy-loaded for 2 or more different parent objects, or one `SELECT` (parameters and literals removed) runs 5 or more times. `INSERT`, `UPDATE` and `DELETE` are never reported as N+1; use a budget for write loops.
+
+## Markers and context manager
+
+```python
+import pytest
+from pytest_queryguard import max_queries
+
+
+@pytest.mark.max_queries(3)  # or max_queries(n=3)
+def test_order_page(client):
+    client.get("/orders/1")
+
+
+def test_checkout(service, cart):
+    with max_queries(2):  # counts only statements inside the block
+        service.checkout(cart)
+
+
+@pytest.mark.allow_nplusone  # skip N+1 detection; a budget still applies
+def test_legacy_report(session): ...
+
+
+@pytest.mark.allow_missing_index("countries", "currencies")  # no args: whole test
+def test_lookup(session): ...
+```
+
+- `max_queries` marker: fails the test when its body runs more SQL statements than the limit, writes included, whatever `queryguard_mode` is. The failure lists every statement with its call site.
+- `max_queries(limit)` context manager: raises `QueryBudgetExceeded` (a subclass of `AssertionError`) above the limit. It does not depend on pytest. It checks the budget only, not N+1.
+- Public names: `max_queries`, `QueryBudgetExceeded`, `QueryGuardWarning` (N+1 and missing indexes in `warn` mode), `QueryGuardInternalWarning` (internal error; the plugin disables itself instead of failing tests).
+- Async: `AsyncSession` and `create_async_engine` work unchanged; failures point to the `await` in your code. FastAPI `TestClient`: queries from any thread are counted.
+
+## Configuration
+
+Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, `pytest.ini` or `setup.cfg`. Any invalid value stops pytest with a usage error.
+
+| Option | Values | Default |
+|---|---|---|
+| `queryguard_mode` | `fail`, `warn`, `off` | `fail` |
+| `queryguard_relationship_threshold` | integer >= 2 | `2` |
+| `queryguard_repeat_threshold` | integer >= 2 | `5` |
+| `queryguard_index_check` | `true`, `false` | `false` |
+| `queryguard_index_ignore_tables` | table names or `fnmatch` patterns | empty |
+
+```toml
+[tool.pytest.ini_options]
+queryguard_mode = "warn"
+queryguard_repeat_threshold = 10
+queryguard_index_check = true
+queryguard_index_ignore_tables = ["countries", "lookup_*"]
+```
+
+Command-line options:
+
+- `--queryguard-mode=fail|warn|off`: overrides `queryguard_mode` for this run.
+- `--queryguard-report`: prints the 10 tests with the most queries at the end of the session.
+- `--queryguard-index-check` / `--no-queryguard-index-check`: turn the missing-index check on or off for this run.
+
+## Missing-index check (PostgreSQL 16+)
+
+Off by default. With it on, each distinct `SELECT` in a test body is planned again with `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` and sequential scans switched off, inside a savepoint on the connection that ran it. The test fails when the plan still reads a whole table to apply a filter, walks a whole index for a one-column equality filter, or (PostgreSQL 16 and 17) uses an index condition that leaves out the first column of a multicolumn btree index.
+
+```
+queryguard: missing index
+
+  orders is read in full: Seq Scan with filter (orders.customer_id = $1)
+  first at app/orders.py:11 in orders_of
+  sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = %s::INTEGER
+  fix: CREATE INDEX ON orders (customer_id)
+```
+
+Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_index_ignore_tables` or `@pytest.mark.allow_missing_index`. Statements that cannot be checked (other databases, PostgreSQL before 16, async engines, statements PostgreSQL cannot plan) do not fail the test; they are summed up once at the end of the session. Cost: a few round trips per distinct statement per test.
+
+## Limitations
+
+- SQLAlchemy 2 only. Raw DB-API connections and other ORMs are not seen.
+- Code in `site-packages` counts as library code; a non-editable install of your app makes call sites point to the test file.
+- One measurement per process at a time. Under pytest-xdist detection and budgets work per worker, but the report and the index-check summary are not shown.
+- unittest `setUp`/`tearDown` queries are counted. A non-strict `xfail` test with an N+1 is reported as xfailed.
+- The index check needs a sync engine; async engines (asyncpg, psycopg async) are skipped with a notice. It checks only `SELECT` and `WITH` statements and judges plans, not data. Join conditions alone are never reported.
+- Partitioned tables are reported under the partition's name.
+- No detection of unused eager loads, and no Django support.
+
+## Docs
+
+- [README](https://github.com/MaciejZiel/pytest-queryguard/blob/main/README.md): full usage, output examples, how it works
+- [CHANGELOG](https://github.com/MaciejZiel/pytest-queryguard/blob/main/CHANGELOG.md): changes per release
+- [PyPI](https://pypi.org/project/pytest-queryguard/): released versions
+
+## Optional
+
+- [Source](https://github.com/MaciejZiel/pytest-queryguard): repository and issue tracker

@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CallSite:
+    """A source location. Its fields are public API; its constructor is not."""
+
     filename: str
     lineno: int
     function: str
@@ -47,7 +49,7 @@ class ScanEvent:
 
 @dataclass(slots=True)
 class Catalog:
-    """What the index check read from the system catalogs, per engine and test."""
+    """What the index check read from the system catalogs, for one engine."""
 
     # (schema, index) -> first key column of a btree index, or None
     leading: dict[tuple[str, str], str | None] = field(default_factory=dict)

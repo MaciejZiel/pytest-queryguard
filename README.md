@@ -9,7 +9,8 @@ it can also fail tests whose queries have no index to use.
 ## Why
 
 ORM code that looks correct can send one query per row instead of one query
-per page:
+per page. These are N+1 queries: one query for the list, then one more for
+each row:
 
 ```python
 orders = session.scalars(select(Order)).all()  # 1 query
@@ -245,6 +246,121 @@ does not depend on pytest, so it also works in a script or a benchmark. It
 checks the budget only; N+1 detection is done by the plugin around the
 whole test.
 
+### Reading the queries in a test
+
+`record_queries()` records the SQL statements a block sends and lets the
+test read them back:
+
+```python
+from pytest_queryguard import record_queries
+
+from app.customers import fetch_customers
+from app.orders import list_orders
+
+
+def test_list_orders_loads_customers_with_the_orders(session):
+    with record_queries() as log:
+        list_orders(session)
+    assert log.count == 2
+    assert log.queries[1].sql.startswith("SELECT customer.id")
+    assert log.queries[1].relationship == "Order.customer"
+
+
+def test_fetch_customers(session):
+    with record_queries() as log:
+        fetch_customers(session, [1, 2, 3])
+    log.assert_no_nplusone(repeat_threshold=2)
+```
+
+`log.queries` is a tuple of `Query` objects, in the order the statements
+ran. The log is also sized, iterable and indexable (`len(log)`,
+`for query in log`, `log[i]` and `log[a:b]`) but not a
+`collections.abc.Sequence`, because `log.count` is a number and not the
+`count(value)` method of a sequence. An empty log is falsy. Each `Query` has:
+
+- `sql`: the statement as SQLAlchemy sent it to the driver;
+- `callsite`: a `CallSite` with `filename`, `lineno` and `function`, the
+  first frame outside SQLAlchemy, pytest, the standard library,
+  `site-packages` and the plugin, or `None`;
+- `relationship`: the relationship the statement loaded, lazily or as the
+  extra query of `selectinload`, such as `"Order.customer"`, or `None`.
+
+`log.count` is the number of statements. Both grow inside the block and
+stay fixed after it. Statements from other threads are recorded too.
+
+`QueryLog` is not constructible by users: `record_queries()` is the only way
+to get one, and its constructor may change in any release. Use the class for
+type hints only.
+
+`log.assert_no_nplusone()` applies the plugin's two N+1 rules to the
+block. It raises `NPlusOneDetected`, a subclass of `AssertionError`, with
+the plugin's message, with paths relative to pytest's rootdir (outside
+pytest, to the working directory). The thresholds are keyword arguments,
+`relationship_threshold=2` and `repeat_threshold=5` by default, the same
+defaults as the ini options.
+
+It does not read the ini options, `queryguard_mode` or the `allow_nplusone`
+marker; calling it is an explicit request. A project that sets
+`queryguard_repeat_threshold = 10` in its configuration therefore has to pass
+`repeat_threshold=10` here as well, or the helper keeps using 5 (the same for
+`queryguard_relationship_threshold` and `relationship_threshold`). With the
+`fetch_customers` loop from [Before and after](#before-and-after), the
+plugin accepts 3 lookups, because its threshold is 5, while the stricter
+call above does not (`pytest --tb=short`, Python 3.13, SQLAlchemy 2.1):
+
+```
+tests/test_queries.py .F                                                 [100%]
+
+=================================== FAILURES ===================================
+_____________________________ test_fetch_customers _____________________________
+tests/test_queries.py:18: in test_fetch_customers
+    log.assert_no_nplusone(repeat_threshold=2)
+E   pytest_queryguard.api.NPlusOneDetected: queryguard: N+1 detected
+E   
+E     the same statement ran 3 times
+E     first at app/customers.py:9 in fetch_customers
+E     SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+E     fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
+=========================== short test summary info ============================
+FAILED tests/test_queries.py::test_fetch_customers - pytest_queryguard.api.NP...
+========================= 1 failed, 1 passed in 0.05s ==========================
+```
+
+If pytest-queryguard hits an internal error, it stops recording and issues a
+`QueryGuardInternalWarning`. A `record_queries()` block that ends after such
+an error then warns that its log may be incomplete (the warning class is
+exported from `pytest_queryguard`), and `log.assert_no_nplusone()` raises
+`RuntimeError` instead of passing on a log that may be empty. This also holds
+outside pytest and with `--queryguard-mode=off`. The warning is issued when
+the block ends normally; a block left by an exception does not warn, so the
+warning never replaces the exception, but its log is still fixed at that
+point and `assert_no_nplusone()` still refuses it.
+
+What is public API in 0.x:
+
+- the functions and classes `max_queries()` (and its `ValueError` for a bad
+  limit), `QueryBudgetExceeded`, `record_queries()`, `QueryLog` (its
+  properties and methods, not its constructor), `Query` and `CallSite` (their
+  fields, not their constructors, which are keyword-only and may change),
+  `NPlusOneDetected`, `QueryGuardWarning` and `QueryGuardInternalWarning`;
+- the markers `max_queries(n)`, `allow_nplusone` and
+  `allow_missing_index(*tables)`;
+- the ini options `queryguard_mode`, `queryguard_relationship_threshold`,
+  `queryguard_repeat_threshold`, `queryguard_index_check` and
+  `queryguard_index_ignore_tables`;
+- the command-line flags `--queryguard-mode`, `--queryguard-report`,
+  `--queryguard-index-check` and `--no-queryguard-index-check`.
+
+What is not: the constructors of `QueryLog`, `Query` and `CallSite`, and the
+object `with max_queries(n) as c` yields. That object is still the internal
+collector in 0.x, kept as it was in 0.2, and may change in any release. Use
+`record_queries()` to read the queries.
+
+Recording changes nothing else. The plugin's N+1 detection, budgets and
+index check see the same statements, and `record_queries()` combines with
+`max_queries()`: `with max_queries(3), record_queries() as log:`. Like
+`max_queries()`, it also works outside pytest.
+
 ### Opting out
 
 ```python
@@ -417,7 +533,9 @@ What is reported:
   Pagination with a range or `IS NULL` filter (`WHERE total > 0 ORDER BY id
   LIMIT 20`) walks the primary key on purpose and is not reported. A whole
   index read as a bitmap, which PostgreSQL may choose before `ANALYZE` for
-  an `INCLUDE` index, counts the same way;
+  an `INCLUDE` index or a partial index (`... WHERE deleted_at IS NULL`),
+  counts the same way. A bitmap that combines several indexes (`OR`, or
+  `AND` of indexed columns) is not reported;
 - an index condition, an equality on one column, that leaves out the first
   column of a multicolumn btree index: with only an index on
   `(tenant_id, status)`, `WHERE status = ?` reads the whole index on
@@ -441,20 +559,28 @@ enum or `char(n)` column, gets
 `add an index that matches this condition (an expression index may be needed)`,
 because an index on the plain column would not help there.
 
-Each distinct statement is explained once per test, inside a savepoint on
+Each distinct statement is explained once per test (again after DDL
+changes the catalog), inside a savepoint on
 the connection that ran it, so the check sees tables and rows the test has
 not committed yet and leaves the test's transaction as it was. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 
 The check costs a few database round trips per distinct statement per test:
-open the savepoint, set the planner settings, `EXPLAIN`, read from the
-catalog the first column of the btree indexes the plan uses and the
-`varchar` columns of tables cast to text (once per index or table per
-test), and roll back. With pg8000 against PostgreSQL 17 in a local Docker
-container, 100 tests with 10 distinct statements each went from 2.2–2.4 s
-to 3.9–7.3 s over three runs, about 2–5 ms per statement. Most of that is round-trip time, so it is lower
-with a faster connection to the database.
+open the savepoint, set the planner settings, `EXPLAIN` and roll back. The
+first column of the btree indexes a plan uses and the `varchar` columns of
+tables cast to text are read from the catalog once per engine for the whole
+session. Any statement that may change them, such as `CREATE INDEX`,
+`DROP TABLE` or `ALTER TABLE`, clears that cache, in a test or a fixture,
+and so does the end of a transaction that ran one. A suite that runs
+`create_all` and `drop_all` around every test therefore clears the cache
+every test and gets no speed-up from it. With pg8000 against
+PostgreSQL 17 in a local Docker container, a suite of 100 tests that each
+run the same 10 indexed statements on a session-scoped engine
+([scripts/bench_index_check.py](https://github.com/MaciejZiel/pytest-queryguard/blob/main/scripts/bench_index_check.py)) took
+1.2–1.8 s without the check and 2.0–2.9 s with it, over 12 runs: about
+1 ms per statement. Most of that is round-trip time, so it is lower with a
+faster connection to the database.
 
 A sequential scan is the right plan for a small lookup table, also in
 production. Exclude such tables with `queryguard_index_ignore_tables`, one
@@ -604,6 +730,12 @@ Command-line options:
 - A partitioned table is reported under the partition's name, and
   `queryguard_index_ignore_tables` matches partition names, not the parent
   table's.
+- The index check clears its catalog cache on DDL it sees through
+  SQLAlchemy in the same process. DDL run another way while the session
+  runs, through a raw DB-API connection, `psql`, another process or a
+  function called from a `SELECT`, is not seen, and the check may judge an
+  index by its old definition. A fresh pytest session starts with an empty
+  cache.
 - The index check's session summary is printed by the process that runs the
   tests, so under pytest-xdist it is not shown. Findings in tests are
   reported as usual.
@@ -624,7 +756,7 @@ which nplusone does.
 
 ## Roadmap
 
-- 0.2 (unreleased): missing index detection on PostgreSQL 16 and newer, see
+- 0.2.0 (released): missing index detection on PostgreSQL 16 and newer, see
   [Missing indexes](#missing-indexes-postgresql-16-and-newer).
 - Later: Django ORM support.
 

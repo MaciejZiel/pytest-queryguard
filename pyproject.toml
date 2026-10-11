@@ -11,9 +11,21 @@ requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Maciej Zieliński" }]
-keywords = ["pytest", "sqlalchemy", "n+1", "testing", "fastapi"]
+keywords = [
+    "pytest",
+    "sqlalchemy",
+    "n+1",
+    "n-plus-one",
+    "query-budget",
+    "orm",
+    "postgresql",
+    "missing-index",
+    "testing",
+    "fastapi",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
     "Framework :: Pytest",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
@@ -24,6 +36,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
     "Topic :: Software Development :: Testing",
     "Typing :: Typed",
 ]
@@ -57,7 +70,8 @@ dev = [
 [tool.hatch.version]
 path = "src/pytest_queryguard/__init__.py"
 
-# An allowlist, so CI config and any untracked local files stay out of the sdist.
+# An allowlist, so CI config, context7.json and any untracked local files stay
+# out of the sdist. llms.txt is documentation and ships with it.
 [tool.hatch.build.targets.sdist]
 only-include = [
     "src",
@@ -66,6 +80,7 @@ only-include = [
     "3rdparty_licenses.md",
     "CHANGELOG.md",
     "LICENSE",
+    "llms.txt",
     "README.md",
     "pyproject.toml",
 ]

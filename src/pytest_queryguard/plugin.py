@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import warnings as std_warnings
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from . import indexes
+from . import catalog, indexes
 from .collector import QueryCollector, pop, push
 from .detectors import detect
 from .indexes import select_findings
@@ -22,6 +23,7 @@ from .messages import (
     format_findings,
     format_index_findings,
     format_index_notes,
+    swap_root,
 )
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
@@ -31,6 +33,7 @@ _outer_error = pytest.StashKey[BaseException | None]()
 _outer_stopped = pytest.StashKey[str | None]()
 _outer_catalog_error = pytest.StashKey[str | None]()
 _outer_no_plpgsql = pytest.StashKey[bool]()
+_outer_root = pytest.StashKey[Path | None]()
 _settings = pytest.StashKey["_Settings"]()
 _report = pytest.StashKey[list[tuple[str, int]]]()
 _index_notes = pytest.StashKey["_IndexNotes"]()
@@ -211,6 +214,9 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[_outer_stopped] = indexes.swap_stopped(None)
     config.stash[_outer_catalog_error] = indexes.swap_catalog_error(None)
     config.stash[_outer_no_plpgsql] = indexes.swap_no_plpgsql(False)
+    config.stash[_outer_root] = swap_root(config.rootpath)
+    # A nested session (pytester) may change the database; start afresh.
+    catalog.reset()
     settings = _read_settings(config)
     config.stash[_settings] = settings
     if config.getoption("queryguard_report"):
@@ -226,6 +232,8 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     indexes.swap_stopped(config.stash.get(_outer_stopped, None))
     indexes.swap_catalog_error(config.stash.get(_outer_catalog_error, None))
     indexes.swap_no_plpgsql(config.stash.get(_outer_no_plpgsql, False))
+    swap_root(config.stash.get(_outer_root, None))
+    catalog.reset()
 
 
 def _report_internal_error(config: pytest.Config) -> None:

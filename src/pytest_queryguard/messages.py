@@ -13,6 +13,25 @@ _REPEAT_FIX = (
 )
 
 
+_root: Path | None = None
+
+
+def swap_root(new: Path | None) -> Path | None:
+    """Set the directory paths are shown relative to; return the previous one.
+
+    The plugin sets pytest's rootdir for the session, so messages built
+    outside the plugin's own hooks (``QueryLog.assert_no_nplusone()``) show
+    the same paths. Without it, they are relative to the working directory.
+    """
+    global _root
+    old, _root = _root, new
+    return old
+
+
+def display_root() -> Path:
+    return _root if _root is not None else Path.cwd()
+
+
 def _display_path(filename: str, cwd: Path | None) -> str:
     base = cwd if cwd is not None else Path.cwd()
     path = Path(filename)
