@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from .detectors import Finding, RelationshipFinding
-from .events import CallSite, StatementEvent
+from .events import CallSite, ScanEvent, StatementEvent
+from .indexes import table_label
 
 _SQL_LIMIT = 200
 _REPEAT_FIX = (
@@ -78,4 +79,35 @@ def format_budget(
         if stmt.callsite is not None:
             line += f"  ({_location(stmt.callsite, cwd)})"
         lines.append(line)
+    return "\n".join(lines)
+
+
+def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
+    issue = scan.issue
+    table = table_label(issue.schema, issue.table)
+    where = "with filter" if issue.kind == "filter" else "for join condition"
+    if issue.column is None:
+        fix = "add an index that matches this condition"
+    else:
+        fix = f"CREATE INDEX ON {table} ({issue.column})"
+    return [
+        f"  {table} is read in full: {issue.node} {where} {_truncate(issue.condition)}",
+        _first_at(scan.callsite, cwd),
+        f"  sql: {_truncate(scan.sql)}",
+        f"  fix: {fix}",
+    ]
+
+
+def format_index_findings(scans: list[ScanEvent], *, cwd: Path | None = None) -> str:
+    lines = ["queryguard: missing index"]
+    for scan in scans:
+        lines.append("")
+        lines.extend(_scan_block(scan, cwd))
+    lines.extend(
+        [
+            "",
+            "  a sequential scan is fine on a small lookup table:",
+            "  list it in queryguard_index_ignore_tables",
+        ]
+    )
     return "\n".join(lines)
