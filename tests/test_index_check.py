@@ -125,11 +125,19 @@ def test_missing_plpgsql_flag_does_not_leak_between_sessions(
 ) -> None:
     from pytest_queryguard import indexes
 
-    assert indexes.swap_no_plpgsql(frozenset({1})) == frozenset()
+    marked = frozenset({1})
+    assert not indexes.swap_no_plpgsql(marked)
     try:
-        project.makepyfile(test_a=SQLITE_TEST)
+        project.makepyfile(
+            test_a="""
+            from pytest_queryguard import indexes
+
+            def test_starts_clean():
+                assert not indexes.swap_no_plpgsql(frozenset())
+            """
+        )
         project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
-        assert indexes.swap_no_plpgsql(frozenset()) == frozenset({1})
+        assert indexes.swap_no_plpgsql(frozenset()) == marked
     except BaseException:
         indexes.swap_no_plpgsql(frozenset())
         raise
