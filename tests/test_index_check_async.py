@@ -1,0 +1,425 @@
+"""The missing-index check on async engines (asyncpg), end to end.
+
+Like tests/test_index_check.py, these tests need QUERYGUARD_PG_URL. They
+reach the same server through asyncpg.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+# pytester drops modules first imported by an inner run from sys.modules when
+# that run ends, and importing asyncpg's compiled modules again in a later run
+# crashes the interpreter. Importing them here keeps them loaded.
+try:
+    import asyncpg  # noqa: F401
+    import greenlet  # noqa: F401
+    import sqlalchemy.dialects.postgresql.asyncpg
+    import sqlalchemy.ext.asyncio  # noqa: F401
+except ImportError:  # pragma: no cover - asyncpg is a test dependency
+    HAS_ASYNCPG = False
+else:
+    HAS_ASYNCPG = True
+
+from tests import test_index_check as sync_tests
+
+# The PostgreSQL helpers and fixtures of the sync tests; fixtures are found
+# by their names in this module.
+PG_URL = sync_tests.PG_URL
+Postgres = sync_tests.Postgres
+needs_pg = sync_tests.needs_pg
+project = sync_tests.project
+postgres = sync_tests.postgres
+pg16 = sync_tests.pg16
+_line = sync_tests._line
+
+# pytester runs sessions in-process, so the outer plugin sees their queries too.
+pytestmark = pytest.mark.allow_nplusone
+
+
+# The same database through asyncpg. NullPool: each asyncio.run() has its own
+# event loop, and an asyncpg connection cannot move to another one.
+ASYNC_CONFTEST = """
+import asyncio
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from qgmodels import Base, Customer, Order
+
+URL = {url!r}
+SCHEMA = {schema!r}
+
+
+def make_engine(**kwargs):
+    return create_async_engine(
+        URL,
+        connect_args={{"server_settings": {{"search_path": SCHEMA}}}},
+        poolclass=NullPool,
+        **kwargs,
+    )
+
+
+async def _create(engine):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with AsyncSession(engine) as session:
+        for c in range(1, 4):
+            customer = Customer(id=c, name=f"customer {{c}}")
+            customer.orders = [Order(id=c * 10 + o) for o in range(2)]
+            session.add(customer)
+        await session.commit()
+
+
+async def _drop(engine):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
+
+
+@pytest.fixture
+def engine():
+    engine = make_engine()
+    asyncio.run(_create(engine))
+    yield engine
+    asyncio.run(_drop(engine))
+"""
+
+
+def _async_url(url: str) -> str:
+    from sqlalchemy.engine import make_url
+
+    async_url = make_url(url).set(drivername="postgresql+asyncpg")
+    return async_url.render_as_string(hide_password=False)
+
+
+@pytest.fixture
+def pg16_async(pg16: Postgres) -> Postgres:
+    if not HAS_ASYNCPG:  # pragma: no cover - asyncpg is a test dependency
+        pytest.skip("asyncpg is not installed")
+    return Postgres(_async_url(pg16.url), pg16.schema, pg16.version)
+
+
+def _async_project(project: pytest.Pytester, pg: Postgres) -> pytest.Pytester:
+    project.makeconftest(ASYNC_CONFTEST.format(url=pg.url, schema=pg.schema))
+    return project
+
+
+ASYNC_ORDERS_OF_CUSTOMER = """
+import asyncio
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from qgmodels import Order
+
+
+async def orders_of(engine, customer_id):
+    async with AsyncSession(engine) as session:
+        stmt = select(Order).where(Order.customer_id == customer_id)
+        return (await session.scalars(stmt)).all()  # QG_LINE
+
+
+def test_orders(engine):
+    assert len(asyncio.run(orders_of(engine, 1))) == 2
+"""
+
+
+@needs_pg
+def test_pg_async_seq_scan_fails_with_table_condition_sql_site_and_hint(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    path = _async_project(project, pg16_async).makepyfile(
+        test_a=ASYNC_ORDERS_OF_CUSTOMER
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*queryguard: missing index",
+            "",
+            "  orders is read in full: Seq Scan with filter (orders.customer_id = $1)",
+            f"  first at test_a.py:{_line(path)} in orders_of",
+            (
+                "  sql: SELECT orders.id, orders.customer_id FROM orders "
+                "WHERE orders.customer_id = $1::INTEGER"
+            ),
+            "  fix: CREATE INDEX ON orders (customer_id)",
+        ]
+    )
+    result.stdout.no_fnmatch_line("*were not checked*")
+
+
+@needs_pg
+def test_pg_async_index_created_in_the_test_transaction_is_seen(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    _async_project(project, pg16_async).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import select, text
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        from qgmodels import Order
+
+
+        async def main(engine):
+            async with AsyncSession(engine) as session:
+                await session.execute(text("CREATE INDEX ON orders (customer_id)"))
+                stmt = select(Order).where(Order.customer_id == 1)
+                assert len((await session.scalars(stmt)).all()) == 2
+                await session.rollback()
+
+
+        def test_orders(engine):
+            asyncio.run(main(engine))
+        """
+    )
+    project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
+
+
+@needs_pg
+def test_pg_async_check_leaves_the_transaction_and_settings_alone(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    _async_project(project, pg16_async).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        from conftest import SCHEMA
+        from qgmodels import Customer
+
+
+        async def main(engine):
+            async with AsyncSession(engine) as session:
+                session.add(Customer(id=9, name="new"))
+                await session.flush()
+                # a table created in this open transaction is visible to the check
+                await session.execute(text("CREATE TABLE scratch (a int)"))
+                await session.execute(
+                    text("SELECT a FROM scratch WHERE a = :a"), {"a": 1}
+                )
+                # planning this again with search_path moved away fails
+                await session.execute(
+                    text(
+                        "SELECT set_config('search_path', 'nowhere', true), "
+                        "count(*) FROM orders"
+                    )
+                )
+                await session.execute(
+                    text("SELECT set_config('search_path', :schema, true)"),
+                    {"schema": SCHEMA},
+                )
+                show = text("SHOW enable_seqscan")
+                assert (await session.execute(show)).scalar() == "on"
+                show = text("SHOW statement_timeout")
+                assert (await session.execute(show)).scalar() == "0"
+                name = text("SELECT name FROM customers WHERE id = 9")
+                assert (await session.execute(name)).scalar_one() == "new"
+                assert session.in_transaction()
+                await session.rollback()
+                assert await session.get(Customer, 9) is None
+
+
+        def test_state(engine):
+            asyncio.run(main(engine))
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "  scratch is read in full: Seq Scan with filter (scratch.a = $1)",
+            "*= queryguard index check =*",
+            (
+                "1 statement could not be explained; the first: "
+                'relation "orders" does not exist'
+            ),
+            "  SELECT set_config('search_path', 'nowhere', true), count(*) FROM orders",
+        ]
+    )
+    result.stdout.no_fnmatch_line("*AssertionError*")
+
+
+@needs_pg
+def test_pg_async_autocommit_connection(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    _async_project(project, pg16_async).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import select, text
+
+        from conftest import make_engine
+        from qgmodels import Order
+
+
+        async def main():
+            auto = make_engine(isolation_level="AUTOCOMMIT")
+            try:
+                async with auto.connect() as conn:
+                    stmt = select(Order.id).where(Order.customer_id == 1)
+                    assert len((await conn.execute(stmt)).all()) == 2
+                    show = text("SHOW enable_seqscan")
+                    assert (await conn.execute(show)).scalar() == "on"
+            finally:
+                await auto.dispose()
+
+
+        def test_autocommit(engine):
+            asyncio.run(main())
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["  orders is read in full: Seq Scan with filter*"])
+    result.stdout.no_fnmatch_line("*AssertionError*")
+
+
+@needs_pg
+def test_pg_async_joinedload_reports_the_joined_table(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    _async_project(project, pg16_async).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import joinedload
+
+        from qgmodels import Customer
+
+
+        async def main(engine):
+            async with AsyncSession(engine) as session:
+                stmt = (
+                    select(Customer)
+                    .options(joinedload(Customer.orders))
+                    .where(Customer.id == 1)
+                )
+                result = await session.scalars(stmt)
+                assert len(result.unique().one().orders) == 2
+
+
+        def test_customer(engine):
+            asyncio.run(main(engine))
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            (
+                "  orders is read in full: Seq Scan with filter "
+                "(orders_1.customer_id = $1)"
+            ),
+            "  fix: CREATE INDEX ON orders (customer_id)",
+        ]
+    )
+
+
+# The DO block must give the plan a plain EXPLAIN gives: compare both, on
+# the same tables, for statements of every shape the rules look at.
+EQUAL_PLANS_SETUP = [
+    "CREATE TABLE owners (id int PRIMARY KEY, name text)",
+    (
+        "CREATE TABLE items (id serial PRIMARY KEY, owner_id int, tenant_id int, "
+        "status text, label varchar(20), total numeric, deleted_at timestamp)"
+    ),
+    "CREATE INDEX items_tenant_status ON items (tenant_id, status)",
+    "CREATE INDEX items_live ON items (id) WHERE deleted_at IS NULL",
+    "INSERT INTO owners SELECT g, 'o' || g FROM generate_series(1, 5) g",
+    (
+        "INSERT INTO items (owner_id, tenant_id, status, label, total) "
+        "SELECT g % 5 + 1, g % 3, 's' || (g % 4), 'l' || g, g "
+        "FROM generate_series(1, 30) g"
+    ),
+]
+EQUAL_PLANS_STATEMENTS = [
+    "SELECT * FROM items WHERE owner_id = $1",
+    "SELECT * FROM items WHERE owner_id = $1 ORDER BY id LIMIT 10",
+    "SELECT * FROM items WHERE status = $1",
+    "SELECT * FROM items WHERE tenant_id = $1 AND status = $2",
+    (
+        "SELECT o.name, i.id FROM owners o JOIN items i ON i.owner_id = o.id "
+        "WHERE o.id = $1"
+    ),
+    "SELECT * FROM items WHERE id = ANY($1::int[])",
+    "SELECT * FROM items WHERE label = $1::varchar",
+    "SELECT * FROM items WHERE label LIKE 'x%' AND owner_id = $1",
+    "SELECT '$qg_sql$' AS t, $$q$$ AS u FROM items WHERE owner_id = $1",
+    (
+        "SELECT o.id, (SELECT count(*) FROM items i WHERE i.owner_id = o.id) "
+        "FROM owners o"
+    ),
+    "WITH x AS (SELECT * FROM items WHERE total > $1) SELECT * FROM x",
+    "SELECT id FROM items WHERE deleted_at IS NULL AND label = $1",
+    "/* tagged */ SELECT id FROM items WHERE total = $1",
+]
+
+
+@needs_pg
+def test_pg_async_plans_equal_plain_explain_plans(pg16_async: Postgres) -> None:
+    import asyncio
+
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from pytest_queryguard.indexes import Explained, find_scans, run_explain
+
+    assert PG_URL is not None
+    schema = pg16_async.schema
+    sync = create_engine(
+        PG_URL, connect_args={"startup_params": {"search_path": schema}}
+    )
+    with sync.begin() as conn:
+        for statement in EQUAL_PLANS_SETUP:
+            conn.execute(text(statement))
+
+    def sync_plans() -> list[object]:
+        with sync.connect() as conn:
+            conn.execute(text("SELECT 1"))  # opens the transaction
+            raw = conn.connection.dbapi_connection
+            return [run_explain(raw, sql) for sql in EQUAL_PLANS_STATEMENTS]
+
+    async def async_plans() -> list[object]:
+        engine = create_async_engine(
+            pg16_async.url,
+            connect_args={"server_settings": {"search_path": schema}},
+            poolclass=NullPool,
+        )
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+                return await conn.run_sync(
+                    lambda sync_conn: [
+                        run_explain(
+                            sync_conn.connection.dbapi_connection, sql, asyncpg=True
+                        )
+                        for sql in EQUAL_PLANS_STATEMENTS
+                    ]
+                )
+        finally:
+            await engine.dispose()
+
+    try:
+        expected, got = sync_plans(), asyncio.run(async_plans())
+    finally:
+        sync.dispose()
+    for sql, plain, in_block in zip(EQUAL_PLANS_STATEMENTS, expected, got, strict=True):
+        assert isinstance(plain, Explained), (sql, plain)
+        assert in_block == plain, sql
+    findings = [
+        find_scans(e.plan, e.current_schema)
+        for e in expected
+        if isinstance(e, Explained)
+    ]
+    assert any(findings), "the statements should include missing indexes"
