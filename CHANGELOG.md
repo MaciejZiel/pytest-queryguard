@@ -15,8 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `count`, and `assert_no_nplusone()`, which applies the N+1 rules to the
   block and raises `NPlusOneDetected`. `Query`, `QueryLog`, `CallSite` and
   `NPlusOneDetected` are exported for type hints. It works in pytest and
-  outside it, and changes nothing else. A `QueryLog` is also a sequence of
-  its queries (`len()`, iteration, indexing and slicing).
+  outside it, and changes nothing else. A `QueryLog` is also sized, iterable and
+  indexable (`len()`, `for`, `log[i]`, `log[a:b]`) but not a
+  `collections.abc.Sequence`.
 - `QueryGuardInternalWarning` is now documented and exported. A
   `record_queries()` block that ends after an internal error (including one
   recorded before the block, which had already stopped the recording) issues

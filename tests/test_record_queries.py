@@ -8,7 +8,7 @@ import sys
 import textwrap
 import threading
 import warnings
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -142,7 +142,7 @@ def test_a_finished_log_builds_its_queries_once() -> None:
     assert log[0] is log.queries[0]
 
 
-def test_a_log_is_a_sequence_of_queries() -> None:
+def test_a_log_is_sized_iterable_and_indexable() -> None:
     engine = create_engine("sqlite://")
     with engine.connect() as conn, record_queries() as log:
         conn.execute(text("select 1"))
@@ -162,12 +162,19 @@ def test_a_log_is_a_sequence_of_queries() -> None:
         log["sql"]  # type: ignore[call-overload]
 
 
-def test_an_empty_log_is_falsy_like_any_sequence() -> None:
+def test_an_empty_log_is_falsy_like_any_sized_container() -> None:
     with record_queries() as log:
         pass
     assert len(log) == 0
     assert not log
     assert list(log) == []
+
+
+def test_a_log_is_not_a_collections_abc_sequence() -> None:
+    # count is a property, not Sequence.count(value); the docs say so.
+    with record_queries() as log:
+        pass
+    assert not isinstance(log, Sequence)
 
 
 def test_query_and_call_site_are_frozen_values() -> None:

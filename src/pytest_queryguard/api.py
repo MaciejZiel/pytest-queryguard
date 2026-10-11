@@ -77,9 +77,10 @@ class QueryLog:
     """The statements recorded by one ``record_queries()`` block.
 
     Inside the block it grows as statements run; after the block it no
-    longer changes. It is a sequence of ``Query`` objects: ``len()``,
-    iteration and indexing (an index or a slice) work, and an empty log is
-    falsy.
+    longer changes. It is sized, iterable and indexable (``len()``, ``for``,
+    ``log[i]`` and ``log[a:b]``) but not a ``collections.abc.Sequence``: its
+    ``count`` is a number, not the ``count(value)`` method of a sequence. An
+    empty log is falsy, like any sized container.
 
     Not constructible by users: ``record_queries()`` is the only way to get
     one. Its constructor takes an internal type and may change in any release.

@@ -49,7 +49,7 @@ Exported from `pytest_queryguard`:
 | Name | Kind | Meaning |
 |---|---|---|
 | `record_queries()` | context manager | Records every SQL statement SQLAlchemy sends inside the block, from any thread, and yields a `QueryLog`. |
-| `QueryLog` | class | `queries` is a tuple of `Query`, in the order they ran. `count` is their number. Both are live inside the block and fixed after it. The log is also a sequence (`len()`, iteration, indexing, slicing). It is not constructible by users. `assert_no_nplusone(relationship_threshold=2, repeat_threshold=5)` raises `NPlusOneDetected` with the plugin's own failure text. |
+| `QueryLog` | class | `queries` is a tuple of `Query`, in the order they ran. `count` is their number. Both are live inside the block and fixed after it. The log is also sized, iterable and indexable (`len()`, `for`, `log[i]`, `log[a:b]`) but not a `collections.abc.Sequence` (`count` is a number, not `count(value)`). It is not constructible by users. `assert_no_nplusone(relationship_threshold=2, repeat_threshold=5)` raises `NPlusOneDetected` with the plugin's own failure text. |
 | `Query` | frozen dataclass | `sql` is the statement text as sent to the driver. `callsite` is a `CallSite`, or `None` when no frame outside libraries was found. `relationship` is `"Order.customer"` when the statement loaded that relationship, lazily or as the extra query of `selectinload`, otherwise `None`. |
 | `CallSite` | frozen dataclass | `filename` (absolute), `lineno`, `function`: the first frame outside SQLAlchemy, pytest, the standard library, `site-packages` and the plugin. |
 | `QueryGuardInternalWarning` | warning | A subclass of `UserWarning`. Issued when a block ends after an internal error, because its log may be incomplete. |

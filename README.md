@@ -272,8 +272,10 @@ def test_fetch_customers(session):
 ```
 
 `log.queries` is a tuple of `Query` objects, in the order the statements
-ran. The log is also a sequence: `len(log)`, `for query in log` and
-`log[0]` or `log[1:]` work, and an empty log is falsy. Each `Query` has:
+ran. The log is also sized, iterable and indexable (`len(log)`,
+`for query in log`, `log[i]` and `log[a:b]`) but not a
+`collections.abc.Sequence`, because `log.count` is a number and not the
+`count(value)` method of a sequence. An empty log is falsy. Each `Query` has:
 
 - `sql`: the statement as SQLAlchemy sent it to the driver;
 - `callsite`: a `CallSite` with `filename`, `lineno` and `function`, the
