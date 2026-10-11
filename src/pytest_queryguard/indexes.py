@@ -20,6 +20,7 @@ from .events import Catalog, ScanEvent, ScanIssue
 from .sqltext import QUOTED, skip_prefix
 
 MIN_SERVER_VERSION = 16
+ASYNCPG = "asyncpg"  # the one async driver the check supports
 _SAVEPOINT = "queryguard_explain"
 _SETTINGS = (
     "SELECT set_config('enable_seqscan', 'off', true), "
@@ -460,6 +461,7 @@ def select_findings(
 @dataclass(frozen=True, slots=True)
 class ExplainError:
     message: str
+    sqlstate: str | None = None
 
 
 def _error_message(exc: Exception) -> str:
@@ -521,35 +523,87 @@ def _name_filter(names: Iterable[tuple[str, str]]) -> str | None:
     return " OR ".join(conditions) if conditions else None
 
 
-def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
-    # Only btree: a BRIN or GIN index on (a, b) serves b = $1 as well as a.
+def _name_arrays(
+    names: Iterable[tuple[str, str]],
+) -> tuple[list[str], list[str], list[str]]:
+    """The names _name_filter() would keep, as the three arrays of a lookup.
+
+    Schemas and relations are parallel arrays of ordinary (schema, name) pairs;
+    the third holds the names of temporary relations, whose schema is the
+    connection's own.
+    """
+    schemas: list[str] = []
+    relations: list[str] = []
+    temp: list[str] = []
+    for schema, name in sorted(names):
+        if _sql_literal(schema) is None or _sql_literal(name) is None:
+            continue
+        if schema == TEMP_SCHEMA:
+            temp.append(name)
+        else:
+            schemas.append(schema)
+            relations.append(name)
+    return schemas, relations, temp
+
+
+# A lookup: its SQL and, for asyncpg, the parameters of that SQL.
+_Lookup = tuple[str, tuple[Any, ...]]
+
+# asyncpg prepares and caches (100, least recently used first out) every
+# distinct statement text it fetches rows for. The names must therefore not
+# be literals in the text: with array parameters each lookup is one cached
+# statement however many tables and indexes the suite touches.
+_NAMES_ARRAYS = (
+    "((n.nspname, c.relname) IN (SELECT * FROM unnest($1::text[], $2::text[])) "
+    "OR (n.oid = pg_my_temp_schema() AND c.relname = ANY($3::text[])))"
+)
+
+_LEADING_LOOKUP = (
+    f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
+    "FROM pg_index i "
+    "JOIN pg_class c ON c.oid = i.indexrelid "
+    "JOIN pg_am am ON am.oid = c.relam "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
+    "WHERE {names} AND am.amname = 'btree'"
+)
+
+_VARCHAR_LOOKUP = (
+    f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
+    "FROM pg_attribute a "
+    "JOIN pg_class c ON c.oid = a.attrelid "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "JOIN pg_type t ON t.oid = a.atttypid "
+    "WHERE {names} "
+    "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
+)
+
+
+def _lookup(
+    template: str, names: Iterable[tuple[str, str]], asyncpg: bool
+) -> _Lookup | None:
+    if asyncpg:
+        schemas, relations, temp = _name_arrays(names)
+        if not (schemas or temp):
+            return None
+        return template.format(names=_NAMES_ARRAYS), (schemas, relations, temp)
     condition = _name_filter(names)
     if condition is None:
         return None
-    return (
-        f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
-        "FROM pg_index i "
-        "JOIN pg_class c ON c.oid = i.indexrelid "
-        "JOIN pg_am am ON am.oid = c.relam "
-        "JOIN pg_namespace n ON n.oid = c.relnamespace "
-        "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
-        f"WHERE ({condition}) AND am.amname = 'btree'"
-    )
+    return template.format(names=f"({condition})"), ()
 
 
-def _varchar_lookup(tables: Iterable[tuple[str, str]]) -> str | None:
-    condition = _name_filter(tables)
-    if condition is None:
-        return None
-    return (
-        f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
-        "FROM pg_attribute a "
-        "JOIN pg_class c ON c.oid = a.attrelid "
-        "JOIN pg_namespace n ON n.oid = c.relnamespace "
-        "JOIN pg_type t ON t.oid = a.atttypid "
-        f"WHERE ({condition}) "
-        "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
-    )
+def _leading_lookup(
+    names: Iterable[tuple[str, str]], asyncpg: bool = False
+) -> _Lookup | None:
+    # Only btree: a BRIN or GIN index on (a, b) serves b = $1 as well as a.
+    return _lookup(_LEADING_LOOKUP, names, asyncpg)
+
+
+def _varchar_lookup(
+    tables: Iterable[tuple[str, str]], asyncpg: bool = False
+) -> _Lookup | None:
+    return _lookup(_VARCHAR_LOOKUP, tables, asyncpg)
 
 
 def _text_cast_tables(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
@@ -575,15 +629,20 @@ def _text_cast_tables(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
     return tables
 
 
-def _rows(cursor: Any, sql: str | None) -> list[Any]:
-    if sql is None:
+def _rows(cursor: Any, lookup: _Lookup | None) -> list[Any]:
+    if lookup is None:
         return []
-    cursor.execute(sql)
+    sql, params = lookup
+    cursor.execute(sql, *params) if params else cursor.execute(sql)
     return list(cursor.fetchall() or ())
 
 
 def _read_catalog(
-    cursor: Any, plan: Mapping[str, Any], catalog: Catalog, leading: bool
+    cursor: Any,
+    plan: Mapping[str, Any],
+    catalog: Catalog,
+    leading: bool,
+    asyncpg: bool = False,
 ) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], frozenset[str]]]:
     """Fill ``catalog`` for this plan; raises on a database error.
 
@@ -604,7 +663,7 @@ def _read_catalog(
     missing = names - known_leading.keys()
     found = {
         (str(r[0]), str(r[1])): str(r[2])
-        for r in _rows(cursor, _leading_lookup(missing))
+        for r in _rows(cursor, _leading_lookup(missing, asyncpg))
     }
     for name in missing:
         known_leading[name] = found.get(name)
@@ -614,7 +673,7 @@ def _read_catalog(
     known = {t: v for t in tables if (v := varchar_cache.get(t)) is not None}
     missing_tables = tables - known.keys()
     columns: dict[tuple[str, str], set[str]] = {t: set() for t in missing_tables}
-    for r in _rows(cursor, _varchar_lookup(missing_tables)):
+    for r in _rows(cursor, _varchar_lookup(missing_tables, asyncpg)):
         columns.setdefault((str(r[0]), str(r[1])), set()).add(str(r[2]))
     for table, names_ in columns.items():
         known[table] = frozenset(names_)
@@ -637,12 +696,78 @@ def _read_plan(value: object) -> Mapping[str, Any] | None:
     return None
 
 
+# asyncpg prepares every statement it fetches rows for, and PostgreSQL then
+# takes the $n inside EXPLAIN as parameters of the EXPLAIN. PL/pgSQL's
+# EXECUTE parses its string like the simple query protocol, so a DO block
+# (no parameters, sent with asyncpg's simple-protocol execute()) runs the
+# EXPLAIN and keeps the plan in a setting local to the savepoint.
+_PLAN_SETTING = "queryguard.plan"
+_READ_PLAN = f"SELECT current_setting('{_PLAN_SETTING}')"
+
+
+def _free_tag(name: str, text: str) -> str:
+    """A dollar-quote tag that first occurs in ``text + tag`` at its end."""
+    tag, number = f"${name}$", 0
+    while (text + tag).find(tag) != len(text):
+        number += 1
+        tag = f"${name}_{number}$"
+    return tag
+
+
+def explain_block(sql: str) -> str:
+    """A DO block that explains ``sql`` into the queryguard.plan setting."""
+    explain = _EXPLAIN + sql
+    sql_tag = _free_tag("qg_sql", explain)
+    body = (
+        "DECLARE queryguard_plan text; BEGIN "
+        f"EXECUTE {sql_tag}{explain}{sql_tag} INTO queryguard_plan; "
+        f"PERFORM set_config('{_PLAN_SETTING}', queryguard_plan, true); END"
+    )
+    do_tag = _free_tag("qg_do", body)
+    return f"DO {do_tag}{body}{do_tag}"
+
+
+class _AsyncpgCursor:
+    """The DB-API cursor calls run_explain() makes, on a raw asyncpg connection.
+
+    ``adapted`` is SQLAlchemy's adapted connection; its public run_async()
+    awaits a call on the raw asyncpg connection from this sync listener.
+    SELECTs go through fetch(), which prepares them and keeps them in
+    asyncpg's statement cache, so their text must not vary: the plan and
+    settings reads are constant, and the catalog lookups take their names as
+    array parameters. Anything else goes through execute() without
+    parameters, which uses the simple query protocol and prepares nothing.
+    """
+
+    def __init__(self, adapted: Any) -> None:
+        self._adapted = adapted
+        self._rows: list[tuple[Any, ...]] = []
+
+    def execute(self, sql: str, *params: Any) -> None:
+        if is_checked_statement(sql):
+            rows = self._adapted.run_async(lambda conn: conn.fetch(sql, *params))
+            self._rows = [tuple(row) for row in rows]
+        else:
+            self._adapted.run_async(lambda conn: conn.execute(sql))
+            self._rows = []
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self._rows
+
+    def close(self) -> None:
+        self._rows = []
+
+
 def run_explain(
     dbapi_connection: Any,
     sql: str,
     *,
     leading: bool = False,
     catalog: Catalog | None = None,
+    asyncpg: bool = False,
 ) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
@@ -654,6 +779,8 @@ def run_explain(
     Database errors from EXPLAIN come back as ExplainError. An error while
     opening or rolling back the savepoint raises SavepointError: the
     connection's state is then unknown, and the caller stops checking.
+    With ``asyncpg``, ``dbapi_connection`` is SQLAlchemy's adapted asyncpg
+    connection, and the EXPLAIN runs inside a DO block (see explain_block()).
     """
     if getattr(dbapi_connection, "autocommit", False):
         start, undo = ["BEGIN"], ["ROLLBACK"]
@@ -663,7 +790,7 @@ def run_explain(
             f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}",
             f"RELEASE SAVEPOINT {_SAVEPOINT}",
         ]
-    cursor = dbapi_connection.cursor()
+    cursor = _AsyncpgCursor(dbapi_connection) if asyncpg else dbapi_connection.cursor()
     try:
         _manage(cursor, start)
         row: Any = None
@@ -675,14 +802,20 @@ def run_explain(
         try:
             cursor.execute(_SETTINGS)
             settings = cursor.fetchone()
-            cursor.execute(_EXPLAIN + sql)
+            if asyncpg:
+                cursor.execute(explain_block(sql))
+                cursor.execute(_READ_PLAN)
+            else:
+                cursor.execute(_EXPLAIN + sql)
             row = cursor.fetchone()
         except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
-            error = ExplainError(_error_message(exc))
+            error = ExplainError(_error_message(exc), getattr(exc, "sqlstate", None))
         plan = None if error else _read_plan(row[0] if row else None)
         if plan is not None and catalog is not None:
             try:
-                columns, varchar = _read_catalog(cursor, plan, catalog, leading)
+                columns, varchar = _read_catalog(
+                    cursor, plan, catalog, leading, asyncpg
+                )
             except Exception as exc:  # noqa: BLE001  # reported once by check()
                 catalog_error = _error_message(exc)
         _manage(cursor, undo)
@@ -734,6 +867,34 @@ def swap_catalog_error(new: str | None) -> str | None:
     return old
 
 
+# The asyncpg engines (by id) whose database has no PL/pgSQL, found by the
+# first failed EXPLAIN on each. PL/pgSQL belongs to a database, and a suite
+# can use several; sync engines and the other asyncpg engines are still
+# checked.
+NO_PLPGSQL_NOTICE = "asyncpg statements were not checked: PL/pgSQL is not installed"
+_PLPGSQL_MISSING = 'language "plpgsql" does not exist'
+_UNDEFINED_OBJECT = "42704"
+
+
+def _is_plpgsql_missing(error: ExplainError) -> bool:
+    # The SQLSTATE does not depend on lc_messages. It is shared with a missing
+    # type or operator in the user's statement, so the message must still name
+    # the language (translations keep its quoted name).
+    if error.sqlstate == _UNDEFINED_OBJECT:
+        return "plpgsql" in error.message.lower()
+    return error.message == _PLPGSQL_MISSING
+
+
+_no_plpgsql: frozenset[int] = frozenset()
+
+
+def swap_no_plpgsql(new: frozenset[int]) -> frozenset[int]:
+    """Replace the engines without PL/pgSQL and return the previous ones."""
+    global _no_plpgsql
+    old, _no_plpgsql = _no_plpgsql, new
+    return old
+
+
 def unsupported_reason(dialect: Any) -> str | None:
     """Why statements from this dialect cannot be checked, or None."""
     name = getattr(dialect, "name", "?")
@@ -743,10 +904,10 @@ def unsupported_reason(dialect: Any) -> str | None:
             f"the index check needs PostgreSQL {MIN_SERVER_VERSION} or newer"
         )
     driver = getattr(dialect, "driver", "?")
-    if getattr(dialect, "is_async", False):
+    if getattr(dialect, "is_async", False) and driver != ASYNCPG:
         return (
             f"statements from the async driver {driver} were not checked: "
-            "the index check supports sync engines only"
+            "the index check supports asyncpg and sync drivers only"
         )
     version = getattr(dialect, "server_version_info", None)
     if version and isinstance(version[0], int) and version[0] < MIN_SERVER_VERSION:
@@ -768,11 +929,14 @@ def check(
     conn: Any, statement: str, executemany: bool, targets: Sequence[QueryCollector]
 ) -> None:
     """Explain one executed statement for the collectors that want it."""
-    global _stopped, _catalog_error
+    global _stopped, _catalog_error, _no_plpgsql
     if executemany or not is_checked_statement(statement):
         return
     dialect = conn.dialect
+    is_async = getattr(dialect, "is_async", False)
     reason = _stopped or unsupported_reason(dialect)
+    if reason is None and is_async and id(conn.engine) in _no_plpgsql:
+        reason = NO_PLPGSQL_NOTICE
     if reason is not None:
         for target in targets:
             target.index_notices[reason] = None
@@ -803,6 +967,7 @@ def check(
             numbered,
             leading=not version or version[0] < SKIP_SCAN_VERSION,
             catalog=catalog,
+            asyncpg=is_async,
         )
     except SavepointError as exc:
         # The test's transaction may be broken now; N+1 detection and budgets
@@ -822,6 +987,11 @@ def check(
         )
         for target in targets:
             target.index_notices[_catalog_error] = None
+    if isinstance(outcome, ExplainError) and is_async and _is_plpgsql_missing(outcome):
+        _no_plpgsql |= {id(conn.engine)}
+        for target in targets:
+            target.index_notices[NO_PLPGSQL_NOTICE] = None
+        return
     if isinstance(outcome, ExplainError):
         error = (outcome.message, statement)
         for target in fresh:

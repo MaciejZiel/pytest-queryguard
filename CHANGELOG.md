@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The missing-index check now covers async engines on asyncpg. asyncpg
+  prepares statements, and PostgreSQL would take the `$n` inside `EXPLAIN`
+  as the `EXPLAIN`'s own parameters. So on asyncpg the `EXPLAIN` runs in a
+  PL/pgSQL `DO` block on the test's own connection and savepoint, and the
+  plan comes back through a transaction-local setting. Findings, notices
+  and guarantees are those of sync engines. Other async drivers are still
+  skipped with a notice. See `docs/design-0.3.md`.
+- On a database without PL/pgSQL, the asyncpg index check now reports one
+  notice for the session instead of one failed `EXPLAIN` per statement.
 - `pytest_queryguard.record_queries()`, a context manager that records the
   SQL statements a block sends and yields a `QueryLog`. The log has the
   statements as `Query` objects (`sql`, `callsite`, `relationship`), their

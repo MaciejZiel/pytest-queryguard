@@ -491,6 +491,37 @@ tests/test_orders.py .                                                   [100%]
 ============================== 1 passed in 0.19s ===============================
 ```
 
+Async engines with asyncpg are checked the same way, on the test's own
+connection and transaction. Rows and tables the test has not committed
+are visible to the check. The same model, with the query in async code:
+
+```python
+async def orders_of(session: AsyncSession, customer_id: int) -> Sequence[Order]:
+    stmt = select(Order).where(Order.customer_id == customer_id)
+    return (await session.scalars(stmt)).all()
+```
+
+With a test that adds 6 orders in an uncommitted `AsyncSession` on
+`postgresql+asyncpg://` and calls `orders_of(session, 1)` through
+`asyncio.run`, `pytest --queryguard-index-check` prints (Python 3.13,
+SQLAlchemy 2.1, asyncpg 0.31, PostgreSQL 17):
+
+```
+________________________________ test_orders_of ________________________________
+queryguard: missing index
+
+  orders is read in full: Seq Scan with filter (orders.customer_id = $1)
+  first at app/orders.py:11 in orders_of
+  sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = $1::INTEGER
+  fix: CREATE INDEX ON orders (customer_id)
+
+  a sequential scan is fine on a small lookup table:
+  list it in queryguard_index_ignore_tables
+```
+
+Other async drivers, such as psycopg's async mode, are not checked; the
+session summary says so.
+
 What is reported:
 
 - a sequential scan with a filter: the `WHERE` condition has no index.
@@ -566,9 +597,9 @@ once at the end of the session, for example with SQLite:
 sqlite statements were not checked: the index check needs PostgreSQL 16 or newer
 ```
 
-The same summary names a PostgreSQL server older than 16, async engines,
-and the number of statements PostgreSQL could not plan, with the first
-error and its SQL.
+The same summary names a PostgreSQL server older than 16, async drivers
+other than asyncpg, and the number of statements PostgreSQL could not
+plan, with the first error and its SQL.
 
 ## Configuration
 
@@ -646,7 +677,13 @@ Command-line options:
    `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` for each new `SELECT`, with
    the driver's placeholders rewritten to `$1`, `$2`, ..., then rolls back to
    the savepoint. The SQL goes through a raw DB-API cursor, so SQLAlchemy
-   events, budgets and your own listeners do not see it.
+   events, budgets and your own listeners do not see it. asyncpg prepares
+   the statements it reads rows from, and PostgreSQL would then take the
+   `$1` as a parameter of the `EXPLAIN` itself. With asyncpg, the `EXPLAIN`
+   therefore runs inside a PL/pgSQL `DO` block. The block stores the plan
+   in a setting local to the savepoint (`queryguard.plan`), and a plain
+   `SELECT` reads it back. These statements go to the raw asyncpg
+   connection through SQLAlchemy's `run_async()`.
 5. After the test, the recorded events are checked against the budget, the
    two N+1 rules and the scans found by the index check. A bug inside the
    plugin disables it with one warning; it never fails your tests.
@@ -673,14 +710,18 @@ Command-line options:
 - `INSERT`, `UPDATE` and `DELETE` are never reported as N+1. At cursor level
   a unit-of-work flush cannot be told apart from an application write, so
   all writes are left out. Use a budget to catch write loops.
-- The index check needs PostgreSQL 16 or newer and a sync engine. Async
-  engines (asyncpg, psycopg's async mode) prepare every statement, and
-  PostgreSQL rejects `EXPLAIN (GENERIC_PLAN)` with `$1` placeholders sent
-  that way, so their statements are skipped with a notice. The test suite
-  uses pg8000. psycopg2 and psycopg 3 were checked by hand during review
-  and give the same findings for plain statements, `%` in SQL, expanding
-  `IN`, autocommit and `stream_results`; they are LGPL-licensed, so this
-  project does not depend on them or run them in CI.
+- The index check needs PostgreSQL 16 or newer, and a sync engine or an
+  async engine on asyncpg. Other async drivers, such as psycopg's async
+  mode, are skipped with a notice. The test suite uses pg8000 and asyncpg.
+  psycopg2 and psycopg 3 were checked by hand during review and give the
+  same findings for plain statements, `%` in SQL, expanding `IN`,
+  autocommit and `stream_results`; they are LGPL-licensed, so this project
+  does not depend on them or run them in CI.
+- On asyncpg the check needs PL/pgSQL, which PostgreSQL installs by
+  default. Without it, each statement is counted as one PostgreSQL could
+  not plan. After the first check, the connection knows the custom setting
+  `queryguard.plan`, with an empty value: `current_setting('queryguard.plan')`
+  returns `''` there instead of an error.
 - The index check looks only at `SELECT` and `WITH` statements and judges
   plans, not data: it says that no index can serve a filter, not that an
   existing index is a good one. A missing index that only a join would use
@@ -717,7 +758,7 @@ which nplusone does.
 
 - 0.2.0 (released): missing index detection on PostgreSQL 16 and newer, see
   [Missing indexes](#missing-indexes-postgresql-16-and-newer).
-- Later: the index check for async engines, Django ORM support.
+- Later: Django ORM support.
 
 ## Development
 
@@ -733,7 +774,8 @@ uv run mypy src
 ```
 
 The PostgreSQL tests run when `QUERYGUARD_PG_URL` points to a server, and
-are skipped otherwise:
+are skipped otherwise. The async tests reach the same server through
+asyncpg:
 
 ```bash
 docker run -d --rm --name qg-postgres -p 55432:5432 -e POSTGRES_PASSWORD=pg postgres:17

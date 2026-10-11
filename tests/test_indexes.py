@@ -16,6 +16,7 @@ from pytest_queryguard.indexes import (
     ExplainError,
     SavepointError,
     check,
+    explain_block,
     find_scans,
     hint_column,
     index_names,
@@ -901,6 +902,8 @@ class FakeDialect:
 
 def test_supported_dialect_has_no_reason() -> None:
     assert unsupported_reason(FakeDialect()) is None
+    asyncpg = FakeDialect(driver="asyncpg", is_async=True, paramstyle="numeric_dollar")
+    assert unsupported_reason(asyncpg) is None
     assert unsupported_reason(FakeDialect(version=(16, 0))) is None
     # an unknown version is tried; a failing EXPLAIN is reported separately
     assert unsupported_reason(FakeDialect(version=None)) is None
@@ -917,10 +920,10 @@ def test_supported_dialect_has_no_reason() -> None:
             ),
         ),
         (
-            FakeDialect(driver="asyncpg", is_async=True),
+            FakeDialect(driver="psycopg_async", is_async=True, paramstyle="pyformat"),
             (
-                "statements from the async driver asyncpg were not checked: "
-                "the index check supports sync engines only"
+                "statements from the async driver psycopg_async were not checked: "
+                "the index check supports asyncpg and sync drivers only"
             ),
         ),
         (
@@ -1420,11 +1423,13 @@ def fresh_index_state() -> Iterator[None]:
 
     old = indexes.swap_stopped(None)
     old_catalog = indexes.swap_catalog_error(None)
+    old_plpgsql = indexes.swap_no_plpgsql(frozenset())
     catalog.reset()
     yield
     catalog.reset()
     indexes.swap_stopped(old)
     indexes.swap_catalog_error(old_catalog)
+    indexes.swap_no_plpgsql(old_plpgsql)
 
 
 @pytest.mark.parametrize("step", ["SAVEPOINT", "ROLLBACK TO SAVEPOINT"])
@@ -1476,6 +1481,244 @@ def test_swap_stopped_returns_the_previous_state(fresh_index_state: None) -> Non
 def test_swap_catalog_error_returns_the_previous_state() -> None:
     assert indexes.swap_catalog_error("x") is None
     assert indexes.swap_catalog_error(None) == "x"
+
+
+def test_swap_no_plpgsql_returns_the_previous_state() -> None:
+    marked = frozenset({1})
+    assert indexes.swap_no_plpgsql(marked) == frozenset()
+    assert indexes.swap_no_plpgsql(frozenset()) == marked
+
+
+# ------------------------------------------------------------ async (asyncpg)
+
+
+@pytest.mark.parametrize(
+    ("sql", "sql_tag", "do_tag"),
+    [
+        ("SELECT 1", "$qg_sql$", "$qg_do$"),
+        ("SELECT '$qg_sql$'", "$qg_sql_1$", "$qg_do$"),
+        ("SELECT $qg_sql$x$qg_sql$, $qg_sql_1$y$qg_sql_1$", "$qg_sql_2$", "$qg_do$"),
+        ("SELECT '$qg_do$'", "$qg_sql$", "$qg_do_1$"),
+        # a tag that would close early when the statement ends in its prefix
+        ("SELECT 1 AS $qg_sql", "$qg_sql_1$", "$qg_do$"),
+        ("SELECT $$a$$, 'it''s', \"q\"", "$qg_sql$", "$qg_do$"),
+    ],
+)
+def test_explain_block_quotes_the_statement_with_free_tags(
+    sql: str, sql_tag: str, do_tag: str
+) -> None:
+    block = explain_block(sql)
+    explain = f"EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON) {sql}"
+    assert block == (
+        f"DO {do_tag}DECLARE queryguard_plan text; BEGIN "
+        f"EXECUTE {sql_tag}{explain}{sql_tag} INTO queryguard_plan; "
+        "PERFORM set_config('queryguard.plan', queryguard_plan, true); "
+        f"END{do_tag}"
+    )
+
+
+class FakeAsyncpg:
+    """The parts of an asyncpg connection the async path uses."""
+
+    def __init__(self, owner: FakeAdaptedAsyncpg) -> None:
+        self.owner = owner
+
+    async def execute(self, sql: str) -> str:
+        self.owner.log.append(("execute", sql))
+        self.owner.maybe_fail(sql)
+        return "OK"
+
+    async def fetch(self, sql: str, *args: Any) -> list[tuple[Any, ...]]:
+        self.owner.log.append(("fetch", sql))
+        self.owner.args.append(args)
+        self.owner.maybe_fail(sql)
+        if sql.startswith("SELECT set_config"):
+            return [("off", "1s", "5s", "public")]
+        if sql == "SELECT current_setting('queryguard.plan')":
+            return [(self.owner.plan,)]
+        if "pg_index" in sql:
+            return self.owner.leading_rows
+        return []
+
+
+class FakeAdaptedAsyncpg:
+    """SQLAlchemy's adapted asyncpg connection: run_async() and autocommit."""
+
+    def __init__(self, plan: Any = None, *, autocommit: bool = False) -> None:
+        self.autocommit = autocommit
+        self.plan = json.dumps(PLAN if plan is None else plan)
+        self.log: list[tuple[str, str]] = []
+        self.fail: dict[str, Exception] = {}
+        self.leading_rows: list[tuple[str, str, str]] = []
+        self.args: list[tuple[Any, ...]] = []
+
+    def maybe_fail(self, sql: str) -> None:
+        for prefix, exc in self.fail.items():
+            if sql.startswith(prefix):
+                raise exc
+
+    def run_async(self, fn: Any) -> Any:
+        coroutine = fn(FakeAsyncpg(self))
+        try:
+            coroutine.send(None)
+        except StopIteration as done:
+            return done.value
+        raise AssertionError("the fake coroutine did not finish")  # pragma: no cover
+
+    def cursor(self) -> Any:
+        raise AssertionError("the async path must not use a DB-API cursor")
+
+
+def test_run_explain_on_asyncpg_runs_explain_in_a_do_block() -> None:
+    conn = FakeAdaptedAsyncpg()
+    outcome = run_explain(conn, "SELECT a FROM t WHERE a = $1", asyncpg=True)
+    assert outcome == Explained({"Node Type": "Seq Scan"}, "public")
+    assert conn.log == [
+        ("execute", "SAVEPOINT queryguard_explain"),
+        ("fetch", indexes._SETTINGS),
+        ("execute", explain_block("SELECT a FROM t WHERE a = $1")),
+        ("fetch", "SELECT current_setting('queryguard.plan')"),
+        ("execute", "ROLLBACK TO SAVEPOINT queryguard_explain"),
+        ("execute", "RELEASE SAVEPOINT queryguard_explain"),
+    ]
+
+
+def test_run_explain_on_asyncpg_in_autocommit_uses_its_own_transaction() -> None:
+    conn = FakeAdaptedAsyncpg(autocommit=True)
+    run_explain(conn, "SELECT 1", asyncpg=True)
+    assert conn.log[0] == ("execute", "BEGIN")
+    assert conn.log[-1] == ("execute", "ROLLBACK")
+
+
+def test_run_explain_on_asyncpg_reports_a_failed_explain() -> None:
+    conn = FakeAdaptedAsyncpg()
+    conn.fail["DO "] = RuntimeError(
+        "could not determine data type of parameter $1\nCONTEXT:  PL/pgSQL ..."
+    )
+    outcome = run_explain(conn, "SELECT $1", asyncpg=True)
+    assert outcome == ExplainError("could not determine data type of parameter $1")
+    assert conn.log[-2:] == [
+        ("execute", "ROLLBACK TO SAVEPOINT queryguard_explain"),
+        ("execute", "RELEASE SAVEPOINT queryguard_explain"),
+    ]
+
+
+def test_run_explain_on_asyncpg_raises_when_the_savepoint_breaks() -> None:
+    conn = FakeAdaptedAsyncpg()
+    conn.fail["ROLLBACK TO SAVEPOINT"] = RuntimeError("connection lost")
+    with pytest.raises(SavepointError, match="connection lost"):
+        run_explain(conn, "SELECT 1", asyncpg=True)
+
+
+def test_run_explain_on_asyncpg_reads_the_catalog() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeAdaptedAsyncpg(plan)
+    conn.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
+    outcome = run_explain(
+        conn, "SELECT 1", leading=True, catalog=Catalog(), asyncpg=True
+    )
+    assert isinstance(outcome, Explained)
+    assert outcome.leading == LEADING
+    assert [kind for kind, sql in conn.log if "pg_index" in sql] == ["fetch"]
+    # constant text, names as array parameters: one statement in asyncpg's cache
+    [lookup] = [sql for _, sql in conn.log if "pg_index" in sql]
+    assert "$1::text[]" in lookup and "'orders_tenant" not in lookup
+    assert ([], [], []) not in conn.args
+    assert (["public"], ["orders_tenant_id_status_idx"], []) in conn.args
+
+
+def test_asyncpg_lookups_keep_constant_text_and_pass_temporary_names_apart() -> None:
+    first = indexes._leading_lookup(
+        {("public", "a_idx"), ("pg_temp", "t_idx")}, asyncpg=True
+    )
+    second = indexes._leading_lookup({("other", "b_idx")}, asyncpg=True)
+    assert first is not None and second is not None
+    assert first[0] == second[0]  # one text, whatever the names
+    assert "pg_my_temp_schema()" in first[0] and "$3::text[]" in first[0]
+    assert first[1] == (["public"], ["a_idx"], ["t_idx"])
+    assert second[1] == (["other"], ["b_idx"], [])
+    only_temp = indexes._varchar_lookup({("pg_temp", "t")}, asyncpg=True)
+    assert only_temp is not None
+    assert only_temp[1] == ([], [], ["t"])
+    assert indexes._varchar_lookup({("public", "bad\\name")}, asyncpg=True) is None
+
+
+class FakeAsyncSAConnection:
+    def __init__(self, plan: Any) -> None:
+        self.dialect = FakeDialect(
+            driver="asyncpg", is_async=True, paramstyle="numeric_dollar"
+        )
+        self.engine = object()
+        self.raw = FakeAdaptedAsyncpg(plan)
+        self.connection = FakeProxy(self.raw)  # type: ignore[arg-type]
+
+
+def test_check_explains_statements_from_asyncpg() -> None:
+    conn = FakeAsyncSAConnection(SEQ_PLAN)
+    target = _collector()
+    sql = "SELECT orders.id FROM orders WHERE orders.customer_id = $1::INTEGER"
+    check(conn, sql, False, [target])
+    assert ("execute", explain_block(sql)) in conn.raw.log
+    [scan] = target.scans
+    assert scan.issue.column == "customer_id"
+    assert target.index_notices == {}
+
+
+def test_check_reports_missing_plpgsql_once_and_keeps_sync_engines() -> None:
+    conn = FakeAsyncSAConnection(SEQ_PLAN)
+    conn.raw.fail["DO "] = RuntimeError('language "plpgsql" does not exist')
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE a = $1", False, [target])
+    check(conn, "SELECT b FROM t WHERE b = $1", False, [target])
+    assert target.explain_errors == []
+    assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
+    # the second statement was not sent at all
+    assert len([1 for kind, sql in conn.raw.log if sql.startswith("DO ")]) == 1
+    # a sync connection is still explained
+    sync = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    check(sync, "SELECT a FROM t WHERE a = $1", False, [target])
+    assert any(sql.startswith("EXPLAIN") for sql in sync.raw.log)
+
+
+def test_missing_plpgsql_on_one_asyncpg_engine_does_not_skip_another() -> None:
+    broken, working = FakeAsyncSAConnection(SEQ_PLAN), FakeAsyncSAConnection(SEQ_PLAN)
+    broken.raw.fail["DO "] = RuntimeError('language "plpgsql" does not exist')
+    target = _collector()
+    check(broken, "SELECT a FROM t WHERE a = $1", False, [target])
+    check(working, "SELECT b FROM t WHERE b = $1", False, [target])
+    assert any(sql.startswith("DO ") for _, sql in working.raw.log)
+    assert [scan.issue.table for scan in target.scans] == ["orders"]
+    assert target.explain_errors == []
+    assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
+
+
+class _Sqlstate(Exception):
+    def __init__(self, message: str, sqlstate: str) -> None:
+        super().__init__(message)
+        self.sqlstate = sqlstate
+
+
+def test_missing_plpgsql_is_found_by_sqlstate_in_any_language() -> None:
+    conn = FakeAsyncSAConnection(SEQ_PLAN)
+    conn.raw.fail["DO "] = _Sqlstate('język "plpgsql" nie istnieje', "42704")
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE a = $1", False, [target])
+    check(conn, "SELECT b FROM t WHERE b = $1", False, [target])
+    assert target.explain_errors == []
+    assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
+    assert len([1 for _, sql in conn.raw.log if sql.startswith("DO ")]) == 1
+
+
+def test_another_undefined_object_is_an_ordinary_explain_error() -> None:
+    # 42704 also covers a missing type or operator in the user's statement.
+    conn = FakeAsyncSAConnection(SEQ_PLAN)
+    conn.raw.fail["DO "] = _Sqlstate('type "nope" does not exist', "42704")
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE a = $1", False, [target])
+    assert target.explain_errors == [
+        ('type "nope" does not exist', "SELECT a FROM t WHERE a = $1")
+    ]
+    assert target.index_notices == {}
 
 
 # ----------------------------------------------------------- catalog clearing
