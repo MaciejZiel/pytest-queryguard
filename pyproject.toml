@@ -41,6 +41,8 @@ queryguard = "pytest_queryguard.plugin"
 [dependency-groups]
 dev = [
     "aiosqlite",
+    # Async PostgreSQL tests (Apache-2.0; async-timeout, Apache-2.0, below 3.11).
+    "asyncpg>=0.31",
     "coverage[toml]",
     "fastapi",
     "httpx>=0.28,<0.29",
