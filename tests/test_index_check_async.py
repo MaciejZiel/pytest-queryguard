@@ -598,6 +598,7 @@ def test_pg_async_catalog_lookups_are_one_prepared_statement(
     from sqlalchemy.ext.asyncio import create_async_engine
     from sqlalchemy.pool import NullPool
 
+    from pytest_queryguard import indexes
     from pytest_queryguard.indexes import Catalog, Explained, run_explain
 
     async def main() -> list[str]:
@@ -631,15 +632,23 @@ def test_pg_async_catalog_lookups_are_one_prepared_statement(
                 for n in range(4):
                     await conn.run_sync(explain, n)
                 rows = await conn.execute(
-                    text(
-                        "SELECT statement FROM pg_prepared_statements "
-                        "WHERE statement NOT LIKE '%pg_prepared_statements%' AND (statement LIKE '%pg_index%' "
-                        "OR statement LIKE '%typname%')"
-                    )
+                    text("SELECT statement FROM pg_prepared_statements")
                 )
                 return [row[0] for row in rows]
         finally:
             await engine.dispose()
 
     prepared = asyncio.run(main())
-    assert len(prepared) <= 2, prepared
+    # Explaining four tables prepared exactly the two catalog lookups, once
+    # each: names are parameters, so they never reach the statement text.
+    lookups = [
+        statement
+        for statement in prepared
+        if "FROM pg_index" in statement or "t.typname = 'varchar'" in statement
+    ]
+    assert sorted(lookups) == sorted(
+        [
+            indexes._LEADING_LOOKUP.format(names=indexes._NAMES_ARRAYS),
+            indexes._VARCHAR_LOOKUP.format(names=indexes._NAMES_ARRAYS),
+        ]
+    )
