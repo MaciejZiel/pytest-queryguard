@@ -358,3 +358,15 @@ def test_a_failing_transaction_listener_disables_the_plugin() -> None:
         listeners._guarded(boom)(object())
     finally:
         listeners._reset_for_tests()
+
+
+def test_reset_keeps_track_of_open_transactions_with_ddl() -> None:
+    # A nested pytest session resets the cache; the outer test's
+    # transaction, with its DDL, is still open.
+    engine = Engine()
+    conn = Conn(engine)
+    catalog.observe(conn, "DROP INDEX orders_idx")
+    catalog.reset()
+    _filled(engine)
+    catalog.on_rollback(conn)
+    assert _is_empty(engine)

@@ -69,12 +69,13 @@ def _more_statements(sql: str) -> bool:
     return False
 
 
+def _changes_catalog(sql: str, words: tuple[str, str] | None) -> bool:
+    return words is None or words[0] not in _SAFE or _more_statements(sql)
+
+
 def changes_catalog(sql: str) -> bool:
     """False only for statements known to leave indexes and columns alone."""
-    words = _words(sql)
-    if words is None or words[0] not in _SAFE:
-        return True
-    return _more_statements(sql)
+    return _changes_catalog(sql, _words(sql))
 
 
 def for_engine(engine: Any) -> Catalog:
@@ -100,9 +101,12 @@ def clear() -> None:
 
 
 def reset() -> None:
-    """Start a session with an empty cache and no transaction tracked."""
+    """Start a session with an empty cache.
+
+    Connections with DDL pending stay tracked: their transactions may
+    outlive a nested session.
+    """
     _cache.clear()
-    _pending.clear()
 
 
 def _lost(ref: weakref.ref[Any]) -> None:
@@ -126,13 +130,14 @@ def _resolve(conn: Any) -> None:
 
 def observe(conn: Any, statement: str) -> None:
     """Look at a statement that ran on ``conn`` (an SQLAlchemy Connection)."""
-    if changes_catalog(statement):
+    words = _words(statement)
+    if _changes_catalog(statement, words):
         clear()
         if not _is_pending(conn):
             _pending[id(conn)] = weakref.ref(conn, _lost)
         return
-    words = _words(statement)
-    if words is None or words[0] not in _TRANSACTION_END:
+    assert words is not None  # _changes_catalog() is True without words
+    if words[0] not in _TRANSACTION_END:
         return
     if words[1] == "PREPARED" or _is_pending(conn):
         # A prepared transaction may have run DDL anywhere. The connection
