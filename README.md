@@ -245,6 +245,77 @@ does not depend on pytest, so it also works in a script or a benchmark. It
 checks the budget only; N+1 detection is done by the plugin around the
 whole test.
 
+### Reading the queries in a test
+
+`record_queries()` records the SQL statements a block sends and lets the
+test read them back:
+
+```python
+from pytest_queryguard import record_queries
+
+from app.customers import fetch_customers
+from app.orders import list_orders
+
+
+def test_list_orders_loads_customers_with_the_orders(session):
+    with record_queries() as log:
+        list_orders(session)
+    assert log.count == 2
+    assert log.queries[1].sql.startswith("SELECT customer.id")
+    assert log.queries[1].relationship == "Order.customer"
+
+
+def test_fetch_customers(session):
+    with record_queries() as log:
+        fetch_customers(session, [1, 2, 3])
+    log.assert_no_nplusone(repeat_threshold=2)
+```
+
+`log.queries` is a tuple of `Query` objects, in the order the statements
+ran. Each has:
+
+- `sql`: the statement as SQLAlchemy sent it to the driver;
+- `callsite`: a `CallSite` with `filename`, `lineno` and `function`, the
+  first frame outside SQLAlchemy, pytest, the standard library,
+  `site-packages` and the plugin, or `None`;
+- `relationship`: the relationship the statement loaded, lazily or as the
+  extra query of `selectinload`, such as `"Order.customer"`, or `None`.
+
+`log.count` is the number of statements. Both grow inside the block and
+stay fixed after it. Statements from other threads are recorded too.
+
+`log.assert_no_nplusone()` applies the plugin's two N+1 rules to the
+block. It raises `NPlusOneDetected`, a subclass of `AssertionError`, with
+the plugin's message. The thresholds are keyword arguments,
+`relationship_threshold=2` and `repeat_threshold=5` by default, the same
+defaults as the ini options. It does not read the ini options. With the
+`fetch_customers` loop from [Before and after](#before-and-after), the
+plugin accepts 3 lookups, because its threshold is 5, while the stricter
+call above does not (`pytest --tb=short`, Python 3.13, SQLAlchemy 2.1):
+
+```
+tests/test_queries.py .F                                                 [100%]
+
+=================================== FAILURES ===================================
+_____________________________ test_fetch_customers _____________________________
+tests/test_queries.py:18: in test_fetch_customers
+    log.assert_no_nplusone(repeat_threshold=2)
+E   pytest_queryguard.api.NPlusOneDetected: queryguard: N+1 detected
+E   
+E     the same statement ran 3 times
+E     first at app/customers.py:9 in fetch_customers
+E     SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+E     fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
+=========================== short test summary info ============================
+FAILED tests/test_queries.py::test_fetch_customers - pytest_queryguard.api.NP...
+========================= 1 failed, 1 passed in 0.05s ==========================
+```
+
+Recording changes nothing else. The plugin's N+1 detection, budgets and
+index check see the same statements, and `record_queries()` combines with
+`max_queries()`: `with max_queries(3), record_queries() as log:`. Like
+`max_queries()`, it also works outside pytest.
+
 ### Opting out
 
 ```python
