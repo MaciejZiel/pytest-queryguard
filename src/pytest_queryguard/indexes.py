@@ -12,10 +12,12 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from typing import Any
 
+from . import catalog as catalogs
 from .callsite import find_callsite
 from .collector import QueryCollector
 from .detectors import collapse_lists
 from .events import Catalog, ScanEvent, ScanIssue
+from .sqltext import QUOTED, skip_prefix
 
 MIN_SERVER_VERSION = 16
 _SAVEPOINT = "queryguard_explain"
@@ -33,16 +35,8 @@ _VERB = re.compile(r"(?:SELECT|WITH)\b", re.IGNORECASE)
 
 # Tokens that are copied unchanged, then the placeholders that are rewritten.
 _TOKEN = re.compile(
-    r"""
-      (?P<copy>
-          (?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'?     # E'...' with backslash escapes
-        | '(?:[^']|'')*'?                         # '...'
-        | "(?:[^"]|"")*"?                         # "quoted identifier"
-        | (?<![\w$])\$\$.*?(?:\$\$|\Z)            # $$...$$
-        | (?<![\w$])\$(?P<tag>[A-Za-z_]\w*)\$.*?(?:\$(?P=tag)\$|\Z)  # $tag$...$tag$
-        | --[^\n]*                                # line comment
-        | /\*.*?(?:\*/|\Z)                        # block comment
-      )
+    rf"""
+      (?P<copy>{QUOTED})
     | (?P<named>%\((?P<name>[^)]*)\)s)
     | (?P<positional>%s)
     | (?P<percent>%%)
@@ -51,35 +45,12 @@ _TOKEN = re.compile(
 )
 
 
-def _skip_prefix(sql: str) -> int | None:
-    """Index after leading whitespace, parentheses and comments, in linear time.
-
-    None for an unterminated block comment. A loop rather than a regex: a
-    nested quantifier there backtracked exponentially on long indentation.
-    """
-    i, n = 0, len(sql)
-    while i < n:
-        if sql[i].isspace() or sql[i] == "(":
-            i += 1
-        elif sql.startswith("--", i):
-            end = sql.find("\n", i)
-            i = n if end < 0 else end + 1
-        elif sql.startswith("/*", i):
-            end = sql.find("*/", i + 2)
-            if end < 0:
-                return None
-            i = end + 2
-        else:
-            break
-    return i
-
-
 def is_checked_statement(sql: str) -> bool:
     """Only SELECT statements (and WITH queries) are explained.
 
     Leading comments, such as sqlcommenter tags, are skipped.
     """
-    start = _skip_prefix(sql)
+    start = skip_prefix(sql)
     return start is not None and _VERB.match(sql, start) is not None
 
 
@@ -218,9 +189,14 @@ def _walk(
 
 
 def _whole_bitmap_index(node: Mapping[str, Any]) -> str | None:
-    """The index a Bitmap Heap Scan reads in full, without an index condition."""
-    if node.get("Recheck Cond"):
-        return None
+    """The index a Bitmap Heap Scan reads in full, without an index condition.
+
+    Only a Bitmap Index Scan directly below the heap scan counts: below a
+    BitmapAnd or BitmapOr another index narrows the read or adds to it. The
+    heap scan's Recheck Cond does not matter here; without an Index Cond it
+    is only the predicate of a partial index, which every row of the index
+    meets.
+    """
     for child in _children(node):
         if (
             isinstance(child, Mapping)
@@ -247,8 +223,9 @@ def _issue(
             return None
         return _make(rel, "Seq Scan", "filter", condition, ctx)
     if node_type == "Bitmap Heap Scan":
-        # Rule 2 again: before ANALYZE, a whole index (an INCLUDE index, say)
-        # can be read as a bitmap instead of an index-only scan.
+        # Rule 2 again: before ANALYZE, a whole index (an INCLUDE index or a
+        # partial index, say) can be read as a bitmap instead of an index or
+        # index-only scan.
         whole = _whole_bitmap_index(node)
         condition = _text(node, "Filter")
         if whole is None or condition is None:
@@ -514,42 +491,63 @@ def _sql_literal(text: str) -> str | None:
     return "'" + text.replace("'", "''") + "'"
 
 
-def _name_pairs(names: Iterable[tuple[str, str]]) -> str | None:
-    pairs = []
+# EXPLAIN VERBOSE prints the schema of a temporary table as "pg_temp", but
+# pg_namespace has "pg_temp_<n>" for it: the connection's own one is found
+# with pg_my_temp_schema(). Such entries belong to one connection.
+TEMP_SCHEMA = "pg_temp"
+_SCHEMA_NAME = (
+    f"CASE WHEN n.oid = pg_my_temp_schema() THEN '{TEMP_SCHEMA}' ELSE n.nspname END"
+)
+
+
+def _name_filter(names: Iterable[tuple[str, str]]) -> str | None:
+    """A condition on ``n`` and ``c`` that matches these (schema, name) pairs."""
+    pairs, temp = [], []
     for schema, name in sorted(names):
         schema_sql, name_sql = _sql_literal(schema), _sql_literal(name)
-        if schema_sql is not None and name_sql is not None:
+        if schema_sql is None or name_sql is None:
+            continue
+        if schema == TEMP_SCHEMA:
+            temp.append(name_sql)
+        else:
             pairs.append(f"({schema_sql}, {name_sql})")
-    return ", ".join(pairs) if pairs else None
+    conditions = []
+    if pairs:
+        conditions.append(f"(n.nspname, c.relname) IN ({', '.join(pairs)})")
+    if temp:
+        conditions.append(
+            f"(n.oid = pg_my_temp_schema() AND c.relname IN ({', '.join(temp)}))"
+        )
+    return " OR ".join(conditions) if conditions else None
 
 
 def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
     # Only btree: a BRIN or GIN index on (a, b) serves b = $1 as well as a.
-    pairs = _name_pairs(names)
-    if pairs is None:
+    condition = _name_filter(names)
+    if condition is None:
         return None
     return (
-        "SELECT n.nspname, c.relname, a.attname "
+        f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
         "FROM pg_index i "
         "JOIN pg_class c ON c.oid = i.indexrelid "
         "JOIN pg_am am ON am.oid = c.relam "
         "JOIN pg_namespace n ON n.oid = c.relnamespace "
         "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
-        f"WHERE (n.nspname, c.relname) IN ({pairs}) AND am.amname = 'btree'"
+        f"WHERE ({condition}) AND am.amname = 'btree'"
     )
 
 
 def _varchar_lookup(tables: Iterable[tuple[str, str]]) -> str | None:
-    pairs = _name_pairs(tables)
-    if pairs is None:
+    condition = _name_filter(tables)
+    if condition is None:
         return None
     return (
-        "SELECT n.nspname, c.relname, a.attname "
+        f"SELECT {_SCHEMA_NAME}, c.relname, a.attname "
         "FROM pg_attribute a "
         "JOIN pg_class c ON c.oid = a.attrelid "
         "JOIN pg_namespace n ON n.oid = c.relnamespace "
         "JOIN pg_type t ON t.oid = a.atttypid "
-        f"WHERE (n.nspname, c.relname) IN ({pairs}) "
+        f"WHERE ({condition}) "
         "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
     )
 
@@ -587,30 +585,43 @@ def _rows(cursor: Any, sql: str | None) -> list[Any]:
 def _read_catalog(
     cursor: Any, plan: Mapping[str, Any], catalog: Catalog, leading: bool
 ) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], frozenset[str]]]:
-    """Fill ``catalog`` for this plan; raises on a database error."""
-    if leading:
-        names = index_names(plan)
-        missing = names - catalog.leading.keys()
-        found = {
-            (str(r[0]), str(r[1])): str(r[2])
-            for r in _rows(cursor, _leading_lookup(missing))
-        }
-        for name in missing:
-            catalog.leading[name] = found.get(name)
+    """Fill ``catalog`` for this plan; raises on a database error.
+
+    ``catalogs.clear`` rebinds the cache dicts, and it can run at any moment,
+    from another thread or from the garbage collector. The dicts are taken
+    once, here, and only they are read and written: a clear in the middle
+    leaves them orphaned, so rows read before it are never stored in the new
+    cache. This call still answers from what it read; the next one reads the
+    catalog again. No lock is held, so a clear that runs between this call's
+    reads and its writes is the only case that costs one extra read.
+    """
+    leading_cache = catalog.leading
+    varchar_cache = catalog.varchar
+    names = index_names(plan) if leading else set()
+    known_leading = {
+        name: col for name, col in list(leading_cache.items()) if name in names
+    }
+    missing = names - known_leading.keys()
+    found = {
+        (str(r[0]), str(r[1])): str(r[2])
+        for r in _rows(cursor, _leading_lookup(missing))
+    }
+    for name in missing:
+        known_leading[name] = found.get(name)
+        if name[0] != TEMP_SCHEMA:
+            leading_cache[name] = found.get(name)
     tables = _text_cast_tables(plan)
-    missing_tables = tables - catalog.varchar.keys()
+    known = {t: v for t in tables if (v := varchar_cache.get(t)) is not None}
+    missing_tables = tables - known.keys()
     columns: dict[tuple[str, str], set[str]] = {t: set() for t in missing_tables}
     for r in _rows(cursor, _varchar_lookup(missing_tables)):
         columns.setdefault((str(r[0]), str(r[1])), set()).add(str(r[2]))
     for table, names_ in columns.items():
-        catalog.varchar[table] = frozenset(names_)
-    leading_map = {
-        name: col
-        for name, col in catalog.leading.items()
-        if col is not None and name in index_names(plan)
-    }
-    varchar_map = {t: catalog.varchar[t] for t in tables if t in catalog.varchar}
-    return leading_map, varchar_map
+        known[table] = frozenset(names_)
+        if table[0] != TEMP_SCHEMA:
+            varchar_cache[table] = known[table]
+    leading_map = {name: col for name, col in known_leading.items() if col is not None}
+    return leading_map, known
 
 
 def _read_plan(value: object) -> Mapping[str, Any] | None:
@@ -782,9 +793,7 @@ def check(
     version = getattr(dialect, "server_version_info", None)
     catalog = None
     if _catalog_error is None:
-        catalog = fresh[0].catalogs.setdefault(id(conn.engine), Catalog())
-        for target in fresh[1:]:
-            target.catalogs.setdefault(id(conn.engine), catalog)
+        catalog = catalogs.for_engine(conn.engine)
     else:
         for target in targets:
             target.index_notices[_catalog_error] = None
@@ -814,8 +823,10 @@ def check(
         for target in targets:
             target.index_notices[_catalog_error] = None
     if isinstance(outcome, ExplainError):
+        error = (outcome.message, statement)
         for target in fresh:
-            target.explain_errors.append((outcome.message, statement))
+            if error not in target.explain_errors:
+                target.explain_errors.append(error)
         return
     issues = find_scans(
         outcome.plan, outcome.current_schema, outcome.leading, outcome.varchar

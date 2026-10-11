@@ -1071,6 +1071,76 @@ def test_pg_text_cast_hint_only_for_varchar_columns(
 
 
 @needs_pg
+def test_pg_temporary_table_reports_the_trailing_column(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # EXPLAIN VERBOSE says "pg_temp"; pg_namespace has "pg_temp_<n>".
+    if pg16.version >= (18,):
+        pytest.skip("PostgreSQL 18 can skip-scan the leading column")
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+
+        def test_temp(session):
+            for sql in [
+                "CREATE TEMPORARY TABLE tmp_items (id int PRIMARY KEY, "
+                "tenant_id int, status text)",
+                "CREATE INDEX ON tmp_items (tenant_id, status)",
+                "INSERT INTO tmp_items SELECT g, g % 3, 's' || g % 4 "
+                "FROM generate_series(1, 30) g",
+            ]:
+                session.execute(text(sql))
+            sql = "SELECT * FROM tmp_items WHERE status = :s"
+            session.execute(text(sql), {"s": "s1"}).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "  pg_temp.tmp_items is read in full: *Index Scan using *",
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON pg_temp.tmp_items (status)",
+        ]
+    )
+
+
+@needs_pg
+def test_pg_temporary_table_with_a_varchar_column_gets_the_index_hint(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+
+        def test_temp(session):
+            for sql in [
+                "CREATE TEMPORARY TABLE tmp_casts (id int PRIMARY KEY, "
+                "label varchar(20))",
+                "INSERT INTO tmp_casts SELECT g, 'l' || g FROM "
+                "generate_series(1, 20) g",
+            ]:
+                session.execute(text(sql))
+            sql = "SELECT * FROM tmp_casts WHERE label::text = :s"
+            session.execute(text(sql), {"s": "x"}).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "  pg_temp.tmp_casts is read in full: *",
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON pg_temp.tmp_casts (label)",
+        ]
+    )
+
+
+@needs_pg
 @pytest.mark.parametrize("method", ["brin", "gin"])
 def test_pg_trailing_column_of_brin_and_gin_indexes_passes(
     project: pytest.Pytester, pg16: Postgres, method: str
@@ -1153,3 +1223,250 @@ def test_pg_whole_include_index_is_reported_with_and_without_statistics(
             ),
         ]
     )
+
+
+# A partial index serves only the rows of its predicate. Before ANALYZE, the
+# planner reads it in full as a bitmap, after it as an index scan; in both
+# cases nothing narrows the read by email (issue #4).
+USERS = """
+import pytest
+from sqlalchemy import text
+
+SETUP = [
+    "CREATE TABLE users (id serial PRIMARY KEY, email text, status text, "
+    "a int, b int, created_at timestamp, deleted_at timestamp)",
+    "CREATE INDEX users_live ON users (id) WHERE deleted_at IS NULL",
+    "CREATE INDEX users_status ON users (status)",
+    "CREATE INDEX users_a ON users (a)",
+    "CREATE INDEX users_b ON users (b)",
+    "INSERT INTO users (email, status, a, b, created_at, deleted_at) "
+    "SELECT 'e' || g, 's' || (g % 4), g % 7, g % 11, now(), "
+    "CASE WHEN g % 5 = 0 THEN now() END FROM generate_series(1, 30) g",
+]
+
+
+@pytest.fixture(params=[False, True], ids=["no-stats", "analyzed"])
+def db(session, request):
+    for statement in SETUP:
+        session.execute(text(statement))
+    if request.param:
+        session.execute(text("ANALYZE users"))
+    return session
+"""
+
+
+def _users_project(project: pytest.Pytester, pg: Postgres, body: str) -> None:
+    _pg_project(project, pg)
+    project.makepyfile(test_a=USERS + "\n\n" + textwrap.dedent(body))
+
+
+@needs_pg
+def test_pg_whole_partial_index_is_reported_with_and_without_statistics(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _users_project(
+        project,
+        pg16,
+        """
+        def test_live_user(db):
+            sql = "SELECT id FROM users WHERE deleted_at IS NULL AND email = :e"
+            db.execute(text(sql), {"e": "e1"}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "*test_live_user?no-stats?*",
+            (
+                "  users is read in full: Bitmap Heap Scan using users_live "
+                "with filter (users.email = $1)"
+            ),
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON users (email)",
+            "*test_live_user?analyzed?*",
+            (
+                "  users is read in full: Index Scan using users_live "
+                "with filter (users.email = $1)"
+            ),
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON users (email)",
+        ]
+    )
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    ("sql", "params"),
+    [
+        # BitmapOr of two indexed conditions
+        ("SELECT id FROM users WHERE a = :a OR b = :b", "a=1, b=2"),
+        # BitmapAnd before ANALYZE, one index condition after it
+        ("SELECT id FROM users WHERE a = :a AND b = :b", "a=1, b=2"),
+        # a bitmap with a real index condition, filtered further
+        ("SELECT id FROM users WHERE status = :s AND email = :e", "s='s1', e='e1'"),
+        # the partial index plus an indexed equality
+        (
+            (
+                "SELECT id FROM users WHERE deleted_at IS NULL AND status = :s "
+                "AND email = :e"
+            ),
+            "s='s1', e='e1'",
+        ),
+        # a whole partial index with a range filter: pagination-like
+        (
+            "SELECT id FROM users WHERE deleted_at IS NULL AND created_at > :t",
+            "t=datetime.datetime(2026, 1, 1)",
+        ),
+        # one arm of a BitmapOr reads the whole partial index
+        (
+            (
+                "SELECT id FROM users WHERE (deleted_at IS NULL AND email = :e) "
+                "OR a = :a"
+            ),
+            "e='e1', a=1",
+        ),
+    ],
+)
+def test_pg_other_bitmap_scans_are_not_reported(
+    project: pytest.Pytester, pg16: Postgres, sql: str, params: str
+) -> None:
+    _users_project(
+        project,
+        pg16,
+        f"""
+        import datetime
+
+
+        def test_bitmap(db):
+            db.execute(text("{sql}"), dict({params})).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=2)
+
+
+# The catalog lookups are cached for the session, per engine (issue #5). A
+# session-scoped engine keeps its cache from test to test, so DDL in a
+# fixture, and a rollback of DDL inside a test, must clear it.
+SESSION_ENGINE_CONFTEST = """
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
+
+URL = {url!r}
+SCHEMA = {schema!r}
+
+
+@pytest.fixture(scope="session")
+def engine():
+    engine = create_engine(
+        URL, connect_args={{"startup_params": {{"search_path": SCHEMA}}}}
+    )
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE events (id int PRIMARY KEY, a int, b int)"))
+        conn.execute(text("CREATE INDEX events_ab ON events (a, b)"))
+        conn.execute(text(
+            "INSERT INTO events SELECT g, g % 3, g % 4 FROM generate_series(1, 30) g"
+        ))
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def session(engine):
+    with Session(engine) as session:
+        yield session
+
+
+@pytest.fixture
+def redefined(engine):
+    with engine.begin() as conn:
+        conn.execute(text("DROP INDEX events_ab"))
+        conn.execute(text("CREATE INDEX events_ab ON events (b, a)"))
+"""
+
+
+@needs_pg
+def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    if pg16.version >= (18,):
+        pytest.skip("PostgreSQL 18 can skip-scan the leading column")
+    project.makeconftest(
+        SESSION_ENGINE_CONFTEST.format(url=pg16.url, schema=pg16.schema)
+    )
+    project.makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+
+        def test_leading_column(session):
+            session.execute(text("SELECT id FROM events WHERE a = :v"), {"v": 1}).all()
+
+
+        def test_redefined_in_a_fixture(redefined, session):
+            # events_ab is (b, a) now: a is its trailing column
+            session.execute(text("SELECT id FROM events WHERE a = :v"), {"v": 1}).all()
+
+
+        def test_redefinition_rolled_back(session):
+            session.execute(text("DROP INDEX events_ab"))
+            session.execute(text("CREATE INDEX events_ab ON events (a, b)"))
+            session.execute(text("SELECT id FROM events WHERE a = :v"), {"v": 1}).all()
+            session.rollback()
+            # events_ab is (b, a) again
+            sql = "SELECT id, b FROM events WHERE a = :v"
+            session.execute(text(sql), {"v": 1}).all()  # QG_LINE
+
+
+        def test_same_statement_after_rollback(session):
+            sql = "SELECT id, a FROM events WHERE a = :v"
+            session.execute(text("DROP INDEX events_ab"))
+            session.execute(text("CREATE INDEX events_ab ON events (a, b)"))
+            session.execute(text(sql), {"v": 1}).all()
+            session.rollback()
+            # events_ab is (b, a) again and the very same statement runs again
+            session.execute(text(sql), {"v": 1}).all()
+        """
+    )
+    path = project.path / "test_a.py"
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1, failed=3)
+    result.stdout.fnmatch_lines(
+        [
+            "*_ test_redefined_in_a_fixture _*",
+            (
+                "  events is read in full: *Index * using events_ab "
+                "with index condition (events.a = $1)"
+            ),
+            "*_ test_redefinition_rolled_back _*",
+            (
+                "  events is read in full: *Index * using events_ab "
+                "with index condition (events.a = $1)"
+            ),
+            f"  first at test_a.py:{_line(path)} in test_redefinition_rolled_back",
+            "*_ test_same_statement_after_rollback _*",
+            (
+                "  events is read in full: *Index * using events_ab "
+                "with index condition (events.a = $1)"
+            ),
+        ]
+    )
+
+
+def test_each_session_starts_with_an_empty_catalog_cache(
+    project: pytest.Pytester,
+) -> None:
+    from pytest_queryguard import catalog
+
+    class Engine:
+        pass
+
+    engine = Engine()
+    catalog.for_engine(engine).leading[("public", "i")] = "a"
+    project.makepyfile(test_a=SQLITE_TEST)
+    project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
+    assert catalog.for_engine(engine).leading == {}

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from . import indexes
+from . import catalog, indexes
 from .collector import QueryCollector, pop, push
 from .detectors import detect
 from .indexes import select_findings
@@ -209,6 +209,8 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[_outer_error] = swap_error(None)
     config.stash[_outer_stopped] = indexes.swap_stopped(None)
     config.stash[_outer_catalog_error] = indexes.swap_catalog_error(None)
+    # A nested session (pytester) may change the database; start afresh.
+    catalog.reset()
     settings = _read_settings(config)
     config.stash[_settings] = settings
     if config.getoption("queryguard_report"):
@@ -223,6 +225,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     swap_error(config.stash.get(_outer_error, None))
     indexes.swap_stopped(config.stash.get(_outer_stopped, None))
     indexes.swap_catalog_error(config.stash.get(_outer_catalog_error, None))
+    catalog.reset()
 
 
 def _report_internal_error(config: pytest.Config) -> None:

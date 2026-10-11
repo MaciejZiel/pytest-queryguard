@@ -387,7 +387,9 @@ What is reported:
   Pagination with a range or `IS NULL` filter (`WHERE total > 0 ORDER BY id
   LIMIT 20`) walks the primary key on purpose and is not reported. A whole
   index read as a bitmap, which PostgreSQL may choose before `ANALYZE` for
-  an `INCLUDE` index, counts the same way;
+  an `INCLUDE` index or a partial index (`... WHERE deleted_at IS NULL`),
+  counts the same way. A bitmap that combines several indexes (`OR`, or
+  `AND` of indexed columns) is not reported;
 - an index condition, an equality on one column, that leaves out the first
   column of a multicolumn btree index: with only an index on
   `(tenant_id, status)`, `WHERE status = ?` reads the whole index on
@@ -411,20 +413,28 @@ enum or `char(n)` column, gets
 `add an index that matches this condition (an expression index may be needed)`,
 because an index on the plain column would not help there.
 
-Each distinct statement is explained once per test, inside a savepoint on
+Each distinct statement is explained once per test (again after DDL
+changes the catalog), inside a savepoint on
 the connection that ran it, so the check sees tables and rows the test has
 not committed yet and leaves the test's transaction as it was. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 
 The check costs a few database round trips per distinct statement per test:
-open the savepoint, set the planner settings, `EXPLAIN`, read from the
-catalog the first column of the btree indexes the plan uses and the
-`varchar` columns of tables cast to text (once per index or table per
-test), and roll back. With pg8000 against PostgreSQL 17 in a local Docker
-container, 100 tests with 10 distinct statements each went from 2.2–2.4 s
-to 3.9–7.3 s over three runs, about 2–5 ms per statement. Most of that is round-trip time, so it is lower
-with a faster connection to the database.
+open the savepoint, set the planner settings, `EXPLAIN` and roll back. The
+first column of the btree indexes a plan uses and the `varchar` columns of
+tables cast to text are read from the catalog once per engine for the whole
+session. Any statement that may change them, such as `CREATE INDEX`,
+`DROP TABLE` or `ALTER TABLE`, clears that cache, in a test or a fixture,
+and so does the end of a transaction that ran one. A suite that runs
+`create_all` and `drop_all` around every test therefore clears the cache
+every test and gets no speed-up from it. With pg8000 against
+PostgreSQL 17 in a local Docker container, a suite of 100 tests that each
+run the same 10 indexed statements on a session-scoped engine
+([scripts/bench_index_check.py](https://github.com/MaciejZiel/pytest-queryguard/blob/main/scripts/bench_index_check.py)) took
+1.2–1.8 s without the check and 2.0–2.9 s with it, over 12 runs: about
+1 ms per statement. Most of that is round-trip time, so it is lower with a
+faster connection to the database.
 
 A sequential scan is the right plan for a small lookup table, also in
 production. Exclude such tables with `queryguard_index_ignore_tables`, one
@@ -564,6 +574,12 @@ Command-line options:
 - A partitioned table is reported under the partition's name, and
   `queryguard_index_ignore_tables` matches partition names, not the parent
   table's.
+- The index check clears its catalog cache on DDL it sees through
+  SQLAlchemy in the same process. DDL run another way while the session
+  runs, through a raw DB-API connection, `psql`, another process or a
+  function called from a `SELECT`, is not seen, and the check may judge an
+  index by its old definition. A fresh pytest session starts with an empty
+  cache.
 - The index check's session summary is printed by the process that runs the
   tests, so under pytest-xdist it is not shown. Findings in tests are
   reported as usual.

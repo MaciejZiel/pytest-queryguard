@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The index check reads the first column of each btree index and the
+  `varchar` columns of each table from the catalog once per engine for the
+  whole session instead of once per test. Any statement that may change
+  them (`CREATE`, `DROP`, `ALTER`, `REINDEX`, `TRUNCATE` and other DDL,
+  seen in tests and fixtures alike) clears the cache, as does the end of a
+  transaction that ran one. On 100 tests with 10 indexed statements each
+  against PostgreSQL 17, the check went from about 2.3 ms to 1.2 ms per
+  statement (#5). The same statement is explained again after such DDL, so
+  a rolled-back index change no longer hides a finding. Clearing is safe
+  while a plan is being read, also from another thread or when a
+  connection is garbage collected, and when a two-phase transaction with
+  DDL ends. A statement that cannot be planned is counted once in the
+  "could not be explained" summary even when DDL made the check retry it.
+
+### Fixed
+
+- The index check now judges temporary tables: trailing columns of their
+  multicolumn indexes and `varchar` casts were silently skipped, because
+  PostgreSQL names the schema `pg_temp` in plans and `pg_temp_<n>` in the
+  catalog.
+- The index check now reports a partial index read in full as a bitmap.
+  With an index such as `(id) WHERE deleted_at IS NULL` and
+  `WHERE deleted_at IS NULL AND email = ?`, the plan before `ANALYZE` was
+  skipped, while the plan after it was reported (#4).
+
 ## [0.2.0] - 2026-10-11
 
 ### Added

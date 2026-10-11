@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from pytest_queryguard import catalog as catalogs
 from pytest_queryguard import indexes
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.events import Catalog, ScanEvent, ScanIssue
@@ -342,12 +343,66 @@ def test_bitmap_scan_of_a_whole_index_with_an_equality_filter_is_reported() -> N
     assert (issue.kind, issue.column) == ("filter", "note")
 
 
+def test_bitmap_scan_of_a_whole_partial_index_is_reported() -> None:
+    # Before ANALYZE, a partial index ... WHERE deleted_at IS NULL is read in
+    # full as a bitmap; the Recheck Cond is then only the index predicate.
+    plan = _bitmap_whole_index(
+        "(orders.email = $1)", recheck="(orders.deleted_at IS NULL)"
+    )
+    [issue] = find_scans(plan)
+    assert issue.node == "Bitmap Heap Scan using o_inc"
+    assert (issue.kind, issue.condition, issue.column) == (
+        "filter",
+        "(orders.email = $1)",
+        "email",
+    )
+
+
+def _bitmap_combined(node_type: str, *arms: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "Node Type": "Bitmap Heap Scan",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Recheck Cond": "((orders.a = $1) OR (orders.deleted_at IS NULL))",
+        "Filter": "(orders.email = $2)",
+        "Plans": [{"Node Type": node_type, "Plans": list(arms)}],
+    }
+
+
+_WHOLE_ARM = {"Node Type": "Bitmap Index Scan", "Index Name": "o_live"}
+_COND_ARM = {
+    "Node Type": "Bitmap Index Scan",
+    "Index Name": "o_a",
+    "Index Cond": "(orders.a = $1)",
+}
+
+
 @pytest.mark.parametrize(
     "plan",
     [
+        # a range filter: pagination-like, as for Index Scan (rule 2)
         _bitmap_whole_index("(orders.total > $1)"),
-        _bitmap_whole_index("(orders.note = $1)", recheck="(orders.a = $2)"),
+        _bitmap_whole_index(
+            "(orders.created_at > $1)", recheck="(orders.deleted_at IS NULL)"
+        ),
+        # equalities on two columns
+        _bitmap_whole_index(
+            "((orders.status = $1) AND (orders.email = $2))",
+            recheck="(orders.deleted_at IS NULL)",
+        ),
+        # the bitmap has a real index condition
+        _bitmap_whole_index(
+            "(orders.note = $1)",
+            recheck="(orders.a = $2)",
+            index_cond="(orders.a = $2)",
+        ),
         _bitmap_whole_index("(orders.note = $1)", index_cond="(orders.a = $2)"),
+        # BitmapOr and BitmapAnd combine several indexes; one arm reading a
+        # whole partial index does not mean the heap is read in full
+        _bitmap_combined("BitmapOr", _WHOLE_ARM, _COND_ARM),
+        _bitmap_combined("BitmapAnd", _WHOLE_ARM, _COND_ARM),
+        _bitmap_combined("BitmapAnd", _COND_ARM, _COND_ARM),
     ],
 )
 def test_other_bitmap_scans_are_not_reported_by_rule_2(plan: dict[str, Any]) -> None:
@@ -896,12 +951,21 @@ class FakeProxy:
         self.dbapi_connection = dbapi_connection
 
 
+class FakeEngine:
+    pass
+
+
 class FakeSAConnection:
     """The parts of a SQLAlchemy Connection that check() uses."""
 
-    def __init__(self, dialect: FakeDialect, result: Any = PLAN) -> None:
+    def __init__(
+        self,
+        dialect: FakeDialect,
+        result: Any = PLAN,
+        engine: FakeEngine | None = None,
+    ) -> None:
         self.dialect = dialect
-        self.engine = object()
+        self.engine = engine or FakeEngine()
         self.raw = FakeConnection(result=result)
         self.connection = FakeProxy(self.raw)
 
@@ -998,6 +1062,21 @@ def test_check_records_explain_errors() -> None:
     check(conn, "SELECT $1", False, [target])
     assert target.explain_errors == [("cannot plan", "SELECT $1")]
     assert target.scans == []
+
+
+def test_check_records_a_statement_that_keeps_failing_once() -> None:
+    # DDL forgets what was explained, so the statement is planned again.
+    conn = FakeSAConnection(FakeDialect())
+    conn.raw.fail["EXPLAIN"] = RuntimeError("cannot plan")
+    target = _collector()
+    check(conn, "SELECT $1", False, [target])
+    target.explained.clear()
+    check(conn, "SELECT $1", False, [target])
+    check(conn, "SELECT $2", False, [target])
+    assert target.explain_errors == [
+        ("cannot plan", "SELECT $1"),
+        ("cannot plan", "SELECT $2"),
+    ]
 
 
 def test_check_records_nothing_for_a_clean_plan() -> None:
@@ -1105,13 +1184,13 @@ def test_run_explain_without_index_conditions_skips_the_lookup() -> None:
 def test_run_explain_keeps_the_plan_when_the_lookup_fails() -> None:
     plan = [{"Plan": _composite("Index Scan", "((orders.status)::text = $1)")}]
     conn = FakeConnection(result=plan)
-    conn.fail["SELECT n.nspname"] = RuntimeError("no pg_index today")
+    conn.fail["SELECT CASE"] = RuntimeError("no pg_index today")
     outcome = run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
     assert isinstance(outcome, Explained)
     assert (outcome.leading, outcome.varchar) == ({}, {})
     assert outcome.catalog_error == "no pg_index today"
     # the aborted lookup is not followed by the varchar one
-    assert len([sql for sql in conn.log if sql.startswith("SELECT n.nspname")]) == 1
+    assert len([sql for sql in conn.log if sql.startswith("SELECT CASE")]) == 1
     assert conn.log[-2] == "ROLLBACK TO SAVEPOINT queryguard_explain"
 
 
@@ -1123,6 +1202,39 @@ def test_leading_lookup_reads_btree_indexes_only() -> None:
     [lookup] = [sql for sql in conn.log if "pg_index" in sql]
     assert "JOIN pg_am am ON am.oid = c.relam" in lookup
     assert "am.amname = 'btree'" in lookup
+
+
+def test_temporary_tables_are_looked_up_by_the_connections_temp_schema() -> None:
+    node = _composite("Index Scan", "(t.status = $1)")
+    node["Schema"] = "pg_temp"
+    node["Relation Name"] = "t"
+    node["Index Name"] = "t_idx"
+    node["Filter"] = "((t.name)::text = $1)"
+    conn = FakeConnection(result=[{"Plan": node}])
+    run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
+    [lookup] = [sql for sql in conn.log if "pg_index" in sql]
+    assert "n.oid = pg_my_temp_schema() AND c.relname IN ('t_idx')" in lookup
+    assert "n.nspname, c.relname) IN" not in lookup
+    [varchar] = [sql for sql in conn.log if "typname" in sql]
+    assert "n.oid = pg_my_temp_schema() AND c.relname IN ('t')" in varchar
+
+
+def test_temporary_tables_are_not_kept_in_the_session_cache() -> None:
+    # pg_temp is a different schema on every connection.
+    node = _composite("Index Scan", "(t.status = $1)")
+    node["Schema"] = "pg_temp"
+    node["Relation Name"] = "t"
+    node["Index Name"] = "t_idx"
+    node["Filter"] = "((t.name)::text = $1)"
+    conn = FakeConnection(result=[{"Plan": node}])
+    conn.leading_rows = [("pg_temp", "t_idx", "tenant_id")]
+    conn.varchar_rows = [("pg_temp", "t", "name")]
+    catalog = Catalog()
+    outcome = run_explain(conn, "SELECT 1", leading=True, catalog=catalog)
+    assert isinstance(outcome, Explained)
+    assert outcome.leading == {("pg_temp", "t_idx"): "tenant_id"}
+    assert outcome.varchar == {("pg_temp", "t"): frozenset({"name"})}
+    assert (catalog.leading, catalog.varchar) == ({}, {})
 
 
 def test_run_explain_looks_up_varchar_columns_of_text_casts() -> None:
@@ -1152,7 +1264,7 @@ def test_run_explain_without_a_catalog_looks_nothing_up() -> None:
     conn = FakeConnection(result=plan)
     outcome = run_explain(conn, "SELECT 1", leading=True)
     assert isinstance(outcome, Explained)
-    assert not [sql for sql in conn.log if sql.startswith("SELECT n.nspname")]
+    assert not [sql for sql in conn.log if sql.startswith("SELECT CASE")]
 
 
 @pytest.mark.parametrize(
@@ -1173,11 +1285,11 @@ def test_check_gives_the_text_cast_hint_for_varchar_only(
 def test_failed_catalog_lookup_is_not_retried_in_the_session() -> None:
     plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
     conn = FakeSAConnection(FakeDialect(), result=plan)
-    conn.raw.fail["SELECT n.nspname"] = RuntimeError("permission denied for pg_index")
+    conn.raw.fail["SELECT CASE"] = RuntimeError("permission denied for pg_index")
     first, second = _collector(), _collector()
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [first])
     check(conn, "SELECT id FROM orders WHERE status = %s", False, [second])
-    lookups = [sql for sql in conn.raw.log if sql.startswith("SELECT n.nspname")]
+    lookups = [sql for sql in conn.raw.log if sql.startswith("SELECT CASE")]
     assert len(lookups) == 1
     notice = (
         "the index check stopped reading the catalog for the rest of the session: "
@@ -1206,22 +1318,66 @@ def test_check_looks_up_leading_columns_before_postgres_18(
     assert len(target.scans) == lookups
 
 
-def test_check_looks_up_each_index_once_per_test() -> None:
+def _lookups(conn: FakeSAConnection, table: str = "pg_index") -> int:
+    return len([sql for sql in conn.raw.log if table in sql])
+
+
+def test_check_looks_up_each_index_once_per_session() -> None:
     plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
-    conn = FakeSAConnection(FakeDialect(), result=plan)
+    engine = FakeEngine()
+    conn = FakeSAConnection(FakeDialect(), result=plan, engine=engine)
     conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
     target = _collector()
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
     check(conn, "SELECT id FROM orders WHERE status = %s", False, [target])
-    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == 1
+    assert _lookups(conn) == 1
     assert len(target.scans) == 2
-    # an index without a plain first column is remembered too
-    conn.raw.leading_rows = []
+    # the next test, on another connection of the same engine
+    other_conn = FakeSAConnection(FakeDialect(), result=plan, engine=engine)
     other = _collector()
-    check(conn, "SELECT * FROM orders WHERE status = %s", False, [other])
-    check(conn, "SELECT id FROM orders WHERE status = %s", False, [other])
-    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == 2
-    assert other.scans == []
+    check(other_conn, "SELECT * FROM orders WHERE status = %s", False, [other])
+    assert _lookups(other_conn) == 0
+    assert len(other.scans) == 1
+    # another engine looks it up again
+    third = FakeSAConnection(FakeDialect(), result=plan)
+    check(third, "SELECT * FROM orders WHERE status = %s", False, [_collector()])
+    assert _lookups(third) == 1
+
+
+def test_check_remembers_an_index_without_a_plain_first_column() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    first, second = _collector(), _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [first])
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [second])
+    assert _lookups(conn) == 1
+    assert first.scans == second.scans == []
+
+
+def test_check_looks_up_varchar_columns_once_per_session() -> None:
+    plan = [{"Plan": _seq(Filter="((orders.status)::text = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    conn.raw.varchar_rows = [("public", "orders", "status")]
+    for _ in range(3):
+        target = _collector()
+        check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
+        assert target.scans[0].issue.column == "status"
+    assert _lookups(conn, "pg_type") == 1
+
+
+def test_check_looks_up_again_after_ddl() -> None:
+    from pytest_queryguard import catalog
+
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [_collector()])
+    catalog.observe(conn, "DROP INDEX orders_tenant_id_status_idx")
+    conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "status")]
+    target = _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
+    assert _lookups(conn) == 2
+    assert target.scans == []
 
 
 def test_run_explain_skips_the_lookup_for_known_indexes() -> None:
@@ -1260,9 +1416,13 @@ def test_check_unescapes_quoted_percent_except_for_pg8000(
 
 @pytest.fixture(autouse=True)
 def fresh_index_state() -> Iterator[None]:
+    from pytest_queryguard import catalog
+
     old = indexes.swap_stopped(None)
     old_catalog = indexes.swap_catalog_error(None)
+    catalog.reset()
     yield
+    catalog.reset()
     indexes.swap_stopped(old)
     indexes.swap_catalog_error(old_catalog)
 
@@ -1316,3 +1476,98 @@ def test_swap_stopped_returns_the_previous_state(fresh_index_state: None) -> Non
 def test_swap_catalog_error_returns_the_previous_state() -> None:
     assert indexes.swap_catalog_error("x") is None
     assert indexes.swap_catalog_error(None) == "x"
+
+
+# ----------------------------------------------------------- catalog clearing
+
+
+class _ClearsWhileIterated(dict[Any, Any]):
+    """Clears the cache once its items are being read, like another thread."""
+
+    def items(self) -> Any:  # type: ignore[override]
+        entries = super().items()
+
+        def walk() -> Iterator[Any]:
+            iterator = iter(entries)
+            yield next(iterator)
+            catalogs.clear()
+            yield from iterator
+
+        return walk()
+
+
+def test_clearing_the_cache_while_a_plan_is_read_keeps_the_lookups() -> None:
+    class Engine:
+        pass
+
+    plan = {
+        "Node Type": "Index Scan",
+        "Schema": "public",
+        "Relation Name": "t",
+        "Index Name": "t_idx",
+        "Index Cond": "(t.b = $1)",
+        "Plans": [
+            {
+                "Node Type": "Index Scan",
+                "Schema": "public",
+                "Relation Name": "u",
+                "Index Name": "u_idx",
+                "Index Cond": "(u.b = $1)",
+            }
+        ],
+    }
+    engine = Engine()
+    entry = catalogs.for_engine(engine)
+    entry.leading = _ClearsWhileIterated(
+        {("public", "t_idx"): "a", ("public", "u_idx"): "a"}
+    )
+    try:
+        leading, _ = indexes._read_catalog(FakeConnection().cursor(), plan, entry, True)
+    finally:
+        catalogs.reset()
+    assert leading == {("public", "t_idx"): "a", ("public", "u_idx"): "a"}
+
+
+class _ClearsAfterSelect:
+    """Answers the catalog queries, then clears the cache as another thread
+    would when its DDL commits between the SELECT and the write."""
+
+    def __init__(self, leading: list[Any], varchar: list[Any]) -> None:
+        self.leading = leading
+        self.varchar = varchar
+        self.rows: list[Any] = []
+
+    def execute(self, sql: str) -> None:
+        self.rows = self.leading if "pg_index" in sql else self.varchar
+        catalogs.clear()
+
+    def fetchall(self) -> list[Any]:
+        return self.rows
+
+
+@pytest.mark.parametrize("text_cast", [True, False])
+def test_rows_read_before_a_clear_are_not_written_after_it(text_cast: bool) -> None:
+    class Engine:
+        pass
+
+    plan = {
+        "Node Type": "Index Scan",
+        "Schema": "public",
+        "Relation Name": "t",
+        "Index Name": "t_idx",
+        "Index Cond": "(t.b = $1)",
+    }
+    if text_cast:
+        plan["Filter"] = "((t.s)::text = $2)"
+    engine = Engine()  # held: the cache only keeps engines that are alive
+    entry = catalogs.for_engine(engine)
+    cursor = _ClearsAfterSelect([("public", "t_idx", "a")], [("public", "t", "s")])
+    try:
+        leading, varchar = indexes._read_catalog(cursor, plan, entry, True)
+    finally:
+        catalogs.reset()
+    # What was read still answers this call, but none of it is cached.
+    assert leading == {("public", "t_idx"): "a"}
+    assert varchar == ({("public", "t"): frozenset({"s"})} if text_cast else {})
+    assert entry.leading == {}
+    assert entry.varchar == {}
