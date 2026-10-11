@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import weakref
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
@@ -867,7 +868,7 @@ def swap_catalog_error(new: str | None) -> str | None:
     return old
 
 
-# The asyncpg engines (by id) whose database has no PL/pgSQL, found by the
+# The asyncpg engines whose database has no PL/pgSQL, found by the
 # first failed EXPLAIN on each. PL/pgSQL belongs to a database, and a suite
 # can use several; sync engines and the other asyncpg engines are still
 # checked.
@@ -885,10 +886,45 @@ def _is_plpgsql_missing(error: ExplainError) -> bool:
     return error.message == _PLPGSQL_MISSING
 
 
-_no_plpgsql: frozenset[int] = frozenset()
+class EngineSet:
+    """Engines held weakly: an id is reused once its engine is collected.
+
+    An engine that cannot be weakly referenced is kept by id instead.
+    """
+
+    def __init__(self) -> None:
+        self._engines: weakref.WeakSet[Any] = weakref.WeakSet()
+        self._ids: set[int] = set()
+
+    def add(self, engine: Any) -> None:
+        try:
+            self._engines.add(engine)
+        except TypeError:
+            self._ids.add(id(engine))
+
+    def __contains__(self, engine: Any) -> bool:
+        try:
+            weakref.ref(engine)
+        except TypeError:  # WeakSet answers False for these, not TypeError
+            return id(engine) in self._ids
+        return engine in self._engines
+
+    def __len__(self) -> int:
+        return len(self._engines) + len(self._ids)
 
 
-def swap_no_plpgsql(new: frozenset[int]) -> frozenset[int]:
+def engine_key(engine: Any) -> object:
+    """A hashable stand-in for an engine that is never equal to a later one."""
+    try:
+        return weakref.ref(engine)
+    except TypeError:
+        return id(engine)
+
+
+_no_plpgsql = EngineSet()
+
+
+def swap_no_plpgsql(new: EngineSet) -> EngineSet:
     """Replace the engines without PL/pgSQL and return the previous ones."""
     global _no_plpgsql
     old, _no_plpgsql = _no_plpgsql, new
@@ -929,20 +965,20 @@ def check(
     conn: Any, statement: str, executemany: bool, targets: Sequence[QueryCollector]
 ) -> None:
     """Explain one executed statement for the collectors that want it."""
-    global _stopped, _catalog_error, _no_plpgsql
+    global _stopped, _catalog_error
     if executemany or not is_checked_statement(statement):
         return
     dialect = conn.dialect
     is_async = getattr(dialect, "is_async", False)
     reason = _stopped or unsupported_reason(dialect)
-    if reason is None and is_async and id(conn.engine) in _no_plpgsql:
+    if reason is None and is_async and conn.engine in _no_plpgsql:
         reason = NO_PLPGSQL_NOTICE
     if reason is not None:
         for target in targets:
             target.index_notices[reason] = None
         return
     # Literals stay: a partial index may serve one value and not another.
-    key = (id(conn.engine), collapse_lists(statement))
+    key = (engine_key(conn.engine), collapse_lists(statement))
     fresh = [target for target in targets if key not in target.explained]
     if not fresh:
         return
@@ -988,7 +1024,7 @@ def check(
         for target in targets:
             target.index_notices[_catalog_error] = None
     if isinstance(outcome, ExplainError) and is_async and _is_plpgsql_missing(outcome):
-        _no_plpgsql |= {id(conn.engine)}
+        _no_plpgsql.add(conn.engine)
         for target in targets:
             target.index_notices[NO_PLPGSQL_NOTICE] = None
         return

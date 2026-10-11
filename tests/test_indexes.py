@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 import time
 from collections.abc import Iterator
@@ -1423,7 +1424,7 @@ def fresh_index_state() -> Iterator[None]:
 
     old = indexes.swap_stopped(None)
     old_catalog = indexes.swap_catalog_error(None)
-    old_plpgsql = indexes.swap_no_plpgsql(frozenset())
+    old_plpgsql = indexes.swap_no_plpgsql(indexes.EngineSet())
     catalog.reset()
     yield
     catalog.reset()
@@ -1484,9 +1485,21 @@ def test_swap_catalog_error_returns_the_previous_state() -> None:
 
 
 def test_swap_no_plpgsql_returns_the_previous_state() -> None:
-    marked = frozenset({1})
-    assert indexes.swap_no_plpgsql(marked) == frozenset()
-    assert indexes.swap_no_plpgsql(frozenset()) == marked
+    engine = FakeEngine()
+    marked = indexes.EngineSet()
+    marked.add(engine)
+    empty = indexes.swap_no_plpgsql(marked)
+    assert engine not in empty
+    assert indexes.swap_no_plpgsql(empty) is marked
+    assert engine in marked
+
+
+def test_engine_set_falls_back_to_ids_for_engines_without_weakrefs() -> None:
+    engines = indexes.EngineSet()
+    plain = object()  # cannot be weakly referenced
+    engines.add(plain)
+    assert plain in engines
+    assert object() not in engines
 
 
 # ------------------------------------------------------------ async (asyncpg)
@@ -1648,7 +1661,7 @@ class FakeAsyncSAConnection:
         self.dialect = FakeDialect(
             driver="asyncpg", is_async=True, paramstyle="numeric_dollar"
         )
-        self.engine = object()
+        self.engine = FakeEngine()
         self.raw = FakeAdaptedAsyncpg(plan)
         self.connection = FakeProxy(self.raw)  # type: ignore[arg-type]
 
@@ -1690,6 +1703,50 @@ def test_missing_plpgsql_on_one_asyncpg_engine_does_not_skip_another() -> None:
     assert [scan.issue.table for scan in target.scans] == ["orders"]
     assert target.explain_errors == []
     assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
+
+
+@pytest.fixture
+def engines_share_an_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give every FakeEngine the id CPython may hand to a successor.
+
+    CPython reuses the address of a collected object, and id() is the address.
+    Forcing it keeps the tests deterministic.
+    """
+    real_id = id
+
+    def shared_id(obj: object) -> int:
+        return 1 if isinstance(obj, FakeEngine) else real_id(obj)
+
+    monkeypatch.setattr(indexes, "id", shared_id, raising=False)
+
+
+def test_a_new_engine_with_a_reused_id_is_not_marked_as_missing_plpgsql(
+    engines_share_an_id: None,
+) -> None:
+    broken = FakeAsyncSAConnection(SEQ_PLAN)
+    broken.raw.fail["DO "] = RuntimeError('language "plpgsql" does not exist')
+    target = _collector()
+    check(broken, "SELECT a FROM t WHERE a = $1", False, [target])
+    del broken
+    gc.collect()
+    working = FakeAsyncSAConnection(SEQ_PLAN)
+    check(working, "SELECT b FROM t WHERE b = $1", False, [target])
+    assert any(sql.startswith("DO ") for _, sql in working.raw.log)
+    assert [scan.issue.table for scan in target.scans] == ["orders"]
+
+
+def test_a_new_engine_with_a_reused_id_is_explained_again(
+    engines_share_an_id: None,
+) -> None:
+    first = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    target = _collector()
+    sql = "SELECT a FROM t WHERE a = %s"
+    check(first, sql, False, [target])
+    del first
+    gc.collect()
+    second = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    check(second, sql, False, [target])
+    assert any(s.startswith("EXPLAIN") for s in second.raw.log)
 
 
 class _Sqlstate(Exception):
