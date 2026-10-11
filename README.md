@@ -758,7 +758,7 @@ which nplusone does.
 
 - 0.2.0 (released): missing index detection on PostgreSQL 16 and newer, see
   [Missing indexes](#missing-indexes-postgresql-16-and-newer).
-- 0.3.0 (released): the missing-index check on asyncpg engines, see
+- 0.3.0: the missing-index check on asyncpg engines, see
   [Missing indexes](#missing-indexes-postgresql-16-and-newer);
   `record_queries()` and `QueryLog` for reading the queries of a block, see
   [Reading the queries in a test](#reading-the-queries-in-a-test); the index
