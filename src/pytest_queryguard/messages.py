@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from .detectors import Finding, RelationshipFinding
-from .events import CallSite, StatementEvent
+from .events import CallSite, ScanEvent, StatementEvent
+from .indexes import table_label
 
 _SQL_LIMIT = 200
 _REPEAT_FIX = (
@@ -79,3 +81,51 @@ def format_budget(
             line += f"  ({_location(stmt.callsite, cwd)})"
         lines.append(line)
     return "\n".join(lines)
+
+
+def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
+    issue = scan.issue
+    table = table_label(issue)
+    where = f"with {issue.kind}"
+    if issue.column is None:
+        fix = "add an index that matches this condition"
+        if issue.expression:
+            fix += " (an expression index may be needed)"
+    else:
+        fix = f"CREATE INDEX ON {table} ({issue.column})"
+    return [
+        f"  {table} is read in full: {issue.node} {where} {_truncate(issue.condition)}",
+        _first_at(scan.callsite, cwd),
+        f"  sql: {_truncate(scan.sql)}",
+        f"  fix: {fix}",
+    ]
+
+
+def format_index_findings(scans: list[ScanEvent], *, cwd: Path | None = None) -> str:
+    lines = ["queryguard: missing index"]
+    for scan in scans:
+        lines.append("")
+        lines.extend(_scan_block(scan, cwd))
+    lines.extend(
+        [
+            "",
+            "  a sequential scan is fine on a small lookup table:",
+            "  list it in queryguard_index_ignore_tables",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def format_index_notes(
+    notices: Iterable[str], errors: int, first_error: tuple[str, str] | None
+) -> list[str]:
+    """The session summary lines for statements the index check skipped."""
+    lines = list(notices)
+    if errors and first_error is not None:
+        message, sql = first_error
+        noun = "statement" if errors == 1 else "statements"
+        lines.append(
+            f"{errors} {noun} could not be explained; the first: {_truncate(message)}"
+        )
+        lines.append(f"  {_truncate(sql)}")
+    return lines

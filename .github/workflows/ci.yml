@@ -49,3 +49,34 @@ jobs:
       # coverage run (not --cov) so the module-level lines of the entry-point plugin count
       - run: uv run --no-sync coverage run -m pytest
       - run: uv run --no-sync coverage report
+
+  # The missing-index check needs a real server. 15 covers the "too old"
+  # notice; 16 and 17 run the check itself.
+  postgres:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["15", "16", "17"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: pg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QUERYGUARD_PG_URL: postgresql+pg8000://postgres:pg@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run --no-sync coverage run -m pytest -rs
+      - run: uv run --no-sync coverage report

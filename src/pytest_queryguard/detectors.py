@@ -10,9 +10,20 @@ from .events import CallSite
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
 _PLACEHOLDER = r"""\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+(?:\.\d+)?|'(?:[^']|'')*'"""
-# PostgreSQL drivers may cast each bound value: $1::INTEGER, ?::VARCHAR(20)[].
-_CAST = r"(?:\s*::\s*\w+(?:\s*\(\s*\d+(?:\s*,\s*\d+)*\s*\))?(?:\s*\[\])*)?"
-_ITEM = rf"(?:{_PLACEHOLDER}){_CAST}"
+# A type name as drivers render it: INTEGER, DOUBLE PRECISION, VARCHAR(20)[],
+# TIMESTAMP(3) WITH TIME ZONE, public.mood, "Sales"."Mood".
+_NAME = r'(?:"(?:[^"]|"")+"|[A-Za-z_]\w*)'
+_WORD = r"\s+[A-Za-z_]\w*"
+_TYPE = (
+    rf"{_NAME}(?:\s*\.\s*{_NAME})*(?:{_WORD})*"
+    rf"(?:\s*\(\s*\d+(?:\s*,\s*\d+)*\s*\)(?:{_WORD})*)?"
+    r"(?:\s*\[\s*\d*\s*\])*"
+)
+# PostgreSQL drivers may cast each bound value: $1::INTEGER or CAST(? AS INTEGER).
+_ITEM = (
+    rf"(?:CAST\s*\(\s*(?:{_PLACEHOLDER})\s+AS\s+{_TYPE}\s*\)"
+    rf"|(?:{_PLACEHOLDER})(?:\s*::\s*{_TYPE})?)"
+)
 _IN_LIST = re.compile(
     rf"\bIN\s*\(\s*{_ITEM}(?:\s*,\s*{_ITEM})*\s*\)",
     re.IGNORECASE,
@@ -22,11 +33,15 @@ _WS = re.compile(r"\s+")
 _WRITES = ("INSERT", "UPDATE", "DELETE")
 
 
+def collapse_lists(sql: str) -> str:
+    """Collapse whitespace and parameter lists, so IN lists of any length match."""
+    return _IN_LIST.sub("IN (...)", _WS.sub(" ", sql).strip())
+
+
 def normalize(sql: str) -> str:
     """Reduce a statement to a shape shared by all its executions."""
-    out = _WS.sub(" ", sql).strip()
     # Lists first, so every placeholder style collapses to the same text.
-    out = _IN_LIST.sub("IN (...)", out)
+    out = collapse_lists(sql)
     out = _STRING.sub("?", out)
     # Numbered parameters ($1, $2) become "?" so they compare equal.
     out = _DOLLAR_PARAM.sub("?", out)

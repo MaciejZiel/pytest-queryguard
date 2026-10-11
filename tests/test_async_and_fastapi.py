@@ -220,7 +220,28 @@ def orders_fixed():
 """
 
 
-def test_fastapi_testclient_endpoint_nplusone_fails(project: pytest.Pytester) -> None:
+# Starlette 1.x warns on import of its TestClient when httpx (rather than
+# httpx2) is installed. The warning is about the test client, not about the
+# plugin, so the inner runs ignore exactly that message. Matching it by text
+# and by its base class keeps this working on Starlette versions that do not
+# have StarletteDeprecationWarning.
+STARLETTE_HTTPX_FILTER = (
+    "[pytest]\n"
+    "filterwarnings =\n"
+    "    ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning\n"
+)
+
+
+@pytest.fixture
+def fastapi_project(project: pytest.Pytester) -> pytest.Pytester:
+    project.makeini(STARLETTE_HTTPX_FILTER)
+    return project
+
+
+def test_fastapi_testclient_endpoint_nplusone_fails(
+    fastapi_project: pytest.Pytester,
+) -> None:
+    project = fastapi_project
     app_path = project.makepyfile(app_module=APP)
     project.makepyfile(
         test_a="""
@@ -234,7 +255,7 @@ def test_endpoint():
 """,
     )
     result = project.runpytest()
-    result.assert_outcomes(failed=1)
+    result.assert_outcomes(failed=1, warnings=0)
     result.stdout.fnmatch_lines(
         [
             "*N+1 detected*",
@@ -244,7 +265,8 @@ def test_endpoint():
     )
 
 
-def test_fastapi_fixed_endpoint_passes(project: pytest.Pytester) -> None:
+def test_fastapi_fixed_endpoint_passes(fastapi_project: pytest.Pytester) -> None:
+    project = fastapi_project
     project.makepyfile(
         app_module=APP,
         test_a="""
@@ -257,7 +279,7 @@ def test_endpoint():
     assert TestClient(app).get("/fixed").status_code == 200
 """,
     )
-    project.runpytest().assert_outcomes(passed=1)
+    project.runpytest().assert_outcomes(passed=1, warnings=0)
 
 
 def test_plain_thread_queries_are_collected(project: pytest.Pytester) -> None:

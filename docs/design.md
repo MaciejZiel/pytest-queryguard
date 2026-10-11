@@ -41,7 +41,7 @@ maintained equivalent.
 
 | Feature | Reason | Planned |
 |---|---|---|
-| Missing index detection (`EXPLAIN (GENERIC_PLAN)` with `enable_seqscan=off`) | Postgres-only, needs a real database in CI | 0.2.0 |
+| Missing index detection (`EXPLAIN (GENERIC_PLAN)` with `enable_seqscan=off`) | Postgres-only, needs a real database in CI | 0.2.0, see [design-0.2.md](design-0.2.md) |
 | Django ORM | Separate integration; Django already has `assertNumQueries` | Later, on demand |
 | Unused eager load detection | Lower value, more false positives | Later |
 | Query count snapshots across runs | Needs a storage format and update workflow | Later |

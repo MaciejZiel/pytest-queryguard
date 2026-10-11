@@ -7,11 +7,12 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import ORMExecuteState, Session
 
-from . import collector
+from . import collector, indexes
 from .callsite import find_callsite
 from .events import RelationshipLoadEvent, StatementEvent
 
 _installed = False
+_index_installed = False
 _error: BaseException | None = None
 _local = threading.local()
 
@@ -86,6 +87,24 @@ def _on_cursor_execute(
         _fail(exc)
 
 
+def _on_after_cursor_execute(
+    conn: Any,
+    cursor: Any,
+    statement: str,
+    parameters: Any,
+    context: Any,
+    executemany: bool,
+) -> None:
+    if _error is not None:
+        return
+    try:
+        targets = [target for target in collector.active() if target.index_check]
+        if targets:
+            indexes.check(conn, statement, executemany, targets)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc)
+
+
 def _fail(exc: Exception) -> None:
     global _error
     if _error is None:
@@ -116,3 +135,16 @@ def install() -> None:
     event.listen(Session, "do_orm_execute", _on_orm_execute)
     event.listen(Engine, "before_cursor_execute", _on_cursor_execute)
     _installed = True
+
+
+def install_index_check() -> None:
+    """Register the missing-index listener once per process.
+
+    Separate from install(), so a session without the check pays nothing for
+    it on each statement.
+    """
+    global _index_installed
+    if _index_installed:
+        return
+    event.listen(Engine, "after_cursor_execute", _on_after_cursor_execute)
+    _index_installed = True
