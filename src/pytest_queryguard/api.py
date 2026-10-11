@@ -4,14 +4,13 @@ import warnings
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import overload
 
 from .collector import QueryCollector, pop, push
 from .detectors import detect
 from .events import CallSite, StatementEvent
 from .listeners import install, internal_error
-from .messages import format_budget, format_findings
+from .messages import display_root, format_budget, format_findings
 from .warnings import QueryGuardInternalWarning
 
 
@@ -157,7 +156,7 @@ class QueryLog:
             repeat_threshold=repeat_threshold,
         )
         if findings:
-            raise NPlusOneDetected(format_findings(findings, cwd=Path.cwd()))
+            raise NPlusOneDetected(format_findings(findings, cwd=display_root()))
 
     def __repr__(self) -> str:
         return f"<QueryLog {self.count} queries>"

@@ -438,6 +438,60 @@ def test_assert_no_nplusone_fails_a_test_with_the_plugin_off(
     result.stdout.fnmatch_lines(["E   *NPlusOneDetected: queryguard: N+1 detected*"])
 
 
+def test_paths_in_the_message_are_relative_to_the_pytest_rootdir(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS)
+    pytester.makepyfile(
+        test_a="""
+        import os
+        import pytest
+        from pytest_queryguard import NPlusOneDetected, record_queries
+        from qgmodels import Order, make_sync_session
+
+
+        @pytest.mark.allow_nplusone
+        def test_orders(request, tmp_path):
+            session = make_sync_session()
+            with record_queries() as log:
+                for order in session.query(Order).all():
+                    _ = order.customer.name
+            os.chdir(tmp_path)  # the rootdir is not the working directory
+            with pytest.raises(NPlusOneDetected) as info:
+                log.assert_no_nplusone()
+            assert "  first at test_a.py:" in str(info.value), str(info.value)
+        """
+    )
+    result = pytester.runpytest("--queryguard-mode=off")
+    result.assert_outcomes(passed=1)
+
+
+def test_outside_pytest_paths_are_relative_to_the_working_directory(
+    tmp_path: Path,
+) -> None:
+    script = tmp_path / "script.py"
+    script.write_text(
+        "from sqlalchemy import create_engine, text\n"
+        "from pytest_queryguard import NPlusOneDetected, record_queries\n"
+        "engine = create_engine('sqlite://')\n"
+        "with engine.connect() as conn, record_queries() as log:\n"
+        "    for value in range(5):\n"
+        "        conn.execute(text('select :v'), {'v': value})\n"
+        "try:\n"
+        "    log.assert_no_nplusone()\n"
+        "except NPlusOneDetected as exc:\n"
+        "    print([line for line in str(exc).splitlines() if 'first at' in line])\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "script.py"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=tmp_path,
+    )
+    assert result.stdout.strip() == "['  first at script.py:6 in <module>']"
+
+
 def test_record_queries_works_without_pytest(tmp_path: Path) -> None:
     script = tmp_path / "script.py"
     script.write_text(
