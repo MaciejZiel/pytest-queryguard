@@ -461,6 +461,7 @@ def select_findings(
 @dataclass(frozen=True, slots=True)
 class ExplainError:
     message: str
+    sqlstate: str | None = None
 
 
 def _error_message(exc: Exception) -> str:
@@ -808,7 +809,7 @@ def run_explain(
                 cursor.execute(_EXPLAIN + sql)
             row = cursor.fetchone()
         except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
-            error = ExplainError(_error_message(exc))
+            error = ExplainError(_error_message(exc), getattr(exc, "sqlstate", None))
         plan = None if error else _read_plan(row[0] if row else None)
         if plan is not None and catalog is not None:
             try:
@@ -872,6 +873,18 @@ def swap_catalog_error(new: str | None) -> str | None:
 # checked.
 NO_PLPGSQL_NOTICE = "asyncpg statements were not checked: PL/pgSQL is not installed"
 _PLPGSQL_MISSING = 'language "plpgsql" does not exist'
+_UNDEFINED_OBJECT = "42704"
+
+
+def _is_plpgsql_missing(error: ExplainError) -> bool:
+    # The SQLSTATE does not depend on lc_messages. It is shared with a missing
+    # type or operator in the user's statement, so the message must still name
+    # the language (translations keep its quoted name).
+    if error.sqlstate == _UNDEFINED_OBJECT:
+        return "plpgsql" in error.message.lower()
+    return error.message == _PLPGSQL_MISSING
+
+
 _no_plpgsql: frozenset[int] = frozenset()
 
 
@@ -974,11 +987,7 @@ def check(
         )
         for target in targets:
             target.index_notices[_catalog_error] = None
-    if (
-        isinstance(outcome, ExplainError)
-        and is_async
-        and (outcome.message == _PLPGSQL_MISSING)
-    ):
+    if isinstance(outcome, ExplainError) and is_async and _is_plpgsql_missing(outcome):
         _no_plpgsql |= {id(conn.engine)}
         for target in targets:
             target.index_notices[NO_PLPGSQL_NOTICE] = None

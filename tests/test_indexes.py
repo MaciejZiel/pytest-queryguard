@@ -1692,6 +1692,35 @@ def test_missing_plpgsql_on_one_asyncpg_engine_does_not_skip_another() -> None:
     assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
 
 
+class _Sqlstate(Exception):
+    def __init__(self, message: str, sqlstate: str) -> None:
+        super().__init__(message)
+        self.sqlstate = sqlstate
+
+
+def test_missing_plpgsql_is_found_by_sqlstate_in_any_language() -> None:
+    conn = FakeAsyncSAConnection(SEQ_PLAN)
+    conn.raw.fail["DO "] = _Sqlstate('język "plpgsql" nie istnieje', "42704")
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE a = $1", False, [target])
+    check(conn, "SELECT b FROM t WHERE b = $1", False, [target])
+    assert target.explain_errors == []
+    assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
+    assert len([1 for _, sql in conn.raw.log if sql.startswith("DO ")]) == 1
+
+
+def test_another_undefined_object_is_an_ordinary_explain_error() -> None:
+    # 42704 also covers a missing type or operator in the user's statement.
+    conn = FakeAsyncSAConnection(SEQ_PLAN)
+    conn.raw.fail["DO "] = _Sqlstate('type "nope" does not exist', "42704")
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE a = $1", False, [target])
+    assert target.explain_errors == [
+        ('type "nope" does not exist', "SELECT a FROM t WHERE a = $1")
+    ]
+    assert target.index_notices == {}
+
+
 # ----------------------------------------------------------- catalog clearing
 
 
