@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Accepted |
 | Author | Maciej Zieliński |
 | Date | 2026-10-11 |
 | Target release | 0.3.0 |
