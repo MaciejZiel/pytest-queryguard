@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   seen in tests and fixtures alike) clears the cache, as does the end of a
   transaction that ran one. On 100 tests with 10 indexed statements each
   against PostgreSQL 17, the check went from about 2.3 ms to 1.2 ms per
-  statement (#5).
+  statement (#5). The same statement is explained again after such DDL, so
+  a rolled-back index change no longer hides a finding.
 
 ### Fixed
 

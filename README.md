@@ -412,7 +412,8 @@ enum or `char(n)` column, gets
 `add an index that matches this condition (an expression index may be needed)`,
 because an index on the plain column would not help there.
 
-Each distinct statement is explained once per test, inside a savepoint on
+Each distinct statement is explained once per test (again after DDL
+changes the catalog), inside a savepoint on
 the connection that ran it, so the check sees tables and rows the test has
 not committed yet and leaves the test's transaction as it was. Statements
 from fixtures are not checked, like for N+1 detection. Statements that

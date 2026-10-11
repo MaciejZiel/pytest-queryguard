@@ -182,7 +182,9 @@ returns, so the hint works as written on that connection.
 - Per test, statements are explained once per engine and statement text,
   with whitespace and `IN` lists collapsed, so `IN` lists of any length
   count as one. Literals are kept: a partial index can serve
-  `status = 'open'` and not `status = 'closed'`.
+  `status = 'open'` and not `status = 'closed'`. DDL, and the end of a
+  transaction that ran it, forget the statements explained so far, so the
+  next identical statement is explained against the new catalog.
 - Per test, findings are grouped by table and column when the column is
   known (the same query under two aliases, as in a `UNION ALL`), otherwise
   by table and condition; each is reported once with the first statement
