@@ -584,7 +584,7 @@ which nplusone does.
 
 ## Roadmap
 
-- 0.2 (unreleased): missing index detection on PostgreSQL 16 and newer, see
+- 0.2.0 (released): missing index detection on PostgreSQL 16 and newer, see
   [Missing indexes](#missing-indexes-postgresql-16-and-newer).
 - Later: the index check for async engines, Django ORM support.
 
