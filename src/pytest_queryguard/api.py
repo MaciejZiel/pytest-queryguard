@@ -5,10 +5,11 @@ from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import overload
 
 from .collector import QueryCollector, pop, push
 from .detectors import detect
-from .events import CallSite
+from .events import CallSite, StatementEvent
 from .listeners import install, internal_error
 from .messages import format_budget, format_findings
 from .warnings import QueryGuardInternalWarning
@@ -61,6 +62,10 @@ class Query:
     relationship: str | None
 
 
+def _to_query(event: StatementEvent) -> Query:
+    return Query(event.sql, event.callsite, event.relationship)
+
+
 class QueryLog:
     """The statements recorded by one ``record_queries()`` block.
 
@@ -68,7 +73,7 @@ class QueryLog:
     longer changes.
     """
 
-    __slots__ = ("_collector", "_done", "_error")
+    __slots__ = ("_collector", "_done", "_error", "_frozen")
 
     def __init__(self, collector: QueryCollector) -> None:
         self._collector = collector
@@ -76,9 +81,11 @@ class QueryLog:
         # block, or the one that had already switched recording off.
         self._done = False
         self._error: BaseException | None = None
+        self._frozen: tuple[Query, ...] = ()
 
     def _finish(self, earlier: BaseException | None) -> BaseException | None:
         self._error = internal_error() or earlier
+        self._frozen = self._snapshot()  # built once; the log no longer changes
         self._done = True
         return self._error
 
@@ -89,10 +96,32 @@ class QueryLog:
     @property
     def queries(self) -> tuple[Query, ...]:
         """Every recorded statement, in the order it ran."""
-        return tuple(
-            Query(event.sql, event.callsite, event.relationship)
-            for event in list(self._collector.statements)
-        )
+        if self._done:
+            return self._frozen
+        return self._snapshot()
+
+    def _snapshot(self) -> tuple[Query, ...]:
+        return tuple(_to_query(event) for event in list(self._collector.statements))
+
+    def __len__(self) -> int:
+        return self.count
+
+    def __iter__(self) -> Iterator[Query]:
+        return iter(self.queries)
+
+    @overload
+    def __getitem__(self, index: int) -> Query: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[Query, ...]: ...
+
+    def __getitem__(self, index: int | slice) -> Query | tuple[Query, ...]:
+        """One recorded statement, or a tuple of them for a slice."""
+        if self._done:
+            return self._frozen[index]
+        if isinstance(index, slice):  # live: convert only what is asked for
+            return tuple(_to_query(e) for e in self._collector.statements[index])
+        return _to_query(self._collector.statements[index])
 
     @property
     def count(self) -> int:

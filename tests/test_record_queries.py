@@ -122,6 +122,43 @@ def test_nested_logs_see_only_their_own_block() -> None:
     assert (outer.count, inner.count) == (2, 1)
 
 
+def test_a_finished_log_builds_its_queries_once() -> None:
+    engine = create_engine("sqlite://")
+    with engine.connect() as conn, record_queries() as log:
+        for value in range(3):
+            conn.execute(text("select :v"), {"v": value})
+    assert log.queries is log.queries
+    assert log[0] is log.queries[0]
+
+
+def test_a_log_is_a_sequence_of_queries() -> None:
+    engine = create_engine("sqlite://")
+    with engine.connect() as conn, record_queries() as log:
+        conn.execute(text("select 1"))
+        assert len(log) == 1
+        assert log[0].sql == "select 1"  # live inside the block
+        conn.execute(text("select 2"))
+        conn.execute(text("select 3"))
+        assert log[-1].sql == "select 3"
+        assert log[1:] == (log[1], log[2])
+    assert len(log) == log.count == 3
+    assert [query.sql for query in log] == ["select 1", "select 2", "select 3"]
+    assert log[-1].sql == "select 3"
+    assert [query.sql for query in log[:2]] == ["select 1", "select 2"]
+    with pytest.raises(IndexError):
+        log[3]
+    with pytest.raises(TypeError):
+        log["sql"]  # type: ignore[call-overload]
+
+
+def test_an_empty_log_is_falsy_like_any_sequence() -> None:
+    with record_queries() as log:
+        pass
+    assert len(log) == 0
+    assert not log
+    assert list(log) == []
+
+
 def test_query_and_call_site_are_frozen_values() -> None:
     site = CallSite("/app/orders.py", 9, "list_orders")
     query = Query("select 1", site, None)
