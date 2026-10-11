@@ -384,12 +384,15 @@ What is reported:
   `IN`) on one column and no index condition. The planner picks it for
   `WHERE customer_id = ? ORDER BY id LIMIT 10` to avoid the sequential scan.
   Pagination with a range or `IS NULL` filter (`WHERE total > 0 ORDER BY id
-  LIMIT 20`) walks the primary key on purpose and is not reported;
+  LIMIT 20`) walks the primary key on purpose and is not reported. A whole
+  index read as a bitmap, which PostgreSQL may choose before `ANALYZE` for
+  an `INCLUDE` index, counts the same way;
 - an index condition, an equality on one column, that leaves out the first
-  column of a multicolumn index: with only an index on
+  column of a multicolumn btree index: with only an index on
   `(tenant_id, status)`, `WHERE status = ?` reads the whole index on
   PostgreSQL 16 and 17. PostgreSQL 18 can skip-scan such an index, so this
-  case is not checked there.
+  case is not checked there. BRIN and GIN indexes serve any of their
+  columns and are not judged this way.
 
 Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
 `SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
@@ -398,9 +401,12 @@ join reads its unindexed side in full depends on table statistics, so join
 conditions on their own are never reported.
 
 The `fix:` line names a column only when the condition compares one plain
-column with `=`, `<`, `<=`, `>` or `>=`, possibly through the `::text` cast
-PostgreSQL prints for `varchar` columns. A column inside a function or
-another cast, such as `total::int = ?`, gets
+column with `=`, `<`, `<=`, `>` or `>=`. PostgreSQL prints a `::text` cast
+for `varchar` columns compared with text, which an index on the column
+still serves, so the check reads the column types from the catalog and
+accepts that cast for `varchar` columns only. A column inside a function or
+another cast, such as `total::int = ?`, or `id::text = ?` on an integer,
+enum or `char(n)` column, gets
 `add an index that matches this condition (an expression index may be needed)`,
 because an index on the plain column would not help there.
 
@@ -411,11 +417,12 @@ from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 
 The check costs a few database round trips per distinct statement per test:
-open the savepoint, set the planner settings, `EXPLAIN`, look up the first
-column of the indexes the plan uses (once per index per test) and roll back.
-With pg8000 against PostgreSQL 17 in a local Docker container, 100 tests
-with 10 distinct statements each went from 2.2–3.1 s to 5.9–6.8 s, about
-3–4 ms per statement. Most of that is round-trip time, so it is lower
+open the savepoint, set the planner settings, `EXPLAIN`, read from the
+catalog the first column of the btree indexes the plan uses and the
+`varchar` columns of tables cast to text (once per index or table per
+test), and roll back. With pg8000 against PostgreSQL 17 in a local Docker
+container, 100 tests with 10 distinct statements each went from 2.2–2.4 s
+to 3.9–7.3 s over three runs, about 2–5 ms per statement. Most of that is round-trip time, so it is lower
 with a faster connection to the database.
 
 A sequential scan is the right plan for a small lookup table, also in
