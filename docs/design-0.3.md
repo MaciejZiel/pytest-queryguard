@@ -120,8 +120,11 @@ prepared. The `SELECT`s go through `fetch()`, which prepares them and
 caches them in that cache. They are kept to a fixed set of four texts, so
 the check takes at most four of the 100 slots however many statements it
 explains: the settings read, the plan read, and two catalog lookups that
-take the schema and relation names as `text[]` parameters instead of
-literals. The check can still push the user's least recently used
+take the names as `text[]` parameters instead of literals: the schemas and
+relations of ordinary tables as two parallel arrays, and the names of
+temporary tables as a third one, which the lookup matches in the
+connection's own temporary schema (`pg_my_temp_schema()`) and reports as
+`pg_temp`, as `EXPLAIN` does. The check can still push the user's least recently used
 prepared statements out of the cache, and each of them is then prepared
 again on its next use. That costs one round trip, and only for a
 connection whose cache is full and which the check touches.
