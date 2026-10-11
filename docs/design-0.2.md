@@ -39,7 +39,8 @@ sequential scans disabled:
 SAVEPOINT queryguard_explain;
 SELECT set_config('enable_seqscan', 'off', true),
        set_config('lock_timeout', '1s', true),
-       set_config('statement_timeout', '5s', true);
+       set_config('statement_timeout', '5s', true),
+       current_schema();
 EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON) <statement with $1, $2, ...>;
 ROLLBACK TO SAVEPOINT queryguard_explain;
 RELEASE SAVEPOINT queryguard_explain;
@@ -140,7 +141,9 @@ exactly one column of the scanned table, directly or through a cast
 (`(orders.status)::text`), compared with `=`, `<`, `<=`, `>` or `>=`
 (`= ANY (...)` included), and not inside a function call such as
 `lower(...)`. Otherwise the message says to add an index that matches the
-condition, without guessing. The schema is shown unless it is `public`.
+condition, without guessing. The schema is shown unless it is the
+connection's `current_schema()`, which the settings query returns, so the
+hint works as written on that connection.
 
 ### 4.6 Deduplication and allowlists
 
