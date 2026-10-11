@@ -218,5 +218,9 @@ def record_queries() -> AbstractContextManager[QueryLog]:
 
     Statements from any thread count. The yielded ``QueryLog`` gives the
     statements, their number and an N+1 check.
+
+    When the block ends normally after an internal error, it issues
+    ``QueryGuardInternalWarning``. A block left by an exception does not warn,
+    so the warning never replaces that exception; the log is fixed either way.
     """
     return _record()

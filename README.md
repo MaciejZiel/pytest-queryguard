@@ -330,7 +330,10 @@ If pytest-queryguard hits an internal error, it stops recording and issues a
 an error then warns that its log may be incomplete (the warning class is
 exported from `pytest_queryguard`), and `log.assert_no_nplusone()` raises
 `RuntimeError` instead of passing on a log that may be empty. This also holds
-outside pytest and with `--queryguard-mode=off`.
+outside pytest and with `--queryguard-mode=off`. The warning is issued when
+the block ends normally; a block left by an exception does not warn, so the
+warning never replaces the exception, but its log is still fixed at that
+point and `assert_no_nplusone()` still refuses it.
 
 What is public API in 0.x:
 

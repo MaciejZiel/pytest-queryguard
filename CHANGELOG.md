@@ -31,7 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `QueryLog.assert_no_nplusone()` is documented as ignoring the
   `queryguard_*` ini options: a project with a custom
   `queryguard_repeat_threshold` passes `repeat_threshold` explicitly.
-- Paths in the `NPlusOneDetected` message are relative to pytest's rootdir,
+- Paths in the `NPlusOneDetected` message, and in the `QueryBudgetExceeded`
+  message of a `with max_queries(n):` block, are relative to pytest's rootdir,
   as in the plugin's own failures, instead of the working directory (which is
   still the base outside pytest).
 
