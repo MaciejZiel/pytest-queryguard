@@ -1626,6 +1626,22 @@ def test_run_explain_on_asyncpg_reads_the_catalog() -> None:
     assert (["public"], ["orders_tenant_id_status_idx"], []) in conn.args
 
 
+def test_asyncpg_lookups_keep_constant_text_and_pass_temporary_names_apart() -> None:
+    first = indexes._leading_lookup(
+        {("public", "a_idx"), ("pg_temp", "t_idx")}, asyncpg=True
+    )
+    second = indexes._leading_lookup({("other", "b_idx")}, asyncpg=True)
+    assert first is not None and second is not None
+    assert first[0] == second[0]  # one text, whatever the names
+    assert "pg_my_temp_schema()" in first[0] and "$3::text[]" in first[0]
+    assert first[1] == (["public"], ["a_idx"], ["t_idx"])
+    assert second[1] == (["other"], ["b_idx"], [])
+    only_temp = indexes._varchar_lookup({("pg_temp", "t")}, asyncpg=True)
+    assert only_temp is not None
+    assert only_temp[1] == ([], [], ["t"])
+    assert indexes._varchar_lookup({("public", "bad\\name")}, asyncpg=True) is None
+
+
 class FakeAsyncSAConnection:
     def __init__(self, plan: Any) -> None:
         self.dialect = FakeDialect(

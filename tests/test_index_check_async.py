@@ -189,6 +189,94 @@ def test_pg_async_index_created_in_the_test_transaction_is_seen(
 
 
 @needs_pg
+def test_pg_async_temporary_table_reports_the_trailing_column(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    # EXPLAIN VERBOSE says "pg_temp"; pg_namespace has "pg_temp_<n>".
+    if pg16_async.version >= (18,):
+        pytest.skip("PostgreSQL 18 can skip-scan the leading column")
+    _async_project(project, pg16_async).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+
+        async def main(engine):
+            async with AsyncSession(engine) as session:
+                for sql in [
+                    "CREATE TEMPORARY TABLE tmp_items (id int PRIMARY KEY, "
+                    "tenant_id int, status text)",
+                    "CREATE INDEX ON tmp_items (tenant_id, status)",
+                    "INSERT INTO tmp_items SELECT g, g % 3, 's' || g % 4 "
+                    "FROM generate_series(1, 30) g",
+                ]:
+                    await session.execute(text(sql))
+                sql = "SELECT * FROM tmp_items WHERE status = :s"
+                await session.execute(text(sql), {"s": "s1"})
+                await session.rollback()
+
+
+        def test_temp(engine):
+            asyncio.run(main(engine))
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "  pg_temp.tmp_items is read in full: *Index Scan using *",
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON pg_temp.tmp_items (status)",
+        ]
+    )
+
+
+@needs_pg
+def test_pg_async_temporary_table_with_a_varchar_column_gets_the_index_hint(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    _async_project(project, pg16_async).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+
+        async def main(engine):
+            async with AsyncSession(engine) as session:
+                for sql in [
+                    "CREATE TEMPORARY TABLE tmp_casts (id int PRIMARY KEY, "
+                    "label varchar(20))",
+                    "INSERT INTO tmp_casts SELECT g, 'l' || g FROM "
+                    "generate_series(1, 20) g",
+                ]:
+                    await session.execute(text(sql))
+                sql = "SELECT * FROM tmp_casts WHERE label::text = :s"
+                await session.execute(text(sql), {"s": "x"})
+                await session.rollback()
+
+
+        def test_temp(engine):
+            asyncio.run(main(engine))
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "  pg_temp.tmp_casts is read in full: *",
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON pg_temp.tmp_casts (label)",
+        ]
+    )
+
+
+@needs_pg
 def test_pg_async_check_leaves_the_transaction_and_settings_alone(
     project: pytest.Pytester, pg16_async: Postgres
 ) -> None:
