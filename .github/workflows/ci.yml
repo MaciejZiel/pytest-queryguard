@@ -51,13 +51,19 @@ jobs:
       - run: uv run --no-sync coverage report
 
   # The missing-index check needs a real server. 15 covers the "too old"
-  # notice; 16 and 17 run the check itself.
+  # notice; 16 and 17 run the check itself. One more run on 16 uses the
+  # oldest supported SQLAlchemy, which the asyncpg path depends on
+  # (run_async() on adapted connections).
   postgres:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         postgres: ["15", "16", "17"]
+        sqlalchemy: ["latest"]
+        include:
+          - postgres: "16"
+            sqlalchemy: "2.0"
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -78,5 +84,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
+      - name: Pin SQLAlchemy to the 2.0 series
+        if: matrix.sqlalchemy == '2.0'
+        run: uv pip install "sqlalchemy==2.0.*"
       - run: uv run --no-sync coverage run -m pytest -rs
       - run: uv run --no-sync coverage report
