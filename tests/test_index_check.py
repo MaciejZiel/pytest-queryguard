@@ -125,21 +125,26 @@ def test_missing_plpgsql_flag_does_not_leak_between_sessions(
 ) -> None:
     from pytest_queryguard import indexes
 
-    marked = frozenset({1})
-    assert not indexes.swap_no_plpgsql(marked)
+    class Engine:
+        pass
+
+    engine = Engine()
+    marked = indexes.EngineSet()
+    marked.add(engine)
+    assert engine not in indexes.swap_no_plpgsql(marked)
     try:
         project.makepyfile(
             test_a="""
             from pytest_queryguard import indexes
 
             def test_starts_clean():
-                assert not indexes.swap_no_plpgsql(frozenset())
+                assert not indexes.swap_no_plpgsql(indexes.EngineSet())
             """
         )
         project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
-        assert indexes.swap_no_plpgsql(frozenset()) == marked
+        assert indexes.swap_no_plpgsql(indexes.EngineSet()) is marked
     except BaseException:
-        indexes.swap_no_plpgsql(frozenset())
+        indexes.swap_no_plpgsql(indexes.EngineSet())
         raise
 
 
