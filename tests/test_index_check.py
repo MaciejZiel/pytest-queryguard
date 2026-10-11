@@ -87,6 +87,22 @@ def test_native_toml_bool_turns_the_check_on(project: pytest.Pytester) -> None:
     result.stdout.fnmatch_lines([SQLITE_NOTICE])
 
 
+def test_no_flag_turns_the_check_off_for_one_run(project: pytest.Pytester) -> None:
+    project.makeini("[pytest]\nqueryguard_index_check = true\n")
+    project.makepyfile(test_a=SQLITE_TEST)
+    result = project.runpytest("--no-queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*queryguard index check*")
+
+
+def test_last_index_check_flag_wins(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=SQLITE_TEST)
+    result = project.runpytest(
+        "--no-queryguard-index-check", "--queryguard-index-check"
+    )
+    result.stdout.fnmatch_lines([SQLITE_NOTICE])
+
+
 def test_stopped_check_does_not_leak_between_sessions(
     project: pytest.Pytester,
 ) -> None:

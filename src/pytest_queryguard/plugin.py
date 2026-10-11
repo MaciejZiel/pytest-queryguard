@@ -84,9 +84,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--queryguard-index-check",
         dest="queryguard_index_check",
-        action="store_true",
-        default=False,
-        help="Check each SELECT for a missing index (PostgreSQL 16 or newer).",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Check each SELECT for a missing index (PostgreSQL 16 or newer); "
+        "overrides queryguard_index_check.",
+    )
+    group.addoption(
+        "--no-queryguard-index-check",
+        dest="queryguard_index_check",
+        action="store_const",
+        const=False,
+        help="Turn the missing-index check off for this run.",
     )
     parser.addini("queryguard_mode", "fail, warn or off", default="fail")
     parser.addini(
@@ -139,7 +148,8 @@ def _index_check(config: pytest.Config) -> bool:
         raise pytest.UsageError(f"{name} must be true or false: {exc}") from None
     if not isinstance(raw, bool):
         raise pytest.UsageError(f"{name} must be true or false, got {raw!r}")
-    return raw or bool(config.getoption("queryguard_index_check"))
+    cli: bool | None = config.getoption("queryguard_index_check")
+    return raw if cli is None else cli
 
 
 def _ignore_tables(config: pytest.Config) -> tuple[str, ...]:
