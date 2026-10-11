@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
+from pytest_queryguard import indexes
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.events import ScanEvent, ScanIssue
 from pytest_queryguard.indexes import (
     Explained,
     ExplainError,
+    SavepointError,
     check,
     find_scans,
     hint_column,
@@ -713,7 +716,7 @@ def test_run_explain_reports_an_unreadable_plan(result: Any) -> None:
 def test_run_explain_raises_when_the_savepoint_cannot_be_managed(step: str) -> None:
     conn = FakeConnection()
     conn.fail[step] = RuntimeError("connection lost")
-    with pytest.raises(RuntimeError, match="connection lost"):
+    with pytest.raises(SavepointError, match="connection lost"):
         run_explain(conn, "SELECT 1")
     assert conn.closed_cursors == 1
 
@@ -1041,3 +1044,59 @@ def test_check_unescapes_quoted_percent_except_for_pg8000(
         conn, "SELECT a FROM t WHERE a LIKE 'x%%' AND b = %(b)s", False, [_collector()]
     )
     assert _explain_sql(conn.raw.log).endswith(explained)
+
+
+# ------------------------------------------- a broken savepoint stops the check
+
+
+@pytest.fixture
+def fresh_index_state() -> Iterator[None]:
+    old = indexes.swap_stopped(None)
+    yield
+    indexes.swap_stopped(old)
+
+
+@pytest.mark.parametrize("step", ["SAVEPOINT", "ROLLBACK TO SAVEPOINT"])
+def test_broken_savepoint_stops_only_the_index_check(
+    fresh_index_state: None, step: str
+) -> None:
+    conn = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    conn.raw.fail[step] = RuntimeError("connection lost")
+    first = _collector()
+    check(conn, "SELECT a FROM t WHERE a = %s", False, [first])
+    notice = (
+        "the index check stopped for the rest of the session: "
+        "it could not open or roll back its savepoint: connection lost"
+    )
+    assert list(first.index_notices) == [notice]
+    # later statements are not explained, and say why once more
+    other = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    second = _collector()
+    check(other, "SELECT b FROM t WHERE b = %s", False, [second])
+    assert other.raw.log == []
+    assert list(second.index_notices) == [notice]
+
+
+def test_broken_savepoint_keeps_the_rest_of_the_plugin_running(
+    fresh_index_state: None,
+) -> None:
+    from pytest_queryguard import collector as collector_module
+    from pytest_queryguard import listeners
+
+    conn = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    conn.raw.fail["ROLLBACK TO SAVEPOINT"] = RuntimeError("connection lost")
+    target = _collector()
+    collector_module.push(target)
+    try:
+        listeners._on_after_cursor_execute(
+            conn, None, "SELECT a FROM t WHERE a = %s", (1,), None, False
+        )
+    finally:
+        collector_module.pop(target)
+    assert listeners.internal_error() is None
+    assert target.index_notices
+
+
+def test_swap_stopped_returns_the_previous_state(fresh_index_state: None) -> None:
+    assert indexes.swap_stopped("x") is None
+    assert indexes.swap_stopped(None) == "x"

@@ -427,6 +427,10 @@ class Explained:
     leading: LeadingColumns = field(default_factory=dict)
 
 
+class SavepointError(Exception):
+    """The savepoint around EXPLAIN could not be opened or rolled back."""
+
+
 def _sql_literal(text: str) -> str | None:
     # Only for names read from the plan; backslashes would depend on
     # standard_conforming_strings, so such names are not looked up.
@@ -486,8 +490,8 @@ def run_explain(
     With ``leading``, the first key column of each index the plan uses with
     an index condition is read from pg_index inside the same savepoint.
     Database errors from EXPLAIN come back as ExplainError. An error while
-    opening or rolling back the savepoint is raised: the connection's state
-    is then unknown, and the caller stops checking.
+    opening or rolling back the savepoint raises SavepointError: the
+    connection's state is then unknown, and the caller stops checking.
     """
     if getattr(dbapi_connection, "autocommit", False):
         start, undo = ["BEGIN"], ["ROLLBACK"]
@@ -499,8 +503,7 @@ def run_explain(
         ]
     cursor = dbapi_connection.cursor()
     try:
-        for sql_text in start:
-            cursor.execute(sql_text)
+        _manage(cursor, start)
         row: Any = None
         settings: Any = None
         error: ExplainError | None = None
@@ -515,8 +518,7 @@ def run_explain(
         plan = None if error else _read_plan(row[0] if row else None)
         if plan is not None and leading:
             columns = _read_leading(cursor, plan)
-        for sql_text in undo:
-            cursor.execute(sql_text)
+        _manage(cursor, undo)
     finally:
         cursor.close()
     if error is not None:
@@ -527,7 +529,25 @@ def run_explain(
     return Explained(plan, schema if isinstance(schema, str) else None, columns)
 
 
+def _manage(cursor: Any, statements: list[str]) -> None:
+    for statement in statements:
+        try:
+            cursor.execute(statement)
+        except Exception as exc:  # reported as a stopped check
+            raise SavepointError(_error_message(exc)) from exc
+
+
 # ---------------------------------------------------------------- listener
+
+# Why the index check stopped for this session, after a broken savepoint.
+_stopped: str | None = None
+
+
+def swap_stopped(new: str | None) -> str | None:
+    """Replace the stopped state and return the previous one (per session)."""
+    global _stopped
+    old, _stopped = _stopped, new
+    return old
 
 
 def unsupported_reason(dialect: Any) -> str | None:
@@ -564,10 +584,11 @@ def check(
     conn: Any, statement: str, executemany: bool, targets: Sequence[QueryCollector]
 ) -> None:
     """Explain one executed statement for the collectors that want it."""
+    global _stopped
     if executemany or not is_checked_statement(statement):
         return
     dialect = conn.dialect
-    reason = unsupported_reason(dialect)
+    reason = _stopped or unsupported_reason(dialect)
     if reason is not None:
         for target in targets:
             target.index_notices[reason] = None
@@ -586,11 +607,22 @@ def check(
     )
     assert numbered is not None  # unsupported_reason() checked the paramstyle
     version = getattr(dialect, "server_version_info", None)
-    outcome = run_explain(
-        conn.connection.dbapi_connection,
-        numbered,
-        leading=not version or version[0] < SKIP_SCAN_VERSION,
-    )
+    try:
+        outcome = run_explain(
+            conn.connection.dbapi_connection,
+            numbered,
+            leading=not version or version[0] < SKIP_SCAN_VERSION,
+        )
+    except SavepointError as exc:
+        # The test's transaction may be broken now; N+1 detection and budgets
+        # still work, but no more EXPLAIN runs on anyone's connection.
+        _stopped = (
+            "the index check stopped for the rest of the session: "
+            f"it could not open or roll back its savepoint: {exc}"
+        )
+        for target in targets:
+            target.index_notices[_stopped] = None
+        return
     if isinstance(outcome, ExplainError):
         for target in fresh:
             target.explain_errors.append((outcome.message, statement))

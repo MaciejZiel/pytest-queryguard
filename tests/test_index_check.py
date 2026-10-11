@@ -87,6 +87,23 @@ def test_native_toml_bool_turns_the_check_on(project: pytest.Pytester) -> None:
     result.stdout.fnmatch_lines([SQLITE_NOTICE])
 
 
+def test_stopped_check_does_not_leak_between_sessions(
+    project: pytest.Pytester,
+) -> None:
+    from pytest_queryguard import indexes
+
+    old = indexes.swap_stopped("stopped in the outer session")
+    try:
+        project.makepyfile(test_a=SQLITE_TEST)
+        result = project.runpytest("--queryguard-index-check")
+        result.stdout.fnmatch_lines([SQLITE_NOTICE])
+        result.stdout.no_fnmatch_line("*stopped in the outer session*")
+        assert indexes.swap_stopped(old) == "stopped in the outer session"
+    except BaseException:
+        indexes.swap_stopped(old)
+        raise
+
+
 def test_off_mode_turns_the_check_off(project: pytest.Pytester) -> None:
     project.makepyfile(test_a=SQLITE_TEST)
     result = project.runpytest("--queryguard-index-check", "--queryguard-mode=off")
