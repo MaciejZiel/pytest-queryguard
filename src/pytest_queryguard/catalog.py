@@ -21,6 +21,7 @@ import re
 import weakref
 from typing import Any
 
+from . import collector
 from .events import Catalog
 from .sqltext import QUOTED, skip_prefix
 
@@ -94,10 +95,16 @@ def cached_engines() -> int:
 
 
 def clear() -> None:
-    """Drop every cached entry, for every engine."""
+    """Drop every cached entry, for every engine.
+
+    The statements already explained in a test are forgotten too: the same
+    statement is explained again against the new state of the catalog.
+    """
     for entry in list(_cache.values()):
         entry.leading.clear()
         entry.varchar.clear()
+    for target in collector.active():
+        target.explained.clear()
 
 
 def reset() -> None:
