@@ -34,7 +34,9 @@ def _measure(limit: int) -> Iterator[QueryCollector]:
     finally:
         pop(collector)
     if len(collector.statements) > limit:
-        raise QueryBudgetExceeded(format_budget(limit, collector.statements))
+        raise QueryBudgetExceeded(
+            format_budget(limit, collector.statements, cwd=display_root())
+        )
 
 
 def max_queries(limit: int) -> AbstractContextManager[QueryCollector]:

@@ -496,6 +496,31 @@ def test_paths_in_the_message_are_relative_to_the_pytest_rootdir(
     result.assert_outcomes(passed=1)
 
 
+def test_budget_failures_use_the_same_path_base_as_the_nplusone_message(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(
+        test_a="""
+        import os
+        import pytest
+        from sqlalchemy import create_engine, text
+        from pytest_queryguard import QueryBudgetExceeded, max_queries
+
+
+        def test_budget(tmp_path):
+            engine = create_engine("sqlite://")
+            os.chdir(tmp_path)  # the rootdir is not the working directory
+            with engine.connect() as conn:
+                with pytest.raises(QueryBudgetExceeded) as info:
+                    with max_queries(0):
+                        conn.execute(text("select 1"))
+            assert "(test_a.py:" in str(info.value), str(info.value)
+        """
+    )
+    result = pytester.runpytest("--queryguard-mode=off")
+    result.assert_outcomes(passed=1)
+
+
 def test_outside_pytest_paths_are_relative_to_the_working_directory(
     tmp_path: Path,
 ) -> None:
