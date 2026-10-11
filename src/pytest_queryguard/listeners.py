@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import ORMExecuteState, Session
+from sqlalchemy.pool import Pool
 
-from . import collector, indexes
+from . import catalog, collector, indexes
 from .callsite import find_callsite
 from .events import RelationshipLoadEvent, StatementEvent
 
@@ -98,11 +100,33 @@ def _on_after_cursor_execute(
     if _error is not None:
         return
     try:
+        # Every statement, in fixtures too: DDL clears the catalog cache.
+        catalog.observe(conn, statement)
         targets = [target for target in collector.active() if target.index_check]
         if targets:
             indexes.check(conn, statement, executemany, targets)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc)
+
+
+def _guarded(handler: Callable[..., None]) -> Callable[..., None]:
+    """A transaction or pool listener that never raises into the user's code."""
+
+    def listener(*args: Any) -> None:
+        if _error is not None:
+            return
+        try:
+            handler(*args)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _fail(exc)
+
+    return listener
+
+
+_on_commit = _guarded(catalog.on_commit)
+_on_rollback = _guarded(catalog.on_rollback)
+_on_rollback_savepoint = _guarded(catalog.on_rollback_savepoint)
+_on_invalidate = _guarded(catalog.on_invalidate)
 
 
 def _fail(exc: Exception) -> None:
@@ -147,4 +171,9 @@ def install_index_check() -> None:
     if _index_installed:
         return
     event.listen(Engine, "after_cursor_execute", _on_after_cursor_execute)
+    # The ends of transactions that ran DDL clear the catalog cache.
+    event.listen(Engine, "commit", _on_commit)
+    event.listen(Engine, "rollback", _on_rollback)
+    event.listen(Engine, "rollback_savepoint", _on_rollback_savepoint)
+    event.listen(Pool, "invalidate", _on_invalidate)
     _index_installed = True
