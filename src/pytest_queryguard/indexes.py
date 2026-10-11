@@ -866,15 +866,17 @@ def swap_catalog_error(new: str | None) -> str | None:
     return old
 
 
-# Set once an asyncpg statement failed because PL/pgSQL is missing. Only
-# asyncpg needs PL/pgSQL, so sync engines keep being checked.
+# The asyncpg engines (by id) whose database has no PL/pgSQL, found by the
+# first failed EXPLAIN on each. PL/pgSQL belongs to a database, and a suite
+# can use several; sync engines and the other asyncpg engines are still
+# checked.
 NO_PLPGSQL_NOTICE = "asyncpg statements were not checked: PL/pgSQL is not installed"
 _PLPGSQL_MISSING = 'language "plpgsql" does not exist'
-_no_plpgsql = False
+_no_plpgsql: frozenset[int] = frozenset()
 
 
-def swap_no_plpgsql(new: bool) -> bool:
-    """Replace the missing-PL/pgSQL flag and return the previous one."""
+def swap_no_plpgsql(new: frozenset[int]) -> frozenset[int]:
+    """Replace the engines without PL/pgSQL and return the previous ones."""
     global _no_plpgsql
     old, _no_plpgsql = _no_plpgsql, new
     return old
@@ -920,7 +922,7 @@ def check(
     dialect = conn.dialect
     is_async = getattr(dialect, "is_async", False)
     reason = _stopped or unsupported_reason(dialect)
-    if reason is None and is_async and _no_plpgsql:
+    if reason is None and is_async and id(conn.engine) in _no_plpgsql:
         reason = NO_PLPGSQL_NOTICE
     if reason is not None:
         for target in targets:
@@ -977,7 +979,7 @@ def check(
         and is_async
         and (outcome.message == _PLPGSQL_MISSING)
     ):
-        _no_plpgsql = True
+        _no_plpgsql |= {id(conn.engine)}
         for target in targets:
             target.index_notices[NO_PLPGSQL_NOTICE] = None
         return

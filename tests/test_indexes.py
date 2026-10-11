@@ -1423,7 +1423,7 @@ def fresh_index_state() -> Iterator[None]:
 
     old = indexes.swap_stopped(None)
     old_catalog = indexes.swap_catalog_error(None)
-    old_plpgsql = indexes.swap_no_plpgsql(False)
+    old_plpgsql = indexes.swap_no_plpgsql(frozenset())
     catalog.reset()
     yield
     catalog.reset()
@@ -1484,8 +1484,9 @@ def test_swap_catalog_error_returns_the_previous_state() -> None:
 
 
 def test_swap_no_plpgsql_returns_the_previous_state() -> None:
-    assert indexes.swap_no_plpgsql(True) is False
-    assert indexes.swap_no_plpgsql(False) is True
+    marked = frozenset({1})
+    assert indexes.swap_no_plpgsql(marked) == frozenset()
+    assert indexes.swap_no_plpgsql(frozenset()) == marked
 
 
 # ------------------------------------------------------------ async (asyncpg)
@@ -1677,6 +1678,18 @@ def test_check_reports_missing_plpgsql_once_and_keeps_sync_engines() -> None:
     sync = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
     check(sync, "SELECT a FROM t WHERE a = $1", False, [target])
     assert any(sql.startswith("EXPLAIN") for sql in sync.raw.log)
+
+
+def test_missing_plpgsql_on_one_asyncpg_engine_does_not_skip_another() -> None:
+    broken, working = FakeAsyncSAConnection(SEQ_PLAN), FakeAsyncSAConnection(SEQ_PLAN)
+    broken.raw.fail["DO "] = RuntimeError('language "plpgsql" does not exist')
+    target = _collector()
+    check(broken, "SELECT a FROM t WHERE a = $1", False, [target])
+    check(working, "SELECT b FROM t WHERE b = $1", False, [target])
+    assert any(sql.startswith("DO ") for _, sql in working.raw.log)
+    assert [scan.issue.table for scan in target.scans] == ["orders"]
+    assert target.explain_errors == []
+    assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
 
 
 # ----------------------------------------------------------- catalog clearing
