@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -8,8 +9,9 @@ from pathlib import Path
 from .collector import QueryCollector, pop, push
 from .detectors import detect
 from .events import CallSite
-from .listeners import install
+from .listeners import install, internal_error
 from .messages import format_budget, format_findings
+from .warnings import QueryGuardInternalWarning
 
 
 class QueryBudgetExceeded(AssertionError):
@@ -66,10 +68,23 @@ class QueryLog:
     longer changes.
     """
 
-    __slots__ = ("_collector",)
+    __slots__ = ("_collector", "_done", "_error")
 
     def __init__(self, collector: QueryCollector) -> None:
         self._collector = collector
+        # Set by _finish() when the block ends: an internal error during the
+        # block, or the one that had already switched recording off.
+        self._done = False
+        self._error: BaseException | None = None
+
+    def _finish(self, earlier: BaseException | None) -> BaseException | None:
+        self._error = internal_error() or earlier
+        self._done = True
+        return self._error
+
+    def _incomplete(self) -> BaseException | None:
+        """The internal error that may have left this log incomplete, or None."""
+        return self._error if self._done else internal_error()
 
     @property
     def queries(self) -> tuple[Query, ...]:
@@ -95,6 +110,12 @@ class QueryLog:
         parameters, run ``repeat_threshold`` times.
         """
         __tracebackhide__ = True
+        error = self._incomplete()
+        if error is not None:
+            raise RuntimeError(
+                "the query log may be incomplete, so it cannot be checked: "
+                f"pytest-queryguard stopped recording after an internal error: {error!r}"
+            )
         for name, value in (
             ("relationship_threshold", relationship_threshold),
             ("repeat_threshold", repeat_threshold),
@@ -117,11 +138,22 @@ class QueryLog:
 def _record() -> Iterator[QueryLog]:
     install()
     collector = QueryCollector()
+    log = QueryLog(collector)
+    earlier = internal_error()  # recording is already off if this is set
     push(collector)
     try:
-        yield QueryLog(collector)
+        yield log
     finally:
         pop(collector)
+    error = log._finish(earlier)
+    if error is not None:
+        warnings.warn(
+            QueryGuardInternalWarning(
+                "the QueryLog of this block may be incomplete: pytest-queryguard "
+                f"stopped recording after an internal error: {error!r}"
+            ),
+            stacklevel=3,
+        )
 
 
 def record_queries() -> AbstractContextManager[QueryLog]:

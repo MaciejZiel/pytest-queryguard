@@ -7,6 +7,9 @@ import subprocess
 import sys
 import textwrap
 import threading
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -17,7 +20,9 @@ from pytest_queryguard import (
     CallSite,
     NPlusOneDetected,
     Query,
+    QueryGuardInternalWarning,
     QueryLog,
+    listeners,
     max_queries,
     record_queries,
 )
@@ -192,6 +197,148 @@ def test_assert_no_nplusone_rejects_invalid_thresholds(
         pass
     with pytest.raises(ValueError, match=f"{name} must be an integer >= 2"):
         log.assert_no_nplusone(**{name: value})  # type: ignore[arg-type]
+
+
+# ------------------------------------------------------------ internal errors
+
+
+@contextmanager
+def _internal_error_state(error: Exception | None = None) -> Iterator[None]:
+    """Set the plugin's recorded error for a moment, then restore the old one."""
+    previous = listeners.swap_error(error)
+    try:
+        yield
+    finally:
+        listeners.swap_error(previous)
+
+
+def _record_and_fail() -> QueryLog:
+    """Record one statement; the plugin hits an internal error in the block."""
+    engine = create_engine("sqlite://")
+    with engine.connect() as conn, record_queries() as log:
+        listeners.record_error(RuntimeError("boom"))
+        conn.execute(text("select 1"))
+    return log
+
+
+def _record_nothing() -> None:
+    with record_queries():
+        pass
+
+
+def test_an_error_recorded_in_the_block_warns_on_exit() -> None:
+    with _internal_error_state():
+        with pytest.warns(QueryGuardInternalWarning, match="may be incomplete"):
+            log = _record_and_fail()
+        assert log.count == 0
+
+
+def test_an_error_recorded_before_the_block_also_warns() -> None:
+    # The listeners stay off once an error is recorded, so the log is empty.
+    earlier = _internal_error_state(RuntimeError("earlier"))
+    with (
+        earlier,
+        pytest.warns(QueryGuardInternalWarning, match="RuntimeError.*earlier"),
+    ):
+        _record_nothing()
+
+
+def test_no_warning_without_an_internal_error() -> None:
+    engine = create_engine("sqlite://")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with _internal_error_state(), engine.connect() as conn:
+            with record_queries() as log:
+                conn.execute(text("select 1"))
+            log.assert_no_nplusone()
+
+
+def test_assert_no_nplusone_refuses_a_log_that_may_be_incomplete() -> None:
+    with _internal_error_state():
+        with pytest.warns(QueryGuardInternalWarning):
+            log = _record_and_fail()
+        with pytest.raises(RuntimeError, match="may be incomplete.*boom"):
+            log.assert_no_nplusone()
+
+
+def test_a_finished_log_is_not_affected_by_a_later_error() -> None:
+    with _internal_error_state():
+        with record_queries() as log:
+            pass
+        listeners.record_error(RuntimeError("later"))
+        log.assert_no_nplusone()
+
+
+def test_assert_no_nplusone_inside_the_block_sees_the_error_too() -> None:
+    with _internal_error_state(), warnings.catch_warnings():
+        warnings.simplefilter("ignore", QueryGuardInternalWarning)
+        with record_queries() as log:
+            listeners.record_error(RuntimeError("boom"))
+            with pytest.raises(RuntimeError, match="may be incomplete"):
+                log.assert_no_nplusone()
+
+
+def test_the_warning_is_a_public_user_warning() -> None:
+    assert issubclass(QueryGuardInternalWarning, UserWarning)
+
+
+def test_outside_pytest_an_internal_error_is_not_silent(tmp_path: Path) -> None:
+    script = tmp_path / "script.py"
+    script.write_text(
+        textwrap.dedent(
+            """
+            import warnings
+            from sqlalchemy import create_engine, text
+            from pytest_queryguard import QueryGuardInternalWarning, listeners
+            from pytest_queryguard import record_queries
+
+            listeners.record_error(RuntimeError("boom"))
+            engine = create_engine("sqlite://")
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                with engine.connect() as conn, record_queries() as log:
+                    conn.execute(text("select 1"))
+            print(log.count, [w.category.__name__ for w in caught])
+            try:
+                log.assert_no_nplusone()
+            except RuntimeError as exc:
+                print("raised", "may be incomplete" in str(exc))
+            """
+        )
+    )
+    result = subprocess.run(
+        [sys.executable, str(script)], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.splitlines() == [
+        "0 ['QueryGuardInternalWarning']",
+        "raised True",
+    ]
+
+
+@pytest.mark.parametrize("mode", ["off", "fail"])
+def test_in_a_pytest_run_an_internal_error_is_not_silent(
+    pytester: pytest.Pytester, mode: str
+) -> None:
+    pytester.makepyfile(
+        test_a="""
+        import pytest
+        from sqlalchemy import create_engine, text
+        from pytest_queryguard import QueryGuardInternalWarning, listeners
+        from pytest_queryguard import record_queries
+
+
+        def test_log():
+            listeners.record_error(RuntimeError("boom"))
+            engine = create_engine("sqlite://")
+            with pytest.warns(QueryGuardInternalWarning, match="may be incomplete"):
+                with engine.connect() as conn, record_queries() as log:
+                    conn.execute(text("select 1"))
+            with pytest.raises(RuntimeError, match="may be incomplete"):
+                log.assert_no_nplusone()
+        """
+    )
+    result = pytester.runpytest(f"--queryguard-mode={mode}")
+    result.assert_outcomes(passed=1)
 
 
 # ------------------------------------------------------------- in a pytest run
