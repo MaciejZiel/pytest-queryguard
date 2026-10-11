@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Missing-index check for PostgreSQL 16 and newer, off by default. With
+  `--queryguard-index-check` or `queryguard_index_check = true`, each
+  distinct `SELECT` in a test body is planned with
+  `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` and `enable_seqscan` off,
+  inside a savepoint on the statement's own connection. A plan that still
+  reads a whole table for a filter or a join condition fails the test (or
+  warns, in `warn` mode) with the table, the condition, the SQL, the call
+  site and, when the column is obvious, a `CREATE INDEX` hint.
+- `queryguard_index_ignore_tables` ini option and
+  `@pytest.mark.allow_missing_index` marker to exclude small lookup tables
+  or whole tests from the index check.
+- A session summary for statements the index check could not check:
+  other databases, PostgreSQL before 16, async engines and statements
+  PostgreSQL could not plan.
+- CI job that runs the test suite against PostgreSQL 15, 16 and 17.
+
+### Changed
+
+- `IN` lists whose placeholders carry multi-word, schema-qualified or
+  quoted type casts (`$1::DOUBLE PRECISION`, `$1::public.mood`) or use
+  `CAST(? AS INTEGER)` now collapse to one form for N+1 detection.
+
 ## [0.1.0] - 2026-10-11
 
 First release.
