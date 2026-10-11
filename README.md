@@ -531,6 +531,11 @@ Command-line options:
 - The index check's session summary is printed by the process that runs the
   tests, so under pytest-xdist it is not shown. Findings in tests are
   reported as usual.
+- On pytest 9.0 and 9.1, a wrongly typed value in the native `[tool.pytest]`
+  table for one of pytest's own options (for example
+  `console_output_style = 3`) stops pytest with an internal error, with or
+  without this plugin. Wrong types for this plugin's options are reported
+  as usage errors.
 
 ## Comparison with nplusone
 
