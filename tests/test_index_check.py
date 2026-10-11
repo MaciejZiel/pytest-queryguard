@@ -120,6 +120,21 @@ def test_stopped_check_does_not_leak_between_sessions(
         raise
 
 
+def test_missing_plpgsql_flag_does_not_leak_between_sessions(
+    project: pytest.Pytester,
+) -> None:
+    from pytest_queryguard import indexes
+
+    assert indexes.swap_no_plpgsql(True) is False
+    try:
+        project.makepyfile(test_a=SQLITE_TEST)
+        project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
+        assert indexes.swap_no_plpgsql(False) is True
+    except BaseException:
+        indexes.swap_no_plpgsql(False)
+        raise
+
+
 def test_off_mode_turns_the_check_off(project: pytest.Pytester) -> None:
     project.makepyfile(test_a=SQLITE_TEST)
     result = project.runpytest("--queryguard-index-check", "--queryguard-mode=off")

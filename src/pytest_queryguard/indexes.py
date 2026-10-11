@@ -794,6 +794,20 @@ def swap_catalog_error(new: str | None) -> str | None:
     return old
 
 
+# Set once an asyncpg statement failed because PL/pgSQL is missing. Only
+# asyncpg needs PL/pgSQL, so sync engines keep being checked.
+NO_PLPGSQL_NOTICE = "asyncpg statements were not checked: PL/pgSQL is not installed"
+_PLPGSQL_MISSING = 'language "plpgsql" does not exist'
+_no_plpgsql = False
+
+
+def swap_no_plpgsql(new: bool) -> bool:
+    """Replace the missing-PL/pgSQL flag and return the previous one."""
+    global _no_plpgsql
+    old, _no_plpgsql = _no_plpgsql, new
+    return old
+
+
 def unsupported_reason(dialect: Any) -> str | None:
     """Why statements from this dialect cannot be checked, or None."""
     name = getattr(dialect, "name", "?")
@@ -828,11 +842,14 @@ def check(
     conn: Any, statement: str, executemany: bool, targets: Sequence[QueryCollector]
 ) -> None:
     """Explain one executed statement for the collectors that want it."""
-    global _stopped, _catalog_error
+    global _stopped, _catalog_error, _no_plpgsql
     if executemany or not is_checked_statement(statement):
         return
     dialect = conn.dialect
+    is_async = getattr(dialect, "is_async", False)
     reason = _stopped or unsupported_reason(dialect)
+    if reason is None and is_async and _no_plpgsql:
+        reason = NO_PLPGSQL_NOTICE
     if reason is not None:
         for target in targets:
             target.index_notices[reason] = None
@@ -865,7 +882,7 @@ def check(
             numbered,
             leading=not version or version[0] < SKIP_SCAN_VERSION,
             catalog=catalog,
-            asyncpg=getattr(dialect, "is_async", False),
+            asyncpg=is_async,
         )
     except SavepointError as exc:
         # The test's transaction may be broken now; N+1 detection and budgets
@@ -885,6 +902,15 @@ def check(
         )
         for target in targets:
             target.index_notices[_catalog_error] = None
+    if (
+        isinstance(outcome, ExplainError)
+        and is_async
+        and (outcome.message == _PLPGSQL_MISSING)
+    ):
+        _no_plpgsql = True
+        for target in targets:
+            target.index_notices[NO_PLPGSQL_NOTICE] = None
+        return
     if isinstance(outcome, ExplainError):
         for target in fresh:
             target.explain_errors.append((outcome.message, statement))

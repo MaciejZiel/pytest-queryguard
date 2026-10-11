@@ -1321,6 +1321,11 @@ def test_swap_catalog_error_returns_the_previous_state() -> None:
     assert indexes.swap_catalog_error(None) == "x"
 
 
+def test_swap_no_plpgsql_returns_the_previous_state() -> None:
+    assert indexes.swap_no_plpgsql(True) is False
+    assert indexes.swap_no_plpgsql(False) is True
+
+
 # ------------------------------------------------------------ async (asyncpg)
 
 

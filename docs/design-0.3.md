@@ -143,7 +143,7 @@ lookups, error handling, the plan rules, the fix hint and the messages.
 
 | Trade-off | Consequence |
 |---|---|
-| Needs PL/pgSQL | Installed and usable by everyone by default. Without it, each `EXPLAIN` fails, and the failures are counted in the session summary with the first error, as for any statement PostgreSQL cannot plan. |
+| Needs PL/pgSQL | Installed and usable by everyone by default. Without it, the first `EXPLAIN` fails with `language "plpgsql" does not exist`. The session summary then says once that asyncpg statements were not checked because PL/pgSQL is not installed, and no further asyncpg statement is explained. Sync engines are still checked. |
 | One more round trip than the sync path | The `DO` and the `SELECT` replace one `EXPLAIN`. Measured against PostgreSQL 17 in local Docker, one check took 0.4–0.5 ms on asyncpg and 0.3–0.4 ms on pg8000. |
 | Errors come from PL/pgSQL | The message is PostgreSQL's own (for example `could not determine data type of parameter $1`). The `CONTEXT` lines that PL/pgSQL adds are dropped, because only the first line is kept. |
 | `queryguard.plan` stays known to the connection | Empty after the check; see section 4. |

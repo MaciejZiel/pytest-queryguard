@@ -6,6 +6,9 @@ reach the same server through asyncpg.
 
 from __future__ import annotations
 
+import uuid
+from collections.abc import Iterator
+
 import pytest
 
 # pytester drops modules first imported by an inner run from sys.modules when
@@ -41,6 +44,9 @@ pytestmark = pytest.mark.allow_nplusone
 # event loop, and an asyncpg connection cannot move to another one.
 ASYNC_CONFTEST = """
 import asyncio
+
+import uuid
+from collections.abc import Iterator
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -423,3 +429,69 @@ def test_pg_async_plans_equal_plain_explain_plans(pg16_async: Postgres) -> None:
         if isinstance(e, Explained)
     ]
     assert any(findings), "the statements should include missing indexes"
+
+
+@pytest.fixture
+def pg16_async_without_plpgsql(pg16: Postgres) -> Iterator[Postgres]:
+    """A throwaway database without PL/pgSQL, with a fresh schema in it."""
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.engine import make_url
+
+    if not HAS_ASYNCPG:  # pragma: no cover - asyncpg is a test dependency
+        pytest.skip("asyncpg is not installed")
+    name = f"qg_noplpgsql_{uuid.uuid4().hex[:12]}"
+    admin = create_engine(pg16.url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(f"CREATE DATABASE {name}"))
+        sync_url = make_url(pg16.url).set(database=name)
+        scratch = create_engine(sync_url, isolation_level="AUTOCOMMIT")
+        try:
+            with scratch.connect() as conn:
+                conn.execute(text("DROP EXTENSION plpgsql"))
+                conn.execute(text(f"CREATE SCHEMA {pg16.schema}"))
+        finally:
+            scratch.dispose()
+        url = _async_url(sync_url.render_as_string(hide_password=False))
+        yield Postgres(url, pg16.schema, pg16.version)
+    finally:
+        with admin.connect() as conn:
+            conn.execute(text(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+        admin.dispose()
+
+
+@needs_pg
+def test_pg_async_without_plpgsql_gives_one_notice_not_one_error_per_statement(
+    project: pytest.Pytester, pg16_async_without_plpgsql: Postgres
+) -> None:
+    _async_project(project, pg16_async_without_plpgsql).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        from qgmodels import Customer, Order
+
+
+        async def main(engine):
+            async with AsyncSession(engine) as session:
+                for stmt in (
+                    select(Order).where(Order.customer_id == 1),
+                    select(Customer).where(Customer.id == 1),
+                    select(Customer).where(Customer.name == "x"),
+                ):
+                    await session.scalars(stmt)
+
+
+        def test_statements(engine):
+            asyncio.run(main(engine))
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    notice = "asyncpg statements were not checked: PL/pgSQL is not installed"
+    result.stdout.fnmatch_lines([f"*{notice}*"])
+    assert result.stdout.str().count(notice) == 1
+    result.stdout.no_fnmatch_line("*could not be explained*")
+    result.stdout.no_fnmatch_line('*language "plpgsql" does not exist*')

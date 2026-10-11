@@ -30,6 +30,7 @@ _internal_reported = pytest.StashKey[bool]()
 _outer_error = pytest.StashKey[BaseException | None]()
 _outer_stopped = pytest.StashKey[str | None]()
 _outer_catalog_error = pytest.StashKey[str | None]()
+_outer_no_plpgsql = pytest.StashKey[bool]()
 _settings = pytest.StashKey["_Settings"]()
 _report = pytest.StashKey[list[tuple[str, int]]]()
 _index_notes = pytest.StashKey["_IndexNotes"]()
@@ -209,6 +210,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[_outer_error] = swap_error(None)
     config.stash[_outer_stopped] = indexes.swap_stopped(None)
     config.stash[_outer_catalog_error] = indexes.swap_catalog_error(None)
+    config.stash[_outer_no_plpgsql] = indexes.swap_no_plpgsql(False)
     settings = _read_settings(config)
     config.stash[_settings] = settings
     if config.getoption("queryguard_report"):
@@ -223,6 +225,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     swap_error(config.stash.get(_outer_error, None))
     indexes.swap_stopped(config.stash.get(_outer_stopped, None))
     indexes.swap_catalog_error(config.stash.get(_outer_catalog_error, None))
+    indexes.swap_no_plpgsql(config.stash.get(_outer_no_plpgsql, False))
 
 
 def _report_internal_error(config: pytest.Config) -> None:

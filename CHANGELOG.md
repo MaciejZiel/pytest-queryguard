@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plan comes back through a transaction-local setting. Findings, notices
   and guarantees are those of sync engines. Other async drivers are still
   skipped with a notice. See `docs/design-0.3.md`.
+- On a database without PL/pgSQL, the asyncpg index check now reports one
+  notice for the session instead of one failed `EXPLAIN` per statement.
 
 ## [0.2.0] - 2026-10-11
 
