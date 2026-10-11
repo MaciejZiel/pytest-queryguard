@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import gc
+import os
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -370,3 +372,80 @@ def test_reset_keeps_track_of_open_transactions_with_ddl() -> None:
     _filled(engine)
     catalog.on_rollback(conn)
     assert _is_empty(engine)
+
+
+# ------------------------------------------------------ two-phase transactions
+
+
+@pytest.mark.parametrize(
+    "end", [catalog.on_commit_twophase, catalog.on_rollback_twophase]
+)
+@pytest.mark.parametrize("is_prepared", [False, True])
+def test_the_end_of_a_two_phase_transaction_with_ddl_clears_the_cache(
+    end: Any, is_prepared: bool
+) -> None:
+    engine = Engine()
+    conn = Conn(engine)
+    catalog.observe(conn, "CREATE INDEX orders_idx ON orders (tenant_id, status)")
+    _filled(engine)
+    end(conn, "xid", is_prepared)
+    assert _is_empty(engine)
+    _filled(engine)
+    end(conn, "xid", False)
+    assert not _is_empty(engine)
+
+
+@pytest.mark.parametrize(
+    "end", [catalog.on_commit_twophase, catalog.on_rollback_twophase]
+)
+def test_a_prepared_two_phase_transaction_ending_clears_the_cache(end: Any) -> None:
+    # Its DDL may have run on a connection that is gone, or in another process.
+    engine = Engine()
+    _filled(engine)
+    end(Conn(engine), "xid", True)
+    assert _is_empty(engine)
+
+
+def test_two_phase_listeners_are_registered_with_the_index_check() -> None:
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine as SAEngine
+
+    from pytest_queryguard import listeners
+
+    listeners.install_index_check()
+    assert event.contains(SAEngine, "commit_twophase", listeners._on_commit_twophase)
+    assert event.contains(
+        SAEngine, "rollback_twophase", listeners._on_rollback_twophase
+    )
+
+
+_PG_URL = os.environ.get("QUERYGUARD_PG_URL")
+
+
+@pytest.mark.skipif(not _PG_URL, reason="QUERYGUARD_PG_URL is not set")
+@pytest.mark.parametrize("end", ["commit", "rollback"])
+def test_a_two_phase_transaction_with_ddl_clears_the_cache_on_postgres(
+    end: str,
+) -> None:
+    from sqlalchemy import create_engine, text
+
+    from pytest_queryguard.listeners import install_index_check
+
+    install_index_check()
+    engine = create_engine(_PG_URL)  # type: ignore[arg-type]
+    try:
+        with engine.connect() as conn:
+            limit = conn.execute(text("SHOW max_prepared_transactions")).scalar()
+        if limit == "0":
+            pytest.skip("max_prepared_transactions is 0")
+        table = f"qg_twophase_{uuid.uuid4().hex[:8]}"
+        with engine.connect() as conn:
+            xact = conn.begin_twophase()
+            conn.execute(text(f"CREATE TABLE {table} (a int)"))
+            _filled(engine)
+            getattr(xact, end)()
+            assert _is_empty(engine)
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+    finally:
+        engine.dispose()

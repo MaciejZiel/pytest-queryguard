@@ -162,6 +162,19 @@ def on_rollback(conn: Any) -> None:
     _resolve(conn)
 
 
+def on_commit_twophase(conn: Any, xid: object, is_prepared: bool) -> None:
+    # A prepared transaction may have run DDL on any connection.
+    if is_prepared:
+        clear()
+    _resolve(conn)
+
+
+def on_rollback_twophase(conn: Any, xid: object, is_prepared: bool) -> None:
+    if is_prepared:
+        clear()
+    _resolve(conn)
+
+
 def on_rollback_savepoint(conn: Any, name: object, context: object) -> None:
     # The DDL may have run before the savepoint, so the connection stays pending.
     if _is_pending(conn):

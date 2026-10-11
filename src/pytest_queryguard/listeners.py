@@ -125,6 +125,8 @@ def _guarded(handler: Callable[..., None]) -> Callable[..., None]:
 
 _on_commit = _guarded(catalog.on_commit)
 _on_rollback = _guarded(catalog.on_rollback)
+_on_commit_twophase = _guarded(catalog.on_commit_twophase)
+_on_rollback_twophase = _guarded(catalog.on_rollback_twophase)
 _on_rollback_savepoint = _guarded(catalog.on_rollback_savepoint)
 _on_invalidate = _guarded(catalog.on_invalidate)
 
@@ -174,6 +176,8 @@ def install_index_check() -> None:
     # The ends of transactions that ran DDL clear the catalog cache.
     event.listen(Engine, "commit", _on_commit)
     event.listen(Engine, "rollback", _on_rollback)
+    event.listen(Engine, "commit_twophase", _on_commit_twophase)
+    event.listen(Engine, "rollback_twophase", _on_rollback_twophase)
     event.listen(Engine, "rollback_savepoint", _on_rollback_savepoint)
     event.listen(Pool, "invalidate", _on_invalidate)
     _index_installed = True
