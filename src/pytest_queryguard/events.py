@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class CallSite:
+    """A source location. Its fields are public API; its constructor is not."""
+
     filename: str
     lineno: int
     function: str

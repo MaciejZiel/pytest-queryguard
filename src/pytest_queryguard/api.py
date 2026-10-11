@@ -46,7 +46,7 @@ def max_queries(limit: int) -> AbstractContextManager[QueryCollector]:
     return _measure(limit)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Query:
     """One SQL statement recorded by ``record_queries()``.
 
@@ -56,6 +56,10 @@ class Query:
     statement loaded a relationship, lazily or as the extra query of
     ``selectinload``, ``relationship`` names it, as in ``"Order.customer"``;
     otherwise it is None.
+
+    Not constructible by users: only ``record_queries()`` creates one. The
+    fields are public; the constructor is not (it is keyword-only, and fields
+    may be added in a minor release).
     """
 
     sql: str
@@ -64,7 +68,9 @@ class Query:
 
 
 def _to_query(event: StatementEvent) -> Query:
-    return Query(event.sql, event.callsite, event.relationship)
+    return Query(
+        sql=event.sql, callsite=event.callsite, relationship=event.relationship
+    )
 
 
 class QueryLog:

@@ -171,15 +171,25 @@ def test_an_empty_log_is_falsy_like_any_sequence() -> None:
 
 
 def test_query_and_call_site_are_frozen_values() -> None:
-    site = CallSite("/app/orders.py", 9, "list_orders")
-    query = Query("select 1", site, None)
+    site = CallSite(filename="/app/orders.py", lineno=9, function="list_orders")
+    query = Query(sql="select 1", callsite=site, relationship=None)
     assert query == Query(
-        "select 1", CallSite("/app/orders.py", 9, "list_orders"), None
+        sql="select 1",
+        callsite=CallSite(filename="/app/orders.py", lineno=9, function="list_orders"),
+        relationship=None,
     )
     with pytest.raises(dataclasses.FrozenInstanceError):
         query.sql = "select 2"  # type: ignore[misc]
     with pytest.raises(dataclasses.FrozenInstanceError):
         site.lineno = 10  # type: ignore[misc]
+
+
+def test_query_and_call_site_take_keyword_arguments_only() -> None:
+    # A field added later must not break callers, so positional use is refused.
+    with pytest.raises(TypeError):
+        CallSite("/app/orders.py", 9, "list_orders")  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        Query("select 1", None, None)  # type: ignore[misc]
 
 
 def test_repr_shows_the_count() -> None:

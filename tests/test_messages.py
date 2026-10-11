@@ -15,7 +15,9 @@ CWD = Path("/work/project")
 
 
 def test_relationship_message_has_fix_hint() -> None:
-    site = CallSite("/work/project/app/api/orders.py", 42, "list_orders")
+    site = CallSite(
+        filename="/work/project/app/api/orders.py", lineno=42, function="list_orders"
+    )
     finding = RelationshipFinding("Order.customer", 50, site, None)
     assert format_findings([finding], cwd=CWD).splitlines() == [
         "queryguard: N+1 detected",
@@ -28,7 +30,9 @@ def test_relationship_message_has_fix_hint() -> None:
 
 
 def test_relationship_message_shows_sample_sql_truncated() -> None:
-    site = CallSite("/work/project/app/api/orders.py", 42, "list_orders")
+    site = CallSite(
+        filename="/work/project/app/api/orders.py", lineno=42, function="list_orders"
+    )
     sql = "SELECT customer.id\nFROM customer\nWHERE customer.id = ?"
     finding = RelationshipFinding("Order.customer", 50, site, sql)
     lines = format_findings([finding], cwd=CWD).splitlines()
@@ -42,7 +46,11 @@ def test_relationship_message_shows_sample_sql_truncated() -> None:
 
 
 def test_repeat_message() -> None:
-    site = CallSite("/work/project/app/services/orders.py", 18, "fetch_customers")
+    site = CallSite(
+        filename="/work/project/app/services/orders.py",
+        lineno=18,
+        function="fetch_customers",
+    )
     sql = "SELECT customer.id, customer.name FROM customer WHERE customer.id = ?"
     assert format_findings([RepeatFinding(sql, 50, site)], cwd=CWD).splitlines() == [
         "queryguard: N+1 detected",
@@ -55,7 +63,7 @@ def test_repeat_message() -> None:
 
 
 def test_budget_message_lists_statements() -> None:
-    site = CallSite("/work/project/app/a.py", 7, "run")
+    site = CallSite(filename="/work/project/app/a.py", lineno=7, function="run")
     long_sql = "SELECT " + "x" * 300
     statements = [
         StatementEvent("SELECT 1", site, None),
@@ -81,7 +89,7 @@ def test_missing_callsite_prints_unknown_location() -> None:
 
 
 def test_path_outside_cwd_stays_absolute_and_blocks_are_separated() -> None:
-    site = CallSite("/elsewhere/lib.py", 1, "f")
+    site = CallSite(filename="/elsewhere/lib.py", lineno=1, function="f")
     findings: list[Finding] = [
         RelationshipFinding("A.b", 2, site, None),
         RepeatFinding("SELECT ?", 9, site),
@@ -99,7 +107,9 @@ def _scan(
 
 
 def test_index_message_for_a_filter_with_hint() -> None:
-    site = CallSite("/work/project/app/orders.py", 12, "orders_for")
+    site = CallSite(
+        filename="/work/project/app/orders.py", lineno=12, function="orders_for"
+    )
     sql = "SELECT orders.id\nFROM orders\nWHERE orders.customer_id = %s::INTEGER"
     issue = ScanIssue(
         "public",

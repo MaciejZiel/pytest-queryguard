@@ -11,8 +11,8 @@ from pytest_queryguard.detectors import (
 )
 from pytest_queryguard.events import CallSite, RelationshipLoadEvent, StatementEvent
 
-SITE = CallSite("app.py", 10, "handler")
-OTHER = CallSite("app.py", 20, "other")
+SITE = CallSite(filename="app.py", lineno=10, function="handler")
+OTHER = CallSite(filename="app.py", lineno=20, function="other")
 
 
 def _loads(
