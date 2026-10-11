@@ -16,6 +16,7 @@ from .callsite import find_callsite
 from .collector import QueryCollector
 from .detectors import collapse_lists
 from .events import Catalog, ScanEvent, ScanIssue
+from .sqltext import QUOTED, skip_prefix
 
 MIN_SERVER_VERSION = 16
 _SAVEPOINT = "queryguard_explain"
@@ -33,16 +34,8 @@ _VERB = re.compile(r"(?:SELECT|WITH)\b", re.IGNORECASE)
 
 # Tokens that are copied unchanged, then the placeholders that are rewritten.
 _TOKEN = re.compile(
-    r"""
-      (?P<copy>
-          (?<![\w$])[eE]'(?:[^'\\]|\\.|'')*'?     # E'...' with backslash escapes
-        | '(?:[^']|'')*'?                         # '...'
-        | "(?:[^"]|"")*"?                         # "quoted identifier"
-        | (?<![\w$])\$\$.*?(?:\$\$|\Z)            # $$...$$
-        | (?<![\w$])\$(?P<tag>[A-Za-z_]\w*)\$.*?(?:\$(?P=tag)\$|\Z)  # $tag$...$tag$
-        | --[^\n]*                                # line comment
-        | /\*.*?(?:\*/|\Z)                        # block comment
-      )
+    rf"""
+      (?P<copy>{QUOTED})
     | (?P<named>%\((?P<name>[^)]*)\)s)
     | (?P<positional>%s)
     | (?P<percent>%%)
@@ -51,35 +44,12 @@ _TOKEN = re.compile(
 )
 
 
-def _skip_prefix(sql: str) -> int | None:
-    """Index after leading whitespace, parentheses and comments, in linear time.
-
-    None for an unterminated block comment. A loop rather than a regex: a
-    nested quantifier there backtracked exponentially on long indentation.
-    """
-    i, n = 0, len(sql)
-    while i < n:
-        if sql[i].isspace() or sql[i] == "(":
-            i += 1
-        elif sql.startswith("--", i):
-            end = sql.find("\n", i)
-            i = n if end < 0 else end + 1
-        elif sql.startswith("/*", i):
-            end = sql.find("*/", i + 2)
-            if end < 0:
-                return None
-            i = end + 2
-        else:
-            break
-    return i
-
-
 def is_checked_statement(sql: str) -> bool:
     """Only SELECT statements (and WITH queries) are explained.
 
     Leading comments, such as sqlcommenter tags, are skipped.
     """
-    start = _skip_prefix(sql)
+    start = skip_prefix(sql)
     return start is not None and _VERB.match(sql, start) is not None
 
 
