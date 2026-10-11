@@ -136,6 +136,26 @@ def test_ordering_relationships_first_then_repeats_by_count_desc() -> None:
         ("IN (?::int[], ?::int[])", "IN (?::int[])"),
         ("IN ($1::VARCHAR(20), $2::VARCHAR(20))", "IN ($1::VARCHAR(20))"),
         ("IN ($1::INTEGER, $2::INTEGER)", "IN (?)"),
+        ("IN ($1::DOUBLE PRECISION, $2::DOUBLE PRECISION)", "IN (?)"),
+        ("IN (%s::CHARACTER VARYING(20), %s::CHARACTER VARYING(20))", "IN (?)"),
+        (
+            "IN ($1::TIMESTAMP WITHOUT TIME ZONE, $2::TIMESTAMP WITHOUT TIME ZONE)",
+            "IN (?)",
+        ),
+        (
+            "IN ($1::TIMESTAMP(3) WITH TIME ZONE, $2::TIMESTAMP(3) WITH TIME ZONE)",
+            "IN (?)",
+        ),
+        ("IN ($1::NUMERIC(10, 2)[], $2::NUMERIC(10, 2)[])", "IN (?)"),
+        ("IN ($1::public.mood, $2::public.mood)", "IN (?)"),
+        ('IN ($1::"Sales"."Mood", $2::"Sales"."Mood")', "IN (?)"),
+        ("IN (CAST(? AS INTEGER), CAST(? AS INTEGER))", "IN (?)"),
+        (
+            "IN (cast(:id_1 as double precision), cast(:id_2 as double precision))",
+            "IN (?)",
+        ),
+        ("IN (CAST(%s AS public.mood), CAST(%s AS public.mood))", "IN (?)"),
+        ("IN (CAST($1 AS VARCHAR(20)), $2::VARCHAR(20))", "IN (?)"),
     ],
 )
 def test_normalize_collapses_in_lists_for_all_placeholder_styles(
@@ -144,6 +164,24 @@ def test_normalize_collapses_in_lists_for_all_placeholder_styles(
     assert normalize(f"SELECT * FROM t WHERE id {many}") == normalize(
         f"SELECT * FROM t WHERE id {one}"
     )
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # a column, not a placeholder, inside CAST(): not a parameter list
+        "SELECT * FROM t WHERE id IN (CAST(t.a AS INTEGER), ?)",
+        # a subquery is not a parameter list
+        "SELECT * FROM t WHERE id IN (SELECT ?::INTEGER FROM u)",
+    ],
+)
+def test_normalize_leaves_non_parameter_lists_alone(sql: str) -> None:
+    assert "IN (...)" not in normalize(sql)
+
+
+def test_normalize_keeps_casts_outside_in_lists() -> None:
+    sql = "SELECT * FROM t WHERE x = CAST(? AS DOUBLE PRECISION)"
+    assert normalize(sql) == sql
 
 
 def test_normalize_numbered_params_are_stable() -> None:
