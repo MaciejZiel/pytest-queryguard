@@ -272,7 +272,8 @@ def test_fetch_customers(session):
 ```
 
 `log.queries` is a tuple of `Query` objects, in the order the statements
-ran. Each has:
+ran. The log is also a sequence: `len(log)`, `for query in log` and
+`log[0]` or `log[1:]` work, and an empty log is falsy. Each `Query` has:
 
 - `sql`: the statement as SQLAlchemy sent it to the driver;
 - `callsite`: a `CallSite` with `filename`, `lineno` and `function`, the
@@ -284,11 +285,22 @@ ran. Each has:
 `log.count` is the number of statements. Both grow inside the block and
 stay fixed after it. Statements from other threads are recorded too.
 
+`QueryLog` is not constructible by users: `record_queries()` is the only way
+to get one, and its constructor may change in any release. Use the class for
+type hints only.
+
 `log.assert_no_nplusone()` applies the plugin's two N+1 rules to the
 block. It raises `NPlusOneDetected`, a subclass of `AssertionError`, with
-the plugin's message. The thresholds are keyword arguments,
+the plugin's message, with paths relative to pytest's rootdir (outside
+pytest, to the working directory). The thresholds are keyword arguments,
 `relationship_threshold=2` and `repeat_threshold=5` by default, the same
-defaults as the ini options. It does not read the ini options. With the
+defaults as the ini options.
+
+It does not read the ini options, `queryguard_mode` or the `allow_nplusone`
+marker; calling it is an explicit request. A project that sets
+`queryguard_repeat_threshold = 10` in its configuration therefore has to pass
+`repeat_threshold=10` here as well, or the helper keeps using 5 (the same for
+`queryguard_relationship_threshold` and `relationship_threshold`). With the
 `fetch_customers` loop from [Before and after](#before-and-after), the
 plugin accepts 3 lookups, because its threshold is 5, while the stricter
 call above does not (`pytest --tb=short`, Python 3.13, SQLAlchemy 2.1):
@@ -310,6 +322,21 @@ E     fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 FAILED tests/test_queries.py::test_fetch_customers - pytest_queryguard.api.NP...
 ========================= 1 failed, 1 passed in 0.05s ==========================
 ```
+
+If pytest-queryguard hits an internal error, it stops recording and issues a
+`QueryGuardInternalWarning`. A `record_queries()` block that ends after such
+an error then warns that its log may be incomplete (the warning class is
+exported from `pytest_queryguard`), and `log.assert_no_nplusone()` raises
+`RuntimeError` instead of passing on a log that may be empty. This also holds
+outside pytest and with `--queryguard-mode=off`.
+
+What is public API in 0.x: `max_queries()` (and its `ValueError` for a bad
+limit), `QueryBudgetExceeded`, `record_queries()`, `QueryLog` (its
+properties and methods, not its constructor), `Query`, `CallSite`,
+`NPlusOneDetected`, `QueryGuardWarning` and `QueryGuardInternalWarning`. What
+is not: the object `with max_queries(n) as c` yields. It is still the internal
+collector in 0.x, kept as it was in 0.2, and may change in any release. Use
+`record_queries()` to read the queries.
 
 Recording changes nothing else. The plugin's N+1 detection, budgets and
 index check see the same statements, and `record_queries()` combines with
