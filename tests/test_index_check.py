@@ -576,7 +576,9 @@ def test_pg_one_finding_per_table_and_condition(
     )
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(failed=1)
-    assert result.stdout.str().count("is read in full") == 1
+    # On CI pytest repeats the whole message in the short summary; count once.
+    failures = result.stdout.str().split("short test summary info")[0]
+    assert failures.count("is read in full") == 1
 
 
 @needs_pg
