@@ -386,7 +386,9 @@ What is reported:
   Pagination with a range or `IS NULL` filter (`WHERE total > 0 ORDER BY id
   LIMIT 20`) walks the primary key on purpose and is not reported. A whole
   index read as a bitmap, which PostgreSQL may choose before `ANALYZE` for
-  an `INCLUDE` index, counts the same way;
+  an `INCLUDE` index or a partial index (`... WHERE deleted_at IS NULL`),
+  counts the same way. A bitmap that combines several indexes (`OR`, or
+  `AND` of indexed columns) is not reported;
 - an index condition, an equality on one column, that leaves out the first
   column of a multicolumn btree index: with only an index on
   `(tenant_id, status)`, `WHERE status = ?` reads the whole index on

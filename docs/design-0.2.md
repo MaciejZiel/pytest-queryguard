@@ -125,10 +125,16 @@ a whole index, to apply a condition that an index could serve directly:
    `WHERE customer_id = $1 ORDER BY id LIMIT 10` would pass. Ranges and
    `IS NULL` (`WHERE total > 0 ORDER BY id LIMIT 20`) are left out: that is
    ordinary pagination, which walks the primary key on purpose. A
-   `Bitmap Heap Scan` with such a filter, no `Recheck Cond` and a
-   `Bitmap Index Scan` without `Index Cond` below it is the same whole-index
-   read; PostgreSQL picks it for an `INCLUDE` index before `ANALYZE` and an
-   `Index Only Scan` after it, so both must be reported.
+   `Bitmap Heap Scan` with such a filter and a `Bitmap Index Scan` without
+   `Index Cond` directly below it is the same whole-index read; PostgreSQL
+   picks it for an `INCLUDE` index before `ANALYZE` and an `Index Only Scan`
+   after it, so both must be reported. The same holds for a partial index
+   (`(id) WHERE deleted_at IS NULL`): before `ANALYZE` the heap scan's
+   `Recheck Cond` is only the index predicate, after it the plan is an
+   `Index Scan` with the filter. 0.2.0 required no `Recheck Cond` and missed
+   the first plan (issue #4, fixed in 0.3). A `Bitmap Index Scan` below a
+   `BitmapAnd` or `BitmapOr` is not judged this way: another index narrows
+   the read, or the `OR` needs every arm.
 3. `Index Scan`, `Index Only Scan` or `Bitmap Index Scan` whose
    `Index Cond` is an equality on one column and does not use the first key
    column of a btree index: with only `(tenant_id, status)`,
@@ -143,7 +149,7 @@ a whole index, to apply a condition that an index could serve directly:
 Not reported: a `Seq Scan` without a filter (`SELECT * FROM t`,
 `count(*)`, a join without `WHERE`), because the statement reads the whole
 table anyway; scans of `pg_catalog`, `information_schema` and `pg_toast`
-(SQLAlchemy's reflection queries); bitmap heap scans.
+(SQLAlchemy's reflection queries); other bitmap heap scans.
 
 0.2 does not report join conditions on their own. A first version reported
 a `Seq Scan` below a join on one of the table's columns. Review showed that

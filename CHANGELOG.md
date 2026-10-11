@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The index check now reports a partial index read in full as a bitmap.
+  With an index such as `(id) WHERE deleted_at IS NULL` and
+  `WHERE deleted_at IS NULL AND email = ?`, the plan before `ANALYZE` was
+  skipped, while the plan after it was reported (#4).
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
