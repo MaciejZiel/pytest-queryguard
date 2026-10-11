@@ -303,9 +303,9 @@ A test database holds a few rows, so a query that reads the whole table is
 as fast in CI as one that uses an index. The missing index shows up in
 production, once the table has grown. With the index check on, every
 `SELECT` in a test body is planned again by PostgreSQL with sequential scans
-switched off. If the plan still reads a whole table to apply a filter or a
-join condition, no index can serve that query, however small the table, and
-the test fails.
+switched off. If the plan still reads a whole table, or a whole index, to
+apply the statement's filter, no index can serve that filter, however small
+the table, and the test fails.
 
 The check is off by default. Turn it on for a run:
 
@@ -372,27 +372,51 @@ passes:
 ```
 tests/test_orders.py .                                                   [100%]
 
-============================== 1 passed in 0.17s ===============================
+============================== 1 passed in 0.19s ===============================
 ```
 
 What is reported:
 
-- a sequential scan with a filter (`WHERE` has no index);
-- a scan of a whole index with a filter but no index condition, which the
-  planner picks for `ORDER BY id LIMIT n` to avoid the sequential scan;
-- a sequential scan, without a filter, below a join on one of the table's
-  columns (the join column has no index).
+- a sequential scan with a filter: the `WHERE` condition has no index.
+  Correlated subqueries and `EXISTS` show up here too, through the filter
+  of the subquery's scan;
+- a scan of a whole index with a filter that is an equality (`=` or
+  `IN`) on one column and no index condition. The planner picks it for
+  `WHERE customer_id = ? ORDER BY id LIMIT 10` to avoid the sequential scan.
+  Pagination with a range or `IS NULL` filter (`WHERE total > 0 ORDER BY id
+  LIMIT 20`) walks the primary key on purpose and is not reported;
+- an index condition, an equality on one column, that leaves out the first
+  column of a multicolumn index: with only an index on
+  `(tenant_id, status)`, `WHERE status = ?` reads the whole index on
+  PostgreSQL 16 and 17. PostgreSQL 18 can skip-scan such an index, so this
+  case is not checked there.
 
-A sequential scan with no filter and no join, such as `SELECT * FROM t` or
-`SELECT count(*) FROM t`, is not reported: it reads the whole table because
-the statement asks for it. Neither are scans of PostgreSQL's own catalogs.
+Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
+`SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
+reads the whole table anyway; scans of PostgreSQL's own catalogs. Whether a
+join reads its unindexed side in full depends on table statistics, so join
+conditions on their own are never reported.
+
 The `fix:` line names a column only when the condition compares one plain
-column; otherwise it says to add an index that matches the condition.
+column with `=`, `<`, `<=`, `>` or `>=`, possibly through the `::text` cast
+PostgreSQL prints for `varchar` columns. A column inside a function or
+another cast, such as `total::int = ?`, gets
+`add an index that matches this condition (an expression index may be needed)`,
+because an index on the plain column would not help there.
 
 Each distinct statement is explained once per test, inside a savepoint on
 the connection that ran it, so the check sees tables and rows the test has
 not committed yet and leaves the test's transaction as it was. Statements
-from fixtures are not checked, like for N+1 detection.
+from fixtures are not checked, like for N+1 detection. Statements that
+start with comments, such as sqlcommenter tags, are checked too.
+
+The check costs a few database round trips per distinct statement per test:
+open the savepoint, set the planner settings, `EXPLAIN`, look up the first
+column of the indexes the plan uses (once per index per test) and roll back.
+With pg8000 against PostgreSQL 17 in a local Docker container, 100 tests
+with 10 distinct statements each went from 2.2–3.1 s to 5.9–6.8 s, about
+3–4 ms per statement. Most of that is round-trip time, so it is lower
+with a faster connection to the database.
 
 A sequential scan is the right plan for a small lookup table, also in
 production. Exclude such tables with `queryguard_index_ignore_tables`, one
@@ -468,6 +492,7 @@ Command-line options:
 | `--queryguard-mode=fail\|warn\|off` | Overrides `queryguard_mode` for this run. |
 | `--queryguard-report` | Prints the 10 tests with the most queries at the end of the session. |
 | `--queryguard-index-check` | Turns the missing-index check on for this run. |
+| `--no-queryguard-index-check` | Turns the missing-index check off for this run, whatever `queryguard_index_check` says. |
 
 ## How it works
 
@@ -518,17 +543,19 @@ Command-line options:
 - The index check needs PostgreSQL 16 or newer and a sync engine. Async
   engines (asyncpg, psycopg's async mode) prepare every statement, and
   PostgreSQL rejects `EXPLAIN (GENERIC_PLAN)` with `$1` placeholders sent
-  that way, so their statements are skipped with a notice. It is tested
-  with pg8000. psycopg2 and psycopg use the placeholder style the check
-  rewrites and send a statement without parameters as plain text, so they
-  should work, but they are not tested: both are LGPL-licensed and are not
-  used in this project.
+  that way, so their statements are skipped with a notice. The test suite
+  uses pg8000. psycopg2 and psycopg 3 were checked by hand during review
+  and give the same findings for plain statements, `%` in SQL, expanding
+  `IN`, autocommit and `stream_results`; they are LGPL-licensed, so this
+  project does not depend on them or run them in CI.
 - The index check looks only at `SELECT` and `WITH` statements and judges
-  plans, not data: it says that no index can serve a condition, not that an
-  existing index is a good one. A join is reported only when the plan puts
-  the unindexed table below a hash, merge or nested-loop join that names
-  its column; a nested loop that reads that table in full as its outer side
-  is not reported.
+  plans, not data: it says that no index can serve a filter, not that an
+  existing index is a good one. A missing index that only a join would use
+  (a join without a `WHERE` on that table) is not reported, because the
+  plan for it depends on statistics.
+- A partitioned table is reported under the partition's name, and
+  `queryguard_index_ignore_tables` matches partition names, not the parent
+  table's.
 - The index check's session summary is printed by the process that runs the
   tests, so under pytest-xdist it is not shown. Findings in tests are
   reported as usual.
