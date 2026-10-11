@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from typing import Any
 
@@ -405,6 +405,45 @@ def _error_message(exc: Exception) -> str:
 class Explained:
     plan: Mapping[str, Any]
     current_schema: str | None
+    leading: LeadingColumns = field(default_factory=dict)
+
+
+def _sql_literal(text: str) -> str | None:
+    # Only for names read from the plan; backslashes would depend on
+    # standard_conforming_strings, so such names are not looked up.
+    if "\\" in text or "\x00" in text:
+        return None
+    return "'" + text.replace("'", "''") + "'"
+
+
+def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
+    pairs = []
+    for schema, index in sorted(names):
+        schema_sql, index_sql = _sql_literal(schema), _sql_literal(index)
+        if schema_sql is not None and index_sql is not None:
+            pairs.append(f"({schema_sql}, {index_sql})")
+    if not pairs:
+        return None
+    return (
+        "SELECT n.nspname, c.relname, a.attname "
+        "FROM pg_index i "
+        "JOIN pg_class c ON c.oid = i.indexrelid "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
+        f"WHERE (n.nspname, c.relname) IN ({', '.join(pairs)})"
+    )
+
+
+def _read_leading(cursor: Any, plan: Mapping[str, Any]) -> dict[tuple[str, str], str]:
+    lookup = _leading_lookup(index_names(plan))
+    if lookup is None:
+        return {}
+    try:
+        cursor.execute(lookup)
+        rows = cursor.fetchall()
+    except Exception:  # noqa: BLE001  # without it, rule 3 is simply not applied
+        return {}
+    return {(str(r[0]), str(r[1])): str(r[2]) for r in rows or ()}
 
 
 def _read_plan(value: object) -> Mapping[str, Any] | None:
@@ -420,9 +459,13 @@ def _read_plan(value: object) -> Mapping[str, Any] | None:
     return None
 
 
-def run_explain(dbapi_connection: Any, sql: str) -> Explained | ExplainError:
+def run_explain(
+    dbapi_connection: Any, sql: str, *, leading: bool = False
+) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
+    With ``leading``, the first key column of each index the plan uses with
+    an index condition is read from pg_index inside the same savepoint.
     Database errors from EXPLAIN come back as ExplainError. An error while
     opening or rolling back the savepoint is raised: the connection's state
     is then unknown, and the caller stops checking.
@@ -442,6 +485,7 @@ def run_explain(dbapi_connection: Any, sql: str) -> Explained | ExplainError:
         row: Any = None
         settings: Any = None
         error: ExplainError | None = None
+        columns: dict[tuple[str, str], str] = {}
         try:
             cursor.execute(_SETTINGS)
             settings = cursor.fetchone()
@@ -449,17 +493,19 @@ def run_explain(dbapi_connection: Any, sql: str) -> Explained | ExplainError:
             row = cursor.fetchone()
         except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
             error = ExplainError(_error_message(exc))
+        plan = None if error else _read_plan(row[0] if row else None)
+        if plan is not None and leading:
+            columns = _read_leading(cursor, plan)
         for sql_text in undo:
             cursor.execute(sql_text)
     finally:
         cursor.close()
     if error is not None:
         return error
-    plan = _read_plan(row[0] if row else None)
     if plan is None:
         return ExplainError(f"unexpected EXPLAIN output: {row!r:.100}")
     schema = settings[-1] if settings else None
-    return Explained(plan, schema if isinstance(schema, str) else None)
+    return Explained(plan, schema if isinstance(schema, str) else None, columns)
 
 
 # ---------------------------------------------------------------- listener
@@ -516,12 +562,17 @@ def check(
         target.explained.add(key)
     numbered = to_numbered(statement, dialect.paramstyle)
     assert numbered is not None  # unsupported_reason() checked the paramstyle
-    outcome = run_explain(conn.connection.dbapi_connection, numbered)
+    version = getattr(dialect, "server_version_info", None)
+    outcome = run_explain(
+        conn.connection.dbapi_connection,
+        numbered,
+        leading=not version or version[0] < SKIP_SCAN_VERSION,
+    )
     if isinstance(outcome, ExplainError):
         for target in fresh:
             target.explain_errors.append((outcome.message, statement))
         return
-    issues = find_scans(outcome.plan, outcome.current_schema)
+    issues = find_scans(outcome.plan, outcome.current_schema, outcome.leading)
     if not issues:
         return
     site = find_callsite()

@@ -803,6 +803,35 @@ def test_pg_equality_behind_order_by_limit_is_reported(
 
 
 @needs_pg
+def test_pg_trailing_column_of_a_multicolumn_index_is_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    if pg16.version >= (18,):
+        pytest.skip("PostgreSQL 18 can skip-scan the leading column")
+    _items_project(
+        project,
+        pg16,
+        """
+        def test_status(db):
+            db.execute(text("SELECT * FROM items WHERE status = :s"), {"s": "s1"}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            (
+                "  items is read in full: *Index Scan using items_tenant_status "
+                "with index condition (items.status = $1)"
+            ),
+            "*",
+            "*",
+            "  fix: CREATE INDEX ON items (status)",
+        ]
+    )
+
+
+@needs_pg
 def test_pg_leading_column_of_a_multicolumn_index_passes(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:

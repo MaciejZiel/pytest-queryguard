@@ -585,6 +585,9 @@ class FakeCursor:
             if sql.startswith(prefix):
                 raise exc
 
+    def fetchall(self) -> list[tuple[str, str, str]]:
+        return self.conn.leading_rows
+
     def fetchone(self) -> tuple[Any, ...]:
         if self.conn.log[-1].startswith("SELECT set_config"):
             return ("off", "1s", "5s", self.conn.current_schema)
@@ -600,6 +603,7 @@ class FakeConnection:
         self.autocommit = autocommit
         self.result = result
         self.current_schema: str | None = "public"
+        self.leading_rows: list[tuple[str, str, str]] = []
         self.log: list[str] = []
         self.fail: dict[str, Exception] = {}
         self.closed_cursors = 0
@@ -914,3 +918,72 @@ def test_run_explain_reads_the_current_schema() -> None:
     conn.current_schema = None
     assert run_explain(conn, "SELECT 1") == Explained({"Node Type": "Seq Scan"}, None)
     assert "current_schema()" in conn.log[1]
+
+
+# ------------------------------------------------- leading key column lookup
+
+
+def test_run_explain_looks_up_leading_columns_inside_the_savepoint() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeConnection(result=plan)
+    conn.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
+    outcome = run_explain(conn, "SELECT 1", leading=True)
+    assert isinstance(outcome, Explained)
+    assert outcome.leading == LEADING
+    [lookup] = [sql for sql in conn.log if "pg_index" in sql]
+    assert "('public', 'orders_tenant_id_status_idx')" in lookup
+    assert conn.log.index(lookup) < conn.log.index(
+        "ROLLBACK TO SAVEPOINT queryguard_explain"
+    )
+
+
+def test_run_explain_quotes_names_in_the_lookup() -> None:
+    node = _composite("Index Scan", "(orders.status = $1)")
+    node["Index Name"] = "it's"
+    conn = FakeConnection(result=[{"Plan": node}])
+    run_explain(conn, "SELECT 1", leading=True)
+    [lookup] = [sql for sql in conn.log if "pg_index" in sql]
+    assert "('public', 'it''s')" in lookup
+
+
+@pytest.mark.parametrize("name", ["back\\slash", "nul\x00"])
+def test_run_explain_skips_names_it_cannot_quote(name: str) -> None:
+    node = _composite("Index Scan", "(orders.status = $1)")
+    node["Index Name"] = name
+    conn = FakeConnection(result=[{"Plan": node}])
+    outcome = run_explain(conn, "SELECT 1", leading=True)
+    assert isinstance(outcome, Explained)
+    assert outcome.leading == {}
+    assert not [sql for sql in conn.log if "pg_index" in sql]
+
+
+def test_run_explain_without_index_conditions_skips_the_lookup() -> None:
+    conn = FakeConnection(result=SEQ_PLAN)
+    run_explain(conn, "SELECT 1", leading=True)
+    assert not [sql for sql in conn.log if "pg_index" in sql]
+
+
+def test_run_explain_keeps_the_plan_when_the_lookup_fails() -> None:
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeConnection(result=plan)
+    conn.fail["SELECT n.nspname"] = RuntimeError("no pg_index today")
+    outcome = run_explain(conn, "SELECT 1", leading=True)
+    assert isinstance(outcome, Explained)
+    assert outcome.leading == {}
+    assert conn.log[-2] == "ROLLBACK TO SAVEPOINT queryguard_explain"
+
+
+@pytest.mark.parametrize(
+    ("version", "lookups"), [((16, 4), 1), ((17, 6), 1), (None, 1), ((18, 0), 0)]
+)
+def test_check_looks_up_leading_columns_before_postgres_18(
+    version: tuple[int, ...] | None, lookups: int
+) -> None:
+    # PostgreSQL 18 can skip-scan an index on a trailing column.
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeSAConnection(FakeDialect(version=version), result=plan)
+    conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
+    target = _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
+    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == lookups
+    assert len(target.scans) == lookups
