@@ -86,6 +86,17 @@ def test_count_is_live_inside_the_block_and_fixed_after_it() -> None:
     assert [query.sql for query in log.queries] == ["select 1"]
 
 
+def test_a_late_append_from_another_thread_does_not_change_a_finished_log() -> None:
+    # A listener that captured the collector before the block ended can still
+    # append after it; the finished log must stay consistent.
+    engine = create_engine("sqlite://")
+    with engine.connect() as conn, record_queries() as log:
+        conn.execute(text("select 1"))
+    late = log._collector.statements[0]
+    log._collector.statements.append(late)
+    assert log.count == len(log) == len(list(log)) == len(log.queries) == 1
+
+
 def test_queries_from_other_threads_are_recorded() -> None:
     engine = create_engine("sqlite://")
 

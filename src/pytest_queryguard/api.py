@@ -131,6 +131,8 @@ class QueryLog:
     @property
     def count(self) -> int:
         """The number of recorded statements."""
+        if self._done:  # the same tuple that queries and iteration use
+            return len(self._frozen)
         return len(self._collector.statements)
 
     def assert_no_nplusone(
