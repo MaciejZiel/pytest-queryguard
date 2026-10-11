@@ -524,35 +524,71 @@ def _name_pairs(names: Iterable[tuple[str, str]]) -> str | None:
     return ", ".join(pairs) if pairs else None
 
 
-def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
-    # Only btree: a BRIN or GIN index on (a, b) serves b = $1 as well as a.
+def _name_arrays(names: Iterable[tuple[str, str]]) -> tuple[list[str], list[str]]:
+    """The schema and relation names that _name_pairs() would keep, as arrays."""
+    kept = [
+        (schema, name)
+        for schema, name in sorted(names)
+        if _sql_literal(schema) is not None and _sql_literal(name) is not None
+    ]
+    return [schema for schema, _ in kept], [name for _, name in kept]
+
+
+# A lookup: its SQL and, for asyncpg, the parameters of that SQL.
+_Lookup = tuple[str, tuple[Any, ...]]
+
+# asyncpg prepares and caches (100, least recently used first out) every
+# distinct statement text it fetches rows for. The names must therefore not
+# be literals in the text: with array parameters each lookup is one cached
+# statement however many tables and indexes the suite touches.
+_NAMES_ARRAYS = "IN (SELECT * FROM unnest($1::text[], $2::text[]))"
+
+_LEADING_LOOKUP = (
+    "SELECT n.nspname, c.relname, a.attname "
+    "FROM pg_index i "
+    "JOIN pg_class c ON c.oid = i.indexrelid "
+    "JOIN pg_am am ON am.oid = c.relam "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
+    "WHERE (n.nspname, c.relname) {names} AND am.amname = 'btree'"
+)
+
+_VARCHAR_LOOKUP = (
+    "SELECT n.nspname, c.relname, a.attname "
+    "FROM pg_attribute a "
+    "JOIN pg_class c ON c.oid = a.attrelid "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "JOIN pg_type t ON t.oid = a.atttypid "
+    "WHERE (n.nspname, c.relname) {names} "
+    "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
+)
+
+
+def _lookup(
+    template: str, names: Iterable[tuple[str, str]], asyncpg: bool
+) -> _Lookup | None:
+    if asyncpg:
+        schemas, relations = _name_arrays(names)
+        if not schemas:
+            return None
+        return template.format(names=_NAMES_ARRAYS), (schemas, relations)
     pairs = _name_pairs(names)
     if pairs is None:
         return None
-    return (
-        "SELECT n.nspname, c.relname, a.attname "
-        "FROM pg_index i "
-        "JOIN pg_class c ON c.oid = i.indexrelid "
-        "JOIN pg_am am ON am.oid = c.relam "
-        "JOIN pg_namespace n ON n.oid = c.relnamespace "
-        "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
-        f"WHERE (n.nspname, c.relname) IN ({pairs}) AND am.amname = 'btree'"
-    )
+    return template.format(names=f"IN ({pairs})"), ()
 
 
-def _varchar_lookup(tables: Iterable[tuple[str, str]]) -> str | None:
-    pairs = _name_pairs(tables)
-    if pairs is None:
-        return None
-    return (
-        "SELECT n.nspname, c.relname, a.attname "
-        "FROM pg_attribute a "
-        "JOIN pg_class c ON c.oid = a.attrelid "
-        "JOIN pg_namespace n ON n.oid = c.relnamespace "
-        "JOIN pg_type t ON t.oid = a.atttypid "
-        f"WHERE (n.nspname, c.relname) IN ({pairs}) "
-        "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
-    )
+def _leading_lookup(
+    names: Iterable[tuple[str, str]], asyncpg: bool = False
+) -> _Lookup | None:
+    # Only btree: a BRIN or GIN index on (a, b) serves b = $1 as well as a.
+    return _lookup(_LEADING_LOOKUP, names, asyncpg)
+
+
+def _varchar_lookup(
+    tables: Iterable[tuple[str, str]], asyncpg: bool = False
+) -> _Lookup | None:
+    return _lookup(_VARCHAR_LOOKUP, tables, asyncpg)
 
 
 def _text_cast_tables(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
@@ -578,15 +614,20 @@ def _text_cast_tables(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
     return tables
 
 
-def _rows(cursor: Any, sql: str | None) -> list[Any]:
-    if sql is None:
+def _rows(cursor: Any, lookup: _Lookup | None) -> list[Any]:
+    if lookup is None:
         return []
-    cursor.execute(sql)
+    sql, params = lookup
+    cursor.execute(sql, *params) if params else cursor.execute(sql)
     return list(cursor.fetchall() or ())
 
 
 def _read_catalog(
-    cursor: Any, plan: Mapping[str, Any], catalog: Catalog, leading: bool
+    cursor: Any,
+    plan: Mapping[str, Any],
+    catalog: Catalog,
+    leading: bool,
+    asyncpg: bool = False,
 ) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], frozenset[str]]]:
     """Fill ``catalog`` for this plan; raises on a database error."""
     if leading:
@@ -594,14 +635,14 @@ def _read_catalog(
         missing = names - catalog.leading.keys()
         found = {
             (str(r[0]), str(r[1])): str(r[2])
-            for r in _rows(cursor, _leading_lookup(missing))
+            for r in _rows(cursor, _leading_lookup(missing, asyncpg))
         }
         for name in missing:
             catalog.leading[name] = found.get(name)
     tables = _text_cast_tables(plan)
     missing_tables = tables - catalog.varchar.keys()
     columns: dict[tuple[str, str], set[str]] = {t: set() for t in missing_tables}
-    for r in _rows(cursor, _varchar_lookup(missing_tables)):
+    for r in _rows(cursor, _varchar_lookup(missing_tables, asyncpg)):
         columns.setdefault((str(r[0]), str(r[1])), set()).add(str(r[2]))
     for table, names_ in columns.items():
         catalog.varchar[table] = frozenset(names_)
@@ -663,18 +704,20 @@ class _AsyncpgCursor:
 
     ``adapted`` is SQLAlchemy's adapted connection; its public run_async()
     awaits a call on the raw asyncpg connection from this sync listener.
-    Statements are sent without parameters: SELECTs with fetch(), anything
-    else with execute(), which uses the simple query protocol and prepares
-    nothing.
+    SELECTs go through fetch(), which prepares them and keeps them in
+    asyncpg's statement cache, so their text must not vary: the plan and
+    settings reads are constant, and the catalog lookups take their names as
+    array parameters. Anything else goes through execute() without
+    parameters, which uses the simple query protocol and prepares nothing.
     """
 
     def __init__(self, adapted: Any) -> None:
         self._adapted = adapted
         self._rows: list[tuple[Any, ...]] = []
 
-    def execute(self, sql: str) -> None:
+    def execute(self, sql: str, *params: Any) -> None:
         if is_checked_statement(sql):
-            rows = self._adapted.run_async(lambda conn: conn.fetch(sql))
+            rows = self._adapted.run_async(lambda conn: conn.fetch(sql, *params))
             self._rows = [tuple(row) for row in rows]
         else:
             self._adapted.run_async(lambda conn: conn.execute(sql))
@@ -742,7 +785,9 @@ def run_explain(
         plan = None if error else _read_plan(row[0] if row else None)
         if plan is not None and catalog is not None:
             try:
-                columns, varchar = _read_catalog(cursor, plan, catalog, leading)
+                columns, varchar = _read_catalog(
+                    cursor, plan, catalog, leading, asyncpg
+                )
             except Exception as exc:  # noqa: BLE001  # reported once by check()
                 catalog_error = _error_message(exc)
         _manage(cursor, undo)

@@ -1365,8 +1365,9 @@ class FakeAsyncpg:
         self.owner.maybe_fail(sql)
         return "OK"
 
-    async def fetch(self, sql: str) -> list[tuple[Any, ...]]:
+    async def fetch(self, sql: str, *args: Any) -> list[tuple[Any, ...]]:
         self.owner.log.append(("fetch", sql))
+        self.owner.args.append(args)
         self.owner.maybe_fail(sql)
         if sql.startswith("SELECT set_config"):
             return [("off", "1s", "5s", "public")]
@@ -1386,6 +1387,7 @@ class FakeAdaptedAsyncpg:
         self.log: list[tuple[str, str]] = []
         self.fail: dict[str, Exception] = {}
         self.leading_rows: list[tuple[str, str, str]] = []
+        self.args: list[tuple[Any, ...]] = []
 
     def maybe_fail(self, sql: str) -> None:
         for prefix, exc in self.fail.items():
@@ -1455,6 +1457,11 @@ def test_run_explain_on_asyncpg_reads_the_catalog() -> None:
     assert isinstance(outcome, Explained)
     assert outcome.leading == LEADING
     assert [kind for kind, sql in conn.log if "pg_index" in sql] == ["fetch"]
+    # constant text, names as array parameters: one statement in asyncpg's cache
+    [lookup] = [sql for _, sql in conn.log if "pg_index" in sql]
+    assert "$1::text[]" in lookup and "'orders_tenant" not in lookup
+    assert ([], []) not in conn.args
+    assert (["public"], ["orders_tenant_id_status_idx"]) in conn.args
 
 
 class FakeAsyncSAConnection:

@@ -111,12 +111,20 @@ The statements go to the raw asyncpg connection through SQLAlchemy's
 public `AdaptedConnection.run_async()`, which exists for calling the
 driver from sync event handlers. Like 0.2's raw DB-API cursor, this
 bypasses SQLAlchemy's events, so budgets, N+1 detection and user
-listeners do not see the check. It also bypasses SQLAlchemy's
-prepared-statement cache, so the user's prepared statements are not
-evicted. Statements that return no rows (`SAVEPOINT`, `DO`, `ROLLBACK
+listeners do not see the check. It also bypasses SQLAlchemy's own
+prepared-statement cache. asyncpg's cache is another matter: it belongs to
+the connection, holds 100 statements, and drops the least recently used
+one first. Statements that return no rows (`SAVEPOINT`, `DO`, `ROLLBACK
 TO SAVEPOINT`, ...) go through `execute()`: simple protocol, nothing
-prepared. The `SELECT`s go through `fetch()`, which can prepare them
-because they have no parameters.
+prepared. The `SELECT`s go through `fetch()`, which prepares them and
+caches them in that cache. They are kept to a fixed set of four texts, so
+the check takes at most four of the 100 slots however many statements it
+explains: the settings read, the plan read, and two catalog lookups that
+take the schema and relation names as `text[]` parameters instead of
+literals. The check can still push the user's least recently used
+prepared statements out of the cache, and each of them is then prepared
+again on its next use. That costs one round trip, and only for a
+connection whose cache is full and which the check touches.
 
 Everything else is shared with the sync path. That covers the savepoint, or
 `BEGIN` … `ROLLBACK` in autocommit mode, the settings, the catalog

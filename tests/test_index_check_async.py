@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -47,6 +48,7 @@ import asyncio
 
 import uuid
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -495,3 +497,61 @@ def test_pg_async_without_plpgsql_gives_one_notice_not_one_error_per_statement(
     assert result.stdout.str().count(notice) == 1
     result.stdout.no_fnmatch_line("*could not be explained*")
     result.stdout.no_fnmatch_line('*language "plpgsql" does not exist*')
+
+
+@needs_pg
+def test_pg_async_catalog_lookups_are_one_prepared_statement(
+    pg16_async: Postgres,
+) -> None:
+    """Lookups with different names must not fill asyncpg's statement cache."""
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from pytest_queryguard.indexes import Catalog, Explained, run_explain
+
+    async def main() -> list[str]:
+        engine = create_async_engine(
+            pg16_async.url,
+            connect_args={"server_settings": {"search_path": pg16_async.schema}},
+            poolclass=NullPool,
+        )
+        catalog = Catalog()
+        try:
+            async with engine.connect() as conn:
+                for n in range(4):
+                    await conn.execute(
+                        text(f"CREATE TABLE t{n} (a int, b text, c varchar)")
+                    )
+                    await conn.execute(text(f"CREATE INDEX t{n}_ab ON t{n} (a, b)"))
+
+                def explain(sync_conn: Any, n: int) -> None:
+                    sql = f"SELECT * FROM t{n} WHERE a = $1 AND c::text = $2"
+                    outcome = run_explain(
+                        sync_conn.connection.dbapi_connection,
+                        sql,
+                        leading=True,
+                        catalog=catalog,
+                        asyncpg=True,
+                    )
+                    assert isinstance(outcome, Explained)
+                    assert outcome.catalog_error is None
+                    assert outcome.leading and outcome.varchar
+
+                for n in range(4):
+                    await conn.run_sync(explain, n)
+                rows = await conn.execute(
+                    text(
+                        "SELECT statement FROM pg_prepared_statements "
+                        "WHERE statement NOT LIKE '%pg_prepared_statements%' AND (statement LIKE '%pg_index%' "
+                        "OR statement LIKE '%typname%')"
+                    )
+                )
+                return [row[0] for row in rows]
+        finally:
+            await engine.dispose()
+
+    prepared = asyncio.run(main())
+    assert len(prepared) <= 2, prepared
