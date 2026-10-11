@@ -1050,6 +1050,16 @@ def test_run_explain_keeps_the_plan_when_the_lookup_fails() -> None:
     assert conn.log[-2] == "ROLLBACK TO SAVEPOINT queryguard_explain"
 
 
+def test_leading_lookup_reads_btree_indexes_only() -> None:
+    # Rule 3 is about btree: BRIN and GIN indexes on (a, b) serve b = $1.
+    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    conn = FakeConnection(result=plan)
+    run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
+    [lookup] = [sql for sql in conn.log if "pg_index" in sql]
+    assert "JOIN pg_am am ON am.oid = c.relam" in lookup
+    assert "am.amname = 'btree'" in lookup
+
+
 def test_run_explain_looks_up_varchar_columns_of_text_casts() -> None:
     plan = [{"Plan": _seq(Filter="((orders.status)::text = $1)")}]
     conn = FakeConnection(result=plan)

@@ -476,6 +476,7 @@ def _name_pairs(names: Iterable[tuple[str, str]]) -> str | None:
 
 
 def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
+    # Only btree: a BRIN or GIN index on (a, b) serves b = $1 as well as a.
     pairs = _name_pairs(names)
     if pairs is None:
         return None
@@ -483,9 +484,10 @@ def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
         "SELECT n.nspname, c.relname, a.attname "
         "FROM pg_index i "
         "JOIN pg_class c ON c.oid = i.indexrelid "
+        "JOIN pg_am am ON am.oid = c.relam "
         "JOIN pg_namespace n ON n.oid = c.relnamespace "
         "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
-        f"WHERE (n.nspname, c.relname) IN ({pairs})"
+        f"WHERE (n.nspname, c.relname) IN ({pairs}) AND am.amname = 'btree'"
     )
 
 

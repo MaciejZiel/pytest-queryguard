@@ -1068,3 +1068,29 @@ def test_pg_text_cast_hint_only_for_varchar_columns(
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["  casts is read in full: *", "*", "*", hint])
+
+
+@needs_pg
+@pytest.mark.parametrize("method", ["brin", "gin"])
+def test_pg_trailing_column_of_brin_and_gin_indexes_passes(
+    project: pytest.Pytester, pg16: Postgres, method: str
+) -> None:
+    # Only btree reads the whole index for a condition on a trailing column.
+    _pg_project(project, pg16).makepyfile(
+        test_a=f"""
+        from sqlalchemy import text
+
+
+        def test_events(session):
+            for sql in [
+                "CREATE EXTENSION IF NOT EXISTS btree_gin",
+                "CREATE TABLE events (id int PRIMARY KEY, tenant_id int, kind int)",
+                "INSERT INTO events SELECT g, g % 3, g % 4 FROM generate_series(1, 40) g",
+                "CREATE INDEX ON events USING {method} (tenant_id, kind)",
+            ]:
+                session.execute(text(sql))
+            sql = "SELECT id FROM events WHERE kind = :k"
+            session.execute(text(sql), {{"k": 1}}).all()
+        """
+    )
+    project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
