@@ -18,8 +18,8 @@ this: the query runs once and looks fine.
 ## 2. Goals
 
 1. Opt-in: with the check on, fail (or warn about) a test whose `SELECT`
-   reads a table in full because no index matches its filter or join
-   condition, even when the table has three rows.
+   reads a table (or a whole index) in full because no index matches its
+   filter, even when the table has three rows.
 2. Name the table, the condition from the plan, the SQL and the line that
    ran it, and suggest `CREATE INDEX ON orders (customer_id)` when the
    column is obvious.
@@ -93,7 +93,9 @@ rewrites it:
 - Anything else: not checked, reported once per session (section 4.7).
 
 Quoted strings, quoted identifiers, dollar-quoted strings and comments are
-copied unchanged. The `EXPLAIN` is executed without parameters, so drivers
+copied unchanged, except that for psycopg and psycopg2 `%%` becomes `%` in
+them too: those drivers replace it everywhere, while pg8000 leaves quoted
+text alone. The `EXPLAIN` is executed without parameters, so drivers
 send it as-is over the simple query protocol. This matters: over the
 extended protocol PostgreSQL counts the `$n` inside `EXPLAIN` as parameters
 of the `EXPLAIN` itself and rejects a bind with none. pg8000 and psycopg2
@@ -110,40 +112,52 @@ skipped with one notice per session.
 
 ### 4.4 Which plans are reported
 
-The plan tree is walked. A node is reported when it reads a whole table
-although the statement narrows it down:
+The plan tree is walked. A node is reported when it reads a whole table, or
+a whole index, to apply a condition that an index could serve directly:
 
-- `Seq Scan` with a `Filter`: the `WHERE` condition has no index.
-- `Index Scan` or `Index Only Scan` with a `Filter` and no `Index Cond`:
-  the planner walked a whole index (usually the primary key, for `ORDER BY`)
-  just to avoid the disabled sequential scan; the filter itself has no
-  index. Without this rule `WHERE customer_id = $1 ORDER BY id LIMIT 10`
-  would pass.
-- `Seq Scan` without a filter below a join whose condition (`Hash Cond`,
-  `Merge Cond` or `Join Filter`) uses a column of that table: the join
-  column has no index.
+1. `Seq Scan` with a `Filter`: the `WHERE` condition has no index.
+   Correlated subqueries and `EXISTS` are covered here, through the filter
+   of the subquery's scan.
+2. `Index Scan` or `Index Only Scan` with a `Filter` and no `Index Cond`,
+   when the filter is an equality (`=` or `= ANY`) on one column: the
+   planner walked a whole index (usually the primary key, for `ORDER BY`)
+   just to avoid the disabled sequential scan. Without this rule
+   `WHERE customer_id = $1 ORDER BY id LIMIT 10` would pass. Ranges and
+   `IS NULL` (`WHERE total > 0 ORDER BY id LIMIT 20`) are left out: that is
+   ordinary pagination, which walks the primary key on purpose.
+3. `Index Scan`, `Index Only Scan` or `Bitmap Index Scan` whose
+   `Index Cond` is an equality on one column and does not use the first key
+   column of the index: with only `(tenant_id, status)`, `WHERE status = $1`
+   reads the whole index on PostgreSQL 16 and 17. The first key column comes
+   from `pg_index.indkey[0]` and `pg_attribute`, read inside the same
+   savepoint, once per index per test. PostgreSQL 18 can skip-scan, so the
+   rule and its lookup are not used there.
 
-Not reported: a `Seq Scan` with no filter and no join, such as
-`SELECT * FROM t` or `SELECT count(*) FROM t`, because reading the whole
-table is what the statement asks for; scans of `pg_catalog`,
-`information_schema` and `pg_toast` (SQLAlchemy's reflection queries); and
-bitmap scans, which already use an index.
+Not reported: a `Seq Scan` without a filter (`SELECT * FROM t`,
+`count(*)`, a join without `WHERE`), because the statement reads the whole
+table anyway; scans of `pg_catalog`, `information_schema` and `pg_toast`
+(SQLAlchemy's reflection queries); bitmap heap scans.
 
-A full join of two whole tables is reported when its join column has no
-index. That is deliberate: with the index in place the planner avoids the
-scan, and an unindexed foreign key is also what slows down deletes on the
-parent table. Tables where this is fine are allowlisted (section 4.6).
+0.2 does not report join conditions on their own. A first version reported
+a `Seq Scan` below a join on one of the table's columns. Review showed that
+this depends on statistics: the same query on the same data planned as a
+hash join with a sequential scan before `ANALYZE`, and as a nested loop
+with `Memoize` after it. For a join without a filter, an index on the join
+column does not change the production plan anyway.
 
 ### 4.5 Fix hint
 
 `CREATE INDEX ON <table> (<column>)` is shown when the condition uses
-exactly one column of the scanned table, directly or through a cast
-(`(orders.status)::text`), compared with `=`, `<`, `<=`, `>` or `>=`
-(`= ANY (...)` included), and not inside a function call such as
-`lower(...)`. Otherwise the message says to add an index that matches the
-condition, without guessing. The schema is shown unless it is the
-connection's `current_schema()`, which the settings query returns, so the
-hint works as written on that connection.
+exactly one column of the scanned table, compared with `=`, `<`, `<=`, `>`
+or `>=` (`= ANY (...)` included), either directly or through the `::text`
+cast the plan prints for `varchar` and `char` columns. Not inside a function
+call such as `lower(...)`, and not through another cast (`total::int`,
+`created_at::date`): an index on the plain column does not serve those.
+Then the message says `add an index that matches this condition (an
+expression index may be needed)`. For other conditions it says `add an
+index that matches this condition`, without guessing. The schema is shown
+unless it is the connection's `current_schema()`, which the settings query
+returns, so the hint works as written on that connection.
 
 ### 4.6 Deduplication and allowlists
 
@@ -151,11 +165,14 @@ hint works as written on that connection.
   with whitespace and `IN` lists collapsed, so `IN` lists of any length
   count as one. Literals are kept: a partial index can serve
   `status = 'open'` and not `status = 'closed'`.
-- Per test, findings are grouped by table and condition; each is reported
-  once with the first statement and call site that produced it.
+- Per test, findings are grouped by table and column when the column is
+  known (the same query under two aliases, as in a `UNION ALL`), otherwise
+  by table and condition; each is reported once with the first statement
+  and call site that produced it.
 - There is no cache across tests: another test can have other tables,
-  indexes or a different `search_path`, and an `EXPLAIN` costs about a
-  millisecond.
+  indexes or a different `search_path`. The check costs a few round trips
+  per distinct statement, about 3–4 ms with pg8000 against a local
+  PostgreSQL in Docker.
 - `queryguard_index_ignore_tables` lists table names or `fnmatch` patterns
   (`countries`, `audit.*`, `lookup_*`) matched against `table` and
   `schema.table`. Small lookup tables, where a sequential scan is the right
@@ -172,7 +189,8 @@ hint works as written on that connection.
 | PostgreSQL before 16 (`server_version_info`, no query) | Skipped; one line in the session summary with the version |
 | Async engine, or a paramstyle other than those in 4.2 | Skipped; one line in the session summary |
 | `EXPLAIN` fails (a parameter type PostgreSQL cannot infer, a statement that cannot be planned generically) | Rolled back to the savepoint; counted, and the session summary gives the count and the first error |
-| Not a `SELECT` or `WITH`, or `executemany` | Not checked |
+| Not a `SELECT` or `WITH` (after leading comments), or `executemany` | Not checked |
+| `SAVEPOINT` or `ROLLBACK TO SAVEPOINT` fails | The index check stops for the rest of the session, with one line in the summary; N+1 detection and budgets go on |
 
 The summary lines are printed in the terminal summary, not as warnings, so
 `filterwarnings = error` cannot turn a skipped check into a failure.
@@ -185,6 +203,7 @@ not visible there.
 |---|---|---|
 | `queryguard_index_check` (ini) | boolean | `false` |
 | `--queryguard-index-check` (CLI) | flag | turns the check on for this run |
+| `--no-queryguard-index-check` (CLI) | flag | turns the check off for this run; the last of the two flags wins |
 | `queryguard_index_ignore_tables` (ini) | list of names or patterns | empty |
 
 Findings follow `queryguard_mode` like N+1 findings: `fail` fails the test,
@@ -197,8 +216,10 @@ budget failure, N+1 and index findings are added to the same failure.
 
 An exception in the plugin's own code (not a database error from
 `EXPLAIN`) is handled as in 0.1: it disables the plugin with one warning.
-If even `ROLLBACK TO SAVEPOINT` fails, the plugin cannot vouch for the
-connection's state, so it records an internal error and stops checking.
+If the savepoint cannot be opened or `ROLLBACK TO SAVEPOINT` fails, the
+plugin cannot vouch for the connection's state, so the index check stops
+for the rest of the session and says so once in the session summary. N+1
+detection and budgets go on; they do not touch the connection.
 
 ## 5. Message
 
@@ -231,7 +252,7 @@ queryguard: missing index
 | Risk | Mitigation |
 |---|---|
 | The check disturbs the test's transaction | Savepoint per check, raw cursor, settings local to the savepoint; internal error if the rollback fails |
-| False positives on small lookup tables and full joins | `queryguard_index_ignore_tables`, `allow_missing_index`, `warn` mode |
+| False positives on small lookup tables and pagination | Equality-only rule for whole-index scans, no join rule, `queryguard_index_ignore_tables`, `allow_missing_index`, `warn` mode |
 | Placeholder rewriting differs from a driver | Unit tests per paramstyle; a failed `EXPLAIN` is counted and reported, never fails the test |
 | Slower suites | Off by default; one `EXPLAIN` per distinct statement per test |
-| psycopg and psycopg2 are not tested in CI (license policy) | Documented; the rewriting rules for their paramstyle are unit-tested |
+| psycopg and psycopg2 are not tested in CI (license policy) | Checked by hand during review; the rewriting rules for their paramstyle are unit-tested |
