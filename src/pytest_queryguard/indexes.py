@@ -194,6 +194,20 @@ def _walk(
         _walk(child, below, ctx, found)
 
 
+def _whole_bitmap_index(node: Mapping[str, Any]) -> str | None:
+    """The index a Bitmap Heap Scan reads in full, without an index condition."""
+    if node.get("Recheck Cond"):
+        return None
+    for child in _children(node):
+        if (
+            isinstance(child, Mapping)
+            and child.get("Node Type") == _BITMAP_SCAN
+            and not child.get("Index Cond")
+        ):
+            return _text(child, "Index Name") or "?"
+    return None
+
+
 def _issue(
     node: Mapping[str, Any], rel: _Relation | None, ctx: _Context
 ) -> ScanIssue | None:
@@ -209,6 +223,16 @@ def _issue(
         if condition is None:
             return None
         return _make(rel, "Seq Scan", "filter", condition, ctx)
+    if node_type == "Bitmap Heap Scan":
+        # Rule 2 again: before ANALYZE, a whole index (an INCLUDE index, say)
+        # can be read as a bitmap instead of an index-only scan.
+        whole = _whole_bitmap_index(node)
+        condition = _text(node, "Filter")
+        if whole is None or condition is None:
+            return None
+        if equality_column(condition, rel.alias, varchar) is None:
+            return None
+        return _make(rel, f"Bitmap Heap Scan using {whole}", "filter", condition, ctx)
     if node_type not in (*_INDEX_SCANS, _BITMAP_SCAN):
         return None
     index_cond = _text(node, "Index Cond")

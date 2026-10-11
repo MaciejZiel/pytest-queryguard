@@ -1094,3 +1094,62 @@ def test_pg_trailing_column_of_brin_and_gin_indexes_passes(
         """
     )
     project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
+
+
+@needs_pg
+def test_pg_whole_include_index_is_reported_with_and_without_statistics(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # A committed table: before ANALYZE PostgreSQL reads the INCLUDE index
+    # as a bitmap, after it as an index-only scan. Both read it in full.
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        import pytest
+        from sqlalchemy import text
+
+
+        @pytest.fixture(params=[False, True], ids=["no-stats", "analyzed"])
+        def notes(engine, request):
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "CREATE TABLE notes (id serial PRIMARY KEY, "
+                    "created_at timestamp, note text)"
+                ))
+                conn.execute(text(
+                    "CREATE INDEX notes_inc ON notes (created_at) INCLUDE (note)"
+                ))
+                conn.execute(text(
+                    "INSERT INTO notes (created_at, note) "
+                    "SELECT now(), 'n' || g FROM generate_series(1, 6) g"
+                ))
+            if request.param:
+                with engine.begin() as conn:
+                    conn.execute(text("ANALYZE notes"))
+            yield request.param
+            with engine.begin() as conn:
+                conn.execute(text("SET LOCAL lock_timeout = '5s'"))
+                conn.execute(text("DROP TABLE notes"))
+
+
+        # notes before session, so the session ends before the table is dropped
+        def test_note(notes, session):
+            sql = "SELECT note FROM notes WHERE note = :n"
+            session.execute(text(sql), {"n": "n1"}).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "*test_note?no-stats?*",
+            (
+                "  notes is read in full: Bitmap Heap Scan using notes_inc with filter "
+                "(notes.note = $1)"
+            ),
+            "*test_note?analyzed?*",
+            (
+                "  notes is read in full: Index Only Scan using notes_inc with filter "
+                "(notes.note = $1)"
+            ),
+        ]
+    )

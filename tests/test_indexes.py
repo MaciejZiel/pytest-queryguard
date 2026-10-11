@@ -290,6 +290,45 @@ def test_whole_index_scan_with_a_cast_on_a_non_varchar_column_is_not_reported() 
     assert find_scans(plan, None, None, VARCHAR) == []
 
 
+def _bitmap_whole_index(
+    condition: str, *, recheck: str | None = None, index_cond: str | None = None
+) -> dict[str, Any]:
+    index: dict[str, Any] = {"Node Type": "Bitmap Index Scan", "Index Name": "o_inc"}
+    if index_cond:
+        index["Index Cond"] = index_cond
+    heap: dict[str, Any] = {
+        "Node Type": "Bitmap Heap Scan",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Filter": condition,
+        "Plans": [index],
+    }
+    if recheck:
+        heap["Recheck Cond"] = recheck
+    return heap
+
+
+def test_bitmap_scan_of_a_whole_index_with_an_equality_filter_is_reported() -> None:
+    # Before ANALYZE, an INCLUDE index can be read this way instead of an
+    # Index Only Scan with the same filter.
+    [issue] = find_scans(_bitmap_whole_index("(orders.note = $1)"))
+    assert issue.node == "Bitmap Heap Scan using o_inc"
+    assert (issue.kind, issue.column) == ("filter", "note")
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        _bitmap_whole_index("(orders.total > $1)"),
+        _bitmap_whole_index("(orders.note = $1)", recheck="(orders.a = $2)"),
+        _bitmap_whole_index("(orders.note = $1)", index_cond="(orders.a = $2)"),
+    ],
+)
+def test_other_bitmap_scans_are_not_reported_by_rule_2(plan: dict[str, Any]) -> None:
+    assert find_scans(plan) == []
+
+
 @pytest.mark.parametrize(
     "condition",
     [
