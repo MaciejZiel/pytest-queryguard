@@ -686,13 +686,27 @@ def test_check_records_a_scan_with_the_statement_and_call_site() -> None:
     )
 
 
-def test_check_explains_each_normalized_statement_once() -> None:
+def _explains(conn: FakeSAConnection) -> int:
+    return len([s for s in conn.raw.log if s.startswith("EXPLAIN")])
+
+
+def test_check_explains_in_lists_of_any_length_once() -> None:
     conn = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
     target = _collector()
     check(conn, "SELECT a FROM t WHERE a IN (%s, %s)", False, [target])
-    check(conn, "SELECT a FROM t WHERE a IN (%s, %s, %s)", False, [target])
-    assert len([s for s in conn.raw.log if s.startswith("EXPLAIN")]) == 1
+    check(conn, "SELECT a FROM t\n WHERE a IN (%s, %s, %s)", False, [target])
+    assert _explains(conn) == 1
     assert len(target.scans) == 1
+
+
+def test_check_explains_statements_with_other_literals_again() -> None:
+    # A partial index can serve status = 'open' but not status = 'closed'.
+    conn = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE status = 'open'", False, [target])
+    check(conn, "SELECT a FROM t WHERE status = 'closed'", False, [target])
+    check(conn, "SELECT a FROM t WHERE status = 'open'", False, [target])
+    assert _explains(conn) == 2
 
 
 def test_check_explains_again_for_a_new_collector() -> None:

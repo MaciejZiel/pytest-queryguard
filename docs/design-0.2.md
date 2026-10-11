@@ -144,8 +144,10 @@ condition, without guessing. The schema is shown unless it is `public`.
 
 ### 4.6 Deduplication and allowlists
 
-- Per test, statements are explained once per normalized form (the 0.1
-  `normalize()`, so `IN` lists of any length count as one) and engine.
+- Per test, statements are explained once per engine and statement text,
+  with whitespace and `IN` lists collapsed, so `IN` lists of any length
+  count as one. Literals are kept: a partial index can serve
+  `status = 'open'` and not `status = 'closed'`.
 - Per test, findings are grouped by table and condition; each is reported
   once with the first statement and call site that produced it.
 - There is no cache across tests: another test can have other tables,

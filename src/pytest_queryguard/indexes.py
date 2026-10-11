@@ -14,7 +14,7 @@ from typing import Any
 
 from .callsite import find_callsite
 from .collector import QueryCollector
-from .detectors import normalize
+from .detectors import collapse_lists
 from .events import ScanEvent, ScanIssue
 
 MIN_SERVER_VERSION = 16
@@ -396,7 +396,8 @@ def check(
         for target in targets:
             target.index_notices[reason] = None
         return
-    key = (id(conn.engine), normalize(statement))
+    # Literals stay: a partial index may serve one value and not another.
+    key = (id(conn.engine), collapse_lists(statement))
     fresh = [target for target in targets if key not in target.explained]
     if not fresh:
         return

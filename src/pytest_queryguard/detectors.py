@@ -33,11 +33,15 @@ _WS = re.compile(r"\s+")
 _WRITES = ("INSERT", "UPDATE", "DELETE")
 
 
+def collapse_lists(sql: str) -> str:
+    """Collapse whitespace and parameter lists, so IN lists of any length match."""
+    return _IN_LIST.sub("IN (...)", _WS.sub(" ", sql).strip())
+
+
 def normalize(sql: str) -> str:
     """Reduce a statement to a shape shared by all its executions."""
-    out = _WS.sub(" ", sql).strip()
     # Lists first, so every placeholder style collapses to the same text.
-    out = _IN_LIST.sub("IN (...)", out)
+    out = collapse_lists(sql)
     out = _STRING.sub("?", out)
     # Numbered parameters ($1, $2) become "?" so they compare equal.
     out = _DOLLAR_PARAM.sub("?", out)
