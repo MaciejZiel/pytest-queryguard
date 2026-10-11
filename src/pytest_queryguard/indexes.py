@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from typing import Any
@@ -15,7 +15,7 @@ from typing import Any
 from .callsite import find_callsite
 from .collector import QueryCollector
 from .detectors import collapse_lists
-from .events import ScanEvent, ScanIssue
+from .events import Catalog, ScanEvent, ScanIssue
 
 MIN_SERVER_VERSION = 16
 _SAVEPOINT = "queryguard_explain"
@@ -104,6 +104,15 @@ SKIP_SCAN_VERSION = 18
 
 # (schema, index name) -> name of the index's first key column
 LeadingColumns = Mapping[tuple[str, str], str]
+# (schema, table) -> names of its varchar columns
+VarcharColumns = Mapping[tuple[str, str], frozenset[str]]
+
+
+@dataclass(frozen=True, slots=True)
+class _Context:
+    current: str
+    leading: LeadingColumns
+    varchar: VarcharColumns
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,16 +126,19 @@ def find_scans(
     plan: Mapping[str, Any],
     current_schema: str | None = None,
     leading: LeadingColumns | None = None,
+    varchar: VarcharColumns | None = None,
 ) -> list[ScanIssue]:
     """Plan nodes that read a whole table, or a whole index, to apply a condition.
 
     Tables in ``current_schema`` (``public`` when unknown) are named without
     their schema, so the fix hint works as written on that connection.
     ``leading`` enables the check for an index condition on a trailing
-    column of a multicolumn index.
+    column of a multicolumn btree index. ``varchar`` names the columns whose
+    ``::text`` cast an index on the plain column still serves.
     """
     found: list[ScanIssue] = []
-    _walk(plan, None, current_schema or "public", leading or {}, found)
+    ctx = _Context(current_schema or "public", leading or {}, varchar or {})
+    _walk(plan, None, ctx, found)
     return found
 
 
@@ -168,41 +180,35 @@ def _relation(node: Mapping[str, Any]) -> _Relation | None:
 
 
 def _walk(
-    node: object,
-    heap: _Relation | None,
-    current: str,
-    leading: LeadingColumns,
-    found: list[ScanIssue],
+    node: object, heap: _Relation | None, ctx: _Context, found: list[ScanIssue]
 ) -> None:
     if not isinstance(node, Mapping):
         return
     rel = _relation(node)
-    issue = _issue(node, rel or heap, current, leading)
+    issue = _issue(node, rel or heap, ctx)
     if issue is not None:
         found.append(issue)
     # A Bitmap Index Scan names no table; it reads the one of its heap scan.
     below = rel if node.get("Node Type") == "Bitmap Heap Scan" else heap
     for child in _children(node):
-        _walk(child, below, current, leading, found)
+        _walk(child, below, ctx, found)
 
 
 def _issue(
-    node: Mapping[str, Any],
-    rel: _Relation | None,
-    current: str,
-    leading: LeadingColumns,
+    node: Mapping[str, Any], rel: _Relation | None, ctx: _Context
 ) -> ScanIssue | None:
     if rel is None or rel.schema in _SYSTEM_SCHEMAS:
         return None
     node_type = node.get("Node Type")
     index = _text(node, "Index Name")
     label = f"{node_type} using {index}" if index else str(node_type)
+    varchar = ctx.varchar.get((rel.schema or "", rel.table), frozenset())
     if node_type == "Seq Scan":
         # Rule 1: the table is read in full to apply its filter.
         condition = _text(node, "Filter")
         if condition is None:
             return None
-        return _make(rel, "Seq Scan", "filter", condition, current)
+        return _make(rel, "Seq Scan", "filter", condition, ctx)
     if node_type not in (*_INDEX_SCANS, _BITMAP_SCAN):
         return None
     index_cond = _text(node, "Index Cond")
@@ -214,24 +220,25 @@ def _issue(
         condition = _text(node, "Filter")
         if node_type == _BITMAP_SCAN or condition is None:
             return None
-        if equality_column(condition, rel.alias) is None:
+        if equality_column(condition, rel.alias, varchar) is None:
             return None
-        return _make(rel, label, "filter", condition, current)
+        return _make(rel, label, "filter", condition, ctx)
     # Rule 3: the index condition uses only trailing columns of a multicolumn
     # index, which PostgreSQL before 18 serves by reading the whole index.
-    first = leading.get((rel.schema or "", index or ""))
+    first = ctx.leading.get((rel.schema or "", index or ""))
     if first is None:
         return None
     columns = {_unquote(ref["col"]) for ref in _column_refs(index_cond, rel.alias)}
-    if first in columns or equality_column(index_cond, rel.alias) is None:
+    if first in columns or equality_column(index_cond, rel.alias, varchar) is None:
         return None
-    return _make(rel, label, "index condition", index_cond, current)
+    return _make(rel, label, "index condition", index_cond, ctx)
 
 
 def _make(
-    rel: _Relation, node: str, kind: str, condition: str, current: str
+    rel: _Relation, node: str, kind: str, condition: str, ctx: _Context
 ) -> ScanIssue:
-    column = hint_column(condition, rel.alias)
+    varchar = ctx.varchar.get((rel.schema or "", rel.table), frozenset())
+    column = hint_column(condition, rel.alias, varchar)
     return ScanIssue(
         rel.schema,
         rel.table,
@@ -239,8 +246,8 @@ def _make(
         kind,
         condition,
         column,
-        show_schema=rel.schema not in (None, current),
-        expression=column is None and _needs_expression(condition, rel.alias),
+        show_schema=rel.schema not in (None, ctx.current),
+        expression=column is None and _needs_expression(condition, rel.alias, varchar),
     )
 
 
@@ -248,13 +255,14 @@ def _make(
 
 _LITERAL = re.compile(r"'(?:[^']|'')*'")
 _OP = r"(?<![-<>=!~#@&|*+/%^])(?P<op><=|>=|=|<|>)(?![-<>=~#@&|])"
-# The only cast an index on the plain column still serves: varchar or char
-# compared as text, which the plan prints as (col)::text.
-_TEXT_CAST = r"(?:::text)?"
+# The plan prints (col)::text for every cast to text, but an index on the
+# plain column serves it only for varchar (checked: not char(n), name, enums
+# or numbers), so the cast is accepted only for known varchar columns.
+_TEXT_CAST = r"(?P<cast>::text)?"
 _LEFT_OPERAND = re.compile(rf"\)*{_TEXT_CAST}\)*\s*{_OP}\s")
 _RIGHT_OPERAND = re.compile(rf"\)*{_TEXT_CAST}\)*(?:$|\s+(?:AND|OR)\b)")
 _BEFORE_RIGHT = re.compile(rf"{_OP}\s+\(*$")
-_OTHER_CAST = re.compile(r"\)*::(?!text\b)")
+_ANY_CAST = re.compile(r"\)*::(?P<text>text\b)?")
 
 
 def _strip_literals(condition: str) -> str:
@@ -288,58 +296,76 @@ def _inside_function(text: str, start: int) -> bool:
     return False
 
 
-def _operator(text: str, start: int, end: int) -> str | None:
+def _operator(text: str, start: int, end: int, cast_ok: bool) -> str | None:
     """The comparison a plain column reference takes part in, if any."""
     if _inside_function(text, start):
         return None
     before, after = text[:start], text[end:]
+    match = None
     if before.endswith("("):
-        left = _LEFT_OPERAND.match(after)
-        if left:
-            return left["op"]
-    right = _BEFORE_RIGHT.search(before)
-    if right and _RIGHT_OPERAND.match(after):
-        return right["op"]
-    return None
+        match = _LEFT_OPERAND.match(after)
+        op = match["op"] if match else None
+    if match is None:
+        right = _BEFORE_RIGHT.search(before)
+        match = _RIGHT_OPERAND.match(after) if right else None
+        op = right["op"] if right and match else None
+    if match is None or (match["cast"] and not cast_ok):
+        return None
+    return op
 
 
-def _comparisons(condition: str, alias: str) -> tuple[str, set[str]] | None:
+def _comparisons(
+    condition: str, alias: str, varchar: Collection[str]
+) -> tuple[str, set[str]] | None:
     """(column, operators) when the condition compares exactly one plain column."""
     text = _strip_literals(condition)
     refs = _column_refs(text, alias)
     columns = {ref["col"] for ref in refs}
     if len(columns) != 1:
         return None
+    column = columns.pop()
+    cast_ok = _unquote(column) in varchar
     ops: set[str] = set()
     for ref in refs:
-        op = _operator(text, ref.start(), ref.end())
+        op = _operator(text, ref.start(), ref.end(), cast_ok)
         if op is None:
             return None
         ops.add(op)
-    return columns.pop(), ops
+    return column, ops
 
 
-def hint_column(condition: str, alias: str) -> str | None:
-    """The one column an index on the scanned table would serve, if obvious."""
-    found = _comparisons(condition, alias)
+def hint_column(
+    condition: str, alias: str, varchar: Collection[str] = frozenset()
+) -> str | None:
+    """The one column an index on the scanned table would serve, if obvious.
+
+    ``varchar`` names the columns of the table that are varchar, whose
+    ``::text`` cast an index on the plain column still serves.
+    """
+    found = _comparisons(condition, alias, varchar)
     return None if found is None else found[0]
 
 
-def equality_column(condition: str, alias: str) -> str | None:
+def equality_column(
+    condition: str, alias: str, varchar: Collection[str] = frozenset()
+) -> str | None:
     """The column when the condition is only equalities (= or = ANY) on it."""
-    found = _comparisons(condition, alias)
+    found = _comparisons(condition, alias, varchar)
     if found is None or found[1] != {"="}:
         return None
     return found[0]
 
 
-def _needs_expression(condition: str, alias: str) -> bool:
+def _needs_expression(condition: str, alias: str, varchar: Collection[str]) -> bool:
     """True when a column is wrapped in a function or cast an index cannot see."""
     text = _strip_literals(condition)
-    return any(
-        _inside_function(text, ref.start()) or _OTHER_CAST.match(text, ref.end())
-        for ref in _column_refs(text, alias)
-    )
+    for ref in _column_refs(text, alias):
+        if _inside_function(text, ref.start()):
+            return True
+        cast = _ANY_CAST.match(text, ref.end())
+        if cast and not (cast["text"] and _unquote(ref["col"]) in varchar):
+            return True
+    return False
 
 
 # PostgreSQL's reserved keywords, which need quotes as table names.
@@ -425,6 +451,7 @@ class Explained:
     plan: Mapping[str, Any]
     current_schema: str | None
     leading: LeadingColumns = field(default_factory=dict)
+    varchar: VarcharColumns = field(default_factory=dict)
 
 
 class SavepointError(Exception):
@@ -439,13 +466,18 @@ def _sql_literal(text: str) -> str | None:
     return "'" + text.replace("'", "''") + "'"
 
 
-def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
+def _name_pairs(names: Iterable[tuple[str, str]]) -> str | None:
     pairs = []
-    for schema, index in sorted(names):
-        schema_sql, index_sql = _sql_literal(schema), _sql_literal(index)
-        if schema_sql is not None and index_sql is not None:
-            pairs.append(f"({schema_sql}, {index_sql})")
-    if not pairs:
+    for schema, name in sorted(names):
+        schema_sql, name_sql = _sql_literal(schema), _sql_literal(name)
+        if schema_sql is not None and name_sql is not None:
+            pairs.append(f"({schema_sql}, {name_sql})")
+    return ", ".join(pairs) if pairs else None
+
+
+def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
+    pairs = _name_pairs(names)
+    if pairs is None:
         return None
     return (
         "SELECT n.nspname, c.relname, a.attname "
@@ -453,31 +485,82 @@ def _leading_lookup(names: Iterable[tuple[str, str]]) -> str | None:
         "JOIN pg_class c ON c.oid = i.indexrelid "
         "JOIN pg_namespace n ON n.oid = c.relnamespace "
         "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] "
-        f"WHERE (n.nspname, c.relname) IN ({', '.join(pairs)})"
+        f"WHERE (n.nspname, c.relname) IN ({pairs})"
     )
 
 
-# (schema, index) -> first key column, or None for an expression index or an
-# index the lookup did not find; filled per test, as indexes can change.
-KnownColumns = MutableMapping[tuple[str, str], str | None]
+def _varchar_lookup(tables: Iterable[tuple[str, str]]) -> str | None:
+    pairs = _name_pairs(tables)
+    if pairs is None:
+        return None
+    return (
+        "SELECT n.nspname, c.relname, a.attname "
+        "FROM pg_attribute a "
+        "JOIN pg_class c ON c.oid = a.attrelid "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "JOIN pg_type t ON t.oid = a.atttypid "
+        f"WHERE (n.nspname, c.relname) IN ({pairs}) "
+        "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
+    )
 
 
-def _read_leading(
-    cursor: Any, plan: Mapping[str, Any], known: KnownColumns
-) -> dict[tuple[str, str], str]:
-    names = index_names(plan)
-    lookup = _leading_lookup(names - known.keys())
-    if lookup is not None:
-        try:
-            cursor.execute(lookup)
-            rows = cursor.fetchall()
-        except Exception:  # noqa: BLE001  # without it, rule 3 is simply not applied
-            rows = None
-        if rows is not None:
-            found = {(str(r[0]), str(r[1])): str(r[2]) for r in rows}
-            for name in names - known.keys():
-                known[name] = found.get(name)
-    return {name: col for name in names if (col := known.get(name)) is not None}
+def _text_cast_tables(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
+    """(schema, table) of every scan whose conditions cast a column to text."""
+    tables: set[tuple[str, str]] = set()
+
+    def visit(node: object, heap: _Relation | None) -> None:
+        if not isinstance(node, Mapping):
+            return
+        rel = _relation(node) or heap
+        conditions = (node.get(k) for k in ("Filter", "Index Cond", "Recheck Cond"))
+        if (
+            rel is not None
+            and rel.schema
+            and any(isinstance(c, str) and ")::text" in c for c in conditions)
+        ):
+            tables.add((rel.schema, rel.table))
+        below = _relation(node) if node.get("Node Type") == "Bitmap Heap Scan" else heap
+        for child in _children(node):
+            visit(child, below)
+
+    visit(plan, None)
+    return tables
+
+
+def _rows(cursor: Any, sql: str | None) -> list[Any]:
+    if sql is None:
+        return []
+    cursor.execute(sql)
+    return list(cursor.fetchall() or ())
+
+
+def _read_catalog(
+    cursor: Any, plan: Mapping[str, Any], catalog: Catalog, leading: bool
+) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], frozenset[str]]]:
+    """Fill ``catalog`` for this plan; raises on a database error."""
+    if leading:
+        names = index_names(plan)
+        missing = names - catalog.leading.keys()
+        found = {
+            (str(r[0]), str(r[1])): str(r[2])
+            for r in _rows(cursor, _leading_lookup(missing))
+        }
+        for name in missing:
+            catalog.leading[name] = found.get(name)
+    tables = _text_cast_tables(plan)
+    missing_tables = tables - catalog.varchar.keys()
+    columns: dict[tuple[str, str], set[str]] = {t: set() for t in missing_tables}
+    for r in _rows(cursor, _varchar_lookup(missing_tables)):
+        columns.setdefault((str(r[0]), str(r[1])), set()).add(str(r[2]))
+    for table, names_ in columns.items():
+        catalog.varchar[table] = frozenset(names_)
+    leading_map = {
+        name: col
+        for name, col in catalog.leading.items()
+        if col is not None and name in index_names(plan)
+    }
+    varchar_map = {t: catalog.varchar[t] for t in tables if t in catalog.varchar}
+    return leading_map, varchar_map
 
 
 def _read_plan(value: object) -> Mapping[str, Any] | None:
@@ -498,13 +581,15 @@ def run_explain(
     sql: str,
     *,
     leading: bool = False,
-    known: KnownColumns | None = None,
+    catalog: Catalog | None = None,
 ) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
-    With ``leading``, the first key column of each index the plan uses with
-    an index condition is read from pg_index inside the same savepoint,
-    except for the indexes already in ``known``, which is updated.
+    With a ``catalog``, the varchar columns of tables whose conditions cast
+    to text and, with ``leading``, the first key column of each btree index
+    used with an index condition are read inside the same savepoint, unless
+    ``catalog`` already has them; it is updated. A failed lookup leaves the
+    plan usable.
     Database errors from EXPLAIN come back as ExplainError. An error while
     opening or rolling back the savepoint raises SavepointError: the
     connection's state is then unknown, and the caller stops checking.
@@ -524,6 +609,7 @@ def run_explain(
         settings: Any = None
         error: ExplainError | None = None
         columns: dict[tuple[str, str], str] = {}
+        varchar: dict[tuple[str, str], frozenset[str]] = {}
         try:
             cursor.execute(_SETTINGS)
             settings = cursor.fetchone()
@@ -532,8 +618,11 @@ def run_explain(
         except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
             error = ExplainError(_error_message(exc))
         plan = None if error else _read_plan(row[0] if row else None)
-        if plan is not None and leading:
-            columns = _read_leading(cursor, plan, {} if known is None else known)
+        if plan is not None and catalog is not None:
+            try:
+                columns, varchar = _read_catalog(cursor, plan, catalog, leading)
+            except Exception:  # noqa: BLE001  # without it, those rules do not apply
+                columns, varchar = {}, {}
         _manage(cursor, undo)
     finally:
         cursor.close()
@@ -542,7 +631,12 @@ def run_explain(
     if plan is None:
         return ExplainError(f"unexpected EXPLAIN output: {row!r:.100}")
     schema = settings[-1] if settings else None
-    return Explained(plan, schema if isinstance(schema, str) else None, columns)
+    return Explained(
+        plan,
+        schema if isinstance(schema, str) else None,
+        columns,
+        varchar,
+    )
 
 
 def _manage(cursor: Any, statements: list[str]) -> None:
@@ -623,13 +717,15 @@ def check(
     )
     assert numbered is not None  # unsupported_reason() checked the paramstyle
     version = getattr(dialect, "server_version_info", None)
-    known = fresh[0].index_columns.setdefault(id(conn.engine), {})
+    catalog = fresh[0].catalogs.setdefault(id(conn.engine), Catalog())
+    for target in fresh[1:]:
+        target.catalogs.setdefault(id(conn.engine), catalog)
     try:
         outcome = run_explain(
             conn.connection.dbapi_connection,
             numbered,
             leading=not version or version[0] < SKIP_SCAN_VERSION,
-            known=known,
+            catalog=catalog,
         )
     except SavepointError as exc:
         # The test's transaction may be broken now; N+1 detection and budgets
@@ -641,13 +737,13 @@ def check(
         for target in targets:
             target.index_notices[_stopped] = None
         return
-    for target in fresh[1:]:
-        target.index_columns.setdefault(id(conn.engine), {}).update(known)
     if isinstance(outcome, ExplainError):
         for target in fresh:
             target.explain_errors.append((outcome.message, statement))
         return
-    issues = find_scans(outcome.plan, outcome.current_schema, outcome.leading)
+    issues = find_scans(
+        outcome.plan, outcome.current_schema, outcome.leading, outcome.varchar
+    )
     if not issues:
         return
     site = find_callsite()

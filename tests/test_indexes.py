@@ -8,7 +8,7 @@ import pytest
 
 from pytest_queryguard import indexes
 from pytest_queryguard.collector import QueryCollector
-from pytest_queryguard.events import ScanEvent, ScanIssue
+from pytest_queryguard.events import Catalog, ScanEvent, ScanIssue
 from pytest_queryguard.indexes import (
     Explained,
     ExplainError,
@@ -258,8 +258,36 @@ def _pkey_scan(condition: str, node_type: str = "Index Scan") -> dict[str, Any]:
 def test_whole_index_scan_with_an_equality_filter_is_reported(
     condition: str, node_type: str
 ) -> None:
-    [issue] = find_scans(_pkey_scan(condition, node_type))
+    [issue] = find_scans(_pkey_scan(condition, node_type), None, None, VARCHAR)
     assert issue.column in ("customer_id", "status")
+
+
+# varchar columns, as run_explain() reads them from pg_attribute
+VARCHAR = {("public", "orders"): frozenset({"status", "name"})}
+
+
+@pytest.mark.parametrize(
+    ("condition", "varchar", "column"),
+    [
+        ("((orders.status)::text = $1)", VARCHAR, "status"),
+        # an int, an enum or char(n) printed with ::text: no plain index helps
+        ("((orders.id)::text = $1)", VARCHAR, None),
+        ("((orders.kind)::text = $1)", VARCHAR, None),
+        # without type information the cast is not trusted
+        ("((orders.status)::text = $1)", None, None),
+    ],
+)
+def test_text_cast_hint_needs_a_varchar_column(
+    condition: str, varchar: Any, column: str | None
+) -> None:
+    [issue] = find_scans(_seq(Filter=condition), None, None, varchar)
+    assert issue.column == column
+    assert issue.expression is (column is None)
+
+
+def test_whole_index_scan_with_a_cast_on_a_non_varchar_column_is_not_reported() -> None:
+    plan = _pkey_scan("((orders.id)::text = $1)", "Index Only Scan")
+    assert find_scans(plan, None, None, VARCHAR) == []
 
 
 @pytest.mark.parametrize(
@@ -441,7 +469,8 @@ def test_scans_are_reported_in_plan_order() -> None:
             },
         ],
     }
-    assert [(i.table, i.column) for i in find_scans(plan)] == [
+    varchar = {("public", "customers"): frozenset({"name"})}
+    assert [(i.table, i.column) for i in find_scans(plan, None, None, varchar)] == [
         ("orders", "status"),
         ("customers", "name"),
     ]
@@ -500,7 +529,7 @@ def test_find_scans_on_real_postgres_json() -> None:
 def test_hint_column_finds_the_obvious_column(
     condition: str, alias: str, column: str
 ) -> None:
-    assert hint_column(condition, alias) == column
+    assert hint_column(condition, alias, frozenset({"status", "name"})) == column
 
 
 @pytest.mark.parametrize(
@@ -542,13 +571,20 @@ def test_hint_column_gives_up_when_not_obvious(condition: str, alias: str) -> No
         ("(lower((o.name)::text) = $1)", True),
         ("((o.created_at)::date = $1)", True),
         ("((o.a = $1) AND (o.b = $2))", False),
-        ("((o.name)::text ~~ $1)", False),
+        ("(o.name ~~ $1)", False),
+        # without knowing that o.name is varchar, the cast may need one
+        ("((o.name)::text ~~ $1)", True),
         ("(o.total = $1)", False),
+        ("((o.id)::text = $1)", True),
     ],
 )
 def test_expression_conditions_are_flagged(condition: str, expression: bool) -> None:
     [issue] = find_scans(_seq("o", Filter=condition))
     assert issue.expression is expression
+
+
+def test_hint_column_does_not_trust_text_casts_by_default() -> None:
+    assert hint_column("((o.name)::text = $1)", "o") is None
 
 
 # ------------------------------------------------------- quoting and labels
@@ -610,7 +646,9 @@ class FakeCursor:
                 raise exc
 
     def fetchall(self) -> list[tuple[str, str, str]]:
-        return self.conn.leading_rows
+        if "pg_index" in self.conn.log[-1]:
+            return self.conn.leading_rows
+        return self.conn.varchar_rows
 
     def fetchone(self) -> tuple[Any, ...]:
         if self.conn.log[-1].startswith("SELECT set_config"):
@@ -628,6 +666,7 @@ class FakeConnection:
         self.result = result
         self.current_schema: str | None = "public"
         self.leading_rows: list[tuple[str, str, str]] = []
+        self.varchar_rows: list[tuple[str, str, str]] = []
         self.log: list[str] = []
         self.fail: dict[str, Exception] = {}
         self.closed_cursors = 0
@@ -963,7 +1002,7 @@ def test_run_explain_looks_up_leading_columns_inside_the_savepoint() -> None:
     plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
     conn = FakeConnection(result=plan)
     conn.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
-    outcome = run_explain(conn, "SELECT 1", leading=True)
+    outcome = run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
     assert isinstance(outcome, Explained)
     assert outcome.leading == LEADING
     [lookup] = [sql for sql in conn.log if "pg_index" in sql]
@@ -977,7 +1016,7 @@ def test_run_explain_quotes_names_in_the_lookup() -> None:
     node = _composite("Index Scan", "(orders.status = $1)")
     node["Index Name"] = "it's"
     conn = FakeConnection(result=[{"Plan": node}])
-    run_explain(conn, "SELECT 1", leading=True)
+    run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
     [lookup] = [sql for sql in conn.log if "pg_index" in sql]
     assert "('public', 'it''s')" in lookup
 
@@ -987,7 +1026,7 @@ def test_run_explain_skips_names_it_cannot_quote(name: str) -> None:
     node = _composite("Index Scan", "(orders.status = $1)")
     node["Index Name"] = name
     conn = FakeConnection(result=[{"Plan": node}])
-    outcome = run_explain(conn, "SELECT 1", leading=True)
+    outcome = run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
     assert isinstance(outcome, Explained)
     assert outcome.leading == {}
     assert not [sql for sql in conn.log if "pg_index" in sql]
@@ -995,18 +1034,65 @@ def test_run_explain_skips_names_it_cannot_quote(name: str) -> None:
 
 def test_run_explain_without_index_conditions_skips_the_lookup() -> None:
     conn = FakeConnection(result=SEQ_PLAN)
-    run_explain(conn, "SELECT 1", leading=True)
+    run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
     assert not [sql for sql in conn.log if "pg_index" in sql]
 
 
 def test_run_explain_keeps_the_plan_when_the_lookup_fails() -> None:
-    plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
+    plan = [{"Plan": _composite("Index Scan", "((orders.status)::text = $1)")}]
     conn = FakeConnection(result=plan)
     conn.fail["SELECT n.nspname"] = RuntimeError("no pg_index today")
+    outcome = run_explain(conn, "SELECT 1", leading=True, catalog=Catalog())
+    assert isinstance(outcome, Explained)
+    assert (outcome.leading, outcome.varchar) == ({}, {})
+    # the aborted lookup is not followed by the varchar one
+    assert len([sql for sql in conn.log if sql.startswith("SELECT n.nspname")]) == 1
+    assert conn.log[-2] == "ROLLBACK TO SAVEPOINT queryguard_explain"
+
+
+def test_run_explain_looks_up_varchar_columns_of_text_casts() -> None:
+    plan = [{"Plan": _seq(Filter="((orders.status)::text = $1)")}]
+    conn = FakeConnection(result=plan)
+    conn.varchar_rows = [("public", "orders", "status"), ("public", "orders", "name")]
+    catalog = Catalog()
+    outcome = run_explain(conn, "SELECT 1", catalog=catalog)
+    assert isinstance(outcome, Explained)
+    assert outcome.varchar == VARCHAR
+    [lookup] = [sql for sql in conn.log if "pg_attribute" in sql and "typname" in sql]
+    assert "('public', 'orders')" in lookup
+    assert "t.typname = 'varchar'" in lookup
+    # known tables are not looked up again
+    run_explain(conn, "SELECT 1", catalog=catalog)
+    assert len([sql for sql in conn.log if "typname" in sql]) == 1
+
+
+def test_run_explain_skips_the_varchar_lookup_without_text_casts() -> None:
+    conn = FakeConnection(result=SEQ_PLAN)
+    run_explain(conn, "SELECT 1", catalog=Catalog())
+    assert not [sql for sql in conn.log if "typname" in sql]
+
+
+def test_run_explain_without_a_catalog_looks_nothing_up() -> None:
+    plan = [{"Plan": _composite("Index Scan", "((orders.status)::text = $1)")}]
+    conn = FakeConnection(result=plan)
     outcome = run_explain(conn, "SELECT 1", leading=True)
     assert isinstance(outcome, Explained)
-    assert outcome.leading == {}
-    assert conn.log[-2] == "ROLLBACK TO SAVEPOINT queryguard_explain"
+    assert not [sql for sql in conn.log if sql.startswith("SELECT n.nspname")]
+
+
+@pytest.mark.parametrize(
+    ("rows", "column"), [([("public", "orders", "status")], "status"), ([], None)]
+)
+def test_check_gives_the_text_cast_hint_for_varchar_only(
+    rows: list[tuple[str, str, str]], column: str | None
+) -> None:
+    plan = [{"Plan": _seq(Filter="((orders.status)::text = $1)")}]
+    conn = FakeSAConnection(FakeDialect(), result=plan)
+    conn.raw.varchar_rows = rows
+    target = _collector()
+    check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
+    [scan] = target.scans
+    assert scan.issue.column == column
 
 
 @pytest.mark.parametrize(
@@ -1046,8 +1132,8 @@ def test_check_looks_up_each_index_once_per_test() -> None:
 def test_run_explain_skips_the_lookup_for_known_indexes() -> None:
     plan = [{"Plan": _composite("Index Scan", "(orders.status = $1)")}]
     conn = FakeConnection(result=plan)
-    known = {("public", "orders_tenant_id_status_idx"): "tenant_id"}
-    outcome = run_explain(conn, "SELECT 1", leading=True, known=known)
+    catalog = Catalog(leading={("public", "orders_tenant_id_status_idx"): "tenant_id"})
+    outcome = run_explain(conn, "SELECT 1", leading=True, catalog=catalog)
     assert isinstance(outcome, Explained)
     assert outcome.leading == LEADING
     assert not [sql for sql in conn.log if "pg_index" in sql]
@@ -1077,7 +1163,7 @@ def test_check_unescapes_quoted_percent_except_for_pg8000(
 # ------------------------------------------- a broken savepoint stops the check
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def fresh_index_state() -> Iterator[None]:
     old = indexes.swap_stopped(None)
     yield

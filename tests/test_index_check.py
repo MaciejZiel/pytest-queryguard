@@ -1012,3 +1012,59 @@ def test_pg_join_without_a_filter_is_not_reported(
         """,
     )
     project.runpytest("--queryguard-index-check").assert_outcomes(passed=2)
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    ("column", "hint"),
+    [
+        ("label", "  fix: CREATE INDEX ON casts (label)"),
+        (
+            "id",
+            (
+                "  fix: add an index that matches this condition "
+                "(an expression index may be needed)"
+            ),
+        ),
+        (
+            "kind",
+            (
+                "  fix: add an index that matches this condition "
+                "(an expression index may be needed)"
+            ),
+        ),
+        (
+            "code",
+            (
+                "  fix: add an index that matches this condition "
+                "(an expression index may be needed)"
+            ),
+        ),
+    ],
+)
+def test_pg_text_cast_hint_only_for_varchar_columns(
+    project: pytest.Pytester, pg16: Postgres, column: str, hint: str
+) -> None:
+    # PostgreSQL prints (col)::text for every cast to text; only for varchar
+    # does an index on the plain column serve it.
+    _pg_project(project, pg16).makepyfile(
+        test_a=f"""
+        from sqlalchemy import text
+
+
+        def test_cast(session):
+            for sql in [
+                "CREATE TYPE cast_kind AS ENUM ('a', 'b')",
+                "CREATE TABLE casts (id int PRIMARY KEY, label varchar(20), "
+                "kind cast_kind, code char(4))",
+                "INSERT INTO casts SELECT g, 'l' || g, 'a', 'c' FROM "
+                "generate_series(1, 20) g",
+            ]:
+                session.execute(text(sql))
+            sql = "SELECT * FROM casts WHERE {column}::text = :s"
+            session.execute(text(sql), {{"s": "x"}}).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["  casts is read in full: *", "*", "*", hint])

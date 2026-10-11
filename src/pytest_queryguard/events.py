@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,3 +43,13 @@ class ScanEvent:
     issue: ScanIssue
     sql: str
     callsite: CallSite | None
+
+
+@dataclass(slots=True)
+class Catalog:
+    """What the index check read from the system catalogs, per engine and test."""
+
+    # (schema, index) -> first key column of a btree index, or None
+    leading: dict[tuple[str, str], str | None] = field(default_factory=dict)
+    # (schema, table) -> names of its varchar columns
+    varchar: dict[tuple[str, str], frozenset[str]] = field(default_factory=dict)
