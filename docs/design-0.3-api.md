@@ -49,9 +49,10 @@ Exported from `pytest_queryguard`:
 | Name | Kind | Meaning |
 |---|---|---|
 | `record_queries()` | context manager | Records every SQL statement SQLAlchemy sends inside the block, from any thread, and yields a `QueryLog`. |
-| `QueryLog` | class | `queries` is a tuple of `Query`, in the order they ran. `count` is their number. Both are live inside the block and fixed after it. `assert_no_nplusone(relationship_threshold=2, repeat_threshold=5)` raises `NPlusOneDetected` with the plugin's own failure text. |
+| `QueryLog` | class | `queries` is a tuple of `Query`, in the order they ran. `count` is their number. Both are live inside the block and fixed after it. The log is also a sequence (`len()`, iteration, indexing, slicing). It is not constructible by users. `assert_no_nplusone(relationship_threshold=2, repeat_threshold=5)` raises `NPlusOneDetected` with the plugin's own failure text. |
 | `Query` | frozen dataclass | `sql` is the statement text as sent to the driver. `callsite` is a `CallSite`, or `None` when no frame outside libraries was found. `relationship` is `"Order.customer"` when the statement loaded that relationship, lazily or as the extra query of `selectinload`, otherwise `None`. |
 | `CallSite` | frozen dataclass | `filename` (absolute), `lineno`, `function`: the first frame outside SQLAlchemy, pytest, the standard library, `site-packages` and the plugin. |
+| `QueryGuardInternalWarning` | warning | A subclass of `UserWarning`. Issued when a block ends after an internal error, because its log may be incomplete. |
 | `NPlusOneDetected` | exception | A subclass of `AssertionError`, like `QueryBudgetExceeded`. |
 
 ## 4. Decisions
@@ -79,6 +80,15 @@ Exported from `pytest_queryguard`:
   raise `ValueError`, as an invalid `max_queries` limit does.
 - **The helper ignores `queryguard_mode` and `allow_nplusone`.** Calling
   it is an explicit request, like a budget.
+- **An internal error is never silent.** The listeners switch themselves
+  off after an internal error, which would leave an empty log. When the
+  block ends and an error is recorded, whether during the block or before it
+  (it had already stopped the recording), `record_queries()` issues
+  `QueryGuardInternalWarning`, and `assert_no_nplusone()` raises
+  `RuntimeError` instead of passing on a possibly empty log. The state is
+  fixed when the block ends. This does not depend on pytest or on the mode.
+- **Paths in messages** are relative to pytest's rootdir inside pytest and to
+  the working directory outside it.
 - **Recording does not change the plugin's own checks.** Measurements
   stack. Every active measurement gets every statement, so the plugin's N+1
   detection, budgets and index check see the same queries with or without

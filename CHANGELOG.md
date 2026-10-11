@@ -15,7 +15,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `count`, and `assert_no_nplusone()`, which applies the N+1 rules to the
   block and raises `NPlusOneDetected`. `Query`, `QueryLog`, `CallSite` and
   `NPlusOneDetected` are exported for type hints. It works in pytest and
-  outside it, and changes nothing else.
+  outside it, and changes nothing else. A `QueryLog` is also a sequence of
+  its queries (`len()`, iteration, indexing and slicing).
+- `QueryGuardInternalWarning` is now documented and exported. A
+  `record_queries()` block that ends after an internal error (including one
+  recorded before the block, which had already stopped the recording) issues
+  it, saying that the log may be incomplete, and
+  `QueryLog.assert_no_nplusone()` raises `RuntimeError` instead of passing
+  on such a log. This also applies outside pytest and with
+  `--queryguard-mode=off`, where the plugin itself reports nothing.
+
+### Changed
+
+- Public API in 0.x, stated precisely: `QueryLog` is not constructible by
+  users (only `record_queries()` creates one; its constructor takes an
+  internal type), and `max_queries()` still yields the internal collector,
+  unchanged from 0.2 and not part of the public API. Use `record_queries()`
+  to read queries.
+- `QueryLog.assert_no_nplusone()` is documented as ignoring the
+  `queryguard_*` ini options: a project with a custom
+  `queryguard_repeat_threshold` passes `repeat_threshold` explicitly.
+- Paths in the `NPlusOneDetected` message are relative to pytest's rootdir,
+  as in the plugin's own failures, instead of the working directory (which is
+  still the base outside pytest).
 
 ## [0.2.0] - 2026-10-11
 
