@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -144,6 +145,30 @@ def test_to_numbered_unterminated_quote_is_copied() -> None:
 )
 def test_is_checked_statement(sql: str, checked: bool) -> None:
     assert is_checked_statement(sql) is checked
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "\n" * 200 + " " * 200,
+        "  \n" * 300,
+        "(" * 300,
+        "/* tag */ " * 200,
+        "-- c\n" * 200,
+        "/* unterminated " + " " * 300,
+    ],
+)
+@pytest.mark.parametrize(("verb", "checked"), [("UPDATE", False), ("SELECT", True)])
+def test_is_checked_statement_is_linear_in_the_prefix(
+    prefix: str, verb: str, checked: bool
+) -> None:
+    # A nested regex quantifier once took 20 s for 28 leading spaces.
+    sql = prefix + verb + " t SET a = 1"
+    expected = checked and not prefix.startswith("/* unterminated")
+    start = time.perf_counter()
+    for _ in range(10):
+        assert is_checked_statement(sql) is expected
+    assert time.perf_counter() - start < 0.05
 
 
 # ------------------------------------------------------------------ find_scans
