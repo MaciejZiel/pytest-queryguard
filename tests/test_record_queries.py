@@ -59,6 +59,16 @@ def test_lazy_loads_carry_the_relationship() -> None:
     assert "customers" in log.queries[1].sql
 
 
+def test_selectinload_queries_carry_the_relationship() -> None:
+    from sqlalchemy.orm import selectinload
+
+    session = make_sync_session()
+    with record_queries() as log:
+        session.query(Order).options(selectinload(Order.customer)).all()
+    assert [query.relationship for query in log.queries] == [None, "Order.customer"]
+    log.assert_no_nplusone()
+
+
 def test_count_is_live_inside_the_block_and_fixed_after_it() -> None:
     engine = create_engine("sqlite://")
     with engine.connect() as conn:

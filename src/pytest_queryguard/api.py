@@ -49,8 +49,9 @@ class Query:
     ``sql`` is the statement text as SQLAlchemy sent it to the driver.
     ``callsite`` is the first stack frame outside SQLAlchemy, pytest, the
     standard library, site-packages and this plugin, or None. When the
-    statement lazy-loaded a relationship, ``relationship`` names it, as in
-    ``"Order.customer"``; otherwise it is None.
+    statement loaded a relationship, lazily or as the extra query of
+    ``selectinload``, ``relationship`` names it, as in ``"Order.customer"``;
+    otherwise it is None.
     """
 
     sql: str
