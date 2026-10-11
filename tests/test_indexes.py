@@ -1265,9 +1265,11 @@ def test_check_unescapes_quoted_percent_except_for_pg8000(
 def fresh_index_state() -> Iterator[None]:
     old = indexes.swap_stopped(None)
     old_catalog = indexes.swap_catalog_error(None)
+    old_plpgsql = indexes.swap_no_plpgsql(False)
     yield
     indexes.swap_stopped(old)
     indexes.swap_catalog_error(old_catalog)
+    indexes.swap_no_plpgsql(old_plpgsql)
 
 
 @pytest.mark.parametrize("step", ["SAVEPOINT", "ROLLBACK TO SAVEPOINT"])
@@ -1483,3 +1485,19 @@ def test_check_explains_statements_from_asyncpg() -> None:
     [scan] = target.scans
     assert scan.issue.column == "customer_id"
     assert target.index_notices == {}
+
+
+def test_check_reports_missing_plpgsql_once_and_keeps_sync_engines() -> None:
+    conn = FakeAsyncSAConnection(SEQ_PLAN)
+    conn.raw.fail["DO "] = RuntimeError('language "plpgsql" does not exist')
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE a = $1", False, [target])
+    check(conn, "SELECT b FROM t WHERE b = $1", False, [target])
+    assert target.explain_errors == []
+    assert list(target.index_notices) == [indexes.NO_PLPGSQL_NOTICE]
+    # the second statement was not sent at all
+    assert len([1 for kind, sql in conn.raw.log if sql.startswith("DO ")]) == 1
+    # a sync connection is still explained
+    sync = FakeSAConnection(FakeDialect(), result=SEQ_PLAN)
+    check(sync, "SELECT a FROM t WHERE a = $1", False, [target])
+    assert any(sql.startswith("EXPLAIN") for sql in sync.raw.log)
