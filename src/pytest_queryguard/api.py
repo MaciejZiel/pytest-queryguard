@@ -191,7 +191,9 @@ def _record() -> Iterator[QueryLog]:
         yield log
     finally:
         pop(collector)
-    error = log._finish(earlier)
+        # However the block ends, the log is fixed. The warning below is for a
+        # normal exit only: it must not replace the exception that ended it.
+        error = log._finish(earlier)
     if error is not None:
         warnings.warn(
             QueryGuardInternalWarning(

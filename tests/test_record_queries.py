@@ -291,6 +291,25 @@ def test_an_error_recorded_before_the_block_also_warns() -> None:
         _record_nothing()
 
 
+def test_a_block_left_by_an_exception_is_finished_and_does_not_warn() -> None:
+    engine = create_engine("sqlite://")
+    with _internal_error_state(), warnings.catch_warnings():
+        warnings.simplefilter("error")  # a warning would replace the ValueError
+        with (
+            pytest.raises(ValueError, match="stop"),
+            engine.connect() as conn,
+            record_queries() as log,
+        ):
+            conn.execute(text("select 1"))
+            listeners.record_error(RuntimeError("boom"))
+            raise ValueError("stop")
+        listeners.swap_error(None)  # the state at the end of the block is kept
+        with pytest.raises(RuntimeError, match="may be incomplete.*boom"):
+            log.assert_no_nplusone()
+        log._collector.statements.append(log._collector.statements[0])
+        assert len(log) == len(list(log)) == 1
+
+
 def test_no_warning_without_an_internal_error() -> None:
     engine = create_engine("sqlite://")
     with warnings.catch_warnings():
