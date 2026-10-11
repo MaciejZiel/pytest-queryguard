@@ -425,7 +425,9 @@ first column of the btree indexes a plan uses and the `varchar` columns of
 tables cast to text are read from the catalog once per engine for the whole
 session. Any statement that may change them, such as `CREATE INDEX`,
 `DROP TABLE` or `ALTER TABLE`, clears that cache, in a test or a fixture,
-and so does the end of a transaction that ran one. With pg8000 against
+and so does the end of a transaction that ran one. A suite that runs
+`create_all` and `drop_all` around every test therefore clears the cache
+every test and gets no speed-up from it. With pg8000 against
 PostgreSQL 17 in a local Docker container, a suite of 100 tests that each
 run the same 10 indexed statements on a session-scoped engine
 ([scripts/bench_index_check.py](https://github.com/MaciejZiel/pytest-queryguard/blob/main/scripts/bench_index_check.py)) took
