@@ -17,21 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transaction that ran one. On 100 tests with 10 indexed statements each
   against PostgreSQL 17, the check went from about 2.3 ms to 1.2 ms per
   statement (#5). The same statement is explained again after such DDL, so
-  a rolled-back index change no longer hides a finding.
+  a rolled-back index change no longer hides a finding. Clearing is safe
+  while a plan is being read, also from another thread or when a
+  connection is garbage collected, and when a two-phase transaction with
+  DDL ends. A statement that cannot be planned is counted once in the
+  "could not be explained" summary even when DDL made the check retry it.
 
 ### Fixed
 
-- The index check no longer loses its catalog lookups for the rest of the
-  session when the cache is cleared while a plan is being read, for example
-  from another thread or when a connection is garbage collected.
 - The index check now judges temporary tables: trailing columns of their
   multicolumn indexes and `varchar` casts were silently skipped, because
   PostgreSQL names the schema `pg_temp` in plans and `pg_temp_<n>` in the
   catalog.
-- A statement that cannot be planned is counted once in the "could not be
-  explained" summary, also when DDL made the check try it again.
-- The catalog cache is also cleared when a two-phase transaction that ran
-  DDL ends.
 - The index check now reports a partial index read in full as a bitmap.
   With an index such as `(id) WHERE deleted_at IS NULL` and
   `WHERE deleted_at IS NULL AND email = ?`, the plan before `ANALYZE` was
