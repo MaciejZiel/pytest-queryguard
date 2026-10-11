@@ -13,16 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--queryguard-index-check` or `queryguard_index_check = true`, each
   distinct `SELECT` in a test body is planned with
   `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` and `enable_seqscan` off,
-  inside a savepoint on the statement's own connection. A plan that still
-  reads a whole table for a filter or a join condition fails the test (or
-  warns, in `warn` mode) with the table, the condition, the SQL, the call
-  site and, when the column is obvious, a `CREATE INDEX` hint.
+  inside a savepoint on the statement's own connection. The test fails (or
+  warns, in `warn` mode) when the plan reads a whole table to apply a
+  filter, walks a whole index for an equality filter, or uses an index
+  condition that leaves out the index's first column (PostgreSQL 16 and
+  17). The message names the table, the condition, the SQL and the call
+  site and, when the column is obvious, gives a `CREATE INDEX` hint.
+- `--no-queryguard-index-check` to turn the check off for one run.
 - `queryguard_index_ignore_tables` ini option and
   `@pytest.mark.allow_missing_index` marker to exclude small lookup tables
   or whole tests from the index check.
 - A session summary for statements the index check could not check:
-  other databases, PostgreSQL before 16, async engines and statements
-  PostgreSQL could not plan.
+  other databases, PostgreSQL before 16, async engines, statements
+  PostgreSQL could not plan, and a check stopped by a broken savepoint.
 - CI job that runs the test suite against PostgreSQL 15, 16 and 17.
 
 ### Changed
