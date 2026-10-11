@@ -587,13 +587,19 @@ def _read_catalog(
 ) -> tuple[dict[tuple[str, str], str], dict[tuple[str, str], frozenset[str]]]:
     """Fill ``catalog`` for this plan; raises on a database error.
 
-    The cache can be cleared at any moment, from another thread or by the
-    garbage collector, so the answer is built from what this call read and
-    from a copy of the entries, never from the live dicts while they change.
+    ``catalogs.clear`` rebinds the cache dicts, and it can run at any moment,
+    from another thread or from the garbage collector. The dicts are taken
+    once, here, and only they are read and written: a clear in the middle
+    leaves them orphaned, so rows read before it are never stored in the new
+    cache. This call still answers from what it read; the next one reads the
+    catalog again. No lock is held, so a clear that runs between this call's
+    reads and its writes is the only case that costs one extra read.
     """
+    leading_cache = catalog.leading
+    varchar_cache = catalog.varchar
     names = index_names(plan) if leading else set()
     known_leading = {
-        name: col for name, col in list(catalog.leading.items()) if name in names
+        name: col for name, col in list(leading_cache.items()) if name in names
     }
     missing = names - known_leading.keys()
     found = {
@@ -603,9 +609,9 @@ def _read_catalog(
     for name in missing:
         known_leading[name] = found.get(name)
         if name[0] != TEMP_SCHEMA:
-            catalog.leading[name] = found.get(name)
+            leading_cache[name] = found.get(name)
     tables = _text_cast_tables(plan)
-    known = {t: v for t in tables if (v := catalog.varchar.get(t)) is not None}
+    known = {t: v for t in tables if (v := varchar_cache.get(t)) is not None}
     missing_tables = tables - known.keys()
     columns: dict[tuple[str, str], set[str]] = {t: set() for t in missing_tables}
     for r in _rows(cursor, _varchar_lookup(missing_tables)):
@@ -613,7 +619,7 @@ def _read_catalog(
     for table, names_ in columns.items():
         known[table] = frozenset(names_)
         if table[0] != TEMP_SCHEMA:
-            catalog.varchar[table] = known[table]
+            varchar_cache[table] = known[table]
     leading_map = {name: col for name, col in known_leading.items() if col is not None}
     return leading_map, known
 

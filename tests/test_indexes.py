@@ -1526,3 +1526,48 @@ def test_clearing_the_cache_while_a_plan_is_read_keeps_the_lookups() -> None:
     finally:
         catalogs.reset()
     assert leading == {("public", "t_idx"): "a", ("public", "u_idx"): "a"}
+
+
+class _ClearsAfterSelect:
+    """Answers the catalog queries, then clears the cache as another thread
+    would when its DDL commits between the SELECT and the write."""
+
+    def __init__(self, leading: list[Any], varchar: list[Any]) -> None:
+        self.leading = leading
+        self.varchar = varchar
+        self.rows: list[Any] = []
+
+    def execute(self, sql: str) -> None:
+        self.rows = self.leading if "pg_index" in sql else self.varchar
+        catalogs.clear()
+
+    def fetchall(self) -> list[Any]:
+        return self.rows
+
+
+@pytest.mark.parametrize("text_cast", [True, False])
+def test_rows_read_before_a_clear_are_not_written_after_it(text_cast: bool) -> None:
+    class Engine:
+        pass
+
+    plan = {
+        "Node Type": "Index Scan",
+        "Schema": "public",
+        "Relation Name": "t",
+        "Index Name": "t_idx",
+        "Index Cond": "(t.b = $1)",
+    }
+    if text_cast:
+        plan["Filter"] = "((t.s)::text = $2)"
+    engine = Engine()  # held: the cache only keeps engines that are alive
+    entry = catalogs.for_engine(engine)
+    cursor = _ClearsAfterSelect([("public", "t_idx", "a")], [("public", "t", "s")])
+    try:
+        leading, varchar = indexes._read_catalog(cursor, plan, entry, True)
+    finally:
+        catalogs.reset()
+    # What was read still answers this call, but none of it is cached.
+    assert leading == {("public", "t_idx"): "a"}
+    assert varchar == ({("public", "t"): frozenset({"s"})} if text_cast else {})
+    assert entry.leading == {}
+    assert entry.varchar == {}
