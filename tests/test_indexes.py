@@ -86,6 +86,19 @@ def test_to_numbered_pyformat_accepts_positional_and_escapes() -> None:
     )
 
 
+@pytest.mark.parametrize("style", ["format", "pyformat"])
+def test_to_numbered_unescapes_percent_in_quotes_for_libpq_drivers(style: str) -> None:
+    # psycopg and psycopg2 replace %% everywhere, also inside quoted text;
+    # pg8000 leaves quoted text alone.
+    sql = "SELECT 'x%%', \"a%%b\" FROM t WHERE a LIKE 'y%%' AND b = %s AND c %% 2 = 0"
+    assert to_numbered(sql, style, unescape_quoted=True) == (
+        "SELECT 'x%', \"a%b\" FROM t WHERE a LIKE 'y%' AND b = $1 AND c % 2 = 0"
+    )
+    assert to_numbered(sql, style) == (
+        "SELECT 'x%%', \"a%%b\" FROM t WHERE a LIKE 'y%%' AND b = $1 AND c % 2 = 0"
+    )
+
+
 def test_to_numbered_numeric_dollar_is_unchanged() -> None:
     sql = "SELECT a FROM t WHERE a = $1::INTEGER"
     assert to_numbered(sql, "numeric_dollar") == sql
@@ -995,3 +1008,24 @@ def test_check_looks_up_leading_columns_before_postgres_18(
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
     assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == lookups
     assert len(target.scans) == lookups
+
+
+# ------------------------------------------------- quoted %% per driver
+
+
+@pytest.mark.parametrize(
+    ("driver", "explained"),
+    [
+        ("pg8000", "SELECT a FROM t WHERE a LIKE 'x%%' AND b = $1"),
+        ("psycopg2", "SELECT a FROM t WHERE a LIKE 'x%' AND b = $1"),
+        ("psycopg", "SELECT a FROM t WHERE a LIKE 'x%' AND b = $1"),
+    ],
+)
+def test_check_unescapes_quoted_percent_except_for_pg8000(
+    driver: str, explained: str
+) -> None:
+    conn = FakeSAConnection(FakeDialect(driver=driver, paramstyle="pyformat"))
+    check(
+        conn, "SELECT a FROM t WHERE a LIKE 'x%%' AND b = %(b)s", False, [_collector()]
+    )
+    assert _explain_sql(conn.raw.log).endswith(explained)

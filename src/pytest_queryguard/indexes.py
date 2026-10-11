@@ -60,8 +60,14 @@ def is_checked_statement(sql: str) -> bool:
     return _CHECKED.match(sql) is not None
 
 
-def to_numbered(sql: str, paramstyle: str) -> str | None:
-    """The statement with $1, $2, ... placeholders, or None for an unknown style."""
+def to_numbered(
+    sql: str, paramstyle: str, *, unescape_quoted: bool = False
+) -> str | None:
+    """The statement with $1, $2, ... placeholders, or None for an unknown style.
+
+    ``unescape_quoted`` turns ``%%`` into ``%`` inside quoted text and
+    comments too, as psycopg and psycopg2 do; pg8000 leaves them alone.
+    """
     if paramstyle == "numeric_dollar":
         return sql
     if paramstyle not in ("format", "pyformat"):
@@ -72,7 +78,8 @@ def to_numbered(sql: str, paramstyle: str) -> str | None:
     def replace(match: re.Match[str]) -> str:
         nonlocal count
         if match["copy"] is not None:
-            return match["copy"]
+            copy = match["copy"]
+            return copy.replace("%%", "%") if unescape_quoted else copy
         if match["percent"] is not None:
             return "%"
         if match["named"] is not None:
@@ -564,7 +571,11 @@ def check(
         return
     for target in fresh:
         target.explained.add(key)
-    numbered = to_numbered(statement, dialect.paramstyle)
+    numbered = to_numbered(
+        statement,
+        dialect.paramstyle,
+        unescape_quoted=getattr(dialect, "driver", None) != "pg8000",
+    )
     assert numbered is not None  # unsupported_reason() checked the paramstyle
     version = getattr(dialect, "server_version_info", None)
     outcome = run_explain(
