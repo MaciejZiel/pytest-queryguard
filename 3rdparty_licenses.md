@@ -10,6 +10,7 @@ Direct dependencies of this repository.
 | https://github.com/omnilib/aiosqlite | aiosqlite | MIT | https://github.com/omnilib/aiosqlite/blob/main/LICENSE |
 | https://github.com/fastapi/fastapi | FastAPI | MIT | https://github.com/fastapi/fastapi/blob/master/LICENSE |
 | https://github.com/encode/httpx | httpx | BSD-3-Clause | https://github.com/encode/httpx/blob/master/LICENSE.md |
+| https://codeberg.org/tlocke/pg8000 | pg8000 | BSD-3-Clause | https://codeberg.org/tlocke/pg8000/src/branch/main/LICENSE |
 | https://github.com/coveragepy/coveragepy | coverage | Apache-2.0 | https://github.com/coveragepy/coveragepy/blob/main/LICENSE.txt |
 | https://github.com/astral-sh/ruff | ruff | MIT | https://github.com/astral-sh/ruff/blob/main/LICENSE |
 | https://github.com/python/mypy | mypy | MIT | https://github.com/python/mypy/blob/master/LICENSE |
