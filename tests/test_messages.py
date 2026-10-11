@@ -107,6 +107,7 @@ def test_index_message_for_a_filter_with_hint() -> None:
         "filter",
         "(orders.customer_id = $1)",
         "customer_id",
+        show_schema=False,
     )
     assert format_index_findings([_scan(issue, sql, site)], cwd=CWD).splitlines() == [
         "queryguard: missing index",
@@ -145,6 +146,7 @@ def test_index_message_names_the_index_and_quotes_the_hint() -> None:
         "filter",
         '("Order"."customerId" = $1)',
         '"customerId"',
+        show_schema=False,
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
     assert lines[2] == (

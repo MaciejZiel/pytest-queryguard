@@ -34,6 +34,7 @@ class ScanIssue:
     kind: str  # "filter" or "join"
     condition: str
     column: str | None  # the column for a CREATE INDEX hint, when obvious
+    show_schema: bool = True  # False when the table is in the current schema
 
 
 @dataclass(frozen=True, slots=True)

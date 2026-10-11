@@ -8,6 +8,7 @@ import pytest
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.events import ScanEvent, ScanIssue
 from pytest_queryguard.indexes import (
+    Explained,
     ExplainError,
     check,
     find_scans,
@@ -143,6 +144,7 @@ def test_seq_scan_with_filter_is_reported() -> None:
         kind="filter",
         condition="(orders.customer_id = $1)",
         column="customer_id",
+        show_schema=False,
     )
 
 
@@ -429,10 +431,26 @@ def test_quote_ident(name: str, quoted: str) -> None:
     assert quote_ident(name) == quoted
 
 
-def test_table_label_hides_public_only() -> None:
-    assert table_label("public", "orders") == "orders"
-    assert table_label(None, "orders") == "orders"
-    assert table_label("sales", "Orders") == 'sales."Orders"'
+def _label_of(schema: str | None, table: str, current: str | None) -> str:
+    node = {
+        "Node Type": "Seq Scan",
+        "Relation Name": table,
+        "Alias": table,
+        "Filter": "(x = $1)",
+    }
+    if schema is not None:
+        node["Schema"] = schema
+    [issue] = find_scans(node, current)
+    return table_label(issue)
+
+
+def test_table_label_hides_the_current_schema() -> None:
+    assert _label_of("public", "orders", None) == "orders"
+    assert _label_of("sales", "orders", None) == "sales.orders"
+    assert _label_of("sales", "orders", "sales") == "orders"
+    assert _label_of("public", "orders", "sales") == "public.orders"
+    assert _label_of(None, "orders", "sales") == "orders"
+    assert _label_of("Sales", "Orders", None) == '"Sales"."Orders"'
 
 
 # ---------------------------------------------------------------- run_explain
@@ -451,7 +469,9 @@ class FakeCursor:
             if sql.startswith(prefix):
                 raise exc
 
-    def fetchone(self) -> tuple[Any]:
+    def fetchone(self) -> tuple[Any, ...]:
+        if self.conn.log[-1].startswith("SELECT set_config"):
+            return ("off", "1s", "5s", self.conn.current_schema)
         return (self.conn.result,)
 
     def close(self) -> None:
@@ -463,6 +483,7 @@ class FakeConnection:
     def __init__(self, *, autocommit: bool = False, result: Any = PLAN) -> None:
         self.autocommit = autocommit
         self.result = result
+        self.current_schema: str | None = "public"
         self.log: list[str] = []
         self.fail: dict[str, Exception] = {}
         self.closed_cursors = 0
@@ -478,7 +499,9 @@ def _explain_sql(log: list[str]) -> str:
 
 def test_run_explain_uses_a_savepoint_inside_a_transaction() -> None:
     conn = FakeConnection()
-    assert run_explain(conn, "SELECT 1") == {"Node Type": "Seq Scan"}
+    assert run_explain(conn, "SELECT 1") == Explained(
+        {"Node Type": "Seq Scan"}, "public"
+    )
     assert conn.log[0] == "SAVEPOINT queryguard_explain"
     assert "set_config('enable_seqscan', 'off', true)" in conn.log[1]
     assert _explain_sql(conn.log) == (
@@ -493,14 +516,18 @@ def test_run_explain_uses_a_savepoint_inside_a_transaction() -> None:
 
 def test_run_explain_uses_its_own_transaction_in_autocommit() -> None:
     conn = FakeConnection(autocommit=True)
-    assert run_explain(conn, "SELECT 1") == {"Node Type": "Seq Scan"}
+    assert run_explain(conn, "SELECT 1") == Explained(
+        {"Node Type": "Seq Scan"}, "public"
+    )
     assert conn.log[0] == "BEGIN"
     assert conn.log[-1] == "ROLLBACK"
 
 
 def test_run_explain_accepts_json_as_text() -> None:
     conn = FakeConnection(result=json.dumps(PLAN))
-    assert run_explain(conn, "SELECT 1") == {"Node Type": "Seq Scan"}
+    assert run_explain(conn, "SELECT 1") == Explained(
+        {"Node Type": "Seq Scan"}, "public"
+    )
 
 
 def test_run_explain_rolls_back_when_explain_fails() -> None:
@@ -746,3 +773,14 @@ def test_select_findings_drops_ignored_tables(pattern: str) -> None:
 def test_ignore_patterns_are_case_sensitive() -> None:
     event = _event("Countries", '("Countries".code = $1)')
     assert select_findings([event], ["countries"]) == [event]
+
+
+def test_run_explain_reads_the_current_schema() -> None:
+    conn = FakeConnection()
+    conn.current_schema = "sales"
+    assert run_explain(conn, "SELECT 1") == Explained(
+        {"Node Type": "Seq Scan"}, "sales"
+    )
+    conn.current_schema = None
+    assert run_explain(conn, "SELECT 1") == Explained({"Node Type": "Seq Scan"}, None)
+    assert "current_schema()" in conn.log[1]

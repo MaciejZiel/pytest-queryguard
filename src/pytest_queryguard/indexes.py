@@ -22,7 +22,8 @@ _SAVEPOINT = "queryguard_explain"
 _SETTINGS = (
     "SELECT set_config('enable_seqscan', 'off', true), "
     "set_config('lock_timeout', '1s', true), "
-    "set_config('statement_timeout', '5s', true)"
+    "set_config('statement_timeout', '5s', true), "
+    "current_schema()"
 )
 _EXPLAIN = "EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON) "
 
@@ -90,26 +91,34 @@ _INDEX_SCANS = ("Index Scan", "Index Only Scan")
 _SUBPLANS = ("SubPlan", "InitPlan")
 
 
-def find_scans(plan: Mapping[str, Any]) -> list[ScanIssue]:
-    """Plan nodes that read a whole table although the statement narrows it."""
+def find_scans(
+    plan: Mapping[str, Any], current_schema: str | None = None
+) -> list[ScanIssue]:
+    """Plan nodes that read a whole table although the statement narrows it.
+
+    Tables in ``current_schema`` (``public`` when unknown) are named without
+    their schema, so the fix hint works as written on that connection.
+    """
     found: list[ScanIssue] = []
-    _walk(plan, (), found)
+    _walk(plan, (), current_schema or "public", found)
     return found
 
 
-def _walk(node: object, joins: tuple[str, ...], found: list[ScanIssue]) -> None:
+def _walk(
+    node: object, joins: tuple[str, ...], current: str, found: list[ScanIssue]
+) -> None:
     if not isinstance(node, Mapping):
         return
     if node.get("Parent Relationship") in _SUBPLANS:
         joins = ()  # a subquery is planned on its own; outer joins do not apply
-    issue = _issue(node, joins)
+    issue = _issue(node, joins, current)
     if issue is not None:
         found.append(issue)
     own = tuple(c for c in (node.get(k) for k in _JOIN_KEYS) if isinstance(c, str))
     children = node.get("Plans")
     if isinstance(children, list):
         for child in children:
-            _walk(child, own + joins, found)
+            _walk(child, own + joins, current, found)
 
 
 def _text(node: Mapping[str, Any], key: str) -> str | None:
@@ -117,7 +126,9 @@ def _text(node: Mapping[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _issue(node: Mapping[str, Any], joins: tuple[str, ...]) -> ScanIssue | None:
+def _issue(
+    node: Mapping[str, Any], joins: tuple[str, ...], current: str
+) -> ScanIssue | None:
     table = _text(node, "Relation Name")
     schema = _text(node, "Schema")
     if table is None or schema in _SYSTEM_SCHEMAS:
@@ -125,26 +136,30 @@ def _issue(node: Mapping[str, Any], joins: tuple[str, ...]) -> ScanIssue | None:
     alias = _text(node, "Alias") or table
     node_type = node.get("Node Type")
     condition = _text(node, "Filter")
+    kind = "filter"
     if node_type == "Seq Scan":
-        if condition is not None:
-            return _make(schema, table, "Seq Scan", "filter", condition, alias)
-        for join in joins:
-            if _column_refs(_strip_literals(join), alias):
-                return _make(schema, table, "Seq Scan", "join", join, alias)
-        return None
-    if node_type in _INDEX_SCANS and condition and not node.get("Index Cond"):
+        if condition is None:
+            kind = "join"
+            condition = next(
+                (j for j in joins if _column_refs(_strip_literals(j), alias)), None
+            )
+            if condition is None:
+                return None
+        label = "Seq Scan"
+    elif node_type in _INDEX_SCANS and condition and not node.get("Index Cond"):
         # A whole index walked only to avoid the disabled sequential scan.
         index = _text(node, "Index Name")
         label = f"{node_type} using {index}" if index else str(node_type)
-        return _make(schema, table, label, "filter", condition, alias)
-    return None
-
-
-def _make(
-    schema: str | None, table: str, node: str, kind: str, condition: str, alias: str
-) -> ScanIssue:
+    else:
+        return None
     return ScanIssue(
-        schema, table, node, kind, condition, hint_column(condition, alias)
+        schema,
+        table,
+        label,
+        kind,
+        condition,
+        hint_column(condition, alias),
+        show_schema=schema not in (None, current),
     )
 
 
@@ -228,10 +243,11 @@ def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def table_label(schema: str | None, table: str) -> str:
-    if schema in (None, "public"):
-        return quote_ident(table)
-    return f"{quote_ident(schema)}.{quote_ident(table)}"
+def table_label(issue: ScanIssue) -> str:
+    """The table as the fix hint should name it."""
+    if issue.schema is None or not issue.show_schema:
+        return quote_ident(issue.table)
+    return f"{quote_ident(issue.schema)}.{quote_ident(issue.table)}"
 
 
 def is_ignored(issue: ScanIssue, patterns: Iterable[str]) -> bool:
@@ -274,6 +290,12 @@ def _error_message(exc: Exception) -> str:
     return lines[0] if lines else type(exc).__name__
 
 
+@dataclass(frozen=True, slots=True)
+class Explained:
+    plan: Mapping[str, Any]
+    current_schema: str | None
+
+
 def _read_plan(value: object) -> Mapping[str, Any] | None:
     if isinstance(value, (str, bytes)):
         try:
@@ -287,7 +309,7 @@ def _read_plan(value: object) -> Mapping[str, Any] | None:
     return None
 
 
-def run_explain(dbapi_connection: Any, sql: str) -> Mapping[str, Any] | ExplainError:
+def run_explain(dbapi_connection: Any, sql: str) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
     Database errors from EXPLAIN come back as ExplainError. An error while
@@ -307,9 +329,11 @@ def run_explain(dbapi_connection: Any, sql: str) -> Mapping[str, Any] | ExplainE
         for sql_text in start:
             cursor.execute(sql_text)
         row: Any = None
+        settings: Any = None
         error: ExplainError | None = None
         try:
             cursor.execute(_SETTINGS)
+            settings = cursor.fetchone()
             cursor.execute(_EXPLAIN + sql)
             row = cursor.fetchone()
         except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
@@ -323,7 +347,8 @@ def run_explain(dbapi_connection: Any, sql: str) -> Mapping[str, Any] | ExplainE
     plan = _read_plan(row[0] if row else None)
     if plan is None:
         return ExplainError(f"unexpected EXPLAIN output: {row!r:.100}")
-    return plan
+    schema = settings[-1] if settings else None
+    return Explained(plan, schema if isinstance(schema, str) else None)
 
 
 # ---------------------------------------------------------------- listener
@@ -384,7 +409,7 @@ def check(
         for target in fresh:
             target.explain_errors.append((outcome.message, statement))
         return
-    issues = find_scans(outcome)
+    issues = find_scans(outcome.plan, outcome.current_schema)
     if not issues:
         return
     site = find_callsite()
