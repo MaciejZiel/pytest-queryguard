@@ -131,8 +131,8 @@ lookups, error handling, the plan rules, the fix hint and the messages.
 - Only asyncpg is supported among async drivers. Other async drivers keep
   a notice that names the driver.
 - The asyncpg path is chosen from the dialect (`is_async` and driver
-  `asyncpg`), not from the connection object. A dialect whose DB-API
-  connection has no `run_async()` is skipped with a notice.
+  `asyncpg`). SQLAlchemy 2.0, the oldest supported version, has
+  `run_async()` on every adapted async connection.
 - The setting name `queryguard.plan` is a custom placeholder setting. The
   rollback to the savepoint resets its value. PostgreSQL keeps knowing
   the placeholder for the rest of the connection: `current_setting(
