@@ -3,7 +3,8 @@
 [![CI](https://github.com/MaciejZiel/pytest-queryguard/actions/workflows/ci.yml/badge.svg)](https://github.com/MaciejZiel/pytest-queryguard/actions/workflows/ci.yml)
 
 A pytest plugin that fails tests with N+1 queries and enforces query budgets
-for SQLAlchemy 2, in sync, async and FastAPI code.
+for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer
+it can also fail tests whose queries have no index to use.
 
 ## Why
 
@@ -296,6 +297,122 @@ def test_orders_endpoint(client):
 that ran the most queries, failing tests included. See the output in
 [Before and after](#before-and-after).
 
+### Missing indexes (PostgreSQL 16 and newer)
+
+A test database holds a few rows, so a query that reads the whole table is
+as fast in CI as one that uses an index. The missing index shows up in
+production, once the table has grown. With the index check on, every
+`SELECT` in a test body is planned again by PostgreSQL with sequential scans
+switched off. If the plan still reads a whole table to apply a filter or a
+join condition, no index can serve that query, however small the table, and
+the test fails.
+
+The check is off by default. Turn it on for a run:
+
+```bash
+pytest --queryguard-index-check
+```
+
+or for the project, with `queryguard_index_check = true` (see
+[Configuration](#configuration)).
+
+The example below uses a real PostgreSQL 17 server through pg8000. All
+output is copied from a run with Python 3.13, SQLAlchemy 2.1 and pytest 9.1.
+
+`app/models.py`:
+
+```python
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"))
+```
+
+`app/orders.py`:
+
+```python
+def orders_of(session: Session, customer_id: int) -> Sequence[Order]:
+    stmt = select(Order).where(Order.customer_id == customer_id)
+    return session.scalars(stmt).all()
+```
+
+`tests/test_orders.py` (the `session` fixture creates the tables in
+PostgreSQL and adds 6 orders):
+
+```python
+def test_orders_of(session):
+    assert len(orders_of(session, 1)) == 3
+```
+
+`pytest --queryguard-index-check`:
+
+```
+tests/test_orders.py F                                                   [100%]
+
+=================================== FAILURES ===================================
+________________________________ test_orders_of ________________________________
+queryguard: missing index
+
+  orders is read in full: Seq Scan with filter (orders.customer_id = $1)
+  first at app/orders.py:11 in orders_of
+  sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = %s::INTEGER
+  fix: CREATE INDEX ON orders (customer_id)
+
+  a sequential scan is fine on a small lookup table:
+  list it in queryguard_index_ignore_tables
+=========================== short test summary info ============================
+FAILED tests/test_orders.py::test_orders_of - Failed: queryguard: missing index
+============================== 1 failed in 0.27s ===============================
+```
+
+With `mapped_column(ForeignKey("customer.id"), index=True)` the same test
+passes:
+
+```
+tests/test_orders.py .                                                   [100%]
+
+============================== 1 passed in 0.17s ===============================
+```
+
+What is reported:
+
+- a sequential scan with a filter (`WHERE` has no index);
+- a scan of a whole index with a filter but no index condition, which the
+  planner picks for `ORDER BY id LIMIT n` to avoid the sequential scan;
+- a sequential scan, without a filter, below a join on one of the table's
+  columns (the join column has no index).
+
+A sequential scan with no filter and no join, such as `SELECT * FROM t` or
+`SELECT count(*) FROM t`, is not reported: it reads the whole table because
+the statement asks for it. Neither are scans of PostgreSQL's own catalogs.
+The `fix:` line names a column only when the condition compares one plain
+column; otherwise it says to add an index that matches the condition.
+
+Each distinct statement is explained once per test, inside a savepoint on
+the connection that ran it, so the check sees tables and rows the test has
+not committed yet and leaves the test's transaction as it was. Statements
+from fixtures are not checked, like for N+1 detection.
+
+A sequential scan is the right plan for a small lookup table, also in
+production. Exclude such tables with `queryguard_index_ignore_tables`, one
+test with `@pytest.mark.allow_missing_index`, or only some tables in one
+test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
+Findings follow `queryguard_mode`: `warn` turns them into warnings and
+`off` turns the check off. `allow_nplusone` does not affect the index check.
+
+Statements that cannot be checked do not fail the test. They are summed up
+once at the end of the session, for example with SQLite:
+
+```
+============================ queryguard index check ============================
+sqlite statements were not checked: the index check needs PostgreSQL 16 or newer
+```
+
+The same summary names a PostgreSQL server older than 16, async engines,
+and the number of statements PostgreSQL could not plan, with the first
+error and its SQL.
+
 ## Configuration
 
 | Option | Values | Default | Meaning |
@@ -303,6 +420,8 @@ that ran the most queries, failing tests included. See the output in
 | `queryguard_mode` | `fail`, `warn`, `off` | `fail` | `fail` fails a test with N+1. `warn` reports it as a `QueryGuardWarning` and lets the test pass. `off` turns detection off; tests without a budget are not measured. |
 | `queryguard_relationship_threshold` | integer ≥ 2 | `2` | Number of different parent objects for which one relationship must be lazy-loaded to count as N+1. |
 | `queryguard_repeat_threshold` | integer ≥ 2 | `5` | Number of times one normalized `SELECT` must run to count as N+1. |
+| `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer). |
+| `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |
 
 Any invalid value stops pytest with a usage error.
 
@@ -313,6 +432,8 @@ In `pyproject.toml`:
 queryguard_mode = "warn"
 queryguard_relationship_threshold = 3
 queryguard_repeat_threshold = 10
+queryguard_index_check = true
+queryguard_index_ignore_tables = ["countries", "lookup_*"]
 ```
 
 With pytest 9 you can use the native TOML table instead:
@@ -322,6 +443,8 @@ With pytest 9 you can use the native TOML table instead:
 queryguard_mode = "warn"
 queryguard_relationship_threshold = 3
 queryguard_repeat_threshold = 10
+queryguard_index_check = true
+queryguard_index_ignore_tables = ["countries", "lookup_*"]
 ```
 
 `pytest.ini` and `setup.cfg` work as usual.
@@ -343,6 +466,7 @@ Command-line options:
 |---|---|
 | `--queryguard-mode=fail\|warn\|off` | Overrides `queryguard_mode` for this run. |
 | `--queryguard-report` | Prints the 10 tests with the most queries at the end of the session. |
+| `--queryguard-index-check` | Turns the missing-index check on for this run. |
 
 ## How it works
 
@@ -357,9 +481,16 @@ Command-line options:
    pytest, the standard library, `site-packages` and the plugin itself. For
    async sessions the search continues in the parent greenlets, where the
    awaiting code runs.
-4. After the test, the recorded events are checked against the budget and
-   the two N+1 rules. A bug inside the plugin disables it with one warning;
-   it never fails your tests.
+4. With the index check on, an `after_cursor_execute` listener runs, on the
+   same connection and inside a savepoint, `SET LOCAL enable_seqscan = off`
+   (through `set_config`) and
+   `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` for each new `SELECT`, with
+   the driver's placeholders rewritten to `$1`, `$2`, ..., then rolls back to
+   the savepoint. The SQL goes through a raw DB-API cursor, so SQLAlchemy
+   events, budgets and your own listeners do not see it.
+5. After the test, the recorded events are checked against the budget, the
+   two N+1 rules and the scans found by the index check. A bug inside the
+   plugin disables it with one warning; it never fails your tests.
 
 ## Limitations
 
@@ -383,6 +514,23 @@ Command-line options:
 - `INSERT`, `UPDATE` and `DELETE` are never reported as N+1. At cursor level
   a unit-of-work flush cannot be told apart from an application write, so
   all writes are left out. Use a budget to catch write loops.
+- The index check needs PostgreSQL 16 or newer and a sync engine. Async
+  engines (asyncpg, psycopg's async mode) prepare every statement, and
+  PostgreSQL rejects `EXPLAIN (GENERIC_PLAN)` with `$1` placeholders sent
+  that way, so their statements are skipped with a notice. It is tested
+  with pg8000. psycopg2 and psycopg use the placeholder style the check
+  rewrites and send a statement without parameters as plain text, so they
+  should work, but they are not tested: both are LGPL-licensed and are not
+  used in this project.
+- The index check looks only at `SELECT` and `WITH` statements and judges
+  plans, not data: it says that no index can serve a condition, not that an
+  existing index is a good one. A join is reported only when the plan puts
+  the unindexed table below a hash, merge or nested-loop join that names
+  its column; a nested loop that reads that table in full as its outer side
+  is not reported.
+- The index check's session summary is printed by the process that runs the
+  tests, so under pytest-xdist it is not shown. Findings in tests are
+  reported as usual.
 
 ## Comparison with nplusone
 
@@ -395,9 +543,9 @@ which nplusone does.
 
 ## Roadmap
 
-- 0.2: missing index detection on PostgreSQL 16 and newer, by running each
-  statement through `EXPLAIN (GENERIC_PLAN)` with `enable_seqscan=off`.
-- Later: Django ORM support.
+- 0.2 (unreleased): missing index detection on PostgreSQL 16 and newer, see
+  [Missing indexes](#missing-indexes-postgresql-16-and-newer).
+- Later: the index check for async engines, Django ORM support.
 
 ## Development
 
@@ -410,6 +558,15 @@ uv run coverage report
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
+```
+
+The PostgreSQL tests run when `QUERYGUARD_PG_URL` points to a server, and
+are skipped otherwise:
+
+```bash
+docker run -d --rm --name qg-postgres -p 55432:5432 -e POSTGRES_PASSWORD=pg postgres:17
+QUERYGUARD_PG_URL=postgresql+pg8000://postgres:pg@localhost:55432/postgres uv run pytest
+docker stop qg-postgres
 ```
 
 Coverage is measured with `coverage run` rather than `pytest --cov`, because
