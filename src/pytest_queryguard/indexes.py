@@ -18,6 +18,7 @@ from .detectors import collapse_lists
 from .events import Catalog, ScanEvent, ScanIssue
 
 MIN_SERVER_VERSION = 16
+ASYNCPG = "asyncpg"  # the one async driver the check supports
 _SAVEPOINT = "queryguard_explain"
 _SETTINGS = (
     "SELECT set_config('enable_seqscan', 'off', true), "
@@ -626,12 +627,76 @@ def _read_plan(value: object) -> Mapping[str, Any] | None:
     return None
 
 
+# asyncpg prepares every statement it fetches rows for, and PostgreSQL then
+# takes the $n inside EXPLAIN as parameters of the EXPLAIN. PL/pgSQL's
+# EXECUTE parses its string like the simple query protocol, so a DO block
+# (no parameters, sent with asyncpg's simple-protocol execute()) runs the
+# EXPLAIN and keeps the plan in a setting local to the savepoint.
+_PLAN_SETTING = "queryguard.plan"
+_READ_PLAN = f"SELECT current_setting('{_PLAN_SETTING}')"
+
+
+def _free_tag(name: str, text: str) -> str:
+    """A dollar-quote tag that first occurs in ``text + tag`` at its end."""
+    tag, number = f"${name}$", 0
+    while (text + tag).find(tag) != len(text):
+        number += 1
+        tag = f"${name}_{number}$"
+    return tag
+
+
+def explain_block(sql: str) -> str:
+    """A DO block that explains ``sql`` into the queryguard.plan setting."""
+    explain = _EXPLAIN + sql
+    sql_tag = _free_tag("qg_sql", explain)
+    body = (
+        "DECLARE queryguard_plan text; BEGIN "
+        f"EXECUTE {sql_tag}{explain}{sql_tag} INTO queryguard_plan; "
+        f"PERFORM set_config('{_PLAN_SETTING}', queryguard_plan, true); END"
+    )
+    do_tag = _free_tag("qg_do", body)
+    return f"DO {do_tag}{body}{do_tag}"
+
+
+class _AsyncpgCursor:
+    """The DB-API cursor calls run_explain() makes, on a raw asyncpg connection.
+
+    ``adapted`` is SQLAlchemy's adapted connection; its public run_async()
+    awaits a call on the raw asyncpg connection from this sync listener.
+    Statements are sent without parameters: SELECTs with fetch(), anything
+    else with execute(), which uses the simple query protocol and prepares
+    nothing.
+    """
+
+    def __init__(self, adapted: Any) -> None:
+        self._adapted = adapted
+        self._rows: list[tuple[Any, ...]] = []
+
+    def execute(self, sql: str) -> None:
+        if is_checked_statement(sql):
+            rows = self._adapted.run_async(lambda conn: conn.fetch(sql))
+            self._rows = [tuple(row) for row in rows]
+        else:
+            self._adapted.run_async(lambda conn: conn.execute(sql))
+            self._rows = []
+
+    def fetchone(self) -> tuple[Any, ...] | None:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self._rows
+
+    def close(self) -> None:
+        self._rows = []
+
+
 def run_explain(
     dbapi_connection: Any,
     sql: str,
     *,
     leading: bool = False,
     catalog: Catalog | None = None,
+    asyncpg: bool = False,
 ) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
@@ -643,6 +708,8 @@ def run_explain(
     Database errors from EXPLAIN come back as ExplainError. An error while
     opening or rolling back the savepoint raises SavepointError: the
     connection's state is then unknown, and the caller stops checking.
+    With ``asyncpg``, ``dbapi_connection`` is SQLAlchemy's adapted asyncpg
+    connection, and the EXPLAIN runs inside a DO block (see explain_block()).
     """
     if getattr(dbapi_connection, "autocommit", False):
         start, undo = ["BEGIN"], ["ROLLBACK"]
@@ -652,7 +719,7 @@ def run_explain(
             f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}",
             f"RELEASE SAVEPOINT {_SAVEPOINT}",
         ]
-    cursor = dbapi_connection.cursor()
+    cursor = _AsyncpgCursor(dbapi_connection) if asyncpg else dbapi_connection.cursor()
     try:
         _manage(cursor, start)
         row: Any = None
@@ -664,7 +731,11 @@ def run_explain(
         try:
             cursor.execute(_SETTINGS)
             settings = cursor.fetchone()
-            cursor.execute(_EXPLAIN + sql)
+            if asyncpg:
+                cursor.execute(explain_block(sql))
+                cursor.execute(_READ_PLAN)
+            else:
+                cursor.execute(_EXPLAIN + sql)
             row = cursor.fetchone()
         except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
             error = ExplainError(_error_message(exc))
@@ -732,10 +803,10 @@ def unsupported_reason(dialect: Any) -> str | None:
             f"the index check needs PostgreSQL {MIN_SERVER_VERSION} or newer"
         )
     driver = getattr(dialect, "driver", "?")
-    if getattr(dialect, "is_async", False):
+    if getattr(dialect, "is_async", False) and driver != ASYNCPG:
         return (
             f"statements from the async driver {driver} were not checked: "
-            "the index check supports sync engines only"
+            "the index check supports asyncpg and sync drivers only"
         )
     version = getattr(dialect, "server_version_info", None)
     if version and isinstance(version[0], int) and version[0] < MIN_SERVER_VERSION:
@@ -794,6 +865,7 @@ def check(
             numbered,
             leading=not version or version[0] < SKIP_SCAN_VERSION,
             catalog=catalog,
+            asyncpg=getattr(dialect, "is_async", False),
         )
     except SavepointError as exc:
         # The test's transaction may be broken now; N+1 detection and budgets
