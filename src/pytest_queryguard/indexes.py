@@ -29,7 +29,11 @@ _EXPLAIN = "EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON) "
 
 # ------------------------------------------------------------ statement text
 
-_CHECKED = re.compile(r"[\s(]*(?:SELECT|WITH)\b", re.IGNORECASE)
+# Leading whitespace, parentheses and comments (sqlcommenter tags), then the verb.
+_CHECKED = re.compile(
+    r"(?:\s+|\(|--[^\n]*(?:\n|\Z)|/\*.*?\*/)*(?:SELECT|WITH)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 # Tokens that are copied unchanged, then the placeholders that are rewritten.
 _TOKEN = re.compile(

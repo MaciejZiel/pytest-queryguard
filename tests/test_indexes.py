@@ -116,6 +116,14 @@ def test_to_numbered_unterminated_quote_is_copied() -> None:
         ("SHOW search_path", False),
         ("SELECTED", False),
         ("", False),
+        # sqlcommenter-style tags and other leading comments
+        ("-- c\nSELECT 1", True),
+        ("/* app=x */ SELECT 1", True),
+        ("/* a */ -- b\n /* c\n d */ (WITH x AS (SELECT 1) SELECT 1)", True),
+        ("-- SELECT\nUPDATE t SET a = 1", False),
+        ("/* SELECT */ DELETE FROM t", False),
+        ("-- only a comment", False),
+        ("/* unterminated SELECT", False),
     ],
 )
 def test_is_checked_statement(sql: str, checked: bool) -> None:

@@ -885,6 +885,27 @@ def test_pg_cast_column_gets_no_create_index_hint(
 
 @needs_pg
 @pytest.mark.parametrize(
+    "prefix", ["/* app=shop,route=/orders */ ", "-- tagged\\n", "/* a */ -- b\\n"]
+)
+def test_pg_statements_after_comments_are_checked(
+    project: pytest.Pytester, pg16: Postgres, prefix: str
+) -> None:
+    _items_project(
+        project,
+        pg16,
+        f"""
+        def test_tagged(db):
+            sql = "{prefix}SELECT * FROM items WHERE owner_id = :o"
+            db.execute(text(sql), {{"o": 1}}).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    result.stdout.fnmatch_lines(["  fix: CREATE INDEX ON items (owner_id)"])
+
+
+@needs_pg
+@pytest.mark.parametrize(
     "sql",
     [
         # a correlated scalar subquery: the sub-plan scans with a filter
