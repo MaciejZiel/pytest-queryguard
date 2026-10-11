@@ -1350,11 +1350,21 @@ def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
             # events_ab is (b, a) again
             sql = "SELECT id, b FROM events WHERE a = :v"
             session.execute(text(sql), {"v": 1}).all()  # QG_LINE
+
+
+        def test_same_statement_after_rollback(session):
+            sql = "SELECT id, a FROM events WHERE a = :v"
+            session.execute(text("DROP INDEX events_ab"))
+            session.execute(text("CREATE INDEX events_ab ON events (a, b)"))
+            session.execute(text(sql), {"v": 1}).all()
+            session.rollback()
+            # events_ab is (b, a) again and the very same statement runs again
+            session.execute(text(sql), {"v": 1}).all()
         """
     )
     path = project.path / "test_a.py"
     result = project.runpytest("--queryguard-index-check")
-    result.assert_outcomes(passed=1, failed=2)
+    result.assert_outcomes(passed=1, failed=3)
     result.stdout.fnmatch_lines(
         [
             "*_ test_redefined_in_a_fixture _*",
@@ -1368,6 +1378,11 @@ def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
                 "with index condition (events.a = $1)"
             ),
             f"  first at test_a.py:{_line(path)} in test_redefinition_rolled_back",
+            "*_ test_same_statement_after_rollback _*",
+            (
+                "  events is read in full: *Index * using events_ab "
+                "with index condition (events.a = $1)"
+            ),
         ]
     )
 
