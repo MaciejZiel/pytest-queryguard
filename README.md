@@ -642,7 +642,8 @@ uv run mypy src
 ```
 
 The PostgreSQL tests run when `QUERYGUARD_PG_URL` points to a server, and
-are skipped otherwise:
+are skipped otherwise. The async tests reach the same server through
+asyncpg:
 
 ```bash
 docker run -d --rm --name qg-postgres -p 55432:5432 -e POSTGRES_PASSWORD=pg postgres:17
