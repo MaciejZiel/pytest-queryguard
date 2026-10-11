@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The missing-index check now covers async engines on asyncpg. asyncpg
+  prepares statements, and PostgreSQL would take the `$n` inside `EXPLAIN`
+  as the `EXPLAIN`'s own parameters. So on asyncpg the `EXPLAIN` runs in a
+  PL/pgSQL `DO` block on the test's own connection and savepoint, and the
+  plan comes back through a transaction-local setting. Findings, notices
+  and guarantees are those of sync engines. Other async drivers are still
+  skipped with a notice. See `docs/design-0.3.md`.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added

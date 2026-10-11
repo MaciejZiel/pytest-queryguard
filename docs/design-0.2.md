@@ -110,6 +110,10 @@ mode) prepare every statement over the extended protocol, which rejects
 `$n` inside `EXPLAIN` (section 4.2). Statements from an async engine are
 skipped with one notice per session.
 
+Since 0.3, asyncpg engines are checked through a PL/pgSQL `DO` block on
+the same connection; see [design-0.3.md](design-0.3.md). Other async
+drivers keep the notice.
+
 ### 4.4 Which plans are reported
 
 The plan tree is walked. A node is reported when it reads a whole table, or
@@ -200,7 +204,7 @@ returns, so the hint works as written on that connection.
 |---|---|
 | Engine is not PostgreSQL | Skipped; one line in the session summary |
 | PostgreSQL before 16 (`server_version_info`, no query) | Skipped; one line in the session summary with the version |
-| Async engine, or a paramstyle other than those in 4.2 | Skipped; one line in the session summary |
+| Async engine other than asyncpg (since 0.3), or a paramstyle other than those in 4.2 | Skipped; one line in the session summary |
 | `EXPLAIN` fails (a parameter type PostgreSQL cannot infer, a statement that cannot be planned generically) | Rolled back to the savepoint; counted, and the session summary gives the count and the first error |
 | Not a `SELECT` or `WITH` (after leading comments), or `executemany` | Not checked |
 | `SAVEPOINT` or `ROLLBACK TO SAVEPOINT` fails | The index check stops for the rest of the session, with one line in the summary; N+1 detection and budgets go on |
