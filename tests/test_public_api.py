@@ -119,8 +119,9 @@ def test_all_is_the_documented_list() -> None:
         assert hasattr(pytest_queryguard, name), name
 
 
-def test_version_is_a_plain_release_number() -> None:
-    assert re.fullmatch(r"\d+\.\d+\.\d+", pytest_queryguard.__version__)
+def test_version_is_a_release_number() -> None:
+    """A plain release number, optionally a release candidate (PEP 440)."""
+    assert re.fullmatch(r"\d+\.\d+\.\d+(rc\d+)?", pytest_queryguard.__version__)
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_FUNCTIONS))
