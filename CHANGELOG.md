@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+### Fixed
+
+- PostgreSQL index check: an internal error after the check opened its
+  savepoint (or, on an autocommit connection, its own transaction) left it
+  open on the user's connection. The plugin stopped as designed, but on an
+  autocommit connection the user's later writes were never committed, and
+  inside a transaction `enable_seqscan` stayed `off`. The savepoint or
+  transaction is now rolled back before the error stops the plugin.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
