@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   option. While the option is `off` nothing is installed. Opt out with
   `allow_nplusone(kind="unused-eager-load")` or `queryguard_ignore`. See
   `docs/unused-eager-load.md` for how it works and its limits.
+- SARIF output: `--queryguard-sarif=PATH` writes the findings of the run as
+  SARIF 2.1.0 for GitHub code scanning (the `--queryguard-report` flag is
+  unchanged). One rule per finding kind with a fix hint, one result per
+  finding identity with a rootdir-relative location, `partialFingerprints`
+  derived from the identity, and `error` or `warning` level following
+  `queryguard_fail_on`. Ignored and baselined findings are left out. Works with
+  pytest-xdist: workers send their findings to the controller, which writes the
+  file once. See `docs/sarif.md`.
 - Baseline file for existing findings: `queryguard_baseline` (ini) or
   `--queryguard-baseline=PATH`, and `--queryguard-update-baseline` to write it.
   A finding whose identity (kind, label, file and function; rootdir-relative

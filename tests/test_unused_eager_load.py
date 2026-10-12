@@ -624,3 +624,12 @@ def test_it():
     session.flush()
 """
     unused(run(pytester, body, *ON), "Customer.orders", "selectinload")
+
+
+def test_every_ignorable_kind_has_a_sarif_rule() -> None:
+    from pytest_queryguard import ignores, sarif
+
+    assert set(ignores.KINDS) == set(sarif.KINDS)
+    assert sarif.rule_id("unused-eager-load") in {
+        sarif.rule_id(kind) for kind in sarif.KINDS
+    }

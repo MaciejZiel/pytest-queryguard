@@ -99,6 +99,7 @@ EXPECTED_FLAGS = [
     "--queryguard-index-check",
     "--queryguard-mode",
     "--queryguard-report",
+    "--queryguard-sarif",
     "--queryguard-update-baseline",
 ]
 
