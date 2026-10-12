@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Added `queryguard_repeat_scope` (`test` or `session`, default `test`) and
+  `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
+  that make several requests. The repeat, relationship,
+  column-load and write-loop rules counted over the whole test, so a test that
+  made several independent requests (a test client, for example, with one
+  `Session` per request) reported the same authentication or organisation
+  lookup as a loop. With `session`, each `Session`, or each connection checkout
+  for statements no `Session` ran, is counted on its own. The default is
+  unchanged, but a finding whose count spans several Sessions or checkouts now
+  says so and names the option. See `docs/several-sessions.md`.
 - SARIF locations are now relative to the repository root when
   `GITHUB_WORKSPACE` is set and the pytest rootdir is inside it. Before, they
   were relative to the rootdir, so with the action's `working-directory` set to
