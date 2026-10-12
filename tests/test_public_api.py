@@ -87,15 +87,18 @@ EXPECTED_INI = {
     "queryguard_write_loop_threshold": "0",
     "queryguard_fail_on": "[]",
     "queryguard_ignore": "[]",
+    "queryguard_baseline": "",
     "queryguard_index_check": "False",
     "queryguard_index_ignore_tables": "[]",
 }
 
 EXPECTED_FLAGS = [
     "--no-queryguard-index-check",
+    "--queryguard-baseline",
     "--queryguard-index-check",
     "--queryguard-mode",
     "--queryguard-report",
+    "--queryguard-update-baseline",
 ]
 
 EXPECTED_MARKERS = [
