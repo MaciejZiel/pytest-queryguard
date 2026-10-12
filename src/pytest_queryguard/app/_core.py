@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
+from pathlib import Path
 from typing import Any
 
 from ..api import Query, _to_query
@@ -226,10 +227,11 @@ class RequestReport:
         }
 
 
-def _relative(filename: str, root: Any) -> str:
+def _relative(filename: str, root: Path) -> str:
+    """As findings show paths: relative to the root when inside it."""
     try:
-        return os.path.relpath(filename, root).replace(os.sep, "/")
-    except ValueError:  # another drive on Windows
+        return Path(filename).relative_to(root).as_posix()
+    except ValueError:
         return filename
 
 
@@ -360,11 +362,12 @@ class Tracker:
         report.statements = tuple(_to_query(e) for e in list(collector.statements))
         report.statement_count = collector.statement_count
         report.db_time = collector.db_time
-        report.budget = settings.budget_for(report.method, report.route, report.path)
         error = internal_error()
         if error is not None:
+            # The counts may be incomplete: no findings, no budget verdict.
             report.error = f"{type(error).__name__}: {error}"
             return
+        report.budget = settings.budget_for(report.method, report.route, report.path)
         root = display_root()
         scope = SCOPE_SESSION if settings.repeat_scope == SCOPE_SESSION else SCOPE_TEST
         report.findings = tuple(

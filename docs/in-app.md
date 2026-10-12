@@ -167,6 +167,9 @@ The missing-index check does not run in the application.
 template (`/orders/{order_id}` in FastAPI and Starlette, the rule given to
 `set_route()` in Flask) and against the request path; the first matching key
 wins, so put specific keys first: `{"GET /orders/{order_id}": 2, "/admin/*": 50}`.
+In an application mounted inside another (`app.mount("/api", sub_app)`), the
+template is the one inside the mounted application, without the mount prefix;
+the request path keeps it.
 
 **Reports.** `report` is used only for requests with findings or over their
 budget. `"log"` writes one WARNING record. `"warn"` issues
@@ -201,7 +204,7 @@ An exception in a callable is logged and does not reach the request.
 - `/_queryguard/requests.json`: the same data as JSON, newest first.
 
 `panel_path` moves both. By default the panel answers only loopback clients
-(`127.0.0.1`, `::1`); `panel_loopback_only=False` lifts that. This guards
+(`127.0.0.0/8`, `::1`); `panel_loopback_only=False` lifts that. This guards
 against exposing it by accident and is not access control: behind a reverse
 proxy every client is the proxy. The responses carry a strict
 `Content-Security-Policy` and `Cache-Control: no-store`, and the page writes

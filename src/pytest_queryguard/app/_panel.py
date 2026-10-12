@@ -8,6 +8,7 @@ not something to expose in production.
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import threading
 from collections import deque
@@ -17,7 +18,8 @@ from .. import __version__ as version
 from . import _core
 from ._core import RequestReport
 
-LOOPBACK = frozenset(("127.0.0.1", "::1", "localhost", "testclient"))
+# Starlette's TestClient reports its client as "testclient".
+_LOOPBACK_NAMES = frozenset(("localhost", "testclient"))
 HEADERS = (
     ("cache-control", "no-store"),
     ("x-content-type-options", "nosniff"),
@@ -70,8 +72,20 @@ def route(panel_path: str, path: str) -> str | None:
     return None
 
 
+def is_loopback(host: str) -> bool:
+    if host in _LOOPBACK_NAMES:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    mapped = getattr(address, "ipv4_mapped", None)  # ::ffff:127.0.0.1
+    return bool(address.is_loopback or (mapped is not None and mapped.is_loopback))
+
+
 def allowed(client: str | None, loopback_only: bool) -> bool:
-    return not loopback_only or client is None or client in LOOPBACK
+    """Whether the panel answers this client; None is a Unix socket peer."""
+    return not loopback_only or client is None or is_loopback(client)
 
 
 def json_body(history: History) -> bytes:

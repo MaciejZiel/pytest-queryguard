@@ -263,12 +263,16 @@ def test_an_internal_error_switches_the_mode_off_but_not_the_app(
         raise RuntimeError("callsite bug")
 
     monkeypatch.setattr(_listeners, "find_callsite", broken)
-    with queryguard.track(report=[]) as report:
+    seen: list[RequestReport] = []
+    with queryguard.track(default_budget=0, report=seen.append) as report:
         names = _lazy_loop(watched)
     assert len(names) == 2 * CUSTOMERS  # the application got its rows
     assert isinstance(queryguard.internal_error(), RuntimeError)
     assert report.error == "RuntimeError: callsite bug"
     assert report.findings == ()
+    # Incomplete counts: no budget verdict either, so nothing is reported.
+    assert report.budget is None
+    assert seen == []
     assert caplog.text.count("in-app mode switched off") == 1
     # The pytest plugin's own error state is untouched.
     assert pytest_listeners.internal_error() is None

@@ -14,7 +14,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from pytest_queryguard.app import QueryGuardASGI, QueryGuardWSGI
-from pytest_queryguard.app._panel import HEADERS, html_body
+from pytest_queryguard.app._panel import HEADERS, allowed, html_body, is_loopback
 
 from .conftest import Order
 
@@ -157,3 +157,24 @@ def test_the_wsgi_panel(watched: Engine) -> None:
     )
     assert other.status_code == 403
     assert client.post("/_queryguard/").status_code == 405
+
+
+@pytest.mark.parametrize(
+    ("host", "loopback"),
+    [
+        ("127.0.0.1", True),
+        ("127.0.0.42", True),
+        ("::1", True),
+        ("::ffff:127.0.0.1", True),
+        ("testclient", True),
+        ("10.0.0.1", False),
+        ("::ffff:10.0.0.1", False),
+        ("2001:db8::1", False),
+        ("example.org", False),
+    ],
+)
+def test_loopback_clients(host: str, loopback: bool) -> None:
+    assert is_loopback(host) is loopback
+    assert allowed(host, loopback_only=True) is loopback
+    assert allowed(host, loopback_only=False)
+    assert allowed(None, loopback_only=True)  # a Unix socket peer
