@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import threading
+import traceback
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import event
@@ -16,12 +19,47 @@ from .events import RelationshipLoadEvent, StatementEvent
 _installed = False
 _index_installed = False
 _error: BaseException | None = None
+_failure: Failure | None = None
 _local = threading.local()
+
+
+@dataclass(frozen=True, slots=True)
+class Failure:
+    """What went wrong inside the plugin, for the warning and the summary."""
+
+    source: str  # the listener or step that raised
+    error: BaseException
+    raised_at: str | None  # "file.py:12 in function", innermost frame
+
+    @property
+    def summary(self) -> str:
+        return f"{type(self.error).__name__}: {self.error}"
 
 
 def internal_error() -> BaseException | None:
     """The first exception swallowed by a listener, if any."""
     return _error
+
+
+def internal_failure() -> Failure | None:
+    """Which listener or step failed first, and why; None without an error.
+
+    The error itself is the one ``internal_error()`` returns. When it was set
+    without a source (``swap_error()``), the source is "unknown".
+    """
+    if _error is None:
+        return None
+    if _failure is not None and _failure.error is _error:
+        return _failure
+    return Failure("unknown", _error, _innermost(_error))
+
+
+def _innermost(exc: BaseException) -> str | None:
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return None
+    last = frames[-1]
+    return f"{os.path.basename(last.filename)}:{last.lineno} in {last.name}"
 
 
 def _set_pending(name: str | None) -> None:
@@ -37,8 +75,9 @@ def _take_pending() -> str | None:
 
 
 def _reset_for_tests() -> None:
-    global _error
+    global _error, _failure
     _error = None
+    _failure = None
     _local.pending = None
 
 
@@ -65,7 +104,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         for target in targets:
             target.add_relationship_load(load)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        _fail(exc)
+        _fail(exc, "do_orm_execute listener (relationship loads)")
 
 
 def _on_cursor_execute(
@@ -86,7 +125,7 @@ def _on_cursor_execute(
         for target in targets:
             target.add_statement(stmt)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        _fail(exc)
+        _fail(exc, "before_cursor_execute listener (statements)")
 
 
 def _on_after_cursor_execute(
@@ -106,11 +145,15 @@ def _on_after_cursor_execute(
         if targets:
             indexes.check(conn, statement, executemany, targets)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        _fail(exc)
+        _fail(exc, "after_cursor_execute listener (missing-index check)")
 
 
-def _guarded(handler: Callable[..., None]) -> Callable[..., None]:
+def _guarded(
+    handler: Callable[..., None], event_name: str | None = None
+) -> Callable[..., None]:
     """A transaction or pool listener that never raises into the user's code."""
+
+    name = event_name or getattr(handler, "__name__", "transaction")
 
     def listener(*args: Any) -> None:
         if _error is not None:
@@ -118,28 +161,29 @@ def _guarded(handler: Callable[..., None]) -> Callable[..., None]:
         try:
             handler(*args)
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-            _fail(exc)
+            _fail(exc, f"{name} listener (catalog cache)")
 
     return listener
 
 
-_on_commit = _guarded(catalog.on_commit)
-_on_rollback = _guarded(catalog.on_rollback)
-_on_commit_twophase = _guarded(catalog.on_commit_twophase)
-_on_rollback_twophase = _guarded(catalog.on_rollback_twophase)
-_on_rollback_savepoint = _guarded(catalog.on_rollback_savepoint)
-_on_invalidate = _guarded(catalog.on_invalidate)
+_on_commit = _guarded(catalog.on_commit, "commit")
+_on_rollback = _guarded(catalog.on_rollback, "rollback")
+_on_commit_twophase = _guarded(catalog.on_commit_twophase, "commit_twophase")
+_on_rollback_twophase = _guarded(catalog.on_rollback_twophase, "rollback_twophase")
+_on_rollback_savepoint = _guarded(catalog.on_rollback_savepoint, "rollback_savepoint")
+_on_invalidate = _guarded(catalog.on_invalidate, "invalidate")
 
 
-def _fail(exc: Exception) -> None:
-    global _error
+def _fail(exc: Exception, source: str) -> None:
+    global _error, _failure
     if _error is None:
         _error = exc
+        _failure = Failure(source, exc, _innermost(exc))
 
 
-def record_error(exc: Exception) -> None:
+def record_error(exc: Exception, source: str = "plugin") -> None:
     """Disable measurement after a bug outside the listeners (first error wins)."""
-    _fail(exc)
+    _fail(exc, source)
 
 
 def swap_error(new: BaseException | None) -> BaseException | None:
