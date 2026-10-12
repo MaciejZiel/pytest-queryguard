@@ -1,5 +1,10 @@
 # pytest-queryguard — design
 
+> This is the original design for 0.1. Later releases changed some of what it
+> says (for example how plugin errors are reported, and which statements the
+> repeat rule counts); the [Changelog](../CHANGELOG.md) and the other pages
+> describe the current behavior.
+
 | | |
 |---|---|
 | Status | Accepted |

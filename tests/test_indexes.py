@@ -171,7 +171,8 @@ def test_is_checked_statement_is_linear_in_the_prefix(
     start = time.perf_counter()
     for _ in range(10):
         assert is_checked_statement(sql) is expected
-    assert time.perf_counter() - start < 0.05
+    # The regression this guards took 20 s; a loaded runner is far from 1 s.
+    assert time.perf_counter() - start < 1.0
 
 
 # ------------------------------------------------------------------ find_scans
@@ -1318,12 +1319,15 @@ def test_check_looks_up_leading_columns_before_postgres_18(
     conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
     target = _collector()
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
-    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == lookups
+    assert _lookups(conn) == lookups
     assert len(target.scans) == lookups
 
 
 def _lookups(conn: FakeSAConnection, table: str = "pg_index") -> int:
-    return len([sql for sql in conn.raw.log if table in sql])
+    # the partial-index lookup also reads pg_index; it is counted on its own
+    return len(
+        [sql for sql in conn.raw.log if table in sql and "indpred IS NOT" not in sql]
+    )
 
 
 def test_check_looks_up_each_index_once_per_session() -> None:

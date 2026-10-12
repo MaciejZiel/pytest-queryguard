@@ -159,3 +159,58 @@ def test_listener_error_is_swallowed_and_disables(
     before = len(rec.statements)
     session.execute(select(Customer)).all()
     assert len(rec.statements) == before
+
+
+def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
+    class State:
+        is_column_load = True
+        load_options = object()  # no _refresh_state: an unknown SQLAlchemy shape
+
+    target = collector.QueryCollector()
+    collector.push(target)
+    try:
+        listeners._on_orm_execute(State())  # type: ignore[arg-type]
+    finally:
+        collector.pop(target)
+    assert listeners.internal_error() is None
+    assert target.column_loads == []
+    assert listeners._take_pending() == (None, None)
+
+
+@pytest.mark.filterwarnings(
+    "ignore::pytest_queryguard.warnings.QueryGuardInternalWarning"
+)
+def test_missing_only_load_props_is_an_internal_error_not_a_refresh(
+    session: Session, rec: collector.QueryCollector
+) -> None:
+    from types import SimpleNamespace
+
+    from sqlalchemy import inspect
+
+    customer = session.scalars(select(Customer)).first()
+    assert customer is not None
+    # the shape of a SQLAlchemy release that drops _only_load_props
+    state = SimpleNamespace(
+        is_column_load=True,
+        load_options=SimpleNamespace(_refresh_state=inspect(customer)),
+        statement=SimpleNamespace(_compile_options=SimpleNamespace()),
+    )
+    listeners._on_orm_execute(state)  # type: ignore[arg-type]
+    error = listeners.internal_error()
+    assert isinstance(error, AttributeError)
+    assert "_only_load_props" in str(error)
+    failure = listeners.internal_failure()
+    assert failure is not None and "do_orm_execute" in failure.source
+    assert rec.column_loads == []  # no load was mislabeled as a refresh
+
+
+def test_the_present_attribute_is_classified_as_before(
+    session: Session, rec: collector.QueryCollector
+) -> None:
+    customer = session.scalars(select(Customer)).first()
+    assert customer is not None
+    session.expire(customer)
+    assert customer.name
+    assert listeners.internal_error() is None
+    [load] = rec.column_loads
+    assert load.cause == "expired"

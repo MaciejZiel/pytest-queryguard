@@ -1,0 +1,32 @@
+{
+ "query": "SELECT * FROM orders WHERE total >= $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.0,
+    "Total Cost": 15.25,
+    "Plan Rows": 167,
+    "Plan Width": 93,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Filter": "(orders.total >= $1)"
+   }
+  }
+ ]
+}

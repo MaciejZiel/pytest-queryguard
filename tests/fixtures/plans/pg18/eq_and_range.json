@@ -1,0 +1,32 @@
+{
+ "query": "SELECT * FROM orders WHERE customer_id = $1 AND total > $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.0,
+    "Total Cost": 16.5,
+    "Plan Rows": 3,
+    "Plan Width": 93,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Filter": "((orders.total > $2) AND (orders.customer_id = $1))"
+   }
+  }
+ ]
+}

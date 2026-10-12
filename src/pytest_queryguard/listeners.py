@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import os
 import threading
+import time
+import traceback
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import event
@@ -9,14 +13,35 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import ORMExecuteState, Session
 from sqlalchemy.pool import Pool
 
-from . import catalog, collector, indexes
-from .callsite import find_callsite
-from .events import RelationshipLoadEvent, StatementEvent
+from . import catalog, collector, indexes, sqlite_index
+from .callsite import find_callsite, find_flush
+from .events import (
+    CAUSE_DEFERRED,
+    CAUSE_EXPIRED,
+    CAUSE_REFRESH,
+    ColumnLoadEvent,
+    RelationshipLoadEvent,
+    StatementEvent,
+)
 
 _installed = False
 _index_installed = False
 _error: BaseException | None = None
+_failure: Failure | None = None
 _local = threading.local()
+
+
+@dataclass(frozen=True, slots=True)
+class Failure:
+    """What went wrong inside the plugin, for the warning and the summary."""
+
+    source: str  # the listener or step that raised
+    error: BaseException
+    raised_at: str | None  # "file.py:12 in function", innermost frame
+
+    @property
+    def summary(self) -> str:
+        return f"{type(self.error).__name__}: {self.error}"
 
 
 def internal_error() -> BaseException | None:
@@ -24,22 +49,83 @@ def internal_error() -> BaseException | None:
     return _error
 
 
-def _set_pending(name: str | None) -> None:
-    _local.pending = None if name is None else (collector.generation(), name)
+def internal_failure() -> Failure | None:
+    """Which listener or step failed first, and why; None without an error.
+
+    The error itself is the one ``internal_error()`` returns. When it was set
+    without a source (``swap_error()``), the source is "unknown".
+    """
+    if _error is None:
+        return None
+    if _failure is not None and _failure.error is _error:
+        return _failure
+    return Failure("unknown", _error, _innermost(_error))
 
 
-def _take_pending() -> str | None:
+def _innermost(exc: BaseException) -> str | None:
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return None
+    last = frames[-1]
+    return f"{os.path.basename(last.filename)}:{last.lineno} in {last.name}"
+
+
+def _set_pending(name: str | None, column_load: ColumnLoadEvent | None = None) -> None:
+    if name is None and column_load is None:
+        _local.pending = None
+    else:
+        _local.pending = (collector.generation(), name, column_load)
+
+
+def _take_pending() -> tuple[str | None, ColumnLoadEvent | None]:
+    """(relationship, column load) of the ORM execution the next statement belongs to."""
     pending = getattr(_local, "pending", None)
     _local.pending = None
     if pending is not None and pending[0] == collector.generation():
-        return str(pending[1])
-    return None
+        return pending[1], pending[2]
+    return None, None
 
 
 def _reset_for_tests() -> None:
-    global _error
+    global _error, _failure
     _error = None
+    _failure = None
     _local.pending = None
+
+
+def _record_column_load(
+    state: ORMExecuteState, targets: tuple[collector.QueryCollector, ...]
+) -> None:
+    """Note an instance that loads columns it already has a row for."""
+    instance = getattr(state.load_options, "_refresh_state", None)
+    if instance is None:
+        _set_pending(None)
+        return
+    options: Any = getattr(state.statement, "_compile_options", None)
+    if not hasattr(options, "_only_load_props"):
+        # Without it every load would look like a plain refresh, with a wrong
+        # hint. Stop through the internal-error path instead of mislabeling.
+        raise AttributeError(
+            "SQLAlchemy's column-load compile options have no _only_load_props; "
+            "this SQLAlchemy version is not supported by the column-load kind"
+        )
+    only = options._only_load_props
+    expired = instance.expired_attributes
+    columns = {prop.key for prop in instance.mapper.column_attrs}
+    if only is None:
+        cause, names = CAUSE_REFRESH, ()
+    elif instance.expired or (only and set(only) <= expired):
+        cause, names = CAUSE_EXPIRED, ()
+    else:
+        cause = CAUSE_DEFERRED
+        names = tuple(sorted(set(only) & columns or only))
+    key = instance.key if instance.key is not None else id(instance)
+    load = ColumnLoadEvent(
+        instance.mapper.class_.__name__, names, cause, key, find_callsite()
+    )
+    _set_pending(None, column_load=load)
+    for target in targets:
+        target.add_column_load(load)
 
 
 def _on_orm_execute(state: ORMExecuteState) -> None:
@@ -49,10 +135,15 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         targets = collector.active()
         if not targets:
             return
+        if state.is_column_load:
+            _record_column_load(state, targets)
+            return
         if not state.is_relationship_load:
             _set_pending(None)
             return
-        name = str(state.loader_strategy_path[-1])  # type: ignore[index]
+        prop = state.loader_strategy_path[-1]  # type: ignore[index]
+        name = str(prop)
+        scalar = getattr(prop, "uselist", None) is False
         parent = state.lazy_loaded_from
         key: object = None
         if parent is not None:
@@ -61,11 +152,15 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
                 key = id(parent)
         _set_pending(name)
         site = find_callsite()
-        load = RelationshipLoadEvent(name, key, site)
+        load = RelationshipLoadEvent(name, key, site, scalar)
         for target in targets:
-            target.relationship_loads.append(load)
+            target.add_relationship_load(load)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        _fail(exc)
+        _fail(exc, "do_orm_execute listener (relationship loads)")
+
+
+def _is_write(statement: str) -> bool:
+    return statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
 
 
 def _on_cursor_execute(
@@ -82,11 +177,51 @@ def _on_cursor_execute(
         targets = collector.active()
         if not targets:
             return
-        stmt = StatementEvent(statement, find_callsite(), _take_pending())
+        relationship, column_load = _take_pending()
+        if column_load is not None:
+            column_load.sql = statement
+        stmt = StatementEvent(
+            statement,
+            find_callsite(),
+            relationship,
+            column_load=column_load is not None,
+            parameters=None if executemany else parameters,
+            executemany=bool(executemany),
+            flush=find_flush() if _is_write(statement) else None,
+        )
         for target in targets:
-            target.statements.append(stmt)
+            target.add_statement(stmt)
+        if context is not None:
+            # Read back by the after listener; per execution, so statements
+            # that overlap in time (asyncio tasks) never mix up. Taken last,
+            # so the time spent finding the call site is not counted.
+            context._queryguard_timing = (stmt, targets, time.perf_counter())
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        _fail(exc)
+        _fail(exc, "before_cursor_execute listener (statements)")
+
+
+def _on_timing_after(
+    conn: Any,
+    cursor: Any,
+    statement: str,
+    parameters: Any,
+    context: Any,
+    executemany: bool,
+) -> None:
+    now = time.perf_counter()  # first, so nothing else is counted as database time
+    if _error is not None:
+        return
+    try:
+        timing = getattr(context, "_queryguard_timing", None)
+        if timing is None:
+            return
+        context._queryguard_timing = None
+        stmt, targets, started = timing
+        stmt.duration = now - started
+        for target in targets:
+            target.db_time += stmt.duration
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "after_cursor_execute listener (statement timing)")
 
 
 def _on_after_cursor_execute(
@@ -103,14 +238,20 @@ def _on_after_cursor_execute(
         # Every statement, in fixtures too: DDL clears the catalog cache.
         catalog.observe(conn, statement)
         targets = [target for target in collector.active() if target.index_check]
-        if targets:
+        if targets and conn.dialect.name == sqlite_index.DIALECT:
+            sqlite_index.check(conn, statement, parameters, executemany, targets)
+        elif targets:
             indexes.check(conn, statement, executemany, targets)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        _fail(exc)
+        _fail(exc, "after_cursor_execute listener (missing-index check)")
 
 
-def _guarded(handler: Callable[..., None]) -> Callable[..., None]:
+def _guarded(
+    handler: Callable[..., None], event_name: str | None = None
+) -> Callable[..., None]:
     """A transaction or pool listener that never raises into the user's code."""
+
+    name = event_name or getattr(handler, "__name__", "transaction")
 
     def listener(*args: Any) -> None:
         if _error is not None:
@@ -118,28 +259,29 @@ def _guarded(handler: Callable[..., None]) -> Callable[..., None]:
         try:
             handler(*args)
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-            _fail(exc)
+            _fail(exc, f"{name} listener (catalog cache)")
 
     return listener
 
 
-_on_commit = _guarded(catalog.on_commit)
-_on_rollback = _guarded(catalog.on_rollback)
-_on_commit_twophase = _guarded(catalog.on_commit_twophase)
-_on_rollback_twophase = _guarded(catalog.on_rollback_twophase)
-_on_rollback_savepoint = _guarded(catalog.on_rollback_savepoint)
-_on_invalidate = _guarded(catalog.on_invalidate)
+_on_commit = _guarded(catalog.on_commit, "commit")
+_on_rollback = _guarded(catalog.on_rollback, "rollback")
+_on_commit_twophase = _guarded(catalog.on_commit_twophase, "commit_twophase")
+_on_rollback_twophase = _guarded(catalog.on_rollback_twophase, "rollback_twophase")
+_on_rollback_savepoint = _guarded(catalog.on_rollback_savepoint, "rollback_savepoint")
+_on_invalidate = _guarded(catalog.on_invalidate, "invalidate")
 
 
-def _fail(exc: Exception) -> None:
-    global _error
+def _fail(exc: Exception, source: str) -> None:
+    global _error, _failure
     if _error is None:
         _error = exc
+        _failure = Failure(source, exc, _innermost(exc))
 
 
-def record_error(exc: Exception) -> None:
+def record_error(exc: Exception, source: str = "plugin") -> None:
     """Disable measurement after a bug outside the listeners (first error wins)."""
-    _fail(exc)
+    _fail(exc, source)
 
 
 def swap_error(new: BaseException | None) -> BaseException | None:
@@ -160,6 +302,7 @@ def install() -> None:
         return
     event.listen(Session, "do_orm_execute", _on_orm_execute)
     event.listen(Engine, "before_cursor_execute", _on_cursor_execute)
+    event.listen(Engine, "after_cursor_execute", _on_timing_after)
     _installed = True
 
 

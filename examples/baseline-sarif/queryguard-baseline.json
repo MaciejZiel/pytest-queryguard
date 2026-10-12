@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "kind": "relationship-load",
+      "label": "Author.books",
+      "file": "app/books.py",
+      "function": "books_per_author"
+    },
+    {
+      "kind": "relationship-load",
+      "label": "Book.author",
+      "file": "app/books.py",
+      "function": "titles_with_authors"
+    }
+  ]
+}

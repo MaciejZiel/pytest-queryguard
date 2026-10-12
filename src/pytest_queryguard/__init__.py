@@ -5,13 +5,14 @@ from .api import (
     Query,
     QueryBudgetExceeded,
     QueryLog,
+    max_db_time,
     max_queries,
     record_queries,
 )
 from .events import CallSite
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
-__version__ = "0.3.0"
+__version__ = "0.4.0rc1"
 
 __all__ = [
     "CallSite",
@@ -22,6 +23,7 @@ __all__ = [
     "QueryGuardWarning",
     "QueryLog",
     "__version__",
+    "max_db_time",
     "max_queries",
     "record_queries",
 ]

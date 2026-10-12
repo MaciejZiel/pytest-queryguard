@@ -62,9 +62,17 @@ dev = [
     "mypy",
     # PostgreSQL tests (BSD-3-Clause); psycopg and psycopg2 are LGPL.
     "pg8000>=1.31.5",
+    # The multi-process tests in tests/test_xdist.py (MIT; execnet, MIT).
+    "pytest-xdist>=3.5",
     "ruff",
     # SQLAlchemy 2.1 no longer installs greenlet, which the async tests need.
     "sqlalchemy[asyncio]",
+]
+# Builds the documentation site (scripts/build_docs.py): Markdown and Pygments, both BSD.
+# Not installed with the package, and not part of the default groups' tests.
+docs = [
+    "markdown>=3.6",
+    "pygments>=2.17",
 ]
 
 [tool.hatch.version]

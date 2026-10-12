@@ -10,7 +10,13 @@ from .collector import QueryCollector, pop, push
 from .detectors import detect
 from .events import CallSite, StatementEvent
 from .listeners import install, internal_error
-from .messages import display_root, format_budget, format_findings
+from .messages import (
+    display_root,
+    format_budget,
+    format_findings,
+    format_time_budget,
+    make_findings,
+)
 from .warnings import QueryGuardInternalWarning
 
 
@@ -23,7 +29,7 @@ class NPlusOneDetected(AssertionError):
 
 
 @contextmanager
-def _measure(limit: int) -> Iterator[QueryCollector]:
+def _measure(limit: int | None, time_limit: float | None) -> Iterator[QueryCollector]:
     # The budget failure is raised here; pytest should show the user's with block.
     __tracebackhide__ = True
     install()
@@ -33,9 +39,23 @@ def _measure(limit: int) -> Iterator[QueryCollector]:
         yield collector
     finally:
         pop(collector)
-    if len(collector.statements) > limit:
+    if limit is not None and len(collector.statements) > limit:
         raise QueryBudgetExceeded(
-            format_budget(limit, collector.statements, cwd=display_root())
+            format_budget(
+                limit,
+                collector.statements,
+                cwd=display_root(),
+                db_time=collector.db_time,
+            )
+        )
+    if time_limit is not None and collector.db_time > time_limit:
+        raise QueryBudgetExceeded(
+            format_time_budget(
+                time_limit,
+                collector.statements,
+                cwd=display_root(),
+                db_time=collector.db_time,
+            )
         )
 
 
@@ -43,7 +63,25 @@ def max_queries(limit: int) -> AbstractContextManager[QueryCollector]:
     """Fail when the block runs more than ``limit`` SQL statements."""
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         raise ValueError(f"limit must be a non-negative integer, got {limit!r}")
-    return _measure(limit)
+    return _measure(limit, None)
+
+
+def max_db_time(seconds: float) -> AbstractContextManager[QueryCollector]:
+    """Fail when the statements of the block take more than ``seconds`` in total.
+
+    The time is what the database and the driver took for each statement,
+    measured around the cursor call; it does not include the time the code in
+    the block spends outside the database. The failure lists the slowest
+    statements.
+    """
+    if (
+        isinstance(seconds, bool)
+        or not isinstance(seconds, (int, float))
+        or not seconds >= 0  # also rejects NaN
+        or seconds == float("inf")
+    ):
+        raise ValueError(f"seconds must be a non-negative number, got {seconds!r}")
+    return _measure(None, float(seconds))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -55,7 +93,9 @@ class Query:
     standard library, site-packages and this plugin, or None. When the
     statement loaded a relationship, lazily or as the extra query of
     ``selectinload``, ``relationship`` names it, as in ``"Order.customer"``;
-    otherwise it is None.
+    otherwise it is None. ``duration`` is the time in seconds the database and
+    the driver took for the statement, measured around the cursor call; None
+    while the statement is still running, and when it raised.
 
     Not constructible by users: only ``record_queries()`` creates one. The
     fields are public; the constructor is not (it is keyword-only, and fields
@@ -65,11 +105,15 @@ class Query:
     sql: str
     callsite: CallSite | None
     relationship: str | None
+    duration: float | None = None
 
 
 def _to_query(event: StatementEvent) -> Query:
     return Query(
-        sql=event.sql, callsite=event.callsite, relationship=event.relationship
+        sql=event.sql,
+        callsite=event.callsite,
+        relationship=event.relationship,
+        duration=event.duration,
     )
 
 
@@ -144,20 +188,52 @@ class QueryLog:
             return len(self._frozen)
         return len(self._collector.statements)
 
+    @property
+    def db_time(self) -> float:
+        """Seconds the recorded statements took in total, as ``Query.duration``.
+
+        Counts every statement, including those beyond ``queryguard_max_events``
+        that are not stored.
+        """
+        return self._collector.db_time
+
+    def slowest(self, n: int = 5) -> tuple[Query, ...]:
+        """The ``n`` slowest finished statements, slowest first."""
+        if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+            raise ValueError(f"n must be a non-negative integer, got {n!r}")
+        timed = [q for q in self.queries if q.duration is not None]
+        return tuple(sorted(timed, key=lambda q: q.duration or 0.0, reverse=True)[:n])
+
     def assert_no_nplusone(
-        self, *, relationship_threshold: int = 2, repeat_threshold: int = 5
+        self,
+        *,
+        relationship_threshold: int = 2,
+        repeat_threshold: int = 5,
+        column_load_threshold: int = 5,
+        small_repeat_threshold: int | None = None,
+        write_loop_threshold: int | None = None,
     ) -> None:
         """Raise ``NPlusOneDetected`` when the recorded block has N+1 queries.
 
         The rules, and the defaults of the thresholds, are the plugin's: one
         relationship lazy-loaded for ``relationship_threshold`` different
         parent objects, or one ``SELECT``, without its literals and
-        parameters, run ``repeat_threshold`` times.
+        parameters, run ``repeat_threshold`` times, or ``column_load_threshold``
+        instances of one class each loading deferred or expired columns on
+        their own. With ``small_repeat_threshold`` (an integer, at least 2 and
+        below ``repeat_threshold``), a statement that ran that many times or
+        more from one line, each time with other parameters, counts too,
+        unless it paginates. With ``write_loop_threshold`` (an integer, at least
+        2), that many single-row INSERT, UPDATE or DELETE statements of one
+        shape from one line count too.
 
-        The thresholds are these two arguments only. The ``queryguard_*`` ini
+        The thresholds are these five arguments only. The ``queryguard_*`` ini
         options, ``queryguard_mode`` and the ``allow_nplusone`` marker are not
-        read, so a project that changes ``queryguard_repeat_threshold`` or
-        ``queryguard_relationship_threshold`` must pass the same values here.
+        read, so a project that changes ``queryguard_repeat_threshold``,
+        ``queryguard_relationship_threshold`` or
+        ``queryguard_column_load_threshold``,
+        ``queryguard_small_repeat_threshold`` or
+        ``queryguard_write_loop_threshold`` must pass the same values here.
 
         Raises ``RuntimeError`` instead of checking when pytest-queryguard hit
         an internal error and stopped recording, because the log may then be
@@ -174,16 +250,41 @@ class QueryLog:
         for name, value in (
             ("relationship_threshold", relationship_threshold),
             ("repeat_threshold", repeat_threshold),
+            ("column_load_threshold", column_load_threshold),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 2:
                 raise ValueError(f"{name} must be an integer >= 2, got {value!r}")
-        findings = detect(
-            self._collector,
-            relationship_threshold=relationship_threshold,
-            repeat_threshold=repeat_threshold,
+        small = small_repeat_threshold
+        if small is not None and (
+            isinstance(small, bool)
+            or not isinstance(small, int)
+            or not 2 <= small < repeat_threshold
+        ):
+            raise ValueError(
+                "small_repeat_threshold must be None or an integer >= 2 and "
+                f"below repeat_threshold ({repeat_threshold}), got {small!r}"
+            )
+        loop = write_loop_threshold
+        if loop is not None and (
+            isinstance(loop, bool) or not isinstance(loop, int) or loop < 2
+        ):
+            raise ValueError(
+                f"write_loop_threshold must be None or an integer >= 2, got {loop!r}"
+            )
+        root = display_root()
+        findings = make_findings(
+            detect(
+                self._collector,
+                relationship_threshold=relationship_threshold,
+                repeat_threshold=repeat_threshold,
+                column_load_threshold=column_load_threshold,
+                small_repeat_threshold=small_repeat_threshold,
+                write_loop_threshold=write_loop_threshold,
+            ),
+            cwd=root,
         )
         if findings:
-            raise NPlusOneDetected(format_findings(findings, cwd=display_root()))
+            raise NPlusOneDetected(format_findings(findings, cwd=root))
 
     def __repr__(self) -> str:
         return f"<QueryLog {self.count} queries>"

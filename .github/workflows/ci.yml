@@ -21,6 +21,19 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run mypy src
 
+  # The documentation site (scripts/build_docs.py) must build without broken
+  # links or pages missing from docs/site.toml. Building only: nothing is
+  # published from here.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --only-group docs
+      - run: uv run --no-sync python scripts/build_docs.py --strict
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -50,35 +63,100 @@ jobs:
       - run: uv run --no-sync coverage run -m pytest
       - run: uv run --no-sync coverage report
 
-  # The missing-index check needs a real server. 15 covers the "too old"
-  # notice; 16 and 17 run the check itself. One more run on 16 uses the
-  # oldest supported SQLAlchemy, which the asyncpg path depends on
-  # (run_async() on adapted connections).
+  # Real pytest-xdist runs: tests/test_xdist.py starts pytest with -n 2 and
+  # -n 4 in subprocesses; the whole suite then runs once more under -n 2,
+  # with the plugin measuring its own tests across workers.
+  xdist:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync
+      - run: uv run --no-sync pytest tests/test_xdist.py -v
+      - run: uv run --no-sync pytest -n 2 --ignore=tests/test_xdist.py
+
+  # Per-statement overhead of the measurement against the stored baseline in
+  # scripts/bench_baseline.json (relative overhead, generous margin). Linux
+  # and one Python version only: timing on several runners is just noise.
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run --no-sync python scripts/bench_gate.py
+
+  # The SQLite-only suite on the other operating systems (paths, temp dirs,
+  # newline handling, file locking). PostgreSQL tests skip without a server.
+  os:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync
+      - run: uv run --no-sync pytest -rs
+
+  # The missing-index check needs a real server. 14 and 15 cover the "too old"
+  # notice; 16, 17 and 18 run the check itself. Each run exercises two
+  # drivers: pg8000 (sync) and asyncpg (tests/test_index_check_async.py).
+  # psycopg and psycopg2 are LGPL and not allowed as dependencies here, so
+  # they are not part of the matrix. One more run on 16 uses the oldest
+  # supported SQLAlchemy, which the asyncpg path depends on (run_async() on
+  # adapted connections).
+  #
+  # The index advisor verifies its suggestions with the hypopg extension. The
+  # official postgres image is Debian-based with the PGDG repository, which has
+  # postgresql-<major>-hypopg for 14 to 18, so the server is that image plus
+  # the package, started with docker run (a service container cannot install
+  # packages). Where the package does not exist the plain image is used, the
+  # extension is not created and the tests that need it are skipped.
   postgres:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        postgres: ["15", "16", "17"]
+        postgres: ["14", "15", "16", "17", "18"]
         sqlalchemy: ["latest"]
         include:
           - postgres: "16"
             sqlalchemy: "2.0"
-    services:
-      postgres:
-        image: postgres:${{ matrix.postgres }}
-        env:
-          POSTGRES_PASSWORD: pg
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       QUERYGUARD_PG_URL: postgresql+pg8000://postgres:pg@localhost:5432/postgres
     steps:
+      - name: Start PostgreSQL ${{ matrix.postgres }} with hypopg
+        env:
+          MAJOR: ${{ matrix.postgres }}
+        run: |
+          image="postgres:${MAJOR}"
+          if printf 'FROM postgres:%s\nRUN apt-get update && apt-get install -y --no-install-recommends postgresql-%s-hypopg && rm -rf /var/lib/apt/lists/*\n' "$MAJOR" "$MAJOR" | docker build -t qg-postgres -; then
+            image=qg-postgres
+          else
+            echo "::warning::no hypopg package for PostgreSQL ${MAJOR}; its tests will be skipped"
+          fi
+          docker run -d --name qg-postgres-server -p 5432:5432 -e POSTGRES_PASSWORD=pg "$image"
+          for _ in $(seq 1 60); do
+            docker exec qg-postgres-server pg_isready -h localhost -U postgres && break
+            sleep 1
+          done
+          docker exec qg-postgres-server pg_isready -h localhost -U postgres
+          # created in the test database, so the whole suite runs the advisor with hypopg
+          docker exec qg-postgres-server psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS hypopg" || true
+          docker exec qg-postgres-server psql -U postgres -Atc "SELECT version(); SELECT coalesce((SELECT extversion FROM pg_extension WHERE extname = 'hypopg'), 'hypopg not installed')"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -89,3 +167,67 @@ jobs:
         run: uv pip install "sqlalchemy==2.0.*"
       - run: uv run --no-sync coverage run -m pytest -rs
       - run: uv run --no-sync coverage report
+
+  # The GitHub Action in action/ on a tiny sample project (examples/action-sample)
+  # with one N+1 query: one run that reports it and does not fail, one that
+  # fails, one with the finding in a baseline that uploads to code scanning.
+  # The upload step is skipped by the action on pull requests from forks.
+  action:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report the finding, do not fail
+        id: report
+        uses: ./action
+        with:
+          python-version: "3.12"
+          package: ${{ github.workspace }}
+          working-directory: examples/action-sample
+          sarif-file: report.sarif
+          fail: "false"
+          upload: "false"
+      - name: Check the SARIF file and the outputs
+        env:
+          EXIT_CODE: ${{ steps.report.outputs.exit-code }}
+        run: |
+          python - <<'PY'
+          import json, os
+
+          assert os.environ["EXIT_CODE"] == "1", os.environ["EXIT_CODE"]
+          with open("examples/action-sample/report.sarif") as handle:
+              document = json.load(handle)
+          (result,) = document["runs"][0]["results"]
+          assert result["ruleId"] == "queryguard/relationship-load", result
+          location = result["locations"][0]["physicalLocation"]
+          assert location["artifactLocation"]["uri"] == "test_books.py", location
+          print("SARIF ok:", result["message"]["text"].splitlines()[0])
+          PY
+      - name: Fail on the finding
+        id: strict
+        continue-on-error: true
+        uses: ./action
+        with:
+          package: ${{ github.workspace }}
+          working-directory: examples/action-sample
+          sarif-file: strict.sarif
+          upload: "false"
+      - name: The step must have failed
+        env:
+          OUTCOME: ${{ steps.strict.outcome }}
+        run: test "$OUTCOME" = "failure"
+      - name: Accept the finding with the baseline and upload
+        id: baseline
+        uses: ./action
+        with:
+          package: ${{ github.workspace }}
+          working-directory: examples/action-sample
+          baseline: queryguard-baseline.json
+          pytest-args: -v -k "n_plus_one"
+          category: pytest-queryguard-sample
+      - name: The baselined run must be clean
+        env:
+          EXIT_CODE: ${{ steps.baseline.outputs.exit-code }}
+        run: test "$EXIT_CODE" = "0"

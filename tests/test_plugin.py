@@ -36,7 +36,7 @@ def test_nplusone_fails_test(project: pytest.Pytester) -> None:
         [
             "*N+1 detected*",
             "*Order.customer was lazy-loaded*",
-            "*selectinload(Order.customer)*",
+            "*joinedload(Order.customer)*",
         ]
     )
 

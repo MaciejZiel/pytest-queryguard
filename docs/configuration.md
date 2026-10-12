@@ -1,0 +1,79 @@
+# Configuration reference
+
+| Option | Values | Default | Meaning |
+|---|---|---|---|
+| `queryguard_mode` | `fail`, `warn`, `off` | `fail` | `fail` fails a test with N+1. `warn` reports it as a `QueryGuardWarning` and lets the test pass. `off` turns detection off; tests without a budget are not measured. |
+| `queryguard_relationship_threshold` | integer ≥ 2 | `2` | Number of different parent objects for which one relationship must be lazy-loaded to count as N+1. |
+| `queryguard_repeat_threshold` | integer ≥ 2 | `5` | Number of times one normalized `SELECT` must run to count as N+1. |
+| `queryguard_small_repeat_threshold` | `0` or integer ≥ 2, below the repeat threshold | `0` (off) | Number of runs of one statement from one source line, each with different parameters, that count as N+1 although they are below `queryguard_repeat_threshold`. Pagination and writes are not counted. |
+| `queryguard_write_loop_threshold` | `0` or integer ≥ 2 | `0` (off) | Number of single-row `INSERT`, `UPDATE` or `DELETE` statements of one shape from one source line that count as a write loop (kind `write-loop`). |
+| `queryguard_unused_eager_load` | `off`, `warn`, `fail` | `off` | Experimental. Reports relationships a test eager-loads and never reads (kind `unused-eager-load`); `warn` only warns, `fail` fails the test in `fail` mode. See [docs/unused-eager-load.md](unused-eager-load.md). |
+| `queryguard_fail_on` | kinds or `fnmatch` patterns, one per line | empty (all kinds) | The finding kinds that fail a test in `fail` mode; the other kinds are reported as `QueryGuardWarning` and the test passes. For example `relationship-load` alone. Budgets always fail. |
+| `queryguard_column_load_threshold` | integer ≥ 2 | `5` | Number of different instances of one class that must load deferred or expired columns on their own to count as N+1. |
+| `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
+| `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](ignoring.md). |
+| `queryguard_baseline` | path | empty | Baseline file, relative to the rootdir: findings listed in it do not fail or warn, see [Baseline](baseline.md). |
+| `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer, and `SELECT`, `UPDATE` and `DELETE` on SQLite). |
+| `queryguard_index_advisor` | `true`, `false` | `true` | Suggests an index for each missing-index finding, see [Index advisor](index-advisor.md). Used with the index check. |
+| `queryguard_hypopg` | `auto`, `on`, `off` | `auto` | Verifies the suggested indexes with the hypopg extension: `auto` when it is installed, `on` also creates it inside the check's savepoint, `off` never uses it. |
+| `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |
+
+Any invalid value stops pytest with a usage error.
+
+In `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+queryguard_mode = "warn"
+queryguard_relationship_threshold = 3
+queryguard_repeat_threshold = 10
+queryguard_index_check = true
+queryguard_index_ignore_tables = ["countries", "lookup_*"]
+```
+
+With pytest 9 you can use the native TOML table instead:
+
+```toml
+[tool.pytest]
+queryguard_mode = "warn"
+queryguard_relationship_threshold = 3
+queryguard_repeat_threshold = 10
+queryguard_index_check = true
+queryguard_index_ignore_tables = ["countries", "lookup_*"]
+```
+
+`pytest.ini` and `setup.cfg` work as usual.
+
+The warning classes, `pytest_queryguard.QueryGuardWarning` for N+1 and
+missing indexes in `warn` mode and
+`pytest_queryguard.QueryGuardInternalWarning` for an internal error, work
+with pytest's usual warning filters. For example, to turn these warnings
+back into failures for one job:
+
+```toml
+[tool.pytest.ini_options]
+queryguard_mode = "warn"
+filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]
+```
+
+Command-line options:
+
+| Option | Meaning |
+|---|---|
+| `--queryguard-mode=fail\|warn\|off` | Overrides `queryguard_mode` for this run. |
+| `--queryguard-report` | Prints the 10 tests with the most queries at the end of the session. |
+| `--queryguard-baseline=PATH` | Baseline file for this run; overrides `queryguard_baseline`. |
+| `--queryguard-sarif=PATH` | Writes the findings of this run to `PATH` as SARIF 2.1.0. |
+| `--queryguard-update-baseline` | Writes the findings of this run to the baseline file instead of reporting them. |
+| `--queryguard-index-check` | Turns the missing-index check on for this run. |
+| `--no-queryguard-index-check` | Turns the missing-index check off for this run, whatever `queryguard_index_check` says. |
+
+
+## Markers
+
+| Marker | Meaning |
+|---|---|
+| `max_queries(n)` | Fails the test if it runs more than `n` SQL statements. See [Budgets and timing](budgets.md). |
+| `max_db_time(seconds)` | Fails the test if its statements take more than that many seconds in total. |
+| `allow_nplusone(*labels, kind=..., file=..., function=...)` | Leaves out findings: all of them without arguments, or only those that match the `fnmatch` patterns. See [Ignoring findings](ignoring.md). |
+| `allow_missing_index(*tables)` | Skips the missing-index check for the test, or only for the given tables. `allow_nplusone` does not affect the index check. |

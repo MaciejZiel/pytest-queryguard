@@ -1,15 +1,28 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "pytest-queryguard",
-  "description": "pytest plugin that detects N+1 queries and enforces query budgets for SQLAlchemy 2 (sync, async, FastAPI), with an opt-in PostgreSQL missing-index check.",
-  "folders": [],
-  "excludeFolders": ["docs", "tests", ".github"],
-  "excludeFiles": ["CHANGELOG.md", "3rdparty_licenses.md"],
+  "description": "pytest plugin that detects N+1 queries, repeated statements, deferred column loads and row-by-row writes, enforces query and database-time budgets for SQLAlchemy 2 (sync, async, FastAPI), and has an opt-in missing-index check for PostgreSQL and SQLite with an index advisor.",
+  "folders": [
+    "docs",
+    "examples"
+  ],
+  "excludeFolders": [
+    "tests",
+    "scripts",
+    ".github",
+    "action"
+  ],
+  "excludeFiles": [
+    "CHANGELOG.md",
+    "3rdparty_licenses.md"
+  ],
   "rules": [
-    "Install with pip install pytest-queryguard; the plugin registers itself, nothing to import or configure.",
-    "Fix a reported relationship N+1 by loading the relationship with the parent query, e.g. select(Order).options(selectinload(Order.customer)).",
-    "Use @pytest.mark.max_queries(n) or the pytest_queryguard.max_queries(n) context manager to set a query budget; budgets also catch write loops.",
-    "Exclude small lookup tables from the missing-index check with queryguard_index_ignore_tables or @pytest.mark.allow_missing_index instead of turning the check off.",
-    "The missing-index check needs PostgreSQL 16 or newer and a sync engine."
+    "Install with pip install pytest-queryguard; the plugin registers itself, nothing to import or configure. Every test body is checked by default.",
+    "Fix a reported relationship N+1 by loading the relationship with the parent query: joinedload for a many-to-one relationship, selectinload for a collection, e.g. select(Order).options(joinedload(Order.customer)).",
+    "Use @pytest.mark.max_queries(n) or the pytest_queryguard.max_queries(n) context manager for a query budget, and max_db_time(seconds) for a database-time budget.",
+    "Leave out a finding with @pytest.mark.allow_nplusone('Order.customer') or queryguard_ignore; for an existing project record a baseline with --queryguard-baseline=PATH --queryguard-update-baseline instead of disabling the plugin.",
+    "Findings have kinds: relationship-load, repeated-statement, column-load, write-loop, unused-eager-load (experimental) and missing-index; queryguard_fail_on chooses which kinds fail a test.",
+    "The missing-index check is off by default (--queryguard-index-check or queryguard_index_check = true). It needs PostgreSQL 16 or newer (sync engine or asyncpg), or SQLite. Exclude small lookup tables with queryguard_index_ignore_tables or @pytest.mark.allow_missing_index instead of turning the check off.",
+    "Write SARIF for GitHub code scanning with --queryguard-sarif=PATH."
   ]
 }
