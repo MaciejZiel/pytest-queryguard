@@ -25,6 +25,10 @@ class StatementEvent:
     # True when the statement loaded columns of an instance that already
     # existed (a deferred column, or attributes expired by commit or expire()).
     column_load: bool = False
+    # True when the statement is the lazy load of `relationship`; False for the
+    # query of an eager loader (selectinload, subqueryload) that carries the
+    # same relationship label.
+    lazy_load: bool = False
     # The bound parameters as the driver got them (not copied); None for
     # executemany, which can be large. Compared by the small-repeat rule.
     parameters: object = None

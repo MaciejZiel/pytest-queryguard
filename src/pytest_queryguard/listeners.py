@@ -111,20 +111,26 @@ def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None
         setattr(connection, _SCOPE_ATTR, scope_of_session(session))
 
 
-def _set_pending(name: str | None, column_load: ColumnLoadEvent | None = None) -> None:
+def _set_pending(
+    name: str | None,
+    column_load: ColumnLoadEvent | None = None,
+    lazy: bool = False,
+) -> None:
     if name is None and column_load is None:
         _local.pending = None
     else:
-        _local.pending = (collector.generation(), name, column_load)
+        _local.pending = (collector.generation(), name, column_load, lazy)
 
 
-def _take_pending() -> tuple[str | None, ColumnLoadEvent | None]:
-    """(relationship, column load) of the ORM execution the next statement belongs to."""
+def _take_pending() -> tuple[str | None, ColumnLoadEvent | None, bool]:
+    """(relationship, column load, lazy) of the ORM execution the next statement
+    belongs to. ``lazy`` is True for a lazy load, False for the query of an eager
+    loader such as selectinload, which carries the same relationship label."""
     pending = getattr(_local, "pending", None)
     _local.pending = None
     if pending is not None and pending[0] == collector.generation():
-        return pending[1], pending[2]
-    return None, None
+        return pending[1], pending[2], pending[3]
+    return None, None, False
 
 
 def _reset_for_tests() -> None:
@@ -196,7 +202,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             key = parent.identity_key
             if key is None:
                 key = id(parent)
-        _set_pending(name)
+        _set_pending(name, lazy=parent is not None)
         site = find_callsite()
         load = RelationshipLoadEvent(
             name, key, site, scalar, scope_of_session(state.session)
@@ -237,9 +243,9 @@ def _on_cursor_execute(
         # SELECT. Loads are reads: leave the pending attribution for the SELECT.
         write = _is_write(statement)
         if write:
-            relationship, column_load = None, None
+            relationship, column_load, lazy = None, None, False
         else:
-            relationship, column_load = _take_pending()
+            relationship, column_load, lazy = _take_pending()
         if column_load is not None:
             column_load.sql = statement
         stmt = StatementEvent(
@@ -247,6 +253,7 @@ def _on_cursor_execute(
             find_callsite(),
             relationship,
             column_load=column_load is not None,
+            lazy_load=lazy,
             parameters=None if executemany else parameters,
             executemany=bool(executemany),
             flush=find_flush() if write else None,
