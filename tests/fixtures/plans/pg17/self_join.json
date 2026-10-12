@@ -1,0 +1,124 @@
+{
+ "query": "SELECT o2.* FROM orders o1 JOIN orders o2 ON o2.customer_id = o1.customer_id WHERE o1.id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Hash Join",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Inner",
+    "Startup Cost": 10000000008.3,
+    "Total Cost": 10000000023.73,
+    "Plan Rows": 10,
+    "Plan Width": 93,
+    "Output": [
+     "o2.id",
+     "o2.customer_id",
+     "o2.status",
+     "o2.total",
+     "o2.created_at",
+     "o2.tags",
+     "o2.data",
+     "o2.note",
+     "o2.kind"
+    ],
+    "Inner Unique": true,
+    "Hash Cond": "(o2.customer_id = o1.customer_id)",
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "o2",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000014.0,
+      "Plan Rows": 500,
+      "Plan Width": 93,
+      "Output": [
+       "o2.id",
+       "o2.customer_id",
+       "o2.status",
+       "o2.total",
+       "o2.created_at",
+       "o2.tags",
+       "o2.data",
+       "o2.note",
+       "o2.kind"
+      ]
+     },
+     {
+      "Node Type": "Hash",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 8.29,
+      "Total Cost": 8.29,
+      "Plan Rows": 1,
+      "Plan Width": 4,
+      "Output": [
+       "o1.customer_id"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "orders_pkey",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "o1",
+        "Startup Cost": 0.27,
+        "Total Cost": 8.29,
+        "Plan Rows": 1,
+        "Plan Width": 4,
+        "Output": [
+         "o1.customer_id"
+        ],
+        "Index Cond": "(o1.id = $1)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 12,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [
+   [
+    "public",
+    "orders_pkey",
+    "id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}
