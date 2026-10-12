@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+### Fixed
+
+- An error inside the `after_begin` listener (which tags a connection with
+  its Session for `queryguard_repeat_scope = session`) no longer escapes into
+  the user's `Session.begin()`; like every other listener it now stops the
+  measurement with a `QueryGuardInternalWarning`.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added

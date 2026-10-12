@@ -106,9 +106,14 @@ def scope_of_connection(conn: Any) -> int | None:
 
 def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
     """Tell the connection which Session it serves, for every transaction."""
-    # Without the tag the connection counts as a scope of its own.
-    with contextlib.suppress(AttributeError, TypeError):
-        setattr(connection, _SCOPE_ATTR, scope_of_session(session))
+    if _error is not None:
+        return
+    try:
+        # Without the tag the connection counts as a scope of its own.
+        with contextlib.suppress(AttributeError, TypeError):
+            setattr(connection, _SCOPE_ATTR, scope_of_session(session))
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "after_begin listener (session scopes)")
 
 
 def _set_pending(name: str | None, column_load: ColumnLoadEvent | None = None) -> None:
