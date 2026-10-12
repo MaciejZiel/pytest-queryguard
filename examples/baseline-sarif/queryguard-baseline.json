@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "kind": "relationship-load",
+      "label": "Book.author",
+      "file": "app/books.py",
+      "function": "titles_with_authors"
+    },
+    {
+      "kind": "repeated-statement",
+      "label": "SELECT author.id, author.name FROM author WHERE author.id = ?",
+      "file": "app/books.py",
+      "function": "authors_by_id"
+    }
+  ]
+}
