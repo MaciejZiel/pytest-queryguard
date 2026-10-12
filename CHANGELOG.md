@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Docs: the index-check page no longer shows Markdown source from the
+  partial-index paragraph on; a wrapped line began with `<table>`, which
+  Python-Markdown read as raw HTML. A test now fails when a built page holds
+  unrendered Markdown ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)).
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
