@@ -54,7 +54,7 @@ import pytest
 from pytest_queryguard import max_queries
 
 
-@pytest.mark.max_queries(3)  # or max_queries(n=3)
+@pytest.mark.max_queries(3)  # or max_queries(limit=3)
 def test_order_page(client):
     client.get("/orders/1")
 
