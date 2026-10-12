@@ -33,6 +33,10 @@ class StatementEvent:
     # Which ORM flush issued the statement (a number, the same for every
     # statement of one flush); None for a statement outside a flush.
     flush: int | None = None
+    # The Session (or, without one, the connection checkout) the statement ran
+    # in: a number, the same for every statement of that Session. None when
+    # unknown. See listeners.scope_of_connection().
+    scope: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +45,7 @@ class RelationshipLoadEvent:
     parent_key: object
     callsite: CallSite | None
     scalar: bool = False  # many-to-one or one-to-one, not a collection
+    scope: int | None = None  # the Session that lazy-loaded it
 
 
 # What made the instance load columns again.
@@ -59,6 +64,7 @@ class ColumnLoadEvent:
     instance_key: object
     callsite: CallSite | None
     sql: str | None = None  # set when the statement runs
+    scope: int | None = None  # the Session that loaded the columns
 
 
 @dataclass(frozen=True, slots=True)

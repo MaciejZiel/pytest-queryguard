@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import TypeVar
 
 from .collector import QueryCollector
-from .events import CAUSE_DEFERRED, CallSite, ColumnLoadEvent, StatementEvent
+from .events import (
+    CAUSE_DEFERRED,
+    CallSite,
+    ColumnLoadEvent,
+    RelationshipLoadEvent,
+    StatementEvent,
+)
 
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
@@ -39,6 +46,13 @@ _RANGE = re.compile(r"[<>]=?\s*(?:\?|%s|%\(\w+\)s|:\w+|\$\d+)")
 # high as the repeat rule, because touching a few objects after a commit is
 # ordinary test code.
 DEFAULT_COLUMN_LOAD_THRESHOLD = 5
+_T = TypeVar("_T")
+
+# How the count rules group what they count: one group per test, or one per
+# Session (or connection checkout). See docs/how-detection-works.md.
+SCOPE_TEST = "test"
+SCOPE_SESSION = "session"
+SCOPES = (SCOPE_TEST, SCOPE_SESSION)
 
 
 def collapse_lists(sql: str) -> str:
@@ -63,6 +77,10 @@ class RelationshipFinding:
     first: CallSite | None
     sample_sql: str | None
     scalar: bool = False  # many-to-one or one-to-one: joinedload, not selectinload
+    # With scope "test": how many Sessions the loads came from. With scope
+    # "session" it stays 1 and ``scoped`` is set: the count is for one Session.
+    scopes: int = 1
+    scoped: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +91,9 @@ class RepeatFinding:
     # Found by the small-repeat rule: a few runs from one line, each with
     # different parameters, below the repeat threshold.
     varying: bool = False
+    # See RelationshipFinding: Sessions or connection checkouts counted over.
+    scopes: int = 1
+    scoped: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +104,8 @@ class WriteLoopFinding:
     verb: str  # "INSERT", "UPDATE" or "DELETE"
     count: int
     first: CallSite | None
+    scopes: int = 1
+    scoped: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +119,8 @@ class ColumnLoadFinding:
     instances: int  # distinct instances
     first: CallSite | None
     sample_sql: str | None
+    scopes: int = 1
+    scoped: bool = False
 
     @property
     def label(self) -> str:
@@ -109,38 +134,66 @@ Detection = RelationshipFinding | RepeatFinding | ColumnLoadFinding | WriteLoopF
 Finding = Detection
 
 
+def _split(
+    items: Sequence[_T], scope: Callable[[_T], object], scoped: bool
+) -> list[list[_T]]:
+    """One group with everything, or one group per scope (in order of first use)."""
+    if not scoped:
+        return [list(items)]
+    groups: dict[object, list[_T]] = {}
+    for item in items:
+        groups.setdefault(scope(item), []).append(item)
+    return list(groups.values())
+
+
+def _scope_count(items: Sequence[_T], scope: Callable[[_T], object]) -> int:
+    return len({scope(item) for item in items})
+
+
 def _relationship_findings(
-    collector: QueryCollector, threshold: int
+    collector: QueryCollector, threshold: int, scoped: bool = False
 ) -> list[RelationshipFinding]:
-    parents: dict[str, set[object]] = {}
-    counts: Counter[str] = Counter()
-    first: dict[str, CallSite | None] = {}
-    scalar: dict[str, bool] = {}
+    by_name: dict[str, list[RelationshipLoadEvent]] = {}
     for load in collector.relationship_loads:
-        if load.parent_key is None:
+        if load.parent_key is not None:
+            by_name.setdefault(load.relationship, []).append(load)
+    found: list[RelationshipFinding] = []
+    for name, loads in by_name.items():
+        best: list[RelationshipLoadEvent] | None = None
+        best_parents = 0
+        for group in _split(loads, lambda load: load.scope, scoped):
+            parents = len({load.parent_key for load in group})
+            if parents >= threshold and parents > best_parents:
+                best, best_parents = group, parents
+        if best is None:
             continue
-        name = load.relationship
-        parents.setdefault(name, set()).add(load.parent_key)
-        counts[name] += 1
-        if first.get(name) is None:
-            first[name] = load.callsite
-        scalar[name] = load.scalar
-    samples: dict[str, str] = {}
-    for stmt in collector.statements:
-        if stmt.relationship is not None:
-            samples.setdefault(stmt.relationship, stmt.sql)
-    found = [
-        RelationshipFinding(
-            name, counts[name], first[name], samples.get(name), scalar[name]
+        scope = best[0].scope
+        sample = None
+        for stmt in collector.statements:
+            if stmt.relationship != name:
+                continue
+            if sample is None:
+                sample = stmt.sql
+            if not scoped or stmt.scope == scope:
+                sample = stmt.sql
+                break
+        site = next((load.callsite for load in best if load.callsite), None)
+        found.append(
+            RelationshipFinding(
+                name,
+                len(best),
+                site,
+                sample,
+                best[-1].scalar,
+                1 if scoped else _scope_count(best, lambda load: load.scope),
+                scoped,
+            )
         )
-        for name, keys in parents.items()
-        if len(keys) >= threshold
-    ]
     return sorted(found, key=lambda f: -f.count)
 
 
 def _column_load_findings(
-    collector: QueryCollector, threshold: int
+    collector: QueryCollector, threshold: int, scoped: bool = False
 ) -> list[ColumnLoadFinding]:
     groups: dict[tuple[str, tuple[str, ...], str], list[ColumnLoadEvent]] = {}
     for load in collector.column_loads:
@@ -150,14 +203,29 @@ def _column_load_findings(
             attrs = load.attributes
         groups.setdefault((load.owner, attrs, load.cause), []).append(load)
     found: list[ColumnLoadFinding] = []
-    for (owner, attrs, cause), loads in groups.items():
-        keys = {load.instance_key for load in loads}
-        if len(keys) < threshold:
+    for (owner, attrs, cause), all_loads in groups.items():
+        best: list[ColumnLoadEvent] | None = None
+        best_keys = 0
+        for loads in _split(all_loads, lambda load: load.scope, scoped):
+            keys = len({load.instance_key for load in loads})
+            if keys >= threshold and keys > best_keys:
+                best, best_keys = loads, keys
+        if best is None:
             continue
-        site = next((load.callsite for load in loads if load.callsite), None)
-        sample = next((load.sql for load in loads if load.sql), None)
+        site = next((load.callsite for load in best if load.callsite), None)
+        sample = next((load.sql for load in best if load.sql), None)
         found.append(
-            ColumnLoadFinding(owner, attrs, cause, len(loads), len(keys), site, sample)
+            ColumnLoadFinding(
+                owner,
+                attrs,
+                cause,
+                len(best),
+                best_keys,
+                site,
+                sample,
+                1 if scoped else _scope_count(best, lambda load: load.scope),
+                scoped,
+            )
         )
     return sorted(found, key=lambda f: -f.count)
 
@@ -193,7 +261,7 @@ def _value_rows(sql: str) -> int:
 
 
 def _write_loop_findings(
-    collector: QueryCollector, threshold: int
+    collector: QueryCollector, threshold: int, scoped: bool = False
 ) -> list[WriteLoopFinding]:
     """The same write, one row per statement, from one line.
 
@@ -211,15 +279,31 @@ def _write_loop_findings(
         where = None if site is None else (site.filename, site.lineno)
         groups.setdefault((normalize(stmt.sql), where), []).append(stmt)
     found = []
-    for (sql, _), stmts in groups.items():
-        # All statements of one ORM flush count as one write: the unit of work
-        # sends them one by one on a dialect without insertmanyvalues, and the
-        # code can only call flush() less often, not batch them further.
-        flushes = {s.flush for s in stmts if s.flush is not None}
-        count = len(flushes) + sum(1 for s in stmts if s.flush is None)
-        if count >= threshold:
-            verb = stmts[0].sql.lstrip().split(None, 1)[0].upper()
-            found.append(WriteLoopFinding(sql, verb, count, stmts[0].callsite))
+    for (sql, _), all_stmts in groups.items():
+        best: list[StatementEvent] | None = None
+        best_count = 0
+        for stmts in _split(all_stmts, lambda s: s.scope, scoped):
+            # All statements of one ORM flush count as one write: the unit of
+            # work sends them one by one on a dialect without insertmanyvalues,
+            # and the code can only call flush() less often, not batch them
+            # further.
+            flushes = {s.flush for s in stmts if s.flush is not None}
+            count = len(flushes) + sum(1 for s in stmts if s.flush is None)
+            if count >= threshold and count > best_count:
+                best, best_count = stmts, count
+        if best is None:
+            continue
+        verb = best[0].sql.lstrip().split(None, 1)[0].upper()
+        found.append(
+            WriteLoopFinding(
+                sql,
+                verb,
+                best_count,
+                best[0].callsite,
+                1 if scoped else _scope_count(best, lambda s: s.scope),
+                scoped,
+            )
+        )
     return sorted(found, key=lambda f: -f.count)
 
 
@@ -229,8 +313,24 @@ def _paginates(sql: str) -> bool:
     return bool(_LIMIT.search(sql) and _RANGE.search(sql))
 
 
+def _repeat_groups(collector: QueryCollector) -> dict[str, list[StatementEvent]]:
+    """The statements the repeat rules count, by normalized text."""
+    groups: dict[str, list[StatementEvent]] = {}
+    for stmt in collector.statements:
+        if stmt.relationship is not None or stmt.column_load:
+            continue
+        if stmt.sql.lstrip().upper().startswith(_WRITES):
+            continue
+        groups.setdefault(normalize(stmt.sql), []).append(stmt)
+    return groups
+
+
 def _small_repeat_findings(
-    collector: QueryCollector, small: int, threshold: int
+    collector: QueryCollector,
+    small: int,
+    threshold: int,
+    scoped: bool = False,
+    skip: frozenset[str] = frozenset(),
 ) -> list[RepeatFinding]:
     """A few runs of one statement from one line, each with other parameters.
 
@@ -239,44 +339,59 @@ def _small_repeat_findings(
     one call site and a different set of parameters (or literals) each time,
     and leaves pagination alone.
     """
-    groups: dict[str, list[StatementEvent]] = {}
-    for stmt in collector.statements:
-        if stmt.relationship is not None or stmt.column_load:
-            continue
-        if stmt.sql.lstrip().upper().startswith(_WRITES) or _paginates(stmt.sql):
-            continue
-        groups.setdefault(normalize(stmt.sql), []).append(stmt)
     found: list[RepeatFinding] = []
-    for key, stmts in groups.items():
-        if not small <= len(stmts) < threshold:
+    for key, all_stmts in _repeat_groups(collector).items():
+        if key in skip or _paginates(all_stmts[0].sql):
             continue
-        sites = {
-            (s.callsite.filename, s.callsite.lineno) if s.callsite else None
-            for s in stmts
-        }
-        if len(sites) != 1 or None in sites:
-            continue
-        runs = {(_WS.sub(" ", s.sql), repr(s.parameters)) for s in stmts}
-        if len(runs) == len(stmts):
-            found.append(RepeatFinding(key, len(stmts), stmts[0].callsite, True))
+        best: list[StatementEvent] | None = None
+        for stmts in _split(all_stmts, lambda s: s.scope, scoped):
+            if not small <= len(stmts) < threshold:
+                continue
+            sites = {
+                (s.callsite.filename, s.callsite.lineno) if s.callsite else None
+                for s in stmts
+            }
+            if len(sites) != 1 or None in sites:
+                continue
+            runs = {(_WS.sub(" ", s.sql), repr(s.parameters)) for s in stmts}
+            if len(runs) == len(stmts) and (best is None or len(stmts) > len(best)):
+                best = stmts
+        if best is not None:
+            found.append(
+                RepeatFinding(
+                    key,
+                    len(best),
+                    best[0].callsite,
+                    True,
+                    1 if scoped else _scope_count(best, lambda s: s.scope),
+                    scoped,
+                )
+            )
     return sorted(found, key=lambda f: -f.count)
 
 
-def _repeat_findings(collector: QueryCollector, threshold: int) -> list[RepeatFinding]:
-    counts: Counter[str] = Counter()
-    first: dict[str, CallSite | None] = {}
-    for stmt in collector.statements:
-        if stmt.relationship is not None or stmt.column_load:
+def _repeat_findings(
+    collector: QueryCollector, threshold: int, scoped: bool = False
+) -> list[RepeatFinding]:
+    found: list[RepeatFinding] = []
+    for key, all_stmts in _repeat_groups(collector).items():
+        best: list[StatementEvent] | None = None
+        for stmts in _split(all_stmts, lambda s: s.scope, scoped):
+            if len(stmts) >= threshold and (best is None or len(stmts) > len(best)):
+                best = stmts
+        if best is None:
             continue
-        if stmt.sql.lstrip().upper().startswith(_WRITES):
-            continue
-        key = normalize(stmt.sql)
-        counts[key] += 1
-        if first.get(key) is None:
-            first[key] = stmt.callsite
-    found = [
-        RepeatFinding(sql, n, first[sql]) for sql, n in counts.items() if n >= threshold
-    ]
+        site = next((s.callsite for s in best if s.callsite), None)
+        found.append(
+            RepeatFinding(
+                key,
+                len(best),
+                site,
+                False,
+                1 if scoped else _scope_count(best, lambda s: s.scope),
+                scoped,
+            )
+        )
     return sorted(found, key=lambda f: -f.count)
 
 
@@ -288,15 +403,25 @@ def detect(
     column_load_threshold: int = DEFAULT_COLUMN_LOAD_THRESHOLD,
     small_repeat_threshold: int | None = None,
     write_loop_threshold: int | None = None,
+    scope: str = SCOPE_TEST,
 ) -> list[Detection]:
+    """Run the count rules; ``scope`` is "test" (all) or "session" (per Session)."""
+    scoped = scope == SCOPE_SESSION
     findings: list[Detection] = []
-    findings.extend(_relationship_findings(collector, relationship_threshold))
-    findings.extend(_column_load_findings(collector, column_load_threshold))
-    findings.extend(_repeat_findings(collector, repeat_threshold))
+    findings.extend(_relationship_findings(collector, relationship_threshold, scoped))
+    findings.extend(_column_load_findings(collector, column_load_threshold, scoped))
+    repeats = _repeat_findings(collector, repeat_threshold, scoped)
+    findings.extend(repeats)
     if small_repeat_threshold is not None and small_repeat_threshold < repeat_threshold:
         findings.extend(
-            _small_repeat_findings(collector, small_repeat_threshold, repeat_threshold)
+            _small_repeat_findings(
+                collector,
+                small_repeat_threshold,
+                repeat_threshold,
+                scoped,
+                frozenset(f.sql for f in repeats),
+            )
         )
     if write_loop_threshold is not None:
-        findings.extend(_write_loop_findings(collector, write_loop_threshold))
+        findings.extend(_write_loop_findings(collector, write_loop_threshold, scoped))
     return findings
