@@ -23,6 +23,7 @@ from .messages import (
     format_findings,
     format_index_findings,
     format_index_notes,
+    format_truncation,
     make_findings,
     swap_root,
 )
@@ -39,6 +40,9 @@ _settings = pytest.StashKey["_Settings"]()
 _report = pytest.StashKey[list[tuple[str, int]]]()
 _index_notes = pytest.StashKey["_IndexNotes"]()
 _REPORT_SIZE = 10
+# Statements and relationship loads stored per test; generous, a test that
+# needs more is far past any N+1 threshold already.
+DEFAULT_MAX_EVENTS = 10_000
 
 
 class _Settings:
@@ -49,12 +53,14 @@ class _Settings:
         repeat: int,
         index_check: bool = False,
         ignore_tables: tuple[str, ...] = (),
+        max_events: int | None = DEFAULT_MAX_EVENTS,
     ) -> None:
         self.mode = mode
         self.relationship = relationship
         self.repeat = repeat
         self.index_check = index_check
         self.ignore_tables = ignore_tables
+        self.max_events = max_events
 
 
 class _IndexNotes:
@@ -117,6 +123,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         **_INT_TYPE,
     )
     parser.addini(
+        "queryguard_max_events",
+        "Statements stored per test for the report (integer >= 1, or 0 for no limit); "
+        "beyond it they are only counted",
+        default=DEFAULT_MAX_EVENTS if _NATIVE_INT else str(DEFAULT_MAX_EVENTS),
+        **_INT_TYPE,
+    )
+    parser.addini(
         "queryguard_index_check",
         "Check each SELECT for a missing index (PostgreSQL 16 or newer)",
         type="bool",
@@ -144,6 +157,21 @@ def _threshold(config: pytest.Config, name: str) -> int:
         shown = detail or f", got {raw!r}"
         raise pytest.UsageError(f"{name} must be an integer >= 2{shown}")
     return value
+
+
+def _max_events(config: pytest.Config) -> int | None:
+    name = "queryguard_max_events"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be an integer >= 0: {exc}") from None
+    try:
+        value = -1 if isinstance(raw, bool) else int(raw)
+    except (TypeError, ValueError):
+        value = -1
+    if value < 0:
+        raise pytest.UsageError(f"{name} must be an integer >= 0, got {raw!r}")
+    return value or None
 
 
 def _index_check(config: pytest.Config) -> bool:
@@ -194,6 +222,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _threshold(config, "queryguard_repeat_threshold"),
         _index_check(config),
         _ignore_tables(config),
+        _max_events(config),
     )
 
 
@@ -268,7 +297,10 @@ def _analyse(
         )
         if not findings:
             return None
-        return format_findings(findings, cwd=root)
+        report = format_findings(findings, cwd=root)
+        if collector.truncated and settings.max_events is not None:
+            report += "\n\n" + format_truncation(settings.max_events)
+        return report
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc)
         return None
@@ -351,9 +383,14 @@ def _budget_report(
 ) -> str | None:
     """The budget failure text, or None; a bug here never fails the test."""
     try:
-        if len(collector.statements) <= limit:
+        if collector.statement_count <= limit:
             return None
-        return format_budget(limit, collector.statements, cwd=item.config.rootpath)
+        return format_budget(
+            limit,
+            collector.statements,
+            cwd=item.config.rootpath,
+            total=collector.statement_count,
+        )
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc)
         return None
@@ -365,7 +402,7 @@ def _record(item: pytest.Item, collector: QueryCollector, settings: _Settings) -
     # After an internal error the listeners stop recording, so a count would be wrong.
     if counts is None or settings.mode == "off" or internal_error() is not None:
         return
-    counts.append((item.nodeid, len(collector.statements)))
+    counts.append((item.nodeid, collector.statement_count))
 
 
 def _write_report(
@@ -440,6 +477,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     if limit is not None:
         install()  # idempotent; budgets also work when the mode is off
     collector = QueryCollector()
+    collector.max_events = settings.max_events
     collector.index_check = index_check and not exempt_all
     push(collector)
     try:
