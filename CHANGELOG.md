@@ -167,6 +167,8 @@ listed first under "Changed" as behavior changes, with how to turn them off.
 - `queryguard_index_check` now also checks SQLite. A project that turned the check
   on and ran its tests on SQLite used to get a "not checked" notice and now gets
   findings, which fail tests in `fail` mode.
+- Durations below one millisecond are printed in microseconds (`37 us`) instead of
+  `0.0 ms` in the report and in budget failures.
 - The hint for a lazy-loaded many-to-one or one-to-one relationship is now
   `joinedload(...)`; collections still get `selectinload(...)`.
 - A test stores at most 10000 statements and 10000 relationship loads for its
