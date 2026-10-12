@@ -104,9 +104,9 @@ defaults, labels or messages, or remove them, with a changelog entry under
 - The missing-index check on MySQL and MariaDB (tested by hand, not in CI; see
   [the MySQL and MariaDB page](index-check-mysql.md)).
 
-Everything else on this page is stable. `tests/test_public_api.py` also
-snapshots the experimental names, so a change to them is still deliberate and
-visible in review.
+Everything else listed under "What is public" follows the deprecation policy.
+`tests/test_public_api.py` still snapshots the experimental ini option and its
+default, so a change to it is deliberate and visible in review.
 
 ## How this is enforced
 
