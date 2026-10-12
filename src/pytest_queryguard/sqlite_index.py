@@ -594,7 +594,7 @@ def _kind(access: _Access) -> str | None:
     return None  # VIRTUAL TABLE INDEX and shapes this code does not know
 
 
-_AUTOMATIC_COLUMNS = re.compile(r"\((?P<terms>[^()]*)\)\s*$")
+_AUTOMATIC_COLUMNS = re.compile(r"\((?P<terms>[^()]*)\)(?:\s+LEFT-JOIN)?\s*$")
 _TERM = re.compile(r"\s*(?P<name>.+?)\s*(?:=|>=|<=|>|<|IS)\s*\?\s*", re.IGNORECASE)
 
 
@@ -817,7 +817,8 @@ def _issue(
         cols = _automatic_columns(access)
         shown = [declared.get(c.lower(), c) for c in cols] if cols else None
         joined = any(a.other is not None for a in atoms)
-        condition = access.using.rsplit("(", 1)[-1].rstrip(") ") if cols else ""
+        terms = _AUTOMATIC_COLUMNS.search(access.using)
+        condition = terms["terms"] if cols and terms else ""
         return ScanIssue(
             None,
             table,

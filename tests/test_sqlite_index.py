@@ -717,3 +717,20 @@ def test_a_failing_schema_lookup_is_an_explain_error() -> None:
     assert target.explain_errors == [
         ("database disk image is malformed", "SELECT * FROM orders WHERE a = ?")
     ]
+
+
+def test_automatic_index_of_a_left_join(db: sqlite3.Connection) -> None:
+    # Newer SQLite ends the detail with LEFT-JOIN.
+    sql = "SELECT * FROM tags t LEFT JOIN orders o ON o.customer_id = t.order_id"
+    schema = si.Schema(db.cursor())
+    rows = [
+        (3, 0, 0, "SCAN t"),
+        (9, 0, 0, "SEARCH o USING AUTOMATIC COVERING INDEX (customer_id=?) LEFT-JOIN"),
+    ]
+    found = si.analyse(rows, sql, schema)
+    assert [(i.table, i.column, i.condition) for i in found] == [
+        ("orders", "customer_id", "customer_id=?")
+    ]
+    plan = [r[3] for r in db.execute("EXPLAIN QUERY PLAN " + sql)]
+    if any("AUTOMATIC" in d for d in plan):  # the real plan, whatever its text
+        assert [i.table for i in issues(db, sql)] == ["orders"]
