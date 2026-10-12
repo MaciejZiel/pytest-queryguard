@@ -80,7 +80,9 @@ def test_the_changelog_lists_default_changes_first() -> None:
     """Defaults changed by a new check are named at the top of the entry and
     are the first things under "Changed", as the pre-1.0 clause requires."""
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    entry = log.split("\n## [Unreleased]")[1].split("\n## [")[0]
+    # The newest entry that has content: [Unreleased] while a release is being
+    # prepared, the latest version once it has been cut.
+    entry = next(part for part in log.split("\n## [")[1:] if "\n### Added" in part)
     intro, rest = entry.split("\n### Added", 1)
     for phrase in ("column-load", "index advisor", "SQLite"):
         assert phrase in intro, phrase

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0rc1] - 2026-10-12
+
+Release candidate: install it with `pip install --pre pytest-queryguard`.
+
 This release adds baselines, SARIF output and a GitHub Action, per-finding
 ignores, new finding kinds (column loads, write loops, unused eager loads), query
 timing and `max_db_time`, an index advisor, and a missing-index check for SQLite.
@@ -354,7 +358,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc1...HEAD
+[0.4.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.3.0...v0.4.0rc1
 [0.3.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MaciejZiel/pytest-queryguard/tree/v0.1.0
