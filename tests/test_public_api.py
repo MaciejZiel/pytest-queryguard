@@ -240,3 +240,17 @@ def test_exported_classes_still_pickle() -> None:
     assert pickle.loads(pickle.dumps(site)) == site
     error = pickle.loads(pickle.dumps(pytest_queryguard.QueryBudgetExceeded("x")))
     assert type(error) is pytest_queryguard.QueryBudgetExceeded
+
+
+def test_type_hints_of_exported_names_still_resolve() -> None:
+    """``get_type_hints`` looks names up in ``sys.modules[obj.__module__]``.
+
+    With ``__module__`` set to the package, an annotation that names a type
+    the package does not export would stop resolving for classes.
+    """
+    import typing
+
+    for name in pytest_queryguard.__all__:
+        if name == "__version__":
+            continue
+        typing.get_type_hints(getattr(pytest_queryguard, name))
