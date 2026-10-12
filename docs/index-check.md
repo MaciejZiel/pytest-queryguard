@@ -138,8 +138,8 @@ tell whether `... (x) WHERE status = 'open'` serves `status = $1 AND x = $2`
 for the value your test binds. When every column of such an index's
 predicate is filtered by the statement and one of them is compared with a
 parameter, the statement is not reported and gets no advice. The session
-summary counts those statements: `N statements skipped: a partial index on
-<table> may serve them; the generic plan cannot tell`. A predicate that the
+summary counts those statements, with the message `N statements skipped: a
+partial index on <table> may serve them; the generic plan cannot tell`. A predicate that the
 statement fixes with a literal (`deleted_at IS NULL`) is decided by the
 generic plan and is judged as before.
 
