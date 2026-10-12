@@ -92,6 +92,7 @@ distinct statement per test, about 1 ms per statement in the benchmark in
 
 ## Does it work with Django, Peewee or raw SQL?
 
-Not with Django's ORM or Peewee: only SQLAlchemy 2 is supported. Raw SQL that
+Not with Django's ORM or Peewee: only SQLAlchemy 2 is supported (the
+[comparison](comparison.md) lists tools for Django). Raw SQL that
 goes through SQLAlchemy (`text()`, Core) is seen; a raw DB-API connection that
 SQLAlchemy does not manage is not.
