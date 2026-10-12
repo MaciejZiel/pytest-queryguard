@@ -170,13 +170,14 @@ jobs:
 
   # The GitHub Action in action/ on a tiny sample project (examples/action-sample)
   # with one N+1 query: one run that reports it and does not fail, one that
-  # fails, one with the finding in a baseline that uploads to code scanning.
-  # The upload step is skipped by the action on pull requests from forks.
+  # fails, one with the finding in a baseline.
+  # The upload step is skipped by the action on pull requests from forks and
+  # for Dependabot. No step here uploads: a sample upload with no results
+  # makes every pull request say "1 configuration not found" in its checks.
   action:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Report the finding, do not fail
@@ -202,7 +203,11 @@ jobs:
           (result,) = document["runs"][0]["results"]
           assert result["ruleId"] == "queryguard/relationship-load", result
           location = result["locations"][0]["physicalLocation"]
-          assert location["artifactLocation"]["uri"] == "test_books.py", location
+          # pytest runs in examples/action-sample, but GitHub reads the URI
+          # relative to the repository root, so the directory must be in it
+          uri = location["artifactLocation"]["uri"]
+          assert uri == "examples/action-sample/test_books.py", uri
+          assert os.path.isfile(uri), uri
           print("SARIF ok:", result["message"]["text"].splitlines()[0])
           PY
       - name: Fail on the finding
@@ -226,7 +231,7 @@ jobs:
           working-directory: examples/action-sample
           baseline: queryguard-baseline.json
           pytest-args: -v -k "n_plus_one"
-          category: pytest-queryguard-sample
+          upload: "false"
       - name: The baselined run must be clean
         env:
           EXIT_CODE: ${{ steps.baseline.outputs.exit-code }}

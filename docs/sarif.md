@@ -18,8 +18,9 @@ was started from.
 - One result per finding identity (kind, label, file, function), so the same
   finding from several tests is one result, with its counts added up and the
   earliest line.
-- The location is the file relative to the rootdir (forward slashes) and the
-  line of the first occurrence; the function is a logical location.
+- The location is the file and the line of the first occurrence; the function
+  is a logical location. See "Paths and the repository root" below for what
+  the path is relative to.
 - `level` is `error` for a kind that fails tests and `warning` otherwise (see
   `queryguard_mode` and `queryguard_fail_on`).
 - `partialFingerprints` are derived from the finding identity only, not from
@@ -38,6 +39,34 @@ not a real count. This follows the format of the value, but whether GitHub code
 scanning accepts and de-duplicates by an identity digest in that field has not
 been verified. If it does not, the alert would be matched by location as for any
 SARIF without the field.
+
+## Paths and the repository root
+
+GitHub reads `artifactLocation.uri` relative to the root of the repository.
+pytest-queryguard knows files relative to the pytest rootdir, and the two
+differ when pytest runs in a subdirectory (for example the action with
+`working-directory: backend`, where the rootdir is `backend/`). Alerts for
+`test_orders.py` would then point at a file that does not exist in the
+repository and show no annotations on pull requests.
+
+So when the environment variable `GITHUB_WORKSPACE` is set (GitHub Actions
+sets it to the checkout directory) and the rootdir is inside it, the path of
+the rootdir below the workspace is put in front of every URI:
+`backend/test_orders.py`. Both paths are resolved first, so symlinks on either
+side do not matter. When the variable is not set, or the rootdir is outside
+the workspace, the URIs stay relative to the rootdir, as before. The URIs are
+plain relative paths; no `uriBaseId` is written.
+
+This changes only the locations. The finding identity, the baseline and
+`partialFingerprints` are computed from the rootdir-relative path and do not
+change, so existing baseline files keep working and the same finding gets the
+same fingerprint whatever the working directory. For alerts this means: the
+fingerprint no longer depends on where pytest was started, but the URI does,
+so GitHub sees an alert as the same one only while the URI stays the same.
+If you move pytest to another working directory, expect the old alerts to
+close and new ones to open at the new paths. Keep one `category` per job so
+uploads from different jobs do not mix. How GitHub combines the fingerprint
+and the location has not been verified here.
 
 ## What is left out
 

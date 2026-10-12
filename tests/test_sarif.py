@@ -322,3 +322,120 @@ def test_findings_without_a_location_are_counted_in_the_summary(
     result.stdout.fnmatch_lines(
         ["*qg.sarif: 0 results (1 left out: no location inside the rootdir)"]
     )
+
+
+# --- URIs relative to the repository root (GITHUB_WORKSPACE) ---
+
+
+def _uri(document: dict[str, Any]) -> str:
+    location = document["runs"][0]["results"][0]["locations"][0]["physicalLocation"]
+    return location["artifactLocation"]["uri"]  # type: ignore[no-any-return]
+
+
+def test_prefix_for_a_rootdir_below_the_workspace(tmp_path: Path) -> None:
+    root = tmp_path / "validation"
+    root.mkdir()
+    assert sarif.workspace_prefix(root, str(tmp_path)) == "validation"
+    nested = root / "a" / "b"
+    nested.mkdir(parents=True)
+    assert sarif.workspace_prefix(nested, str(tmp_path)) == "validation/a/b"
+
+
+def test_no_prefix_when_rootdir_is_the_workspace(tmp_path: Path) -> None:
+    assert sarif.workspace_prefix(tmp_path, str(tmp_path)) == ""
+
+
+@pytest.mark.parametrize("workspace", [None, "", "  "])
+def test_no_prefix_without_a_workspace(tmp_path: Path, workspace: str | None) -> None:
+    assert sarif.workspace_prefix(tmp_path, workspace) == ""
+
+
+def test_no_prefix_for_a_rootdir_outside_the_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    outside = tmp_path / "elsewhere"
+    workspace.mkdir()
+    outside.mkdir()
+    assert sarif.workspace_prefix(outside, str(workspace)) == ""
+    # a sibling whose name starts like the workspace is still outside
+    sibling = tmp_path / "repo-other"
+    sibling.mkdir()
+    assert sarif.workspace_prefix(sibling, str(workspace)) == ""
+
+
+def test_prefix_resolves_symlinks_on_both_sides(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    (real / "validation").mkdir(parents=True)
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    # workspace given through the link, rootdir through the real path, and back
+    assert sarif.workspace_prefix(real / "validation", str(link)) == "validation"
+    assert sarif.workspace_prefix(link / "validation", str(real)) == "validation"
+    # a rootdir that is a link to a directory inside the workspace
+    inner = tmp_path / "inner"
+    inner.symlink_to(real / "validation", target_is_directory=True)
+    assert sarif.workspace_prefix(inner, str(real)) == "validation"
+
+
+def test_no_rootdir_means_no_prefix(tmp_path: Path) -> None:
+    assert sarif.workspace_prefix(None, str(tmp_path)) == ""
+
+
+def test_the_prefix_changes_the_uri_and_not_the_fingerprints() -> None:
+    store: sarif.Collected = {}
+    sarif.add(store, _finding(), "error")
+    plain, _ = sarif.build(store, "1.2.3")
+    prefixed, _ = sarif.build(store, "1.2.3", "validation")
+    assert _uri(plain) == "app/orders.py"
+    assert _uri(prefixed) == "validation/app/orders.py"
+    assert (
+        plain["runs"][0]["results"][0]["partialFingerprints"]
+        == prefixed["runs"][0]["results"][0]["partialFingerprints"]
+    )
+
+
+def test_the_prefix_does_not_rescue_absolute_paths() -> None:
+    _, omitted = sarif.build(
+        {
+            _finding(file="/usr/lib/x.py").identity: (
+                _finding(file="/usr/lib/x.py"),
+                "error",
+            )
+        },
+        "1",
+        "validation",
+    )
+    assert omitted == 1
+
+
+def test_a_run_below_the_workspace_writes_repository_relative_uris(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the rootdir is the pytester directory; the "repository" is its parent
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(project.path.parent))
+    project.runpytest("--queryguard-sarif=qg.sarif")
+    results = _results(project.path / "qg.sarif")
+    uris = {
+        r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        for r in results
+    }
+    assert uris == {f"{project.path.name}/test_a.py"}
+
+
+def test_a_run_with_the_workspace_at_the_rootdir_is_unchanged(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(project.path))
+    project.runpytest("--queryguard-sarif=qg.sarif")
+    (first, *_) = _results(project.path / "qg.sarif")
+    assert _uri({"runs": [{"results": [first]}]}) == "test_a.py"
+
+
+def test_a_run_outside_the_workspace_falls_back_to_the_rootdir(
+    project: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path_factory.mktemp("elsewhere")))
+    project.runpytest("--queryguard-sarif=qg.sarif")
+    (first, *_) = _results(project.path / "qg.sarif")
+    assert _uri({"runs": [{"results": [first]}]}) == "test_a.py"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import warnings as std_warnings
 from collections.abc import Generator
 from fnmatch import fnmatchcase
@@ -98,6 +99,7 @@ class _Settings:
         self.hypopg = hypopg
         self.baseline_path = baseline_path
         self.sarif_path = sarif_path
+        self.rootpath: Path | None = None  # for the SARIF location prefix
         # findings that count (not ignored, not baselined), for the SARIF file
         self.reported: sarif.Collected = {}
         self.sarif_result: str | None = None
@@ -553,6 +555,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _hypopg(config),
     )
     settings.baseline_previous_error = previous_error
+    settings.rootpath = config.rootpath
     return settings
 
 
@@ -1042,7 +1045,10 @@ def _write_sarif(settings: _Settings) -> None:
     except importlib.metadata.PackageNotFoundError:
         version = "unknown"
     try:
-        document, omitted = sarif.build(settings.reported, version)
+        prefix = sarif.workspace_prefix(
+            settings.rootpath, os.environ.get("GITHUB_WORKSPACE")
+        )
+        document, omitted = sarif.build(settings.reported, version, prefix)
         sarif.write(path, document)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.sarif_failed = f"could not write {path}: {exc}"
