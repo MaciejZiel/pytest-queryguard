@@ -220,7 +220,7 @@ def test_assert_no_nplusone_raises_with_the_plugin_message() -> None:
     assert message.startswith("queryguard: N+1 detected\n\n")
     assert "  Order.customer was lazy-loaded 3 times\n" in message
     assert "tests/test_record_queries.py:" in message
-    assert "select(Order).options(selectinload(Order.customer))" in message
+    assert "select(Order).options(joinedload(Order.customer))" in message
 
 
 def test_assert_no_nplusone_reports_repeated_statements() -> None:
