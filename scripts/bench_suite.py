@@ -13,7 +13,9 @@ pytest process with the plugin disabled (``-p no:queryguard``) and enabled
 (default settings, ``--queryguard-mode=warn`` so a finding cannot fail the
 run), the two interleaved, ``--runs`` times. The time is measured inside
 pytest, from session start to session finish, so interpreter start-up and
-imports are not counted. ``--index-check`` adds the missing-index check;
+imports are not counted. Both the wall clock and the CPU time of the test
+process are printed; the CPU time ignores waiting for the disk or the
+server, so it is steadier. ``--index-check`` adds the missing-index check;
 ``--src`` measures another checkout (to compare two versions).
 """
 
@@ -31,10 +33,10 @@ CONFTEST = """
 import time
 _t = {}
 def pytest_sessionstart(session):
-    _t["s"] = time.perf_counter()
+    _t["s"] = (time.perf_counter(), time.process_time())
 def pytest_sessionfinish(session):
     with open(__import__("os").environ["QG_BENCH_OUT"], "w") as f:
-        f.write(str(time.perf_counter() - _t["s"]))
+        f.write(f"{time.perf_counter() - _t['s'][0]} {time.process_time() - _t['s'][1]}")
 """
 
 TESTS = """
@@ -111,7 +113,7 @@ def test_case(session, engine, n):
 
 def run_once(
     tests: int, url: str, enabled: bool, index_check: bool, src: Path
-) -> float:
+) -> tuple[float, float]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "conftest.py").write_text(CONFTEST)
@@ -151,7 +153,8 @@ def run_once(
         if proc.returncode != 0:
             sys.stderr.write(proc.stdout[-3000:] + proc.stderr[-2000:])
             raise SystemExit("suite failed")
-        return float(out.read_text())
+        wall, cpu = out.read_text().split()
+        return float(wall), float(cpu)
 
 
 def main() -> None:
@@ -177,18 +180,22 @@ def main() -> None:
     for _ in range(args.runs):
         off.append(run_once(args.tests, url, False, False, args.src))
         on.append(run_once(args.tests, url, True, args.index_check, args.src))
-    m_off, m_on = statistics.median(off), statistics.median(on)
     n = args.tests
     print(
         f"{args.backend}: {n} tests, median of {args.runs} runs"
         f"{' (index check on)' if args.index_check else ''}"
     )
-    print(f"  off {m_off:.3f} s ({m_off / n * 1e3:.2f} ms/test)")
-    print(f"  on  {m_on:.3f} s ({m_on / n * 1e3:.2f} ms/test)")
-    print(
-        f"  overhead {m_on - m_off:.3f} s = {(m_on - m_off) / m_off:.1%}; "
-        f"all runs off={[round(x, 2) for x in off]} on={[round(x, 2) for x in on]}"
-    )
+    for label, index in (("wall clock", 0), ("CPU time of the test process", 1)):
+        a = [t[index] for t in off]
+        b = [t[index] for t in on]
+        m_off, m_on = statistics.median(a), statistics.median(b)
+        print(
+            f"  {label}: off {m_off:.3f} s ({m_off / n * 1e3:.2f} ms/test), "
+            f"on {m_on:.3f} s ({m_on / n * 1e3:.2f} ms/test), "
+            f"added {(m_on - m_off) / n * 1e3:.2f} ms/test = {(m_on - m_off) / m_off:.1%}"
+        )
+        print(f"    fastest: off {min(a):.3f} s, on {min(b):.3f} s")
+        print(f"    runs: off={[round(x, 2) for x in a]} on={[round(x, 2) for x in b]}")
 
 
 if __name__ == "__main__":
