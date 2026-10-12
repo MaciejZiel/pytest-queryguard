@@ -114,20 +114,22 @@ the cursor call. `scripts/bench_overhead.py` measures it, and CI compares it
 with a stored baseline.
 
 Measured with `scripts/bench_overhead.py` on an Intel Core i5-13500H, Python
-3.13, SQLAlchemy 2.1.1, median of 7 runs of 5000 statements, each configuration
-in a fresh process, against an **in-memory SQLite** database:
+3.13, SQLAlchemy 2.1.1, median of 15 runs of 5000 statements pinned to one core,
+each configuration in a fresh process, against an **in-memory SQLite** database:
 
 | Per statement | Measurement off | On | Added |
 |---|---|---|---|
-| Core `select` by key | 62.9 us | 86.1 us | +23.1 us (+37 %) |
-| ORM `select` by primary key | 132.0 us | 185.9 us | +53.9 us (+41 %) |
+| Core `select` by key | 41 us | 50 us | +9 us (+22 %) |
+| ORM `select` by primary key | 76 us | 107 us | +31 us (+40 %) |
 
-An earlier run of the same script gave +29 % (Core) and +35 % (ORM), so read
-these as "roughly a third to two fifths" and not as exact figures. The
-percentages are large because an in-memory SQLite statement is almost free:
-the added cost is a fixed 20 to 55 microseconds, and a statement that goes to a
-real database over a network takes milliseconds, so the share is far smaller
-there. These are micro-benchmarks, not a measure of a real test suite.
+Two rounds differ by a few points, so read these as "about a fifth to two
+fifths" and not as exact figures. The percentages are large because an
+in-memory SQLite statement is almost free: the added cost is a fixed 9 to 31
+microseconds, and a statement that goes to a real database takes far longer, so
+the share is much smaller there. These are micro-benchmarks. On a generated
+suite of 300 tests against a file-based SQLite database and against PostgreSQL
+the difference between running with and without the plugin was smaller than the
+run-to-run noise; see [Performance](performance.md) for the method and numbers.
 
 The options that are off by default cost nothing until you turn them on:
 
