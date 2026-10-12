@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Baseline file for existing findings: `queryguard_baseline` (ini) or
+  `--queryguard-baseline=PATH`, and `--queryguard-update-baseline` to write it.
+  A finding whose identity (kind, label, file and function; rootdir-relative
+  paths, no line numbers or counts) is in the file does not fail or warn, for
+  every finding kind. New findings are reported as before, and entries that
+  matched nothing in the run are listed as stale baseline entries. The file is
+  JSON with a `version` field, sorted for clean diffs; a missing, corrupt or
+  unknown-version file is a usage error. Works with pytest-xdist: workers apply
+  the file, the controller merges what they saw and writes it on an update.
+  See `docs/baseline.md`.
 - Per-statement timing. `Query.duration` is the time in seconds the database
   and the driver took for a statement, measured around the cursor call;
   `QueryLog.db_time` is the total and `QueryLog.slowest(n)` the slowest
