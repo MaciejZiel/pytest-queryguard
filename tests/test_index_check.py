@@ -740,6 +740,39 @@ def test_pg_autocommit_connection(project: pytest.Pytester, pg16: Postgres) -> N
 
 
 @needs_pg
+def test_pg_manual_transaction_on_an_autocommit_connection_survives_the_check(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+        from conftest import make_engine
+
+
+        def test_manual_begin(engine):
+            auto = make_engine(isolation_level="AUTOCOMMIT")
+            try:
+                with auto.connect() as conn:
+                    conn.exec_driver_sql("BEGIN")
+                    conn.exec_driver_sql("INSERT INTO orders VALUES (100, 1)")
+                    sql = "SELECT id FROM orders WHERE customer_id = %s"
+                    assert len(conn.exec_driver_sql(sql, (1,)).all()) == 3
+                    conn.exec_driver_sql("COMMIT")
+                with engine.connect() as conn:
+                    count = conn.scalar(text("SELECT count(*) FROM orders WHERE id = 100"))
+                assert count == 1, f"the committed row is gone: count={count}"
+            finally:
+                auto.dispose()
+        """
+    )
+    project.makeini("[pytest]\nqueryguard_index_ignore_tables = orders\n")
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*the index check stopped*")
+
+
+@needs_pg
 def test_pg_fixture_queries_are_not_checked(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:

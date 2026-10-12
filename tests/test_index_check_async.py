@@ -379,6 +379,46 @@ def test_pg_async_autocommit_connection(
 
 
 @needs_pg
+def test_pg_async_manual_transaction_on_an_autocommit_connection_survives_the_check(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    _async_project(project, pg16_async).makepyfile(
+        test_a="""
+        import asyncio
+
+        from sqlalchemy import text
+
+        from conftest import make_engine
+
+
+        async def main():
+            auto = make_engine(isolation_level="AUTOCOMMIT")
+            try:
+                async with auto.connect() as conn:
+                    await conn.exec_driver_sql("BEGIN")
+                    await conn.exec_driver_sql("INSERT INTO orders VALUES (100, 1)")
+                    sql = "SELECT id FROM orders WHERE customer_id = $1"
+                    assert len((await conn.exec_driver_sql(sql, (1,))).all()) == 3
+                    await conn.exec_driver_sql("COMMIT")
+                async with auto.connect() as conn:
+                    sql = text("SELECT count(*) FROM orders WHERE id = 100")
+                    count = (await conn.execute(sql)).scalar()
+                assert count == 1, f"the committed row is gone: count={count}"
+            finally:
+                await auto.dispose()
+
+
+        def test_manual_begin(engine):
+            asyncio.run(main())
+        """
+    )
+    project.makeini("[pytest]\nqueryguard_index_ignore_tables = orders\n")
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*the index check stopped*")
+
+
+@needs_pg
 def test_pg_async_joinedload_reports_the_joined_table(
     project: pytest.Pytester, pg16_async: Postgres
 ) -> None:
