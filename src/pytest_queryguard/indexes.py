@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from typing import Any
 
-from . import advisor, hypopg, predicates
+from . import advisor, hypopg, partial, predicates
 from . import catalog as catalogs
 from .callsite import find_callsite
 from .collector import QueryCollector
@@ -637,6 +637,8 @@ class Explained:
     # the savepoint; None when the caller finds them itself.
     issues: tuple[ScanIssue, ...] | None = None
     advisor_notice: str | None = None
+    # Issues left out because a partial index may serve the statement.
+    partial_skipped: tuple[ScanIssue, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -763,6 +765,21 @@ _TABLE_INDEXES_LOOKUP = (
 )
 
 
+# The valid partial indexes of tables, with the columns of each table, so that
+# the columns of an index predicate can be told from other words in it.
+_PARTIAL_LOOKUP = (
+    f"SELECT {_SCHEMA_NAME}, c.relname, ic.relname, "
+    "pg_get_expr(i.indpred, i.indrelid), "
+    "ARRAY(SELECT a.attname::text FROM pg_attribute a "
+    "WHERE a.attrelid = i.indrelid AND a.attnum > 0 AND NOT a.attisdropped) "
+    "FROM pg_index i "
+    "JOIN pg_class c ON c.oid = i.indrelid "
+    "JOIN pg_class ic ON ic.oid = i.indexrelid "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE {names} AND i.indpred IS NOT NULL AND i.indisvalid"
+)
+
+
 def _lookup(
     template: str, names: Iterable[tuple[str, str]], asyncpg: bool
 ) -> _Lookup | None:
@@ -788,6 +805,55 @@ def _varchar_lookup(
     tables: Iterable[tuple[str, str]], asyncpg: bool = False
 ) -> _Lookup | None:
     return _lookup(_VARCHAR_LOOKUP, tables, asyncpg)
+
+
+def _partial_indexes(
+    cursor: Any, tables: set[tuple[str, str]], catalog: Catalog | None, asyncpg: bool
+) -> dict[tuple[str, str], tuple[partial.PartialIndex, ...]]:
+    """The valid partial indexes of each table, read once per session.
+
+    Like _read_catalog(), this takes the cache dict once, so a clear() in the
+    middle only orphans what was read before it.
+    """
+    cache = catalog.partial if catalog is not None else {}
+    known = {t: v for t in tables if (v := cache.get(t)) is not None}
+    missing = tables - known.keys()
+    found: dict[tuple[str, str], list[partial.PartialIndex]] = {t: [] for t in missing}
+    for r in _rows(cursor, _lookup(_PARTIAL_LOOKUP, missing, asyncpg)):
+        if r[3] is None:
+            continue
+        found.setdefault((str(r[0]), str(r[1])), []).append(
+            partial.PartialIndex(
+                str(r[0]),
+                str(r[1]),
+                str(r[2]),
+                str(r[3]),
+                frozenset(str(c) for c in r[4]),
+            )
+        )
+    for table, indexes_ in found.items():
+        known[table] = tuple(indexes_)
+        if table[0] != TEMP_SCHEMA:
+            cache[table] = known[table]
+    return known
+
+
+def _split_partial(
+    cursor: Any, issues: Sequence[ScanIssue], catalog: Catalog | None, asyncpg: bool
+) -> tuple[tuple[ScanIssue, ...], tuple[ScanIssue, ...]]:
+    """(kept, skipped): issues on a table whose partial index the generic plan
+    cannot rule out are skipped (see partial.py)."""
+    tables = {(i.schema, i.table) for i in issues if i.schema}
+    by_table = _partial_indexes(cursor, tables, catalog, asyncpg)
+    kept: list[ScanIssue] = []
+    skipped: list[ScanIssue] = []
+    for issue in issues:
+        found = by_table.get((issue.schema or "", issue.table))
+        if found and partial.may_serve(found, issue.conditions, issue.alias):
+            skipped.append(issue)
+        else:
+            kept.append(issue)
+    return tuple(kept), tuple(skipped)
 
 
 def _text_cast_tables(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
@@ -953,6 +1019,7 @@ def run_explain(
     catalog: Catalog | None = None,
     asyncpg: bool = False,
     advise: AdvisorOptions | None = None,
+    skip_partial: bool = False,
 ) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
@@ -970,6 +1037,9 @@ def run_explain(
     savepoint, and each gets a suggested index (see advisor.py), verified with
     hypopg when it is installed. A failure of the advisor leaves the issues
     without advice and is returned as ``advisor_notice``.
+    With ``skip_partial``, the issues are found here as well, and those on a
+    table with a partial index the generic plan cannot rule out come back as
+    ``partial_skipped`` instead of in ``issues``.
     """
     if getattr(dbapi_connection, "autocommit", False):
         start, undo = ["BEGIN"], ["ROLLBACK"]
@@ -990,6 +1060,7 @@ def run_explain(
         catalog_error: str | None = None
         issues: tuple[ScanIssue, ...] | None = None
         advisor_notice: str | None = None
+        skipped: tuple[ScanIssue, ...] = ()
         try:
             cursor.execute(_SETTINGS)
             settings = cursor.fetchone()
@@ -1004,14 +1075,23 @@ def run_explain(
                 )
             except Exception as exc:  # noqa: BLE001  # reported once by check()
                 catalog_error = _error_message(exc)
-        if plan is not None and advise is not None and catalog_error is None:
+        if (
+            plan is not None
+            and (advise is not None or skip_partial)
+            and catalog_error is None
+        ):
             schema = settings[-1] if settings else None
             issues = tuple(
                 find_scans(
                     plan, schema if isinstance(schema, str) else None, columns, varchar
                 )
             )
-            if issues:
+            if issues and skip_partial:
+                try:
+                    issues, skipped = _split_partial(cursor, issues, catalog, asyncpg)
+                except Exception as exc:  # noqa: BLE001  # fail open: keep the findings
+                    advisor_notice = f"partial index lookup failed, findings kept: {_error_message(exc)}"
+            if issues and advise is not None:
                 try:
                     issues, advisor_notice = _advise(
                         cursor, sql, issues, varchar, catalog, advise, asyncpg
@@ -1034,6 +1114,7 @@ def run_explain(
         catalog_error,
         issues,
         advisor_notice,
+        skipped,
     )
 
 
@@ -1340,6 +1421,7 @@ def check(
             catalog=catalog,
             asyncpg=is_async,
             advise=_advisor_options(targets, version),
+            skip_partial=True,
         )
     except SavepointError as exc:
         # The test's transaction may be broken now; N+1 detection and budgets
@@ -1373,6 +1455,10 @@ def check(
     if outcome.advisor_notice is not None:
         for target in targets:
             target.index_notices[outcome.advisor_notice] = None
+    if outcome.partial_skipped:
+        tables = {table_label(issue) for issue in outcome.partial_skipped}
+        for target in fresh:
+            target.partial_skipped.append(tuple(sorted(tables)))
     found: Sequence[ScanIssue] | None = outcome.issues
     if found is None:
         found = find_scans(

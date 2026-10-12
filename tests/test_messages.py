@@ -251,3 +251,18 @@ def test_format_duration_uses_microseconds_below_a_millisecond(
     seconds: float, text: str
 ) -> None:
     assert format_duration(seconds) == text
+
+
+def test_partial_index_skips_are_counted_in_one_line() -> None:
+    assert format_index_notes([], 0, None, [("t1",)]) == [
+        (
+            "1 statement skipped: a partial index on t1 may serve it; "
+            "the generic plan cannot tell"
+        )
+    ]
+    assert format_index_notes([], 0, None, [("t1",), ("orders", "t1")]) == [
+        (
+            "2 statements skipped: a partial index on orders, t1 may serve them; "
+            "the generic plan cannot tell"
+        )
+    ]

@@ -1319,12 +1319,15 @@ def test_check_looks_up_leading_columns_before_postgres_18(
     conn.raw.leading_rows = [("public", "orders_tenant_id_status_idx", "tenant_id")]
     target = _collector()
     check(conn, "SELECT * FROM orders WHERE status = %s", False, [target])
-    assert len([sql for sql in conn.raw.log if "pg_index" in sql]) == lookups
+    assert _lookups(conn) == lookups
     assert len(target.scans) == lookups
 
 
 def _lookups(conn: FakeSAConnection, table: str = "pg_index") -> int:
-    return len([sql for sql in conn.raw.log if table in sql])
+    # the partial-index lookup also reads pg_index; it is counted on its own
+    return len(
+        [sql for sql in conn.raw.log if table in sql and "indpred IS NOT" not in sql]
+    )
 
 
 def test_check_looks_up_each_index_once_per_session() -> None:

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import itertools
 import os
 import sys
 import sysconfig
 from collections.abc import Iterator
 from pathlib import Path
 from types import FrameType
+
+import sqlalchemy.orm.session as _orm_session
 
 from .events import CallSite
 
@@ -91,6 +94,44 @@ def _first_external(frame: FrameType | None) -> CallSite | None:
                 lineno=frame.f_lineno,
                 function=frame.f_code.co_name,
             )
+        frame = frame.f_back
+    return None
+
+
+# Session._flush holds the UOWTransaction of one flush in its local
+# `flush_context`. It sits behind a generated "warned" wrapper, so the frame is
+# found by function name and file. If a SQLAlchemy release renames either, no
+# statement is tagged and the write-loop rule counts every statement, as before.
+_SESSION_FILE = getattr(_orm_session, "__file__", None)
+_flush_numbers = itertools.count(1)
+_MAX_FLUSH_DEPTH = 60
+
+
+def find_flush() -> int | None:
+    """The number of the ORM flush this statement runs in, or None.
+
+    The statements of one flush share a number: a unit of work cannot make them
+    fewer, so they are not a loop of the application's own writes.
+    """
+    if _SESSION_FILE is None:
+        return None
+    frame: FrameType | None = sys._getframe(1)
+    for _ in range(_MAX_FLUSH_DEPTH):
+        if frame is None:
+            return None
+        code = frame.f_code
+        if code.co_name == "_flush" and code.co_filename == _SESSION_FILE:
+            context = frame.f_locals.get("flush_context")
+            if context is None:
+                return None
+            number = getattr(context, "_queryguard_flush", None)
+            if number is None:
+                number = next(_flush_numbers)
+                try:
+                    context._queryguard_flush = number
+                except AttributeError:
+                    return None
+            return int(number)
         frame = frame.f_back
     return None
 

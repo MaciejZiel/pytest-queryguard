@@ -19,6 +19,9 @@ class QueryCollector:
     scans: list[ScanEvent] = field(default_factory=list)
     index_notices: dict[str, None] = field(default_factory=dict)  # ordered set
     explain_errors: list[tuple[str, str]] = field(default_factory=list)
+    # One entry per statement left out because a partial index may serve it:
+    # the tables of that statement's skipped scans.
+    partial_skipped: list[tuple[str, ...]] = field(default_factory=list)
     # Most statements (and, separately, relationship loads) whose details are
     # stored; None for no limit. Past it the collector only counts.
     max_events: int | None = None

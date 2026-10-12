@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release adds baselines, SARIF output and a GitHub Action, per-finding
 ignores, new finding kinds (column loads, write loops, unused eager loads), query
 timing and `max_db_time`, an index advisor, and a missing-index check for SQLite.
-It also adds a documentation site and runnable examples. Two things can change the
-result of an existing test run without any new option: the `column-load` kind is on
-by default, and the index advisor is on by default with the index check. They are
-listed first under "Changed" as behavior changes, with how to turn them off.
+It also adds a documentation site and runnable examples. Three things can change the
+result or the output of an existing test run without any new option: the `column-load`
+kind is on by default, the index advisor is on by default with the index check, and
+the index check now also runs on SQLite. They are listed first under "Changed" as
+behavior changes, with how to turn them off, as the pre-1.0 clause of the
+[stability policy](docs/stability.md) requires.
 
 ### Added
 
@@ -62,6 +64,10 @@ listed first under "Changed" as behavior changes, with how to turn them off.
   shape run row by row from one source line is reported as the new finding kind
   `write-loop`, with a hint to use `session.add_all()`, `executemany` or a bulk
   statement. `executemany` and multi-row `VALUES` statements are not counted.
+  The statements of one ORM flush count as one write, so `add_all()` and one
+  `flush()` is not reported even where the dialect sends one `INSERT` per row;
+  a `flush()` or `commit()` per row is. The flush is found through SQLAlchemy's
+  `Session._flush` frame; if that changes, the rule counts every statement.
   The kind works with `queryguard_ignore`, `allow_nplusone` and
   `queryguard_fail_on`.
 - Experimental detection of unused eager loads, off by default:
@@ -194,8 +200,10 @@ every kind fails, as before) and `--queryguard-sarif`.
   parsing is tested on real `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` plans
   captured from PostgreSQL 14 to 18 (`scripts/capture_plans.py`).
 - The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)
-  to time statements. `scripts/bench_overhead.py` puts the added cost at a few
-  microseconds per statement.
+  to time statements. `scripts/bench_overhead.py` puts the added cost of all the
+  measurement, not of this listener alone, at about 20 to 55 microseconds per
+  statement on in-memory SQLite (roughly +30 to +40 %); against a real database
+  round trip it is small. See the FAQ.
 - Internal: detectors now hand their results to a stable `Finding` model
   (`kind`, `label`, `file`, `function`, `message`, `severity`) before the
   report is rendered. The messages and the public API are unchanged.
@@ -206,6 +214,12 @@ every kind fails, as before) and `--queryguard-sarif`.
 
 ### Fixed
 
+- The index check no longer reports a missing index, and the advisor no longer
+  recommends a redundant one, for a statement that an existing partial index
+  may serve. The generic plan cannot see bound values, so it could not know
+  that `status = $1` matches `... WHERE status = 'open'`. Such statements are
+  skipped and counted in the session summary. A missing index on them is not
+  found; see the limitations.
 - Loops over deferred or expired columns were reported as a repeated statement
   with the wrong advice (`WHERE id IN (...)`). They are now a `column-load`
   finding and no longer count towards the repeated-statement rule.

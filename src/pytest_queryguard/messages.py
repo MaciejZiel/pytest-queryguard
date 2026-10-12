@@ -419,10 +419,21 @@ def format_index_findings(scans: list[ScanEvent], *, cwd: Path | None = None) ->
 
 
 def format_index_notes(
-    notices: Iterable[str], errors: int, first_error: tuple[str, str] | None
+    notices: Iterable[str],
+    errors: int,
+    first_error: tuple[str, str] | None,
+    partial_skipped: Sequence[Sequence[str]] = (),
 ) -> list[str]:
     """The session summary lines for statements the index check skipped."""
     lines = list(notices)
+    if partial_skipped:
+        count = len(partial_skipped)
+        tables = ", ".join(sorted({t for tables in partial_skipped for t in tables}))
+        noun, verb = ("statement", "it") if count == 1 else ("statements", "them")
+        lines.append(
+            f"{count} {noun} skipped: a partial index on {tables} may serve {verb}; "
+            "the generic plan cannot tell"
+        )
     if errors and first_error is not None:
         message, sql = first_error
         noun = "statement" if errors == 1 else "statements"
