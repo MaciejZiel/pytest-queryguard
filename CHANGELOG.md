@@ -62,6 +62,10 @@ listed first under "Changed" as behavior changes, with how to turn them off.
   shape run row by row from one source line is reported as the new finding kind
   `write-loop`, with a hint to use `session.add_all()`, `executemany` or a bulk
   statement. `executemany` and multi-row `VALUES` statements are not counted.
+  The statements of one ORM flush count as one write, so `add_all()` and one
+  `flush()` is not reported even where the dialect sends one `INSERT` per row;
+  a `flush()` or `commit()` per row is. The flush is found through SQLAlchemy's
+  `Session._flush` frame; if that changes, the rule counts every statement.
   The kind works with `queryguard_ignore`, `allow_nplusone` and
   `queryguard_fail_on`.
 - Experimental detection of unused eager loads, off by default:

@@ -22,7 +22,10 @@
   rule: at cursor level a unit-of-work flush cannot be told apart from an
   application write. Row-by-row writes from one source line can be reported
   by the opt-in `write-loop` kind (`queryguard_write_loop_threshold`), and a
-  budget counts every statement, writes included.
+  budget counts every statement, writes included. The statements of one ORM
+  flush count as one write, so `add_all()` plus one `flush()` is not reported
+  even when the dialect sends one `INSERT` per row. That relies on finding
+  `Session._flush` on the call stack, a SQLAlchemy internal.
 - The PostgreSQL index check needs PostgreSQL 16 or newer, and a sync engine or an
   async engine on asyncpg. Other async drivers, such as psycopg's async
   mode, are skipped with a notice. The test suite uses pg8000 and asyncpg.
