@@ -40,7 +40,7 @@ failed. Install your own project first: the action does not know how.
 
 | Input | Default | Meaning |
 |---|---|---|
-| `pytest-args` | empty | Arguments for pytest. Shell quoting works: `-k "a or b"`. |
+| `pytest-args` | empty | Arguments for pytest, as a list of shell words: quotes group words (`-k "a or b"`). The value is split by Python's `shlex` and is not evaluated by a shell, so `$(...)`, backticks and `$VAR` are passed to pytest as literal text. |
 | `python-version` | empty | Set up this Python. Empty: use the `python` on PATH. |
 | `package` | `pytest-queryguard` | What to `pip install`: a requirement like `pytest-queryguard>=0.4`, or a path. |
 | `baseline` | empty | Baseline file, see [baseline.md](baseline.md). Empty: `queryguard_baseline` from your config. |
