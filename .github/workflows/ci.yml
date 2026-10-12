@@ -50,6 +50,23 @@ jobs:
       - run: uv run --no-sync coverage run -m pytest
       - run: uv run --no-sync coverage report
 
+  # The SQLite-only suite on the other operating systems (paths, temp dirs,
+  # newline handling, file locking). PostgreSQL tests skip without a server.
+  os:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync
+      - run: uv run --no-sync pytest -rs
+
   # The missing-index check needs a real server. 15 covers the "too old"
   # notice; 16 and 17 run the check itself. One more run on 16 uses the
   # oldest supported SQLAlchemy, which the asyncpg path depends on
