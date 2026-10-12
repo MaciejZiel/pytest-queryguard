@@ -85,6 +85,7 @@ EXPECTED_INI = {
     "queryguard_max_events": "10000",
     "queryguard_small_repeat_threshold": "0",
     "queryguard_write_loop_threshold": "0",
+    "queryguard_unused_eager_load": "off",
     "queryguard_fail_on": "[]",
     "queryguard_ignore": "[]",
     "queryguard_index_check": "False",
