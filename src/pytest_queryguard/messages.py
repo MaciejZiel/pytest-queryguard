@@ -229,10 +229,13 @@ def format_truncation(max_events: int) -> str:
 
 
 def format_duration(seconds: float) -> str:
-    """A duration for a report: ``0.4 ms`` below a second, ``1.25 s`` above."""
+    """A duration for a report: ``37 us`` below a millisecond, ``0.4 ms`` below a
+    second, ``1.25 s`` above."""
     if seconds >= 1:
         return f"{seconds:.2f} s"
-    return f"{seconds * 1000:.1f} ms"
+    if seconds >= 0.001:
+        return f"{seconds * 1000:.1f} ms"
+    return f"{seconds * 1_000_000:.0f} us"
 
 
 def _timing_lines(

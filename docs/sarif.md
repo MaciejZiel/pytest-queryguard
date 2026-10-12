@@ -29,6 +29,16 @@ was started from.
 - Results are sorted and the output is stable, so two runs on the same code
   give the same bytes.
 
+`primaryLocationLineHash` is normally a hash of the source line, which GitHub
+computes itself when it is missing. pytest-queryguard sets it from the finding
+identity instead, because a finding here is a pattern over many statements and
+not one line, and a hash of the line would change with every edit near it. The
+`:1` suffix is only the occurrence index that GitHub's format expects; it is
+not a real count. This follows the format of the value, but whether GitHub code
+scanning accepts and de-duplicates by an identity digest in that field has not
+been verified. If it does not, the alert would be matched by location as for any
+SARIF without the field.
+
 ## What is left out
 
 - Findings ignored with `queryguard_ignore` or `allow_nplusone`.

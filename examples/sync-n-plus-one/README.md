@@ -39,11 +39,11 @@ queryguard: expected at most 2 queries, got 4
   3. SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/customers.py:15 in rename_customers)
   4. UPDATE customer SET name=? WHERE customer.id = ?  (app/customers.py:16 in rename_customers)
 
-  database time: 0.1 ms
+  database time: 154 us
   slowest:
-       0.0 ms  UPDATE customer SET name=? WHERE customer.id = ?  (app/customers.py:16 in rename_customers)
-       0.0 ms  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/customers.py:15 in rename_customers)
-       0.0 ms  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/customers.py:15 in rename_customers)
+        71 us  UPDATE customer SET name=? WHERE customer.id = ?  (app/customers.py:16 in rename_customers)
+        37 us  UPDATE customer SET name=? WHERE customer.id = ?  (app/customers.py:16 in rename_customers)
+        27 us  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/customers.py:15 in rename_customers)
 ============================== queryguard report ===============================
    51  tests/test_orders.py::test_list_orders
    50  tests/test_orders.py::test_fetch_customers

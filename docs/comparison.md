@@ -8,7 +8,8 @@ measurements are ones I ran myself, on scenarios I wrote.
 
 - Facts about other tools were read on **2026-10-12**.
 - pytest-queryguard: the `next` branch at commit `b64d19c` (unreleased; the
-  last release on PyPI is 0.3.0, from 2026-10-11).
+  last release on PyPI is 0.3.0, from 2026-10-11). The results below are those
+  at the time of writing (see the commit SHA in the repository history).
 - Marks in the matrix: **(v)** verified by running the package or reading its
   installed source on that date; **(r)** read in the package's PyPI
   description only, not run. Anything I could not check is marked as such.

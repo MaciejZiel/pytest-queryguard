@@ -101,8 +101,15 @@ def _record_column_load(
     if instance is None:
         _set_pending(None)
         return
-    options = getattr(state.statement, "_compile_options", None)
-    only = getattr(options, "_only_load_props", None)
+    options: Any = getattr(state.statement, "_compile_options", None)
+    if not hasattr(options, "_only_load_props"):
+        # Without it every load would look like a plain refresh, with a wrong
+        # hint. Stop through the internal-error path instead of mislabeling.
+        raise AttributeError(
+            "SQLAlchemy's column-load compile options have no _only_load_props; "
+            "this SQLAlchemy version is not supported by the column-load kind"
+        )
+    only = options._only_load_props
     expired = instance.expired_attributes
     columns = {prop.key for prop in instance.mapper.column_attrs}
     if only is None:
