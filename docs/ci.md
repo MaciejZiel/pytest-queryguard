@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[test]"        # your project and its test dependencies
-      - uses: MaciejZiel/pytest-queryguard/action@v0.4.0   # pin a tag or a commit SHA
+      - uses: MaciejZiel/pytest-queryguard/action@COMMIT_SHA   # pin a release tag or a commit SHA
         with:
           pytest-args: -x tests/
           baseline: queryguard-baseline.json
