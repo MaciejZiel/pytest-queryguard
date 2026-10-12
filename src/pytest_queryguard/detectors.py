@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -60,8 +61,13 @@ def collapse_lists(sql: str) -> str:
     return _IN_LIST.sub("IN (...)", _WS.sub(" ", sql).strip())
 
 
+@functools.lru_cache(maxsize=2048)
 def normalize(sql: str) -> str:
-    """Reduce a statement to a shape shared by all its executions."""
+    """Reduce a statement to a shape shared by all its executions.
+
+    Pure, and a suite repeats the same statement texts, so the last 2048 are
+    remembered.
+    """
     # Lists first, so every placeholder style collapses to the same text.
     out = collapse_lists(sql)
     out = _STRING.sub("?", out)
