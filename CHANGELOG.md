@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only counted: budgets and the session report still use the real count, and
   the budget failure and the N+1 report say that details are missing.
 
+### Fixed
+
+- When a listener raises, the plugin still stops measuring so that it never
+  breaks the suite, but it no longer does so silently. The warning names the
+  listener or step that failed, and the end of the session prints a
+  "queryguard: measurement stopped" section with the listener, the error and
+  the line that raised it, once per session, with or without
+  `--queryguard-report`.
+
 ## [0.3.0] - 2026-10-11
 
 ### Added
