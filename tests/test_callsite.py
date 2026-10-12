@@ -93,3 +93,32 @@ def test_internal_answer_is_cached_per_filename(
     assert callsite._is_internal("<string>") is True
     assert callsite._is_internal("<string>") is True
     assert calls == [name, "<string>"]
+
+
+def test_same_location_shares_one_callsite() -> None:
+    sites = [find_callsite() for _ in range(3)]  # one line, three calls
+    assert sites[0] is not None
+    assert sites[0] == sites[1] == sites[2]
+    assert sites[0] is sites[1] is sites[2]
+
+
+def test_different_lines_give_different_callsites() -> None:
+    first = find_callsite()
+    second = find_callsite()
+    assert first is not None and second is not None
+    assert first != second
+    assert second.lineno == first.lineno + 1
+
+
+def test_callsite_cache_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pytest_queryguard import callsite
+
+    monkeypatch.setattr(callsite, "_sites", {})
+    monkeypatch.setattr(callsite, "_MAX_SITES", 2)
+    for _ in range(5):
+        find_callsite()
+        find_callsite()
+        find_callsite()
+    assert len(callsite._sites) <= 2
+    site = find_callsite()
+    assert site is not None and site.function == "test_callsite_cache_is_bounded"

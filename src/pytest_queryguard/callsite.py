@@ -85,15 +85,33 @@ def _parent_greenlet_frames() -> Iterator[FrameType]:
         return
 
 
+# (filename, line, function) -> CallSite.  A suite runs the same few hundred
+# lines over and over, and CallSite is immutable, so one object per location
+# is shared instead of building a new one for every statement. Bounded, so
+# generated code cannot grow it without limit.
+_sites: dict[tuple[str, int, str], CallSite] = {}
+_MAX_SITES = 4096
+
+
 def _first_external(frame: FrameType | None) -> CallSite | None:
+    internal = _internal
     while frame is not None:
-        filename = frame.f_code.co_filename
-        if not _is_internal(filename):
-            return CallSite(
-                filename=filename,
-                lineno=frame.f_lineno,
-                function=frame.f_code.co_name,
-            )
+        code = frame.f_code
+        filename = code.co_filename
+        try:
+            skip = internal[filename]
+        except KeyError:
+            skip = internal[filename] = _classify(filename)
+        if not skip:
+            key = (filename, frame.f_lineno, code.co_name)
+            site = _sites.get(key)
+            if site is None:
+                if len(_sites) >= _MAX_SITES:
+                    _sites.clear()
+                site = _sites[key] = CallSite(
+                    filename=filename, lineno=key[1], function=key[2]
+                )
+            return site
         frame = frame.f_back
     return None
 
