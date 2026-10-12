@@ -82,7 +82,11 @@ def test_the_changelog_lists_default_changes_first() -> None:
     log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     # The newest entry that has content: [Unreleased] while a release is being
     # prepared, the latest version once it has been cut.
-    entry = next(part for part in log.split("\n## [")[1:] if "\n### Added" in part)
+    entry = next(
+        part
+        for part in log.split("\n## [")[1:]
+        if "\n### Added" in part and "\n### Changed" in part
+    )
     intro, rest = entry.split("\n### Added", 1)
     for phrase in ("column-load", "index advisor", "SQLite"):
         assert phrase in intro, phrase
