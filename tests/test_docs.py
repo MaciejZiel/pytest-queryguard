@@ -109,7 +109,13 @@ def _slug(heading: str) -> str:
 @pytest.mark.skipif(not (ROOT / "README.md").is_file(), reason="README is not shipped")
 def test_readme_anchors_into_the_docs_exist() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    links = re.findall(r"\]\((docs/[\w.-]+\.md)#([\w-]+)\)", readme)
+    site = "https://maciejziel.github.io/pytest-queryguard/"
+    links = [
+        (f"docs/{page}.md", anchor)
+        for page, anchor in re.findall(
+            rf"\]\({re.escape(site)}([\w.-]+)\.html#([\w-]+)\)", readme
+        )
+    ]
     assert ("docs/faq.md", "does-it-slow-my-tests-down") in links
     for path, anchor in links:
         headings = re.findall(

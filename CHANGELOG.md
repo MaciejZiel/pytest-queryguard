@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Community files: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`
+  (Contributor Covenant 2.1), issue forms and a pull request template.
+- The documentation site has a description, canonical URL and Open Graph tags
+  on every page, a favicon, `sitemap.xml`, `robots.txt`, a social preview
+  image, a client-side search (no third-party code), "Edit this page" links
+  and Previous/Next links. Every page needs a `description` in
+  `docs/site.toml`; the strict build fails without one.
 - A "Recipes" section in the documentation: FastAPI (`TestClient` and
   `httpx.AsyncClient` with dependency-overridden sessions), Flask-SQLAlchemy,
   SQLModel, Litestar, pytest-asyncio configuration pitfalls, budgets for hot

@@ -34,12 +34,34 @@ def test_readme_is_short() -> None:
     assert len(README.splitlines()) <= 300
 
 
-def test_relative_links_point_to_files() -> None:
+SITE = "https://maciejziel.github.io/pytest-queryguard/"
+REPO = "https://github.com/MaciejZiel/pytest-queryguard/"
+
+
+def _local_path(url: str) -> str | None:
+    """The repository path an absolute link into this project stands for."""
+    path = url.split("#", 1)[0]
+    if path.startswith(SITE):
+        page = path.removeprefix(SITE)
+        return "docs/index.md" if not page else f"docs/{page.removesuffix('.html')}.md"
+    for prefix in (f"{REPO}blob/main/", f"{REPO}tree/main/"):
+        if path.startswith(prefix):
+            return path.removeprefix(prefix).rstrip("/")
+    return None
+
+
+def test_links_are_absolute() -> None:
+    """The README is also the PyPI description, where relative links break."""
+    relative = re.findall(r"\]\((?!https?://|#|mailto:)([^)\s]+)\)", README)
+    assert not relative, relative
+
+
+def test_links_into_the_project_point_to_files() -> None:
     missing = []
-    for target in re.findall(r"\]\((?!https?://|#|mailto:)([^)\s]+)\)", README):
-        path = target.split("#", 1)[0]
-        if path and not (ROOT / path).exists():
-            missing.append(target)
+    for url in re.findall(r"\]\((https?://[^)\s]+)\)", README):
+        local = _local_path(url)
+        if local is not None and not (ROOT / local).exists():
+            missing.append(url)
     assert not missing, missing
 
 
