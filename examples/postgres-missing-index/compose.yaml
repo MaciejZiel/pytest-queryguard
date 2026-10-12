@@ -1,0 +1,15 @@
+# A throwaway PostgreSQL 17 for the example:
+#   docker compose up -d --wait
+#   docker compose down
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: pg
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
