@@ -117,18 +117,35 @@ def _truncate(sql: str) -> str:
     return sql
 
 
+def format_truncation(max_events: int) -> str:
+    """The note for a test that ran more statements than the plugin stores."""
+    return (
+        f"queryguard: only the first {max_events} statements and relationship "
+        "loads of this test were stored (queryguard_max_events); the counts "
+        "above are lower bounds"
+    )
+
+
 def format_budget(
-    limit: int, statements: list[StatementEvent], *, cwd: Path | None = None
+    limit: int,
+    statements: list[StatementEvent],
+    *,
+    cwd: Path | None = None,
+    total: int | None = None,
 ) -> str:
-    lines = [
-        f"queryguard: expected at most {limit} queries, got {len(statements)}",
-        "",
-    ]
+    """The budget failure; ``total`` is the real count when not all are stored."""
+    shown = len(statements)
+    got = shown if total is None else total
+    lines = [f"queryguard: expected at most {limit} queries, got {got}", ""]
     for number, stmt in enumerate(statements, start=1):
         line = f"  {number}. {_truncate(stmt.sql)}"
         if stmt.callsite is not None:
             line += f"  ({_location(stmt.callsite, cwd)})"
         lines.append(line)
+    if total is not None and total > shown:
+        lines.append(
+            f"  ... and {total - shown} more, not stored (queryguard_max_events)"
+        )
     return "\n".join(lines)
 
 
