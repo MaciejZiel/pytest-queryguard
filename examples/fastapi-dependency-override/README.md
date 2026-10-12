@@ -43,6 +43,9 @@ $ pytest tests/test_orders_fixed.py
 2 passed
 ```
 
+`GET /orders/{order_id}` is a fourth endpoint, with no N+1 but four statements per
+call; the [recipes](https://maciejziel.github.io/pytest-queryguard/recipes-budgets.html) use it for budgets.
+
 The in-memory SQLite engine for the sync test is created with
 `connect_args={"check_same_thread": False}` and `StaticPool`: a sync endpoint
 runs in a worker thread, and without the argument SQLite refuses the

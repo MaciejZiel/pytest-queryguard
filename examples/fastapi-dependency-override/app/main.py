@@ -2,12 +2,12 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db import async_sessions, sessions
-from app.models import Order
+from app.models import Customer, Order
 
 app = FastAPI()
 
@@ -53,3 +53,14 @@ async def list_async_orders_fixed(
 ) -> list[str]:
     stmt = select(Order).options(selectinload(Order.customer))
     return [order.customer.name for order in (await session.scalars(stmt)).all()]
+
+
+@app.get("/orders/{order_id}")
+def order_detail(order_id: int, session: SessionDep) -> dict[str, object]:
+    order = session.get_one(Order, order_id)
+    customer = session.get_one(Customer, order.customer_id)
+    siblings = session.scalar(
+        select(func.count()).select_from(Order).where(Order.customer_id == customer.id)
+    )
+    audit = session.scalar(select(func.count()).select_from(Order))
+    return {"customer": customer.name, "orders": siblings, "total": audit}
