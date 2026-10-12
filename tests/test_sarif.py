@@ -482,3 +482,30 @@ def test_a_run_outside_the_workspace_falls_back_to_the_rootdir(
     project.runpytest("--queryguard-sarif=qg.sarif")
     (first, *_) = _results(project.path / "qg.sarif")
     assert _uri({"runs": [{"results": [first]}]}) == "test_a.py"
+
+
+EAGER_UNUSED = """
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from qgmodels import Customer, make_sync_session
+
+
+def test_eager_unused():
+    session = make_sync_session()
+    for customer in session.scalars(select(Customer).options(selectinload(Customer.orders))):
+        _ = customer.name
+"""
+
+
+@pytest.mark.parametrize(("mode", "level"), [("warn", "warning"), ("fail", "error")])
+def test_the_level_follows_the_unused_eager_load_mode(
+    pytester: pytest.Pytester, mode: str, level: str
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS, test_eager=EAGER_UNUSED)
+    pytester.makeini(f"[pytest]\nqueryguard_unused_eager_load = {mode}\n")
+    result = pytester.runpytest("--queryguard-sarif=out.sarif", "-W", "default")
+    assert result.ret == (0 if mode == "warn" else 1)
+    document = json.loads((pytester.path / "out.sarif").read_text())
+    results = document["runs"][0]["results"]
+    assert [r["ruleId"] for r in results] == ["queryguard/unused-eager-load"]
+    assert results[0]["level"] == level
