@@ -1,6 +1,6 @@
 # Index advisor
 
-When the [missing-index check](../README.md#missing-indexes-postgresql-16-and-newer)
+When the [missing-index check](index-check.md)
 finds a statement that no index can serve, the index advisor says which index
 to create. It prints a `CREATE INDEX`, the matching Alembic `op.create_index`
 call, and, when the hypopg extension is installed, asks PostgreSQL whether the

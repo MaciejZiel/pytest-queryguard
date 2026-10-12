@@ -18,6 +18,8 @@ Direct dependencies of this repository, including the GitHub Actions used by its
 | https://github.com/dateutil/dateutil | python-dateutil | Apache-2.0 OR BSD-3-Clause | https://github.com/dateutil/dateutil/blob/master/LICENSE |
 | https://github.com/benjaminp/six | six | MIT | https://github.com/benjaminp/six/blob/main/LICENSE |
 | https://github.com/coveragepy/coveragepy | coverage | Apache-2.0 | https://github.com/coveragepy/coveragepy/blob/main/LICENSE.txt |
+| https://github.com/Python-Markdown/markdown | Markdown (docs group, builds the documentation site) | BSD-3-Clause | https://github.com/Python-Markdown/markdown/blob/master/LICENSE.md |
+| https://github.com/pygments/pygments | Pygments (docs group, highlights code in the documentation site) | BSD-2-Clause | https://github.com/pygments/pygments/blob/master/LICENSE |
 | https://github.com/astral-sh/ruff | ruff | MIT | https://github.com/astral-sh/ruff/blob/main/LICENSE |
 | https://github.com/python/mypy | mypy | MIT | https://github.com/python/mypy/blob/master/LICENSE |
 | https://github.com/pypa/hatch | hatchling | MIT | https://github.com/pypa/hatch/blob/master/LICENSE.txt |

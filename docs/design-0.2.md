@@ -230,7 +230,7 @@ returns, so the hint works as written on that connection.
   judged by its old definition; this is documented as a limitation.
   The check costs a few round trips per distinct statement, about 1 ms with
   pg8000 against a local PostgreSQL in Docker
-  ([scripts/bench_index_check.py](../scripts/bench_index_check.py)).
+  ([scripts/bench_index_check.py](https://github.com/MaciejZiel/pytest-queryguard/blob/main/scripts/bench_index_check.py)).
 - `queryguard_index_ignore_tables` lists table names or `fnmatch` patterns
   (`countries`, `audit.*`, `lookup_*`) matched against `table` and
   `schema.table`. Small lookup tables, where a sequential scan is the right
