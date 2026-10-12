@@ -37,6 +37,18 @@ queryguard: missing index
   alembic: op.create_index("ix_orders_customer_id", "orders", ["customer_id"])
 ```
 
+When SQLite walks an existing index that the filter cannot use (for example it
+walks `ix_users_created_at` to satisfy an `ORDER BY` while the statement filters
+on `status`), the first line says so instead:
+
+```
+  users scans the whole index ix_users_created_at: the filter users.status = ? does not match the start of any index
+```
+
+The fix is still an index for the filtered column, which lets SQLite search
+instead of walking the index; whether it then also keeps the `ORDER BY` order is
+up to the planner.
+
 Findings are `missing-index` findings: they follow `queryguard_mode`,
 `queryguard_fail_on`, `queryguard_ignore`, the baseline, SARIF,
 `@pytest.mark.allow_missing_index` and `queryguard_index_ignore_tables` exactly
@@ -47,7 +59,7 @@ in the SQL.
 | Plan row | Reported when |
 |---|---|
 | `SCAN t` | the statement compares a column of `t` in WHERE or ON (equality, `IN`, `IS`, a range, `BETWEEN`, or a function of the column, which gets "an expression index may be needed"), and no index of `t` already leads with that column |
-| `SCAN t USING COVERING INDEX ix` (or `USING INDEX`) | an equality filter on a column that does not lead any index: the whole index is walked. A range filter or no filter is not reported (pagination walks an index on purpose) |
+| `SCAN t USING COVERING INDEX ix` (or `USING INDEX`) | an equality filter on a column that does not lead any index: the whole index is walked. A range filter or no filter is not reported (pagination walks an index on purpose). The finding says `t scans the whole index ix: the filter ... does not match the start of any index`, not that the table is read in full, and suggests an index for the filtered column |
 | `SEARCH t USING AUTOMATIC [COVERING] INDEX (c=?)` | always: SQLite built a temporary index at query time, so `c` is a column an index is missing on (`kind` is "join condition" or "filter") |
 | `SEARCH t USING INDEX ...`, `USING INTEGER PRIMARY KEY` | never |
 

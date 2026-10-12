@@ -7,12 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tests: an accuracy corpus under `tests/corpus`: 110 small scenarios of realistic ORM
+  code (views, serializers, FastAPI, Flask-SQLAlchemy, SQLModel, repositories,
+  pagination, bulk writes, async), each marked BUG or CLEAN, run through the
+  plugin in its default configuration and with each opt-in rule. Limitations it
+  found are in `docs/limitations.md`; `scripts/accuracy_report.py` prints the
+  precision and recall.
+
 ### Fixed
 
 - A lazy load or column load that autoflushed pending changes first was
   attributed to the flush's write: the UPDATE or DELETE carried the relationship
   name and the load's SELECT carried none, so one loop was also reported as a
   repeated statement. Writes no longer take the pending attribution (#59).
+- The SQLite index check no longer says a table "is read in full" when the
+  plan walks an existing index that the filter cannot use (`SCAN INDEX ix_...`).
+  It says the table scans the whole index and that the filter does not match
+  the start of any index; the suggested `CREATE INDEX` is unchanged.
 - A SARIF result merged from several tests no longer shows one test's count in
   `message.text` next to the total in `properties.count`. The message now
   starts with `Seen in N tests: T times in total, up to M times in one test`,

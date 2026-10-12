@@ -58,6 +58,45 @@ def test_filter_without_an_index_fails_the_test(project: pytest.Pytester) -> Non
     )
 
 
+INDEX_SCAN_TEST = """
+from sqlalchemy import create_engine, text
+
+
+def test_status_filter_with_an_order_by_on_another_index():
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, status TEXT, created_at TEXT)"))
+        conn.execute(text("CREATE INDEX ix_users_created_at ON users (created_at)"))
+        conn.execute(text("INSERT INTO users (status, created_at) VALUES ('a', 'x')"))
+        conn.execute(
+            text("SELECT * FROM users WHERE status = :s ORDER BY created_at LIMIT 5"),
+            {"s": "a"},
+        ).all()
+"""
+
+
+def test_a_scan_of_an_existing_index_is_worded_as_such(
+    project: pytest.Pytester,
+) -> None:
+    if sqlite3.sqlite_version_info < (3, 35):
+        pytest.skip("the plan differs on this SQLite")
+    project.makepyfile(test_a=INDEX_SCAN_TEST)
+    result = project.runpytest(*ARGS)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            (
+                "  users scans the whole index ix_users_created_at: the filter "
+                "status = ? does not match the start of any index"
+            ),
+            "  first at test_a.py:*",
+            "  sql: SELECT * FROM users WHERE status = ?*",
+            "  fix: CREATE INDEX ix_users_status ON users (status)",
+        ]
+    )
+    result.stdout.no_fnmatch_line("*users is read in full*")
+
+
 def test_advisor_off_keeps_the_create_index_but_drops_alembic(
     project: pytest.Pytester,
 ) -> None:
