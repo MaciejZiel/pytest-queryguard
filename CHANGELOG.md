@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GitHub Action: the `package` input now defaults to the plugin in the action's
+  own checkout instead of the name `pytest-queryguard`, so the installed plugin
+  matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
+  stable 0.3.0 while 0.4 was a release candidate)
+  ([#106](https://github.com/MaciejZiel/pytest-queryguard/issues/106)).
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
