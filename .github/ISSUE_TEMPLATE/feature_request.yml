@@ -1,0 +1,30 @@
+name: Feature request
+description: A new check, option, output format or documentation change.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What goes wrong in your project today, with a short code example of the pattern if it is about a check.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The behavior, option name or output you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What you do now (markers, ignores, other tools) and why it is not enough.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: I checked the documentation and the existing issues.
+          required: true
