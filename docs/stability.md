@@ -65,7 +65,7 @@ it fail tests by default, instead of introducing it off or as a warning first.
 Every such change is named in the introduction at the top of the changelog
 entry and listed first under "Changed", in a "Behavior changes" group, with the
 option that turns it off. The
-unreleased changelog entry is an example: the `column-load` kind is on by default, the index
+0.4.0rc1 changelog entry is an example: the `column-load` kind is on by default, the index
 advisor is on whenever the index check is on, and the index check fails tests
 on SQLite. From 1.0 on, the rules above apply strictly: a new check is off or
 only warns until a later minor release, and a change of default needs a major
