@@ -164,7 +164,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_const",
         const=True,
         default=None,
-        help="Check each SELECT for a missing index (PostgreSQL 16 or newer); "
+        help="Check statements for a missing index (PostgreSQL 16 or newer, or SQLite); "
         "overrides queryguard_index_check.",
     )
     group.addoption(
@@ -272,7 +272,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addini(
         "queryguard_index_check",
-        "Check each SELECT for a missing index (PostgreSQL 16 or newer)",
+        "Check statements for a missing index (PostgreSQL 16 or newer, or SQLite)",
         type="bool",
         default=False,
     )
