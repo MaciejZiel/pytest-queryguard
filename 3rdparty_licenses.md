@@ -57,3 +57,6 @@ Every third-party component of this repository: the direct and transitive depend
 | https://github.com/actions/upload-artifact | actions/upload-artifact (GitHub Action, pinned v7.0.1) | MIT | https://github.com/actions/upload-artifact/blob/main/LICENSE |
 | https://github.com/actions/download-artifact | actions/download-artifact (GitHub Action, pinned v8.0.1) | MIT | https://github.com/actions/download-artifact/blob/main/LICENSE |
 | https://github.com/pypa/gh-action-pypi-publish | pypa/gh-action-pypi-publish (GitHub Action, pinned v1.14.2) | BSD-3-Clause | https://github.com/pypa/gh-action-pypi-publish/blob/release/v1/LICENSE.md |
+| https://github.com/actions/configure-pages | actions/configure-pages (GitHub Action, pinned v6.0.0) | MIT | https://github.com/actions/configure-pages/blob/main/LICENSE |
+| https://github.com/actions/upload-pages-artifact | actions/upload-pages-artifact (GitHub Action, pinned v5.0.0) | MIT | https://github.com/actions/upload-pages-artifact/blob/main/LICENSE |
+| https://github.com/actions/deploy-pages | actions/deploy-pages (GitHub Action, pinned v5.0.1) | MIT | https://github.com/actions/deploy-pages/blob/main/LICENSE |
