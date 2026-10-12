@@ -23,6 +23,11 @@ class StatementEvent:
     # True when the statement loaded columns of an instance that already
     # existed (a deferred column, or attributes expired by commit or expire()).
     column_load: bool = False
+    # The bound parameters as the driver got them (not copied); None for
+    # executemany, which can be large. Compared by the small-repeat rule.
+    parameters: object = None
+    # True when the driver ran the statement for a list of parameter sets.
+    executemany: bool = False
 
 
 @dataclass(frozen=True, slots=True)

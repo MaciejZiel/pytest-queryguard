@@ -100,8 +100,9 @@ HINTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 }
 
 
-def _run(pytester: pytest.Pytester) -> dict[str, tuple[str, str]]:
+def _run(pytester: pytest.Pytester, ini: str = "") -> dict[str, tuple[str, str]]:
     """Run every scenario once: name -> (outcome, report text)."""
+    pytester.makeini(f"[pytest]\n{ini}")
     pytester.makepyfile(
         models=(DIR / "models_body.py").read_text(),
         test_scen=(DIR / "scenarios_body.py").read_text(),
@@ -118,21 +119,24 @@ def _run(pytester: pytest.Pytester) -> dict[str, tuple[str, str]]:
     return found
 
 
-def test_scenarios_behave_as_promised(pytester: pytest.Pytester) -> None:
-    found = _run(pytester)
+def _problems(
+    found: dict[str, tuple[str, str]],
+    expected: dict[str, str],
+    hints: dict[str, tuple[tuple[str, ...], tuple[str, ...]]],
+) -> list[str]:
     problems: list[str] = []
-    for name in sorted(set(EXPECTED) | set(found)):
+    for name in sorted(set(expected) | set(found)):
         if name not in found:
             problems.append(f"{name}: did not run")
             continue
-        if name not in EXPECTED:
+        if name not in expected:
             problems.append(f"{name}: no expectation, add it to EXPECTED")
             continue
         outcome, text = found[name]
-        if outcome != EXPECTED[name]:
-            problems.append(f"{name}: expected {EXPECTED[name]}, got {outcome}")
+        if outcome != expected[name]:
+            problems.append(f"{name}: expected {expected[name]}, got {outcome}")
             continue
-        wanted, unwanted = HINTS.get(name, ((), ()))
+        wanted, unwanted = hints.get(name, ((), ()))
         problems.extend(
             f"{name}: the report lacks {snippet!r}"
             for snippet in wanted
@@ -143,4 +147,80 @@ def test_scenarios_behave_as_promised(pytester: pytest.Pytester) -> None:
             for snippet in unwanted
             if snippet in text
         )
+    return problems
+
+
+def test_scenarios_behave_as_promised(pytester: pytest.Pytester) -> None:
+    problems = _problems(_run(pytester), EXPECTED, HINTS)
+    assert not problems, "\n".join(problems)
+
+
+# With the small-repeat rule on, a few runs of one statement from one line,
+# each with other parameters, are findings. Pagination is still left alone.
+SMALL = {
+    **EXPECTED,
+    "test_03b_session_get_loop_3_bad": FAIL,
+    "test_05a_repeat_x2": FAIL,
+    "test_05b_repeat_x3_batch_legit": FAIL,
+    "test_05c_repeat_x4": FAIL,
+}
+SMALL_HINTS = {
+    **HINTS,
+    "test_05b_repeat_x3_batch_legit": (("ran 3 times with different parameters",), ()),
+}
+
+
+def test_scenarios_with_the_small_repeat_rule_on(pytester: pytest.Pytester) -> None:
+    found = _run(pytester, "queryguard_small_repeat_threshold = 2\n")
+    problems = _problems(found, SMALL, SMALL_HINTS)
+    assert not problems, "\n".join(problems)
+    assert found["test_14a_pagination_3_pages_legit"][0] == PASS
+
+
+# Only relationship loads fail; the other kinds warn, so those scenarios pass.
+WARN_ONLY = {
+    **EXPECTED,
+    "test_03_session_get_loop_bad": PASS,
+    "test_04c_async_get_loop_bad": PASS,
+    "test_05d_repeat_x5": PASS,
+    "test_05e_repeat_x6": PASS,
+    "test_10a_dynamic_loop_bad": PASS,  # dynamic and write-only loops are
+    "test_10b_writeonly_loop_bad": PASS,  # plain repeated statements
+    "test_11a_deferred_loop_bad": PASS,
+    "test_11c_expire_after_commit_refresh_bad": PASS,
+    "test_13a_core_select_loop_bad": PASS,
+    "test_13b_count_loop_bad": PASS,
+    "test_14e_in_list_varying_len_legit": PASS,
+    "test_14f_literal_binds_loop_bad": PASS,
+}
+
+
+def test_scenarios_with_only_relationship_loads_failing(
+    pytester: pytest.Pytester,
+) -> None:
+    found = _run(pytester, "queryguard_fail_on = relationship-load\n")
+    problems = _problems(found, WARN_ONLY, {})
+    assert not problems, "\n".join(problems)
+
+
+# With write-loop detection on, row-by-row INSERTs are findings; add_all,
+# executemany and single statements are not.
+WRITE_LOOP = {
+    **EXPECTED,
+    "test_12a_insert_flush_per_row": FAIL,
+    "test_12c_core_insert_per_row": FAIL,
+}
+
+
+def test_scenarios_with_write_loop_detection_on(pytester: pytest.Pytester) -> None:
+    found = _run(pytester, "queryguard_write_loop_threshold = 5\n")
+    hints = {
+        **HINTS,
+        "test_12a_insert_flush_per_row": (
+            ("the same INSERT ran 6 times, one row at a time", "add_all"),
+            (),
+        ),
+        "test_12c_core_insert_per_row": (("the same INSERT ran 6 times",), ()),
+    }
+    problems = _problems(found, WRITE_LOOP, hints)
     assert not problems, "\n".join(problems)

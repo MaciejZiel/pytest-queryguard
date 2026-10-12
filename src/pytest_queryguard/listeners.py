@@ -174,6 +174,8 @@ def _on_cursor_execute(
             find_callsite(),
             relationship,
             column_load=column_load is not None,
+            parameters=None if executemany else parameters,
+            executemany=bool(executemany),
         )
         for target in targets:
             target.add_statement(stmt)
