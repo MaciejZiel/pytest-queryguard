@@ -62,7 +62,7 @@ not run: the numbers are SQLite only.
 | kind | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|
 | relationship-load | 20 | 0 | 0 | 100% | 100% |
-| repeated-statement | 19 | 5 | 2 | 79% | 90% |
+| repeated-statement | 19 | 4 | 2 | 83% | 90% |
 | column-load | 4 | 0 | 1 | 100% | 80% |
 
 The small counts (20, 19, 4) mean that one scenario moves a percentage by several
@@ -73,12 +73,12 @@ pattern.
 
 | configuration | kind | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|---|
-| small-repeat = 2 | repeated-statement | 21 | 7 | 0 | 75% | 100% |
+| small-repeat = 2 | repeated-statement | 21 | 6 | 0 | 78% | 100% |
 | write-loop = 2 | write-loop | 6 | 2 | 0 | 75% | 100% |
 | column-load threshold 2 | column-load | 5 | 1 | 0 | 83% | 100% |
 | unused-eager-load = fail | unused-eager-load | 1 | 0 | 0 | 100% | 100% |
-| repeat scope `session` | repeated-statement | 17 | 5 | 4 | 77% | 81% |
-| all four rules | repeated-statement | 21 | 7 | 0 | 75% | 100% |
+| repeat scope `session` | repeated-statement | 17 | 4 | 4 | 81% | 81% |
+| all four rules | repeated-statement | 21 | 6 | 0 | 78% | 100% |
 | all four rules | column-load | 5 | 1 | 0 | 83% | 100% |
 | all four rules | write-loop | 6 | 2 | 0 | 75% | 100% |
 | all four rules | unused-eager-load | 1 | 0 | 0 | 100% | 100% |
@@ -101,7 +101,7 @@ reported repeats one statement inside one `Session`.
 |---|---|---|---|
 | `bug_42_small_get_loop_below_threshold`, `bug_45_async_session_get_small` | BUG: 4 and 3 `get` calls | not reported | The repeat threshold is 5. The small-repeat rule reports both. |
 | `bug_44_expired_after_commit_three` | BUG: 3 objects reload after a commit | not reported | The column-load threshold is 5. Threshold 2 reports it. |
-| `bug_50_cascade_delete_loop` | BUG: delete cascade loads per parent | `relationship-load` and also `repeated-statement` (measured before the fix) | Bug [#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59), fixed: an autoflush before the lazy load took over its relationship attribution. The numbers on this page were measured before the fix; after it, the repeated-statement false positive of this scenario is gone. |
+| `bug_50_cascade_delete_loop` | BUG: delete cascade loads per parent | `relationship-load` and also `repeated-statement` (before the fix) | Bug [#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59), fixed: an autoflush before the lazy load took over its relationship attribution. After the fix the repeated-statement false positive of this scenario is gone, and the repeated-statement rows on this page were re-measured. |
 | `clean_12_offset_pagination`, `clean_13_keyset_pagination` | CLEAN: 6 and 7 pages | `repeated-statement` | Five or more pages are one statement five times; only the small-repeat rule skips pagination. [#60](https://github.com/MaciejZiel/pytest-queryguard/issues/60). |
 | `clean_15_chunked_in_six_chunks` | CLEAN: 3000 ids in chunks of 500 | `repeated-statement` | The chunks share one shape. |
 | `clean_16_polling_loop` | CLEAN: polling a status on purpose | `repeated-statement` | A deliberate repeat looks like a loop. Use `allow_nplusone`. |
@@ -141,9 +141,9 @@ SQLModel not installed, so 108 of the 110 scenarios), rounded down:
 | `repeated-statement` | 80% | 90% | 19 TP, 4 FP, 2 FN (83% and 90%) |
 | `column-load` | 100% | 80% | 4 TP, 0 FP, 1 FN |
 
-The measured repeated-statement precision is 83%, not the 79% of the table
-above: the numbers above were taken before the fix of
-[#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59). The minimums
+The repeated-statement rows above were re-measured after the fix of
+[#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59) (one false
+positive fewer). The minimums
 are a floor against regressions, not a goal. Raise one in the same pull request
 that improves the corpus result; lower one only with a reason in that pull
 request, because every lowered minimum is a release that detects less.

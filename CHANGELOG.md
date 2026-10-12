@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
+  suite and the async helpers need `AsyncAttrs`, which does not exist in
+  earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
 - Lower the per-statement overhead by about a sixth in the in-memory SQLite
   micro-benchmark: one shared `CallSite` per source location, one write check
   per statement and a cache for `normalize()`. Behaviour is unchanged. New
