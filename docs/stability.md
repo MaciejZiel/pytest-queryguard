@@ -50,7 +50,7 @@ changes by accident.
   that is a fix, not a breaking change.
 - Minor (`x.Y.0`): new public API, new options with a default that keeps
   today's behaviour, new finding kinds that are off or reported as warnings
-  first, deprecations, and dropping support for an end-of-life Python,
+  first (from 1.0 on; see below for 0.x), deprecations, and dropping support for an end-of-life Python,
   SQLAlchemy or pytest series.
 - Major (`X.0.0`): removals of deprecated API, changed defaults, and
   incompatible changes to anything listed under "What is public".
@@ -58,6 +58,18 @@ changes by accident.
 While the version is below 1.0, a minor release may also contain breaking
 changes. They are still deprecated first whenever that is possible, and are
 always listed under "Changed" or "Removed" in the changelog.
+
+**Pre-1.0 clause for new checks.** While the version is 0.x, a minor release
+may change the defaults of newly added detectors: switch a new check on, or let
+it fail tests by default, instead of introducing it off or as a warning first.
+Every such change is named in the introduction at the top of the changelog
+entry and listed first under "Changed", in a "Behavior changes" group, with the
+option that turns it off. The
+unreleased changelog entry is an example: the `column-load` kind is on by default, the index
+advisor is on whenever the index check is on, and the index check fails tests
+on SQLite. From 1.0 on, the rules above apply strictly: a new check is off or
+only warns until a later minor release, and a change of default needs a major
+release.
 
 ## Deprecation policy
 
@@ -76,7 +88,7 @@ A security or data-loss fix may skip these steps; the changelog says so.
 
 A new finding kind, or a stricter version of an existing check, first appears
 in a release where it can be turned off with an ini option, and the changelog
-says how.
+says how. Before 1.0 it may be on by default (see the pre-1.0 clause above).
 
 ## How this is enforced
 

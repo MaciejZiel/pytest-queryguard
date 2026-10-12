@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release adds baselines, SARIF output and a GitHub Action, per-finding
 ignores, new finding kinds (column loads, write loops, unused eager loads), query
 timing and `max_db_time`, an index advisor, and a missing-index check for SQLite.
-It also adds a documentation site and runnable examples. Two things can change the
-result of an existing test run without any new option: the `column-load` kind is on
-by default, and the index advisor is on by default with the index check. They are
-listed first under "Changed" as behavior changes, with how to turn them off.
+It also adds a documentation site and runnable examples. Three things can change the
+result or the output of an existing test run without any new option: the `column-load`
+kind is on by default, the index advisor is on by default with the index check, and
+the index check now also runs on SQLite. They are listed first under "Changed" as
+behavior changes, with how to turn them off, as the pre-1.0 clause of the
+[stability policy](docs/stability.md) requires.
 
 ### Added
 
