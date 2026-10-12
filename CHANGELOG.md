@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Lower the per-statement overhead by about a sixth in the in-memory SQLite
+  micro-benchmark: one shared `CallSite` per source location, one write check
+  per statement and a cache for `normalize()`. Behaviour is unchanged. New
+  `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
+  for file-based SQLite or PostgreSQL).
+
 - Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
   `scripts/release_gate.py`) that checks the test matrix, the accuracy
   minimums, the documentation examples, clean installs, the upgrade from the
