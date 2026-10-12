@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The relationship-load finding shows a lazy load as its sample SQL. It used the
+  first statement with the relationship's label, which was the `selectinload`
+  query when that ran first; that query is now used only when no lazy load was
+  recorded ([#131](https://github.com/MaciejZiel/pytest-queryguard/issues/131)).
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
