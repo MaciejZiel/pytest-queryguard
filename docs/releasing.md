@@ -53,5 +53,8 @@ projects (only Litestar, pytest-asyncio and SQLModel may be missing).
 
 The accuracy minimums and the overhead baseline are floors against
 regressions. Raise them in the pull request that improves the result. Lower
-them only in a pull request that says why. Re-record the baseline with
-`uv run python scripts/bench_gate.py --update`.
+them only in a pull request that says why. The overhead baseline is recorded on the GitHub runner
+(`ubuntu-latest`, Python 3.12) that runs the gate, because the ratio depends on
+the machine: it is the mean of the first runs of the gate there (Core 0.297,
+ORM 0.267). Re-record it from a green gate run on that runner, not on a
+laptop (`uv run python scripts/bench_gate.py --update` writes it).
