@@ -21,6 +21,19 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run mypy src
 
+  # The documentation site (scripts/build_docs.py) must build without broken
+  # links or pages missing from docs/site.toml. Building only: nothing is
+  # published from here.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --only-group docs
+      - run: uv run --no-sync python scripts/build_docs.py --strict
+
   test:
     runs-on: ubuntu-latest
     strategy:
