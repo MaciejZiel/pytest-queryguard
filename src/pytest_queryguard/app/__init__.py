@@ -17,13 +17,17 @@ from __future__ import annotations
 from ..api import Query
 from ..events import CallSite
 from ..findings import Finding
+from ._asgi import QueryGuardASGI
 from ._core import RequestReport, Settings, internal_error, set_route, track
 from ._listeners import is_watched, unwatch, watch
+from ._wsgi import QueryGuardWSGI
 
 __all__ = [
     "CallSite",
     "Finding",
     "Query",
+    "QueryGuardASGI",
+    "QueryGuardWSGI",
     "RequestReport",
     "Settings",
     "internal_error",
