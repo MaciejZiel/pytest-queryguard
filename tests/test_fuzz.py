@@ -153,25 +153,28 @@ def test_normalize_survives_character_soup() -> None:
         assert isinstance(normalize(sql), str)
 
 
-@pytest.mark.parametrize(
-    "sql",
-    [
-        "",
-        " ",
-        "'" * 5000,
-        "'" + "a" * 100_000,
-        "IN (" + "?, " * 20_000,
-        "IN (" + "?, " * 20_000 + "?)",
-        "IN (" + "1," * 5000 + "x)" * 5000,
-        "(" * 5000,
-        "SELECT " + "1 " * 20_000,
-        "\n" * 50_000,
-        "IN (?" + "::" + "a " * 3000 + ")",
-        "IN (CAST(? AS " + "a " * 3000 + ")",
-        "\x00" * 1000,
-    ],
-)
-def test_normalize_is_fast_on_adversarial_input(sql: str) -> None:
+# Short ids: a 100 kB parameter id would end up in PYTEST_CURRENT_TEST, which
+# Windows rejects above 32767 characters.
+ADVERSARIAL = {
+    "empty": "",
+    "space": " ",
+    "quotes": "'" * 5000,
+    "unterminated-string": "'" + "a" * 100_000,
+    "open-in-list": "IN (" + "?, " * 20_000,
+    "long-in-list": "IN (" + "?, " * 20_000 + "?)",
+    "mismatched-parens": "IN (" + "1," * 5000 + "x)" * 5000,
+    "open-parens": "(" * 5000,
+    "many-numbers": "SELECT " + "1 " * 20_000,
+    "newlines": "\n" * 50_000,
+    "cast-words": "IN (?" + "::" + "a " * 3000 + ")",
+    "cast-as-words": "IN (CAST(? AS " + "a " * 3000 + ")",
+    "nul": "\x00" * 1000,
+}
+
+
+@pytest.mark.parametrize("name", list(ADVERSARIAL))
+def test_normalize_is_fast_on_adversarial_input(name: str) -> None:
+    sql = ADVERSARIAL[name]
     # A generous bound: this catches catastrophic regex backtracking, not speed.
     start = time.perf_counter()
     normalize(sql)
