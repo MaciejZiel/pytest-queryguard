@@ -7,6 +7,7 @@ from pytest_queryguard.detectors import (
     ColumnLoadFinding,
     RelationshipFinding,
     RepeatFinding,
+    WriteLoopFinding,
     _value_rows,
     detect,
     normalize,
@@ -515,3 +516,107 @@ def test_column_loads_count_the_sessions_they_came_from() -> None:
 )
 def test_value_rows_counts_the_row_tuples(sql: str, rows: int) -> None:
     assert _value_rows(sql) == rows
+
+
+# ------------------------------------------------ write-loop rule: edge cases
+
+INSERT = "INSERT INTO t (a) VALUES (?)"
+
+
+def _writes(
+    sql: str, n: int, *, scope: int | None = None, site: CallSite | None = SITE
+) -> list[StatementEvent]:
+    return [StatementEvent(sql, site, None, scope=scope) for _ in range(n)]
+
+
+def _write_loops(
+    c: QueryCollector, threshold: int, scope: str = "test"
+) -> list[WriteLoopFinding]:
+    found = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=50,
+        write_loop_threshold=threshold,
+        scope=scope,
+    )
+    return [f for f in found if isinstance(f, WriteLoopFinding)]
+
+
+def test_write_loop_threshold_of_one_reports_a_single_write() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 1))
+    [f] = _write_loops(c, 1)
+    assert isinstance(f, WriteLoopFinding)
+    assert (f.verb, f.count, f.first, f.scopes, f.scoped) == (
+        "INSERT",
+        1,
+        SITE,
+        1,
+        False,
+    )
+
+
+def test_write_loop_ignores_executemany_and_reads_but_keeps_scanning() -> None:
+    c = QueryCollector()
+    c.statements.append(StatementEvent(INSERT, SITE, None, executemany=True))
+    c.statements.append(StatementEvent("SELECT 1", SITE, None))
+    c.statements.extend(_writes(INSERT, 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.count == 3
+
+
+def test_write_loop_skips_multi_row_inserts_and_keeps_scanning() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("INSERT INTO t (a) VALUES (?), (?)", 4))
+    c.statements.extend(_writes(INSERT, 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.sql == normalize(INSERT)
+
+
+def test_write_loop_counts_a_two_row_insert_as_batched() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("INSERT INTO t (a) VALUES (?), (?)", 5))
+    assert _write_loops(c, 2) == []
+
+
+def test_write_loop_below_threshold_does_not_hide_a_later_write() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("UPDATE t SET a = 1 WHERE id = 1", 1, site=OTHER))
+    c.statements.extend(_writes(INSERT, 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.verb == "INSERT"
+
+
+def test_write_loop_verb_is_upper_case_and_survives_leading_space() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("  delete from t where id = 1", 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.verb == "DELETE"
+
+
+def test_write_loop_per_session_picks_the_busiest_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 3, scope=1))
+    c.statements.extend(_writes(INSERT, 4, scope=2))
+    [f] = _write_loops(c, 3, scope="session")
+    assert (f.count, f.scopes, f.scoped) == (4, 1, True)
+
+
+def test_write_loop_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 2, scope=1))
+    c.statements.extend(_writes(INSERT, 2, scope=2))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert (f.count, f.scopes, f.scoped) == (4, 2, False)
+
+
+def test_write_loops_are_sorted_by_count_descending() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 3, site=OTHER))
+    c.statements.extend(_writes("DELETE FROM t WHERE id = ?", 5))
+    assert [f.verb for f in _write_loops(c, 3)] == ["DELETE", "INSERT"]
