@@ -60,3 +60,15 @@ Every third-party component of this repository: the direct and transitive depend
 | https://github.com/actions/configure-pages | actions/configure-pages (GitHub Action, pinned v6.0.0) | MIT | https://github.com/actions/configure-pages/blob/main/LICENSE |
 | https://github.com/actions/upload-pages-artifact | actions/upload-pages-artifact (GitHub Action, pinned v5.0.0) | MIT | https://github.com/actions/upload-pages-artifact/blob/main/LICENSE |
 | https://github.com/actions/deploy-pages | actions/deploy-pages (GitHub Action, pinned v5.0.1) | MIT | https://github.com/actions/deploy-pages/blob/main/LICENSE |
+| https://github.com/FactoryBoy/factory_boy | factory-boy (dev group, fixtures of the accuracy corpus) | MIT | https://github.com/FactoryBoy/factory_boy/blob/master/LICENSE |
+| https://github.com/joke2k/faker | faker (transitive dependency of factory-boy) | MIT | https://github.com/joke2k/faker/blob/master/LICENSE.txt |
+| https://github.com/python/tzdata | tzdata (transitive dependency of faker, Windows only) | Apache-2.0 | https://github.com/python/tzdata/blob/master/LICENSE |
+| https://github.com/pallets-eco/flask-sqlalchemy | flask-sqlalchemy (dev group, Flask-SQLAlchemy scenarios of the accuracy corpus) | BSD-3-Clause | https://github.com/pallets-eco/flask-sqlalchemy/blob/main/LICENSE.rst |
+| https://github.com/pallets/flask | flask (transitive dependency of flask-sqlalchemy) | BSD-3-Clause | https://github.com/pallets/flask/blob/main/LICENSE.txt |
+| https://github.com/pallets/click | click (transitive dependency of flask) | BSD-3-Clause | https://github.com/pallets/click/blob/main/LICENSE.txt |
+| https://github.com/pallets/jinja | jinja2 (transitive dependency of flask) | BSD-3-Clause | https://github.com/pallets/jinja/blob/main/LICENSE.txt |
+| https://github.com/pallets/markupsafe | markupsafe (transitive dependency of flask) | BSD-3-Clause | https://github.com/pallets/markupsafe/blob/main/LICENSE.txt |
+| https://github.com/pallets/werkzeug | werkzeug (transitive dependency of flask) | BSD-3-Clause | https://github.com/pallets/werkzeug/blob/main/LICENSE.txt |
+| https://github.com/pallets/itsdangerous | itsdangerous (transitive dependency of flask) | BSD-3-Clause | https://github.com/pallets/itsdangerous/blob/main/LICENSE.txt |
+| https://github.com/pallets-eco/blinker | blinker (transitive dependency of flask) | MIT | https://github.com/pallets-eco/blinker/blob/main/LICENSE.txt |
+| https://github.com/fastapi/sqlmodel | sqlmodel (not in uv.lock: it requires SQLAlchemy below 2.1, so only the SQLAlchemy 2.0 CI job installs it; used by the accuracy corpus) | MIT | https://github.com/fastapi/sqlmodel/blob/main/LICENSE |

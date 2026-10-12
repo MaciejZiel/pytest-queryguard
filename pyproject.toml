@@ -58,7 +58,9 @@ dev = [
     # Async PostgreSQL tests (Apache-2.0; async-timeout, Apache-2.0, below 3.11).
     "asyncpg>=0.31",
     "coverage[toml]",
+    "factory-boy>=3.3.3",
     "fastapi",
+    "flask-sqlalchemy>=3.1.1",
     "httpx>=0.28,<0.29",
     "mypy",
     # PostgreSQL tests (BSD-3-Clause); psycopg and psycopg2 are LGPL.
