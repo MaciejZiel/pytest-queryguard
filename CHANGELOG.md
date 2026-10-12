@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `QueryGuardDeprecationWarning`, a `DeprecationWarning` subclass exported from
+  `pytest_queryguard`, is the class the deprecation policy uses. It is not a
+  `QueryGuardWarning`, so `filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]`
+  (and `ignore::` for findings) neither turns a deprecation into a failure nor
+  hides it. `docs/stability.md` names it in step 1 of the policy. Nothing is
+  deprecated yet.
+
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The

@@ -74,9 +74,13 @@ release.
 ## Deprecation policy
 
 1. The old name or behaviour keeps working and starts emitting a
-   `QueryGuardWarning` (a `UserWarning` subclass) that names the replacement
-   and the release in which it will be removed. Command-line flags and ini
-   options print the same warning once per run.
+   `QueryGuardDeprecationWarning` (a `DeprecationWarning` subclass, exported
+   from `pytest_queryguard`) that names the replacement and the release in
+   which it will be removed. It is not a `QueryGuardWarning`, so a
+   `filterwarnings` entry that turns findings into errors, or ignores them,
+   does not catch it; pytest shows `DeprecationWarning` in the warnings
+   summary by default. Command-line flags and ini options print the same
+   warning once per run.
 2. The deprecation is listed under "Deprecated" in the changelog, and the
    documentation points to the replacement.
 3. It stays for at least one minor release (two, from 1.0 on) and at least
