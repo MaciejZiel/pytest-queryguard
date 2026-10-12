@@ -341,7 +341,7 @@ def test_results_are_ordered_by_file_then_function() -> None:
     findings = [
         _finding(file="b.py", function="f"),
         _finding(file="a.py", function="g"),
-        _finding(file="a.py", function="f"),
+        _finding(file="a.py", function="Alpha"),
         _finding(file="a.py", function=None),
     ]
     results = _doc(*findings)["runs"][0]["results"]
@@ -355,7 +355,7 @@ def test_results_are_ordered_by_file_then_function() -> None:
     ]
     assert list(zip(uris, functions, strict=True)) == [
         ("a.py", None),
-        ("a.py", "f"),
+        ("a.py", "Alpha"),
         ("a.py", "g"),
         ("b.py", "f"),
     ]
