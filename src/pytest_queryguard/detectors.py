@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from .collector import QueryCollector
-from .events import CAUSE_DEFERRED, CallSite, ColumnLoadEvent
+from .events import CAUSE_DEFERRED, CallSite, ColumnLoadEvent, StatementEvent
 
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
@@ -31,6 +31,10 @@ _IN_LIST = re.compile(
 _DOLLAR_PARAM = re.compile(r"\$\d+")
 _WS = re.compile(r"\s+")
 _WRITES = ("INSERT", "UPDATE", "DELETE")
+# Pagination: OFFSET, or LIMIT with a range comparison on a parameter (keyset).
+_OFFSET = re.compile(r"\bOFFSET\b", re.IGNORECASE)
+_LIMIT = re.compile(r"\bLIMIT\b|\bFETCH\s+(?:FIRST|NEXT)\b|\bTOP\b", re.IGNORECASE)
+_RANGE = re.compile(r"[<>]=?\s*(?:\?|%s|%\(\w+\)s|:\w+|\$\d+)")
 # Distinct instances that must load columns on their own to count as N+1: as
 # high as the repeat rule, because touching a few objects after a commit is
 # ordinary test code.
@@ -66,6 +70,9 @@ class RepeatFinding:
     sql: str
     count: int
     first: CallSite | None
+    # Found by the small-repeat rule: a few runs from one line, each with
+    # different parameters, below the repeat threshold.
+    varying: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +152,45 @@ def _column_load_findings(
     return sorted(found, key=lambda f: -f.count)
 
 
+def _paginates(sql: str) -> bool:
+    if _OFFSET.search(sql):
+        return True
+    return bool(_LIMIT.search(sql) and _RANGE.search(sql))
+
+
+def _small_repeat_findings(
+    collector: QueryCollector, small: int, threshold: int
+) -> list[RepeatFinding]:
+    """A few runs of one statement from one line, each with other parameters.
+
+    Between ``small`` and ``threshold - 1`` runs: the repeat rule's threshold
+    would not report them. Only a loop looks like this, so the rule asks for
+    one call site and a different set of parameters (or literals) each time,
+    and leaves pagination alone.
+    """
+    groups: dict[str, list[StatementEvent]] = {}
+    for stmt in collector.statements:
+        if stmt.relationship is not None or stmt.column_load:
+            continue
+        if stmt.sql.lstrip().upper().startswith(_WRITES) or _paginates(stmt.sql):
+            continue
+        groups.setdefault(normalize(stmt.sql), []).append(stmt)
+    found: list[RepeatFinding] = []
+    for key, stmts in groups.items():
+        if not small <= len(stmts) < threshold:
+            continue
+        sites = {
+            (s.callsite.filename, s.callsite.lineno) if s.callsite else None
+            for s in stmts
+        }
+        if len(sites) != 1 or None in sites:
+            continue
+        runs = {(_WS.sub(" ", s.sql), repr(s.parameters)) for s in stmts}
+        if len(runs) == len(stmts):
+            found.append(RepeatFinding(key, len(stmts), stmts[0].callsite, True))
+    return sorted(found, key=lambda f: -f.count)
+
+
 def _repeat_findings(collector: QueryCollector, threshold: int) -> list[RepeatFinding]:
     counts: Counter[str] = Counter()
     first: dict[str, CallSite | None] = {}
@@ -169,9 +215,14 @@ def detect(
     relationship_threshold: int,
     repeat_threshold: int,
     column_load_threshold: int = DEFAULT_COLUMN_LOAD_THRESHOLD,
+    small_repeat_threshold: int | None = None,
 ) -> list[Detection]:
     findings: list[Detection] = []
     findings.extend(_relationship_findings(collector, relationship_threshold))
     findings.extend(_column_load_findings(collector, column_load_threshold))
     findings.extend(_repeat_findings(collector, repeat_threshold))
+    if small_repeat_threshold is not None and small_repeat_threshold < repeat_threshold:
+        findings.extend(
+            _small_repeat_findings(collector, small_repeat_threshold, repeat_threshold)
+        )
     return findings
