@@ -67,6 +67,7 @@ class _Settings:
         column_load: int = DEFAULT_COLUMN_LOAD_THRESHOLD,
         small_repeat: int | None = None,
         fail_on: tuple[str, ...] = (),
+        write_loop: int | None = None,
     ) -> None:
         self.mode = mode
         self.relationship = relationship
@@ -78,6 +79,7 @@ class _Settings:
         self.column_load = column_load
         self.small_repeat = small_repeat
         self.fail_on = fail_on
+        self.write_loop = write_loop
         # what the ignores did, for the stale-ignore warning in the summary
         self.ignore_used: set[IgnoreRule] = set()
         self.stale_markers: list[tuple[str, IgnoreRule]] = []
@@ -153,6 +155,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "Executions (below queryguard_repeat_threshold) of one statement from one "
         "source line, each with different parameters, treated as N+1; 0 turns "
         "this off (integer >= 2, or 0)",
+        default=0 if _NATIVE_INT else "0",
+        **_INT_TYPE,
+    )
+    parser.addini(
+        "queryguard_write_loop_threshold",
+        "Row-by-row INSERT, UPDATE or DELETE statements of one shape from one "
+        "source line treated as a write loop; 0 turns the check off (integer "
+        ">= 2, or 0)",
         default=0 if _NATIVE_INT else "0",
         **_INT_TYPE,
     )
@@ -235,6 +245,23 @@ def _small_repeat(config: pytest.Config, repeat: int) -> int | None:
             f"{name} must be lower than queryguard_repeat_threshold ({repeat}), "
             f"got {value}"
         )
+    return value
+
+
+def _write_loop(config: pytest.Config) -> int | None:
+    name = "queryguard_write_loop_threshold"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be 0 or an integer >= 2: {exc}") from None
+    try:
+        value = -1 if isinstance(raw, bool) else int(raw)
+    except (TypeError, ValueError):
+        value = -1
+    if value == 0:
+        return None
+    if value < 2:
+        raise pytest.UsageError(f"{name} must be 0 or an integer >= 2, got {raw!r}")
     return value
 
 
@@ -338,6 +365,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _threshold(config, "queryguard_column_load_threshold"),
         _small_repeat(config, repeat),
         _fail_on(config),
+        _write_loop(config),
     )
 
 
@@ -472,6 +500,7 @@ def _analyse(
                 repeat_threshold=settings.repeat,
                 column_load_threshold=settings.column_load,
                 small_repeat_threshold=settings.small_repeat,
+                write_loop_threshold=settings.write_loop,
             ),
             cwd=root,
         )
