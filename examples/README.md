@@ -11,6 +11,7 @@ test that passes after the fix, so you can see a finding and its cure.
 | [postgres-missing-index](postgres-missing-index) | The missing-index check on PostgreSQL, with a `compose.yaml` |
 | [sqlite-index-check](sqlite-index-check) | The missing-index check on SQLite, no server needed |
 | [baseline-sarif](baseline-sarif) | A baseline for existing findings, and a SARIF file |
+| [in-app](in-app) | The in-application mode in a FastAPI and a Flask app; `python demo.py` prints the reports and the panel's JSON |
 | [action-sample](action-sample) | A project the GitHub Action is tested on in CI |
 
 Run one from its own directory, with pytest-queryguard installed from this

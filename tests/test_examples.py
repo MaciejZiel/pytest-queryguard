@@ -216,3 +216,38 @@ def test_baseline_and_sarif_example(tmp_path: Path) -> None:
     assert result["ruleId"] == "queryguard/relationship-load"
     location = result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
     assert location == "app/books.py"
+
+
+def test_in_app_example() -> None:
+    for module in ("fastapi", "flask", "httpx", "aiosqlite", "greenlet"):
+        pytest.importorskip(module)
+    example = EXAMPLES / "in-app"
+    environment = {k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS"}
+    result = subprocess.run(
+        [sys.executable, "-W", "ignore::DeprecationWarning", "demo.py"],
+        cwd=example,
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = [
+        "WARNING pytest_queryguard.app: queryguard: GET /orders: 6 statements",
+        "Order.customer was lazy-loaded 5 times",
+        "first at app/main.py:48 in list_orders",
+        (
+            "WARNING pytest_queryguard.app: queryguard: GET /orders/3 "
+            "(route /orders/{order_id}): 2 statements"
+        ),
+        "queryguard: expected at most 1 queries, got 2",
+        "GET /orders/3 200 2 statements budget 1 []",
+        "GET /orders-fixed 200 2 statements budget None []",
+        "GET /orders 200 6 statements budget None ['Order.customer']",
+        "first at app/flask_app.py:39 in list_orders",
+    ]
+    assert_in_output_and_readme(example, result, lines)
+    docs = (ROOT / "docs" / "in-app.md").read_text(encoding="utf-8")
+    for line in lines:
+        assert line in docs, f"{line!r} is not in docs/in-app.md"
