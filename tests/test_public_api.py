@@ -14,7 +14,6 @@ import importlib.metadata
 import inspect
 import pickle
 import re
-import traceback
 from typing import Any
 
 import pytest
@@ -123,29 +122,6 @@ def test_all_is_the_documented_list() -> None:
         assert hasattr(pytest_queryguard, name), name
 
 
-def test_exported_names_report_the_package_as_their_module() -> None:
-    """Tracebacks and pickles show ``pytest_queryguard.X``, not a submodule."""
-    for name in pytest_queryguard.__all__:
-        if name == "__version__":
-            continue
-        obj = getattr(pytest_queryguard, name)
-        assert obj.__module__ == "pytest_queryguard", name
-
-
-def test_exceptions_are_named_by_the_package_in_tracebacks() -> None:
-    error = pytest_queryguard.NPlusOneDetected("x")
-    text = "".join(traceback.format_exception(error))
-    assert "pytest_queryguard.NPlusOneDetected: x" in text
-    assert "pytest_queryguard.api" not in text
-
-
-def test_exported_classes_still_pickle() -> None:
-    site = pytest_queryguard.CallSite(filename="a.py", lineno=3, function="f")
-    assert pickle.loads(pickle.dumps(site)) == site
-    error = pickle.loads(pickle.dumps(pytest_queryguard.QueryBudgetExceeded("x")))
-    assert type(error) is pytest_queryguard.QueryBudgetExceeded
-
-
 def test_version_is_a_release_number() -> None:
     """A plain release number, optionally a release candidate (PEP 440)."""
     assert re.fullmatch(r"\d+\.\d+\.\d+(rc\d+)?", pytest_queryguard.__version__)
@@ -239,3 +215,28 @@ def test_entry_point_name() -> None:
     assert [(p.name, p.value) for p in ours] == [
         ("queryguard", "pytest_queryguard.plugin")
     ]
+
+
+def test_exported_names_report_the_package_as_their_module() -> None:
+    """Tracebacks and pickles show ``pytest_queryguard.X``, not a submodule."""
+    for name in pytest_queryguard.__all__:
+        if name == "__version__":
+            continue
+        obj = getattr(pytest_queryguard, name)
+        assert obj.__module__ == "pytest_queryguard", name
+
+
+def test_exceptions_are_named_by_the_package_in_tracebacks() -> None:
+    import traceback
+
+    error = pytest_queryguard.NPlusOneDetected("x")
+    text = "".join(traceback.format_exception(error))
+    assert "pytest_queryguard.NPlusOneDetected: x" in text
+    assert "pytest_queryguard.api" not in text
+
+
+def test_exported_classes_still_pickle() -> None:
+    site = pytest_queryguard.CallSite(filename="a.py", lineno=3, function="f")
+    assert pickle.loads(pickle.dumps(site)) == site
+    error = pickle.loads(pickle.dumps(pytest_queryguard.QueryBudgetExceeded("x")))
+    assert type(error) is pytest_queryguard.QueryBudgetExceeded
