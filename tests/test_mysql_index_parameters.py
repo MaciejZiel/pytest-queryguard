@@ -136,3 +136,34 @@ def test_a_statement_run_with_no_parameters_is_explained_without_error(
     result = project.runpytest("--queryguard-index-check", "-p", "no:cacheprovider")
     result.assert_outcomes(passed=1)
     result.stdout.no_fnmatch_line("*could not be explained*")
+
+
+def test_explain_formats_parameters_given_despite_no_parameters(fake: Any) -> None:
+    # SQLAlchemy honours no_parameters only when there are no parameters
+    statement = "SELECT id FROM t WHERE name = %s"
+    mysql_index.explain(_connection(fake), statement, ("a",), no_parameters=True)
+    assert fake.sent == ["EXPLAIN SELECT id FROM t WHERE name = 'a'"]
+
+
+WITH_PARAMETERS_BODY = """
+from fakemysql import make_engine, sent
+
+
+def test_parameters_with_no_parameters():
+    engine = make_engine()
+    with engine.connect() as conn:
+        conn = conn.execution_options(no_parameters=True)
+        conn.exec_driver_sql("SELECT 1 FROM t WHERE n = %s", ("a",))
+    assert sent[0] == "SELECT 1 FROM t WHERE n = 'a'"
+    assert "EXPLAIN SELECT 1 FROM t WHERE n = 'a'" in sent
+"""
+
+
+def test_parameters_given_with_no_parameters_are_explained_formatted(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=WITH_PARAMETERS_BODY)
+    project.syspathinsert()
+    result = project.runpytest("--queryguard-index-check", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*could not be explained*")

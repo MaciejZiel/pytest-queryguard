@@ -492,13 +492,15 @@ def explain(
 
     PyMySQL formats the text with ``query % args`` unless ``args`` is None. The
     EXPLAIN gets the formatting the application's execution got: with the
-    ``no_parameters`` execution option the text went to the server as it is,
-    and so does the EXPLAIN.
+    ``no_parameters`` execution option and no parameters the text went to the
+    server as it is, and so does the EXPLAIN.
     """
     cursor = dbapi_connection.cursor()
     try:
         try:
-            cursor.execute(_EXPLAIN + statement, None if no_parameters else parameters)
+            # SQLAlchemy honours no_parameters only when there are none
+            raw = no_parameters and not parameters
+            cursor.execute(_EXPLAIN + statement, None if raw else parameters)
             names = [str(d[0]) for d in cursor.description or ()]
             rows = [dict(zip(names, _row(r), strict=False)) for r in cursor.fetchall()]
             return analyse(rows, statement, Schema(cursor), alembic)
