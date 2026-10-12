@@ -404,8 +404,18 @@ def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
         fix = [f"  fix: {text}"]
     else:
         fix = [f"  fix: CREATE INDEX ON {table} ({issue.column})"]
+    condition = _truncate(issue.condition)
+    if issue.index is not None:
+        # An existing index is walked end to end: the table is not read in
+        # full, and the filter cannot use that index.
+        head = (
+            f"  {table} scans the whole {issue.index}: the {issue.kind} "
+            f"{condition} does not match the start of any index"
+        )
+    else:
+        head = f"  {table} is read in full: {issue.node} {where} {condition}"
     return [
-        f"  {table} is read in full: {issue.node} {where} {_truncate(issue.condition)}",
+        head,
         _first_at(scan.callsite, cwd),
         f"  sql: {_truncate(scan.sql)}",
         *fix,

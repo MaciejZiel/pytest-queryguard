@@ -117,6 +117,10 @@ class ScanIssue:
     column: str | None  # the column for a CREATE INDEX hint, when obvious
     show_schema: bool = True  # False when the table is in the current schema
     expression: bool = False  # the column sits in a function or a non-text cast
+    # SQLite: set when the plan walks an existing index or primary key that the
+    # filter cannot use ("index ix_orders_created_at", "primary key"); the
+    # table is then not read in full, the index is.
+    index: str | None = field(default=None, compare=False)
     # What the index advisor works from; not part of the issue's identity.
     alias: str = field(default="", compare=False)
     conditions: tuple[str, ...] = field(default=(), compare=False)
