@@ -54,6 +54,8 @@ queryguard = "pytest_queryguard.plugin"
 
 [dependency-groups]
 dev = [
+    # Async MySQL and MariaDB tests (MIT; PyMySQL, MIT). Not mysqlclient (GPL).
+    "aiomysql>=0.3.2",
     "aiosqlite",
     # Async PostgreSQL tests (Apache-2.0; async-timeout, Apache-2.0, below 3.11).
     "asyncpg>=0.31",
@@ -63,6 +65,8 @@ dev = [
     "mypy",
     # PostgreSQL tests (BSD-3-Clause); psycopg and psycopg2 are LGPL.
     "pg8000>=1.31.5",
+    # MySQL and MariaDB tests (MIT).
+    "pymysql>=1.2.3",
     # The multi-process tests in tests/test_xdist.py (MIT; execnet, MIT).
     "pytest-xdist>=3.5",
     "ruff",
