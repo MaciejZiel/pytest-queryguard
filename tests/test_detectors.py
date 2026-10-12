@@ -7,6 +7,7 @@ from pytest_queryguard.detectors import (
     ColumnLoadFinding,
     RelationshipFinding,
     RepeatFinding,
+    _value_rows,
     detect,
     normalize,
 )
@@ -484,3 +485,33 @@ def test_column_loads_count_the_sessions_they_came_from() -> None:
     )
     assert isinstance(f, ColumnLoadFinding)
     assert (f.count, f.scopes, f.scoped) == (4, 2, False)
+
+
+# ------------------------------------------------- counting VALUES rows
+
+
+@pytest.mark.parametrize(
+    ("sql", "rows"),
+    [
+        ("INSERT INTO t (a) VALUES (1)", 1),
+        ("INSERT INTO t (a) VALUES (1), (2), (3)", 3),
+        ("insert into t (a) values (1), (2)", 2),
+        ("UPDATE t SET a = 1 WHERE id = 2", 1),
+        ("INSERT INTO t (a) VALUES (1), (2) RETURNING id", 2),
+        ("INSERT INTO t (a) VALUES (1) ON CONFLICT DO NOTHING", 1),
+        ("INSERT INTO t (a, b) VALUES (?, ?),\n\t(?, ?)", 2),
+        # string literals: quotes, escaped quotes and parentheses are not rows
+        ("INSERT INTO t (a) VALUES ('x'), ('y')", 2),
+        ("INSERT INTO t (a) VALUES (''), ('')", 2),
+        ("INSERT INTO t (a, b) VALUES ('it''s', 1), ('x', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('a''', 1), ('b', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('''', 1), ('b', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('(', 1), (')', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('ab', 1), ('cde', 2)", 2),
+        # an unterminated literal ends the scan instead of raising
+        ("INSERT INTO t (a) VALUES ('abc", 1),
+        ("INSERT INTO t (a) VALUES (1), ('abc", 2),
+    ],
+)
+def test_value_rows_counts_the_row_tuples(sql: str, rows: int) -> None:
+    assert _value_rows(sql) == rows
