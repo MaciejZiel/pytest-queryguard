@@ -105,6 +105,7 @@ def clear() -> None:
         # this thread or another, must not see them change size.
         entry.leading = {}
         entry.varchar = {}
+        entry.partial = {}
     for target in collector.active():
         target.explained.clear()
 
