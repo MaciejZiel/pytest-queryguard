@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hides it. `docs/stability.md` names it in step 1 of the policy. Nothing is
   deprecated yet.
 
+### Fixed
+
+- Tests: the public API snapshot recorded a wrong return type for
+  `QueryLog.slowest()` and did not assert it. It now records
+  `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
