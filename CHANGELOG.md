@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A "Recipes" section in the documentation: FastAPI (`TestClient` and
+  `httpx.AsyncClient` with dependency-overridden sessions), Flask-SQLAlchemy,
+  SQLModel, Litestar, pytest-asyncio configuration pitfalls, budgets for hot
+  endpoints, adopting the plugin on a legacy codebase and CI. A new example,
+  `examples/fastapi-dependency-override`, is run by the test suite.
+
 ### Fixed
 
 - SARIF locations are now relative to the repository root when
