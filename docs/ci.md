@@ -30,14 +30,16 @@ jobs:
         with:
           pytest-args: -x tests/
           baseline: queryguard-baseline.json
-          package: "pytest-queryguard>=0.4.0rc2"   # see below
 ```
 
-Until 0.4.0 is released, set `package` as above. Its default,
-`pytest-queryguard`, lets pip pick the stable 0.3.0 when your project does not
-install the plugin itself, and 0.3.0 has no `--queryguard-sarif`: pytest then
-stops with `unrecognized arguments`. If your test dependencies already pin
-`pytest-queryguard>=0.4.0rc2`, the default is satisfied by that install.
+You do not need to set `package`. Left empty, the action installs the plugin
+from its own checkout, so the plugin version is the one that ref ships: pin the
+action to a release tag or a commit and you get the plugin of that release. A
+fixed default such as `pytest-queryguard` would let pip pick an older release
+(for example a stable 0.3.0 while 0.4 is a release candidate), which has no
+`--queryguard-sarif`, and pytest would stop with `unrecognized arguments`. Set
+`package` only to install something else, such as `pytest-queryguard==0.4.0`
+or a path.
 
 The action installs `pytest-queryguard` into the active Python, runs
 `pytest --queryguard-sarif=queryguard.sarif`, uploads the file with
@@ -49,7 +51,7 @@ failed. Install your own project first: the action does not know how.
 |---|---|---|
 | `pytest-args` | empty | Arguments for pytest, as a list of shell words: quotes group words (`-k "a or b"`). The value is split by Python's `shlex` and is not evaluated by a shell, so `$(...)`, backticks and `$VAR` are passed to pytest as literal text. |
 | `python-version` | empty | Set up this Python. Empty: use the `python` on PATH. |
-| `package` | `pytest-queryguard` | What to `pip install`: a requirement like `pytest-queryguard>=0.4`, or a path. |
+| `package` | empty | What to `pip install`. Empty: the plugin from the action's own checkout, matching the pinned ref. Otherwise a requirement like `pytest-queryguard>=0.4`, or a path. |
 | `baseline` | empty | Baseline file, see [baseline.md](baseline.md). Empty: `queryguard_baseline` from your config. |
 | `fail` | `true` | `true`: fail the step when pytest fails. `false`: never fail, only report. |
 | `working-directory` | `.` | Where to run pytest. Locations in the SARIF file are still relative to the repository root (see [SARIF output](sarif.md#paths-and-the-repository-root)). |
