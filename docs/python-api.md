@@ -71,14 +71,14 @@ tests/test_queries.py .F                                                 [100%]
 _____________________________ test_fetch_customers _____________________________
 tests/test_queries.py:18: in test_fetch_customers
     log.assert_no_nplusone(repeat_threshold=2)
-E   pytest_queryguard.api.NPlusOneDetected: queryguard: N+1 detected
+E   pytest_queryguard.NPlusOneDetected: queryguard: N+1 detected
 E   
 E     the same statement ran 3 times
 E     first at app/customers.py:9 in fetch_customers
 E     SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
 E     fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 =========================== short test summary info ============================
-FAILED tests/test_queries.py::test_fetch_customers - pytest_queryguard.api.NP...
+FAILED tests/test_queries.py::test_fetch_customers - pytest_queryguard.NPlusO...
 ========================= 1 failed, 1 passed in 0.05s ==========================
 ```
 

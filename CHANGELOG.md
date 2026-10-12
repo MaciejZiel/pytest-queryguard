@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+- The classes and functions in `pytest_queryguard.__all__` now report
+  `pytest_queryguard` as their `__module__`. Tracebacks and logs show
+  `pytest_queryguard.NPlusOneDetected` instead of
+  `pytest_queryguard.api.NPlusOneDetected`, so the printed name matches the
+  documented import path and the submodules can move without changing it. A
+  `filterwarnings` entry that names the submodule
+  (`error::pytest_queryguard.warnings.QueryGuardWarning`) keeps working.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
