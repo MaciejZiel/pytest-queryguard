@@ -20,7 +20,9 @@ def run(ctx: Ctx) -> None:
         ids = list(session.scalars(select(shop.Order.id)))
         for order_id in ids:
             session.execute(
-                update(shop.Order).where(shop.Order.id == order_id).values(status="shipped")
+                update(shop.Order)
+                .where(shop.Order.id == order_id)
+                .values(status="shipped")
             )
         session.commit()
     assert len(ids) == 24

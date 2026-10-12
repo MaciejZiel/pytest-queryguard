@@ -14,5 +14,7 @@ setup = shop.setup
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
         total = session.scalar(select(func.count()).select_from(shop.Order))
-        page = session.scalars(select(shop.Order).order_by(shop.Order.id).limit(10)).all()
+        page = session.scalars(
+            select(shop.Order).order_by(shop.Order.id).limit(10)
+        ).all()
     assert total == 24 and len(page) == 10

@@ -7,7 +7,6 @@ A scenario module defines:
 * ``KNOWN``: optional ``{config: reason}``. In those configurations the plugin
   is known to disagree with the verdict, a documented limitation or an open
   bug; the corpus test is then an ``xfail(strict=True)``;
-* ``REQUIRES``: optional modules that must be importable (``sqlmodel``);
 * ``setup(ctx)``: create the schema and seed rows; not measured;
 * ``run(ctx)``: the code under test; measured. It may be ``async``.
 """

@@ -13,5 +13,7 @@ setup = shop.setup
 
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
-        session.execute(insert(shop.Tag).values([{"name": f"multi{i}"} for i in range(50)]))
+        session.execute(
+            insert(shop.Tag).values([{"name": f"multi{i}"} for i in range(50)])
+        )
         session.commit()

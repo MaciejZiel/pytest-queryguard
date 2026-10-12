@@ -7,7 +7,6 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-REQUIRES = ("sqlmodel",)
 
 
 class OkTeam(SQLModel, table=True):

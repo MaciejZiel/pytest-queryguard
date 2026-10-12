@@ -112,6 +112,11 @@ extend-exclude = ["docs"]
 [tool.ruff.lint]
 extend-select = ["I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's Depends() in a default and the mutable __mapper_args__ dictionaries
+# are how the code the corpus imitates is written.
+"tests/corpus/**" = ["B008", "RUF012"]
+
 [tool.mypy]
 strict = true
 files = ["src"]

@@ -47,9 +47,27 @@ class Score:
         return self.bug_found + self.bug_missed + self.clean_passed + self.clean_flagged
 
 
+# Configurations that switch several opt-in rules on at once.
+COMPOSITE = {
+    "all-opt-in": ("small-repeat", "write-loop", "column-load-2", "unused-eager-load")
+}
+
+
 def known_reason(scenario: Scenario, config: str) -> str | None:
+    """Why the plugin may disagree with the verdict in this configuration.
+
+    A scenario lists configurations in ``KNOWN`` (``"*"`` for all of them, an
+    explicit ``None`` for one where the limitation does not apply). For a
+    composite configuration without its own entry, the reason of any rule it
+    switches on counts.
+    """
     known = scenario.known
-    return known.get(config, known.get("*"))
+    if config in known:
+        return known[config]
+    for part in COMPOSITE.get(config, ()):
+        if known.get(part):
+            return known[part]
+    return known.get("*")
 
 
 def score(config: str, scenarios: list[Scenario], results: dict[str, Result]) -> Score:

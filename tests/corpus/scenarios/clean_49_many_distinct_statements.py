@@ -16,8 +16,12 @@ def run(ctx: Ctx) -> None:
         counts = [
             session.scalar(select(func.count()).select_from(model))
             for model in (
-                shop.Customer, shop.Order, shop.OrderLine, shop.Product,
-                shop.Tag, shop.Category,
+                shop.Customer,
+                shop.Order,
+                shop.OrderLine,
+                shop.Product,
+                shop.Tag,
+                shop.Category,
             )
         ]
         top = session.scalar(select(func.max(shop.Order.total)))

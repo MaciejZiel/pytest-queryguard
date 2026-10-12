@@ -14,7 +14,7 @@ from ..kit import CLEAN, Ctx
 VERDICT = CLEAN
 KINDS = frozenset()
 KNOWN = {
-    "default": "chunked IN statements share one shape; raise queryguard_repeat_threshold or mark the test allow_nplusone",
+    "*": "chunked IN statements share one shape; raise queryguard_repeat_threshold or mark the test allow_nplusone",
 }
 CHUNK = 500
 
@@ -29,5 +29,9 @@ def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
         for start in range(0, len(ids), CHUNK):
             chunk = ids[start : start + CHUNK]
-            names.extend(session.scalars(select(shop.Product.name).where(shop.Product.id.in_(chunk))))
+            names.extend(
+                session.scalars(
+                    select(shop.Product.name).where(shop.Product.id.in_(chunk))
+                )
+            )
     assert len(names) == 3000

@@ -1,17 +1,21 @@
-"""BUG relationship-load: deleting parents one by one with an ORM delete cascade.
+"""BUG relationship-load and write-loop: deleting parents one by one with an ORM delete cascade.
 
 ``cascade="all, delete-orphan"`` makes ``session.delete(parent)`` load the
-children first, one SELECT per parent. ``passive_deletes=True`` with an
+children first, one SELECT per parent (and that load autoflushes the previous
+delete, so the DELETEs go out folder by folder). ``passive_deletes=True`` with an
 ``ON DELETE CASCADE`` foreign key, or a bulk ``DELETE``, avoids it.
 """
 
 from sqlalchemy import ForeignKey, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
-from ..kit import BUG, REL, Ctx
+from ..kit import BUG, REL, WRITE, Ctx
 
 VERDICT = BUG
-KINDS = frozenset({REL})
+KINDS = frozenset({REL, WRITE})
+KNOWN = {
+    "*": "bug #59: the autoflush before each cascade load takes the relationship attribution, so the load is also reported as a repeated statement"
+}
 
 
 class Base(DeclarativeBase):

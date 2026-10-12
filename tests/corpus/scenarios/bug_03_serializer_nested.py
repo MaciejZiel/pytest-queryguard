@@ -20,7 +20,9 @@ def order_to_dict(order: shop.Order) -> dict[str, object]:
     return {
         "id": order.id,
         "customer": order.customer.name,
-        "lines": [{"product_id": line.product_id, "qty": line.qty} for line in order.lines],
+        "lines": [
+            {"product_id": line.product_id, "qty": line.qty} for line in order.lines
+        ],
     }
 
 

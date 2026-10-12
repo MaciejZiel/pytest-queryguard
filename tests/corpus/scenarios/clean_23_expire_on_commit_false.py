@@ -1,7 +1,7 @@
 """CLEAN: ``sessionmaker(expire_on_commit=False)``, attributes read after commit."""
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from ..domains import shop
 from ..kit import CLEAN, Ctx

@@ -13,7 +13,6 @@ from ..kit import BUG, REL, Ctx
 
 VERDICT = BUG
 KINDS = frozenset({REL})
-REQUIRES = ("flask_sqlalchemy",)
 
 
 class Base(DeclarativeBase):
@@ -49,7 +48,9 @@ def setup(ctx: Ctx) -> None:
         db.create_all()
         for a in range(1, 9):
             db.session.add(
-                Author(id=a, name=f"a{a}", books=[Book(title=f"b{a}{k}") for k in range(3)])
+                Author(
+                    id=a, name=f"a{a}", books=[Book(title=f"b{a}{k}") for k in range(3)]
+                )
             )
         db.session.commit()
         db.engine.dispose()

@@ -18,10 +18,14 @@ def run(ctx: Ctx) -> None:
             select(shop.Category)
             .where(shop.Category.parent_id.is_(None))
             .options(
-                selectinload(shop.Category.children).selectinload(shop.Category.children)
+                selectinload(shop.Category.children).selectinload(
+                    shop.Category.children
+                )
             )
         )
         root = session.scalars(stmt).one()
         # The leaves still have a lazy ``children``: the walk is cut at depth two.
-        lines = [root.name] + [c.name for child in root.children for c in child.children]
+        lines = [root.name] + [
+            c.name for child in root.children for c in child.children
+        ]
     assert len(lines) == 10

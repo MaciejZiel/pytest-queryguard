@@ -7,7 +7,11 @@ from ..kit import BUG, REPEAT, Ctx
 
 VERDICT = BUG
 KINDS = frozenset({REPEAT})
-KNOWN = {"default": "the repeat threshold is 5; use queryguard_small_repeat_threshold"}
+KNOWN = {
+    "*": "the repeat threshold is 5; queryguard_small_repeat_threshold catches it",
+    "small-repeat": None,
+    "all-opt-in": None,
+}
 setup = shop.setup
 
 

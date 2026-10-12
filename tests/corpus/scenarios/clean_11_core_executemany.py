@@ -12,4 +12,6 @@ setup = shop.setup
 
 def run(ctx: Ctx) -> None:
     with ctx.engine().begin() as conn:
-        conn.execute(insert(shop.Tag.__table__), [{"name": f"core{i}"} for i in range(50)])
+        conn.execute(
+            insert(shop.Tag.__table__), [{"name": f"core{i}"} for i in range(50)]
+        )

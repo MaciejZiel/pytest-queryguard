@@ -3,13 +3,18 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, selectinload
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+    selectinload,
+)
 
 from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-REQUIRES = ("flask_sqlalchemy",)
 
 
 class Base(DeclarativeBase):
@@ -45,7 +50,9 @@ def setup(ctx: Ctx) -> None:
         db.create_all()
         for a in range(1, 9):
             db.session.add(
-                Author(id=a, name=f"a{a}", books=[Book(title=f"b{a}{k}") for k in range(3)])
+                Author(
+                    id=a, name=f"a{a}", books=[Book(title=f"b{a}{k}") for k in range(3)]
+                )
             )
         db.session.commit()
         db.engine.dispose()
@@ -54,6 +61,8 @@ def setup(ctx: Ctx) -> None:
 def run(ctx: Ctx) -> None:
     with make_app(ctx).app_context():
         stmt = db.select(Author).options(selectinload(Author.books))
-        rows = [{"name": a.name, "books": len(a.books)} for a in db.session.scalars(stmt)]
+        rows = [
+            {"name": a.name, "books": len(a.books)} for a in db.session.scalars(stmt)
+        ]
         db.engine.dispose()
     assert len(rows) == 8

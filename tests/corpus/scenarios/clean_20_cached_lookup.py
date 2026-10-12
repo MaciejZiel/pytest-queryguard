@@ -3,7 +3,7 @@
 The second call for a key is served from a dict, so only two statements run.
 """
 
-from sqlalchemy import ForeignKey, String, select
+from sqlalchemy import String, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from ..kit import CLEAN, Ctx
@@ -29,7 +29,9 @@ def setup(ctx: Ctx) -> None:
     ctx.reset()
     Base.metadata.create_all(ctx.engine())
     with Session(ctx.engine()) as session:
-        session.add_all([Setting(key="theme", value="dark"), Setting(key="lang", value="en")])
+        session.add_all(
+            [Setting(key="theme", value="dark"), Setting(key="lang", value="en")]
+        )
         session.commit()
 
 
@@ -40,7 +42,10 @@ class Settings:
 
     def get(self, key: str) -> str:
         if key not in self.cache:
-            self.cache[key] = self.session.scalar(select(Setting.value).where(Setting.key == key)) or ""
+            self.cache[key] = (
+                self.session.scalar(select(Setting.value).where(Setting.key == key))
+                or ""
+            )
         return self.cache[key]
 
 

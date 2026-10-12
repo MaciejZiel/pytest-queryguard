@@ -20,5 +20,8 @@ def setup(ctx: Ctx) -> None:
 
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
-        totals = [sum(o.total for o in c.orders) for c in session.scalars(select(shop.Customer))]
+        totals = [
+            sum(o.total for o in c.orders)
+            for c in session.scalars(select(shop.Customer))
+        ]
     assert len(totals) == 2

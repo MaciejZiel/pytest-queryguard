@@ -13,7 +13,11 @@ from ..kit import BUG, COLUMN, Ctx
 
 VERDICT = BUG
 KINDS = frozenset({COLUMN})
-KNOWN = {"default": "the column-load threshold is 5; see queryguard_column_load_threshold"}
+KNOWN = {
+    "*": "the column-load threshold is 5; queryguard_column_load_threshold = 2 catches it",
+    "column-load-2": None,
+    "all-opt-in": None,
+}
 setup = shop.setup
 
 

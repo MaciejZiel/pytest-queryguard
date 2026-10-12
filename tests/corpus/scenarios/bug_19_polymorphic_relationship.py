@@ -30,9 +30,13 @@ class Manager(Employee):
     id: Mapped[int] = mapped_column(ForeignKey("employee.id"), primary_key=True)
     budget: Mapped[int] = mapped_column(default=0)
     reports: Mapped[list[Employee]] = relationship(
-        foreign_keys=[Employee.manager_id], primaryjoin="Employee.manager_id == Manager.id"
+        foreign_keys=[Employee.manager_id],
+        primaryjoin="Employee.manager_id == Manager.id",
     )
-    __mapper_args__ = {"polymorphic_identity": "manager", "inherit_condition": id == Employee.id}
+    __mapper_args__ = {
+        "polymorphic_identity": "manager",
+        "inherit_condition": id == Employee.id,
+    }
 
 
 def setup(ctx: Ctx) -> None:

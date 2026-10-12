@@ -9,8 +9,6 @@ is removed when the plugin changes.
 
 from __future__ import annotations
 
-import importlib.util
-
 import pytest
 
 from . import kit, runner
@@ -31,7 +29,11 @@ _cache: dict[str, dict[str, runner.Result]] = {}
 
 
 @pytest.fixture
-def results(request: pytest.FixtureRequest, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch):
+def results(
+    request: pytest.FixtureRequest,
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+):
     config: str = request.param
 
     def get() -> dict[str, runner.Result]:
@@ -54,12 +56,22 @@ def _cases() -> list[object]:
         for scenario in SCENARIOS:
             reason = known_reason(scenario, config)
             marks = [pytest.mark.xfail(strict=True, reason=reason)] if reason else []
-            cases.append(pytest.param(config, scenario.name, marks=marks, id=f"{config}-{scenario.name}"))
+            cases.append(
+                pytest.param(
+                    config, scenario.name, marks=marks, id=f"{config}-{scenario.name}"
+                )
+            )
     return cases
 
 
 @pytest.mark.parametrize("config, name", _cases())
-def test_plugin_agrees_with_the_verdict(config: str, name: str, request: pytest.FixtureRequest, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plugin_agrees_with_the_verdict(
+    config: str,
+    name: str,
+    request: pytest.FixtureRequest,
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     scenario = BY_NAME[name]
     if config not in _cache:
         names = [s.name for s in SCENARIOS]
@@ -72,7 +84,9 @@ def test_plugin_agrees_with_the_verdict(config: str, name: str, request: pytest.
     scope = runner.scope(config)
     observed = _cache[config][name].kinds & scope
     expected = scenario.kinds & scope
-    assert observed == expected, f"{scenario.verdict}: expected {sorted(expected)}, the plugin reported {sorted(observed)}"
+    assert observed == expected, (
+        f"{scenario.verdict}: expected {sorted(expected)}, the plugin reported {sorted(observed)}"
+    )
 
 
 def test_a_failing_test_has_findings_and_a_passing_one_has_none() -> None:
@@ -92,7 +106,9 @@ def test_the_corpus_is_large_and_balanced() -> None:
 def test_scenario_documents_its_verdict(scenario: runner.Scenario) -> None:
     first = scenario.doc.splitlines()[0]
     assert scenario.name.startswith(scenario.verdict.lower() + "_")
-    assert first.startswith(scenario.verdict + (" " if scenario.verdict == kit.BUG else ":"))
+    assert first.startswith(
+        scenario.verdict + (" " if scenario.verdict == kit.BUG else ":")
+    )
     if scenario.verdict == kit.BUG:
         assert scenario.kinds, "a BUG names the finding kinds"
         assert all(kind in first for kind in scenario.kinds), first

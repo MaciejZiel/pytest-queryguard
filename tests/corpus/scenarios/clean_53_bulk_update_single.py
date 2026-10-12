@@ -14,6 +14,8 @@ setup = shop.setup
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
         ids = list(session.scalars(select(shop.Order.id).limit(12)))
-        session.execute(update(shop.Order).where(shop.Order.id.in_(ids)).values(status="shipped"))
+        session.execute(
+            update(shop.Order).where(shop.Order.id.in_(ids)).values(status="shipped")
+        )
         session.commit()
     assert len(ids) == 12

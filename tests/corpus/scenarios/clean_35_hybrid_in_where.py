@@ -13,6 +13,10 @@ setup = library.setup
 
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
-        long_books = session.scalars(select(library.Book).where(library.Book.is_long)).all()
-        authors = session.scalars(select(library.Author).where(library.Author.has_books)).all()
+        long_books = session.scalars(
+            select(library.Book).where(library.Book.is_long)
+        ).all()
+        authors = session.scalars(
+            select(library.Author).where(library.Author.has_books)
+        ).all()
     assert long_books and len(authors) == 6

@@ -74,7 +74,9 @@ class Review(Base):
     book: Mapped[Book] = relationship(back_populates="reviews")
 
 
-def seed(session: Session, *, authors: int = 6, books: int = 3, reviews: int = 2) -> None:
+def seed(
+    session: Session, *, authors: int = 6, books: int = 3, reviews: int = 2
+) -> None:
     book_id = review_id = 0
     for a in range(1, authors + 1):
         author = Author(id=a, name=f"author{a}")

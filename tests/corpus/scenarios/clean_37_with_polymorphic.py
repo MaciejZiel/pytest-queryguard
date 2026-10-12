@@ -1,7 +1,13 @@
 """CLEAN: ``with_polymorphic("*")`` loads every subclass table in the first query."""
 
 from sqlalchemy import ForeignKey, select
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, with_polymorphic
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    with_polymorphic,
+)
 
 from ..kit import CLEAN, Ctx
 
@@ -39,8 +45,12 @@ def setup(ctx: Ctx) -> None:
     ctx.reset()
     Base.metadata.create_all(ctx.engine())
     with Session(ctx.engine()) as session:
-        session.add_all(Manager(id=i, name=f"m{i}", budget=i * 1000) for i in range(1, 7))
-        session.add_all(Engineer(id=i, name=f"e{i}", language="python") for i in range(7, 13))
+        session.add_all(
+            Manager(id=i, name=f"m{i}", budget=i * 1000) for i in range(1, 7)
+        )
+        session.add_all(
+            Engineer(id=i, name=f"e{i}", language="python") for i in range(7, 13)
+        )
         session.commit()
 
 

@@ -15,8 +15,9 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-REQUIRES = ("factory",)
-KNOWN = {"write-loop": "factory-created rows are flushed one by one; keep write-loop for the code under test"}
+KNOWN = {
+    "write-loop": "factory-created rows are flushed one by one; keep write-loop for the code under test"
+}
 
 
 def setup(ctx: Ctx) -> None:

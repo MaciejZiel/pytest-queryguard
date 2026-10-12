@@ -17,7 +17,9 @@ def run(ctx: Ctx) -> None:
         for i in range(1, 11):
             with session.begin_nested():
                 found.append(
-                    session.execute(select(shop.Product).where(shop.Product.id == i)).scalar_one()
+                    session.execute(
+                        select(shop.Product).where(shop.Product.id == i)
+                    ).scalar_one()
                 )
         session.commit()
     assert len(found) == 10

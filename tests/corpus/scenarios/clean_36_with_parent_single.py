@@ -14,5 +14,7 @@ setup = shop.setup
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
         customer = session.get(shop.Customer, 1)
-        orders = session.scalars(select(shop.Order).where(with_parent(customer, shop.Customer.orders))).all()
+        orders = session.scalars(
+            select(shop.Order).where(with_parent(customer, shop.Customer.orders))
+        ).all()
     assert len(orders) == 3

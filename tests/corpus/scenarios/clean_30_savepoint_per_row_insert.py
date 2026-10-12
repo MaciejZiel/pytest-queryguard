@@ -13,7 +13,9 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-KNOWN = {"write-loop": "per-row inserts with error handling per row are a legitimate loop"}
+KNOWN = {
+    "write-loop": "per-row inserts with error handling per row are a legitimate loop"
+}
 setup = shop.setup
 
 

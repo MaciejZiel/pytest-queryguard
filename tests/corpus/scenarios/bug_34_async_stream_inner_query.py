@@ -13,7 +13,10 @@ setup = shop.setup
 
 async def run(ctx: Ctx) -> None:
     sold = []
-    async with AsyncSession(ctx.async_engine()) as outer, AsyncSession(ctx.async_engine()) as inner:
+    async with (
+        AsyncSession(ctx.async_engine()) as outer,
+        AsyncSession(ctx.async_engine()) as inner,
+    ):
         async for product in await outer.stream_scalars(select(shop.Product)):
             count = await inner.scalar(
                 select(func.count()).where(shop.OrderLine.product_id == product.id)

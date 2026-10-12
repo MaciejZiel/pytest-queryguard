@@ -14,6 +14,8 @@ setup = shop.setup
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
         order = session.get(shop.Order, 1)
-        session.execute(update(shop.Order).where(shop.Order.id == 1).values(status="paid"))
+        session.execute(
+            update(shop.Order).where(shop.Order.id == 1).values(status="paid")
+        )
         session.refresh(order)
     assert order.status == "paid"

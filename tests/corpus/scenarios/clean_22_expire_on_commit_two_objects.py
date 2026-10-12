@@ -17,7 +17,8 @@ setup = shop.setup
 
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
-        first, second = session.get(shop.Order, 1), session.get(shop.Order, 2)
+        first = session.get(shop.Order, 1)
+        second = session.get(shop.Order, 2)
         first.status = second.status = "paid"
         session.commit()
         statuses = [first.status, second.status]

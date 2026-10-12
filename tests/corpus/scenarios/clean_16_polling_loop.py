@@ -14,8 +14,7 @@ from ..kit import CLEAN, Ctx
 VERDICT = CLEAN
 KINDS = frozenset()
 KNOWN = {
-    "default": "a legitimate repeat of one statement is indistinguishable from a loop; use allow_nplusone",
-    "small-repeat": "same reason as the default configuration",
+    "*": "a legitimate repeat of one statement is indistinguishable from a loop; use allow_nplusone",
 }
 setup = shop.setup
 
@@ -27,6 +26,8 @@ def run(ctx: Ctx) -> None:
             if status == "done":
                 break
             if attempt == 5:
-                worker.execute(update(shop.Order).where(shop.Order.id == 1).values(status="done"))
+                worker.execute(
+                    update(shop.Order).where(shop.Order.id == 1).values(status="done")
+                )
                 worker.commit()
     assert status == "done"

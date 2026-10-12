@@ -13,7 +13,6 @@ from ..kit import BUG, REPEAT, Ctx
 
 VERDICT = BUG
 KINDS = frozenset({REPEAT})
-REQUIRES = ("flask_sqlalchemy",)
 
 
 class Base(DeclarativeBase):

@@ -12,7 +12,10 @@ setup = shop.setup
 
 
 def get_or_create_tags(session: Session, names: list[str]) -> list[shop.Tag]:
-    existing = {t.name: t for t in session.scalars(select(shop.Tag).where(shop.Tag.name.in_(names)))}
+    existing = {
+        t.name: t
+        for t in session.scalars(select(shop.Tag).where(shop.Tag.name.in_(names)))
+    }
     created = [shop.Tag(name=n) for n in names if n not in existing]
     session.add_all(created)
     return [existing.get(n) or next(c for c in created if c.name == n) for n in names]

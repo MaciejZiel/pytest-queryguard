@@ -39,6 +39,8 @@ def walk(category: shop.Category, depth: int = 0) -> list[str]:
 
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
-        root = session.scalars(select(shop.Category).where(shop.Category.parent_id.is_(None))).one()
+        root = session.scalars(
+            select(shop.Category).where(shop.Category.parent_id.is_(None))
+        ).one()
         lines = walk(root)
     assert len(lines) == 13

@@ -14,7 +14,9 @@ setup = shop.setup
 def run(ctx: Ctx) -> None:
     with Session(ctx.engine()) as session:
         with session.begin_nested():
-            session.execute(update(shop.Order).where(shop.Order.id == 1).values(status="paid"))
+            session.execute(
+                update(shop.Order).where(shop.Order.id == 1).values(status="paid")
+            )
         with session.begin_nested():
             total = session.scalar(select(func.sum(shop.Order.total)))
         with session.begin_nested():

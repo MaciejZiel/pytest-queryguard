@@ -10,7 +10,6 @@ from ..kit import BUG, REL, Ctx
 
 VERDICT = BUG
 KINDS = frozenset({REL})
-REQUIRES = ("sqlmodel",)
 
 
 class BugTeam(SQLModel, table=True):

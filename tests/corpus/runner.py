@@ -36,6 +36,16 @@ CONFIGS: dict[str, tuple[str, frozenset[str]]] = {
         "queryguard_unused_eager_load = fail\n",
         frozenset({kit.UNUSED}),
     ),
+    # Counts the repeat, relationship and column-load rules per Session.
+    "session-scope": ("queryguard_repeat_scope = session\n", frozenset()),
+    # Every opt-in rule at once: what a project that turned them all on sees.
+    "all-opt-in": (
+        "queryguard_small_repeat_threshold = 2\n"
+        "queryguard_write_loop_threshold = 2\n"
+        "queryguard_column_load_threshold = 2\n"
+        "queryguard_unused_eager_load = fail\n",
+        frozenset({kit.WRITE, kit.UNUSED}),
+    ),
 }
 
 
@@ -65,21 +75,25 @@ class Scenario:
     def doc(self) -> str:
         return (self.module.__doc__ or "").strip()
 
-    def runnable(self) -> bool:
-        return all(
-            importlib.util.find_spec(m) is not None
-            for m in getattr(self.module, "REQUIRES", ())
-        )
+
+SKIPPED: list[tuple[str, str]] = []
 
 
 def load() -> list[Scenario]:
-    """Every scenario whose requirements are installed, in name order."""
+    """Every scenario whose imports work, in name order.
+
+    A scenario that needs a package that is not installed (SQLModel, which pins
+    SQLAlchemy below 2.1) is left out and listed in ``SKIPPED``.
+    """
     found = []
+    SKIPPED.clear()
     for info in sorted(pkgutil.iter_modules(scenarios.__path__), key=lambda i: i.name):
-        module = importlib.import_module(f"{scenarios.__name__}.{info.name}")
-        scenario = Scenario(info.name, module)
-        if scenario.runnable():
-            found.append(scenario)
+        try:
+            module = importlib.import_module(f"{scenarios.__name__}.{info.name}")
+        except ModuleNotFoundError as exc:
+            SKIPPED.append((info.name, str(exc.name)))
+            continue
+        found.append(Scenario(info.name, module))
     return found
 
 
@@ -93,7 +107,7 @@ class Result:
         return frozenset(kind for kind, _ in self.findings)
 
 
-CONFTEST = '''
+CONFTEST = """
 import json, os
 import pytest
 
@@ -114,6 +128,13 @@ def _record(findings, **kwargs):
         OUT.setdefault(CURRENT[0], {"failed": False, "findings": []})
         OUT[CURRENT[0]]["findings"].append([f.kind, f.label])
     return _patched[1](findings, **kwargs)
+
+
+def pytest_collection_modifyitems(items):
+    # pytest-querycount checks only tests that carry its marker.
+    if os.environ.get("CORPUS_TOOL") == "querycount":
+        for item in items:
+            item.add_marker(pytest.mark.no_n_plus_one)
 
 
 def pytest_configure(config):
@@ -139,7 +160,7 @@ def pytest_runtest_logreport(report):
     if report.failed and report.when in ("setup", "call"):
         name = report.nodeid.split("[", 1)[-1].rstrip("]")
         OUT.setdefault(name, {"failed": False, "findings": []})["failed"] = True
-'''
+"""
 
 
 def write_session(directory: Path, ini: str, names: list[str]) -> Path:
@@ -196,5 +217,7 @@ def run_subprocess(
         check=False,
     )
     if not out.exists():
-        raise RuntimeError(f"the session wrote no results:\n{proc.stdout}\n{proc.stderr}")
+        raise RuntimeError(
+            f"the session wrote no results:\n{proc.stdout}\n{proc.stderr}"
+        )
     return read_results(out)

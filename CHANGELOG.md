@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tests: an accuracy corpus under `tests/corpus`: 110 small scenarios of realistic ORM
+  code (views, serializers, FastAPI, Flask-SQLAlchemy, SQLModel, repositories,
+  pagination, bulk writes, async), each marked BUG or CLEAN, run through the
+  plugin in its default configuration and with each opt-in rule. Limitations it
+  found are in `docs/limitations.md`; `scripts/accuracy_report.py` prints the
+  precision and recall.
+
 ### Fixed
 
 - Added `queryguard_repeat_scope` (`test` or `session`, default `test`) and
