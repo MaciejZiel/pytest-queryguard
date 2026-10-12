@@ -1,0 +1,24 @@
+name: validate-action
+on:
+  pull_request:
+    paths:
+      - validation/**
+      - .github/workflows/validate-action.yml
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./action
+        with:
+          python-version: "3.12"
+          package: ${{ github.workspace }}
+          working-directory: validation
+          pytest-args: --queryguard-index-check
+          fail: "false"
+          category: queryguard-validation
