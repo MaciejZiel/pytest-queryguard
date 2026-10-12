@@ -137,7 +137,47 @@ def test_one_result_per_identity_with_counts_added() -> None:
     (result,) = _doc(first, second)["runs"][0]["results"]
     assert result["properties"]["count"] == 7
     assert result["locations"][0]["physicalLocation"]["region"]["startLine"] == 10
-    assert result["message"]["text"] == "earlier"
+    assert result["message"]["text"].endswith("\nearlier")
+
+
+def test_the_message_and_the_properties_tell_the_same_totals() -> None:
+    findings = [
+        _finding(line=30, count=2, message="  ran 2 times"),
+        _finding(line=10, count=10, message="  ran 10 times"),
+        _finding(line=20, count=7, message="  ran 7 times"),
+    ]
+    (result,) = _doc(*findings)["runs"][0]["results"]
+    assert result["properties"] == {
+        "count": 19,
+        "label": "Order.customer",
+        "tests": 3,
+        "peakCount": 10,
+    }
+    assert result["message"]["text"] == (
+        "Seen in 3 tests: 19 times in total, up to 10 times in one test. "
+        "The test with the earliest line:\nran 10 times"
+    )
+
+
+def test_a_finding_from_one_test_keeps_its_own_message_and_properties() -> None:
+    (result,) = _doc(_finding(message="  ran 4 times", count=4))["runs"][0]["results"]
+    assert result["message"]["text"] == "ran 4 times"
+    assert result["properties"] == {"count": 4, "label": "Order.customer"}
+
+
+def test_the_merge_does_not_depend_on_the_order() -> None:
+    one = [_finding(line=5, count=c, message=f"  ran {c}") for c in (3, 9, 4)]
+    forward = _doc(*one)["runs"][0]["results"]
+    backward = _doc(*reversed(one))["runs"][0]["results"]
+    assert forward == backward
+
+
+def test_merged_findings_keep_their_identity() -> None:
+    store: sarif.Collected = {}
+    for count in (3, 9):
+        sarif.add(store, _finding(count=count), "error")
+    (identity,) = store
+    assert identity == _finding().identity
 
 
 def test_error_level_wins_when_merging() -> None:
@@ -173,9 +213,12 @@ def test_wire_round_trip() -> None:
         _finding(kind=KIND_REPEAT, label="SELECT 1", file=None, function=None),
         "error",
     )
+    sarif.add(store, _finding(count=9), "warning")  # merged: 2 tests, peak 9
     other: sarif.Collected = {}
     sarif.merge_wire(other, json.loads(json.dumps(sarif.to_wire(store))))
     assert other == store
+    merged = other[_finding().identity][0]
+    assert (merged.count, merged.tests, merged.peak) == (12, 2, 9)
 
 
 def test_unknown_kind_is_left_out_not_a_crash() -> None:

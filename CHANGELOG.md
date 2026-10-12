@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A SARIF result merged from several tests no longer shows one test's count in
+  `message.text` next to the total in `properties.count`. The message now
+  starts with `Seen in N tests: T times in total, up to M times in one test`,
+  and `properties` gains `tests` and `peakCount` for such results. `count`,
+  the fingerprints and the baseline identity are unchanged. See
+  `docs/sarif.md`.
 - The `repeated-statement` hint no longer says to fetch the rows with
   `WHERE id IN (...)` when the statement already uses `IN (...)`. It says the
   batched query ran several times and should be called once, or the calls

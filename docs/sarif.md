@@ -18,6 +18,13 @@ was started from.
 - One result per finding identity (kind, label, file, function), so the same
   finding from several tests is one result, with its counts added up and the
   earliest line.
+- When a result merges the finding from several tests, `properties.count` is
+  the total over all of them, `properties.tests` the number of tests and
+  `properties.peakCount` the largest count in one test. The message then starts
+  with the same numbers (`Seen in 20 tests: 289 times in total, up to 10 times
+  in one test.`) and continues with the text of the test with the earliest
+  line, which names that test's own count. A finding from one test has only
+  `count`, and its message is that test's.
 - The location is the file and the line of the first occurrence; the function
   is a logical location. See "Paths and the repository root" below for what
   the path is relative to.
