@@ -293,3 +293,78 @@ def test_normalize_is_stable_across_cached_calls() -> None:
     assert normalize(sql) == expected
     assert normalize(sql) == expected  # second call is served from the cache
     assert normalize(sql.replace("42", "43")) == expected
+
+
+# ------------------------------------------- relationship rule: edge cases
+
+
+def _rel_load(
+    rel: str, key: object, scope: int | None, scalar: bool = False
+) -> RelationshipLoadEvent:
+    return RelationshipLoadEvent(rel, key, SITE, scalar, scope)
+
+
+def test_relationship_threshold_of_one_reports_a_single_parent() -> None:
+    c = _loads("Order.customer", [1])
+    [f] = detect(c, relationship_threshold=1, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert (f.count, f.scopes, f.scoped) == (1, 1, False)
+
+
+def test_relationship_below_threshold_does_not_hide_a_later_relationship() -> None:
+    c = QueryCollector()
+    c.relationship_loads.append(_rel_load("A.small", 1, None))
+    c.relationship_loads.extend(_rel_load("B.big", k, None) for k in (1, 2, 3))
+    [f] = detect(c, relationship_threshold=3, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert f.relationship == "B.big"
+
+
+def test_relationship_per_session_reports_the_session_with_most_parents() -> None:
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, 1) for k in (1, 2))
+    c.relationship_loads.extend(_rel_load("A.b", k, 2) for k in (1, 2, 3))
+    c.statements.append(StatementEvent("SELECT one", SITE, "A.b", scope=1))
+    c.statements.append(StatementEvent("SELECT two", SITE, "A.b", scope=2))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5, scope="session")
+    assert isinstance(f, RelationshipFinding)
+    assert (f.count, f.scopes, f.scoped) == (3, 1, True)
+    assert f.sample_sql == "SELECT two"
+
+
+def test_relationship_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    # Same number of parents in both Sessions; the first Session loaded more.
+    c.relationship_loads.extend(_rel_load("A.b", k, 1) for k in (1, 1, 1, 2))
+    c.relationship_loads.extend(_rel_load("A.b", k, 2) for k in (1, 2))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5, scope="session")
+    assert isinstance(f, RelationshipFinding)
+    assert f.count == 4
+
+
+def test_relationship_sample_sql_skips_other_relationships_statements() -> None:
+    c = _loads("A.b", [1, 2])
+    c.statements.append(StatementEvent("SELECT other", SITE, "C.d"))
+    c.statements.append(StatementEvent("SELECT mine", SITE, "A.b"))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert f.sample_sql == "SELECT mine"
+
+
+def test_relationship_sample_sql_is_the_first_statement_across_sessions() -> None:
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, 1) for k in (1, 2))
+    c.statements.append(StatementEvent("SELECT first", SITE, "A.b", scope=2))
+    c.statements.append(StatementEvent("SELECT second", SITE, "A.b", scope=1))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert f.sample_sql == "SELECT first"
+    assert f.scopes == 1
+
+
+def test_relationship_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, k % 3) for k in range(6))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert (f.count, f.scopes, f.scoped) == (6, 3, False)
