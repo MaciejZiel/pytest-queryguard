@@ -1,0 +1,124 @@
+name: Release gate
+
+# Everything that has to be true before a stable release is tagged, run on the
+# commit that would be tagged. Nothing here tags, uploads or publishes: the
+# release workflow (release.yml) starts from a tag that a person pushes after
+# this workflow is green on the same commit.
+#
+# Run it by hand (Actions > Release gate > Run workflow) on main before
+# tagging, and it runs by itself on a pull request that changes the version
+# (the release pull request), the gate itself or its scripts.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - src/pytest_queryguard/__init__.py
+      - .github/workflows/release-gate.yml
+      - scripts/release_gate.py
+      - scripts/accuracy_thresholds.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 1. The whole CI matrix of ci.yml (lint, docs build, Linux on Python 3.10 to
+  #    3.14 with SQLAlchemy 2.0 and latest and the oldest pytest, xdist, the
+  #    overhead gate, Windows and macOS with the latest versions, PostgreSQL,
+  #    the GitHub Action). Reused, not copied.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # 1. What ci.yml does not cover: Windows and macOS with the oldest supported
+  #    SQLAlchemy series and pytest (Linux has that cell in ci.yml).
+  oldest-versions:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.10"
+      - run: uv sync
+      - name: Pin SQLAlchemy and pytest to the oldest supported series
+        run: uv pip install "sqlalchemy==2.0.*" sqlmodel "pytest==8.0.*"
+      - run: uv run --no-sync python -c "import sqlalchemy, pytest; print('sqlalchemy', sqlalchemy.__version__, 'pytest', pytest.__version__)"
+      - run: uv run --no-sync pytest -rs
+
+  # 8, 2 and 3: the release metadata, the accuracy corpus and the examples in
+  # the documentation.
+  content:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - name: Version, changelog entry, its date and links agree
+        run: uv run --no-sync python scripts/release_gate.py consistency
+      - name: Accuracy corpus is at least the recorded minimum
+        run: uv run --no-sync python scripts/release_gate.py accuracy
+      - name: Every example in README.md and docs/ parses, the projects run
+        env:
+          QUERYGUARD_REQUIRE_DOC_EXAMPLES: "1"
+        run: uv run --no-sync pytest -rs tests/test_readme.py tests/test_docs.py tests/test_doc_examples.py tests/test_examples.py tests/test_release_gate.py
+
+  # 7, 4 and 5: the built distributions, on every operating system.
+  package:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv build --out-dir dist
+      - name: Wheel and sdist contain what they should and nothing else
+        run: uv run python scripts/release_gate.py contents dist
+      - name: Clean-environment install of the wheel and of the sdist
+        run: uv run python scripts/release_gate.py install dist
+      - name: Upgrade from the previous PyPI release to the wheel
+        run: uv run python scripts/release_gate.py upgrade dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # 6. Per-statement overhead against scripts/bench_baseline.json, 25 % margin.
+  overhead:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run --no-sync python scripts/release_gate.py bench
+
+  # One check to require: green only when every job above is.
+  gate:
+    if: always()
+    needs: [ci, oldest-versions, content, package, overhead]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job of the gate passed
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          echo "$RESULTS" | jq -e 'all(. == "success")' > /dev/null || {
+            echo "the release gate failed"
+            exit 1
+          }

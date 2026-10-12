@@ -124,6 +124,30 @@ loading fixes, loader options on the mapping, `raiseload`, identity-map hits, ne
 objects, backref assignment, executemany, multi-row `VALUES`, `add_all`, streaming,
 savepoints, recursive CTEs and bulk updates.
 
+## Release thresholds
+
+A release does not go out when the corpus gets worse. The release gate
+(`scripts/release_gate.py accuracy`, see "Releasing" in `CONTRIBUTING.md`) runs
+the corpus with the default configuration and fails when the precision or the
+recall of a finding kind is below the minimum recorded in
+`scripts/accuracy_thresholds.json`, when fewer than 108 scenarios ran, or when a
+disagreement with a verdict is not documented in the scenario. The minimums are
+the values measured on `main` on 2026-10-12 (SQLAlchemy 2.1.1, pytest 9.1.1,
+SQLModel not installed, so 108 of the 110 scenarios), rounded down:
+
+| kind | minimum precision | minimum recall | measured |
+|---|---|---|---|
+| `relationship-load` | 100% | 100% | 19 TP, 0 FP, 0 FN |
+| `repeated-statement` | 80% | 90% | 19 TP, 4 FP, 2 FN (83% and 90%) |
+| `column-load` | 100% | 80% | 4 TP, 0 FP, 1 FN |
+
+The measured repeated-statement precision is 83%, not the 79% of the table
+above: the numbers above were taken before the fix of
+[#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59). The minimums
+are a floor against regressions, not a goal. Raise one in the same pull request
+that improves the corpus result; lower one only with a reason in that pull
+request, because every lowered minimum is a release that detects less.
+
 ## Comparison with queryspy and pytest-querycount
 
 The same 110 scenarios, each tool with its defaults plus the switch that makes it

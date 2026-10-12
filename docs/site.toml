@@ -60,6 +60,7 @@ pages = [
   { title = "Limitations", file = "limitations.md", description = "What pytest-queryguard does not see or judge: other ORMs, fixtures, drivers, plans and partial indexes." },
   { title = "FAQ", file = "faq.md", description = "Answers about overhead, raiseload, false positives, pytest-xdist, async drivers and more." },
   { title = "Stability and versioning", file = "stability.md", description = "What is public API in pytest-queryguard, how deprecations work and how versions are numbered." },
+  { title = "Releasing", file = "releasing.md", description = "The release gate: every check that runs before a stable pytest-queryguard release is tagged, and how to run it." },
   { title = "Changelog", file = "../CHANGELOG.md", description = "The changes in every release of pytest-queryguard." },
 ]
 
