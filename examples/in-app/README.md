@@ -43,7 +43,7 @@ The Flask view with the same loop:
 
 ```text
   Order.customer was lazy-loaded 5 times
-  first at app/flask_app.py:39 in list_orders
+  first at app/flask_app.py:41 in list_orders
 ```
 
 To see the panel in a browser, run the FastAPI app with an ASGI server

@@ -119,7 +119,7 @@ WARNING pytest_queryguard.app: queryguard: GET /orders: 6 statements
 queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
-  first at app/flask_app.py:39 in list_orders
+  first at app/flask_app.py:41 in list_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

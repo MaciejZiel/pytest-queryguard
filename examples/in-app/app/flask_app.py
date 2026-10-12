@@ -36,4 +36,7 @@ if os.environ.get("APP_ENV", "development") == "development":
 @app.get("/orders")
 def list_orders() -> list[str]:
     with Session(engine) as session:
-        return [order.customer.name for order in session.scalars(select(Order))]
+        names = []
+        for order in session.scalars(select(Order)):
+            names.append(order.customer.name)
+        return names

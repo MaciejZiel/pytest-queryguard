@@ -245,7 +245,7 @@ def test_in_app_example() -> None:
         "GET /orders/3 200 2 statements budget 1 []",
         "GET /orders-fixed 200 2 statements budget None []",
         "GET /orders 200 6 statements budget None ['Order.customer']",
-        "first at app/flask_app.py:39 in list_orders",
+        "first at app/flask_app.py:41 in list_orders",
     ]
     assert_in_output_and_readme(example, result, lines)
     docs = (ROOT / "docs" / "in-app.md").read_text(encoding="utf-8")
