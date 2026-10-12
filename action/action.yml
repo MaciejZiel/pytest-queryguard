@@ -90,14 +90,20 @@ runs:
         QG_SARIF: ${{ inputs.sarif-file }}
       run: |
         # The inputs reach the shell as environment variables, never spliced into
-        # the script, so a value cannot inject commands.
+        # the script. pytest-args is split into words with Python's shlex; no
+        # shell evaluates it, so $(...) and backticks stay literal text.
         extra=()
         if [ -n "$QG_BASELINE" ]; then
           extra+=("--queryguard-baseline=$QG_BASELINE")
         fi
-        eval "set -- $QG_ARGS"
+        args=()
+        if [ -n "$QG_ARGS" ]; then
+          while IFS= read -r -d '' word; do
+            args+=("$word")
+          done < <(python -c 'import os,shlex,sys; sys.stdout.write("".join(w + "\0" for w in shlex.split(os.environ["QG_ARGS"])))')
+        fi
         set +e
-        python -m pytest "--queryguard-sarif=$QG_SARIF" "${extra[@]}" "$@"
+        python -m pytest "--queryguard-sarif=$QG_SARIF" "${extra[@]}" "${args[@]}"
         code=$?
         set -e
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
