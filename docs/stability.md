@@ -90,6 +90,24 @@ A new finding kind, or a stricter version of an existing check, first appears
 in a release where it can be turned off with an ini option, and the changelog
 says how. Before 1.0 it may be on by default (see the pre-1.0 clause above).
 
+## Experimental
+
+Options, finding kinds and markers listed here are public to use but exempt
+from the deprecation policy: a minor release may change their values,
+defaults, labels or messages, or remove them, with a changelog entry under
+"Changed" or "Removed" and no deprecation period. The ini option is marked
+`EXPERIMENTAL` in `pytest --help`.
+
+- `queryguard_unused_eager_load` and the `unused-eager-load` finding kind
+  (rule `queryguard/unused-eager-load` in SARIF). See
+  [Unused eager loads](unused-eager-load.md).
+- The missing-index check on MySQL and MariaDB (tested by hand, not in CI; see
+  [the MySQL and MariaDB page](index-check-mysql.md)).
+
+Everything else on this page is stable. `tests/test_public_api.py` also
+snapshots the experimental names, so a change to them is still deliberate and
+visible in review.
+
 ## How this is enforced
 
 - `tests/test_public_api.py` snapshots `__all__`, signatures, dataclass
