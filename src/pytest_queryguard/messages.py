@@ -81,8 +81,9 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
         ]
     if isinstance(finding, ColumnLoadFinding):
         return _column_block(finding, cwd)
+    how = " with different parameters" if finding.varying else ""
     return [
-        f"  the same statement ran {finding.count} times",
+        f"  the same statement ran {finding.count} times{how}",
         _first_at(finding.first, cwd),
         f"  {_truncate(finding.sql)}",
         f"  {_REPEAT_FIX}",
