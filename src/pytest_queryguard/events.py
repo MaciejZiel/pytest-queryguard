@@ -57,6 +57,44 @@ class ColumnLoadEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class IndexKey:
+    """One key column of a suggested index."""
+
+    column: str  # as the plan prints it: quoted when it needs quotes
+    suffix: str = ""  # " DESC", " DESC NULLS LAST", ... where the order matters
+
+
+@dataclass(frozen=True, slots=True)
+class Verification:
+    """What hypopg answered for a suggested index, estimated on the plan's statement.
+
+    ``used`` is None when nothing was verified (``error`` says why, if it
+    failed). The costs are the planner's estimates for the whole statement
+    with sequential scans allowed, without and with the hypothetical index;
+    ``used`` is asked with them off, as the check does.
+    """
+
+    used: bool | None = None
+    cost_before: float | None = None
+    cost_after: float | None = None
+    scan: str | None = None  # the plan node type that reads the hypothetical index
+    size: int | None = None  # estimated size of the index in bytes
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Advice:
+    """A suggested index for one finding, or why none is suggested."""
+
+    keys: tuple[IndexKey, ...] = ()
+    where: str | None = None  # the predicate of a partial index
+    create_sql: str | None = None
+    alembic: str | None = None
+    skipped: str | None = None  # why no index is suggested
+    verification: Verification | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ScanIssue:
     """A plan node that reads a whole table although the statement narrows it."""
 
@@ -68,6 +106,12 @@ class ScanIssue:
     column: str | None  # the column for a CREATE INDEX hint, when obvious
     show_schema: bool = True  # False when the table is in the current schema
     expression: bool = False  # the column sits in a function or a non-text cast
+    # What the index advisor works from; not part of the issue's identity.
+    alias: str = field(default="", compare=False)
+    conditions: tuple[str, ...] = field(default=(), compare=False)
+    sort_keys: tuple[str, ...] = field(default=(), compare=False)
+    limit: bool = field(default=False, compare=False)
+    advice: Advice | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,3 +129,5 @@ class Catalog:
     leading: dict[tuple[str, str], str | None] = field(default_factory=dict)
     # (schema, table) -> names of its varchar columns
     varchar: dict[tuple[str, str], frozenset[str]] = field(default_factory=dict)
+    # (installed, available) versions of the hypopg extension; None until read
+    hypopg: tuple[str | None, str | None] | None = None

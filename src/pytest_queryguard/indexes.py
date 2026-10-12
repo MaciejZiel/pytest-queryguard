@@ -9,16 +9,16 @@ import json
 import re
 import weakref
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from typing import Any
 
+from . import advisor, hypopg, predicates
 from . import catalog as catalogs
-from . import predicates
 from .callsite import find_callsite
 from .collector import QueryCollector
 from .detectors import collapse_lists
-from .events import Catalog, ScanEvent, ScanIssue
+from .events import Advice, Catalog, ScanEvent, ScanIssue, Verification
 from .sqltext import QUOTED, skip_prefix
 
 MIN_SERVER_VERSION = 16
@@ -113,6 +113,17 @@ class _Context:
 
 
 @dataclass(frozen=True, slots=True)
+class _Above:
+    """What sits directly above a plan node and shapes the index it needs."""
+
+    sort: tuple[str, ...] = ()  # the keys of a Sort node right above
+    limit: bool = False  # a Limit above, directly or through that Sort
+
+
+_NO_ABOVE = _Above()
+
+
+@dataclass(frozen=True, slots=True)
 class _Relation:
     schema: str | None
     table: str
@@ -135,7 +146,7 @@ def find_scans(
     """
     found: list[ScanIssue] = []
     ctx = _Context(current_schema or "public", leading or {}, varchar or {})
-    _walk(plan, None, ctx, found)
+    _walk(plan, None, ctx, found, _NO_ABOVE)
     return found
 
 
@@ -176,19 +187,35 @@ def _relation(node: Mapping[str, Any]) -> _Relation | None:
     return _Relation(_text(node, "Schema"), table, _text(node, "Alias") or table)
 
 
+def _above_children(node: Mapping[str, Any], above: _Above) -> _Above:
+    kind = node.get("Node Type")
+    if kind == "Limit":
+        return _Above(limit=True)
+    if kind == "Sort":
+        keys = node.get("Sort Key")
+        if isinstance(keys, list) and all(isinstance(k, str) for k in keys):
+            return _Above(tuple(keys), above.limit)
+    return _NO_ABOVE
+
+
 def _walk(
-    node: object, heap: _Relation | None, ctx: _Context, found: list[ScanIssue]
+    node: object,
+    heap: _Relation | None,
+    ctx: _Context,
+    found: list[ScanIssue],
+    above: _Above,
 ) -> None:
     if not isinstance(node, Mapping):
         return
     rel = _relation(node)
-    issue = _issue(node, rel or heap, ctx)
+    issue = _issue(node, rel or heap, ctx, above)
     if issue is not None:
         found.append(issue)
     # A Bitmap Index Scan names no table; it reads the one of its heap scan.
     below = rel if node.get("Node Type") == "Bitmap Heap Scan" else heap
+    inside = _above_children(node, above)
     for child in _children(node):
-        _walk(child, below, ctx, found)
+        _walk(child, below, ctx, found, inside)
 
 
 def _whole_bitmap_index(node: Mapping[str, Any]) -> str | None:
@@ -211,7 +238,7 @@ def _whole_bitmap_index(node: Mapping[str, Any]) -> str | None:
 
 
 def _issue(
-    node: Mapping[str, Any], rel: _Relation | None, ctx: _Context
+    node: Mapping[str, Any], rel: _Relation | None, ctx: _Context, above: _Above
 ) -> ScanIssue | None:
     if rel is None or rel.schema in _SYSTEM_SCHEMAS:
         return None
@@ -224,7 +251,7 @@ def _issue(
         condition = _text(node, "Filter")
         if condition is None:
             return None
-        return _make(rel, "Seq Scan", "filter", condition, ctx)
+        return _make(rel, "Seq Scan", "filter", condition, ctx, node, above)
     if node_type == "Bitmap Heap Scan":
         # Rule 2 again: before ANALYZE, a whole index (an INCLUDE index or a
         # partial index, say) can be read as a bitmap instead of an index or
@@ -235,7 +262,15 @@ def _issue(
             return None
         if equality_column(condition, rel.alias, varchar) is None:
             return None
-        return _make(rel, f"Bitmap Heap Scan using {whole}", "filter", condition, ctx)
+        return _make(
+            rel,
+            f"Bitmap Heap Scan using {whole}",
+            "filter",
+            condition,
+            ctx,
+            node,
+            above,
+        )
     if node_type not in (*_INDEX_SCANS, _BITMAP_SCAN):
         return None
     index_cond = _text(node, "Index Cond")
@@ -249,7 +284,7 @@ def _issue(
             return None
         if equality_column(condition, rel.alias, varchar) is None:
             return None
-        return _make(rel, label, "filter", condition, ctx)
+        return _make(rel, label, "filter", condition, ctx, node, above)
     # Rule 3: the index condition uses only trailing columns of a multicolumn
     # index, which PostgreSQL before 18 serves by reading the whole index.
     first = ctx.leading.get((rel.schema or "", index or ""))
@@ -258,23 +293,36 @@ def _issue(
     columns = condition_columns(index_cond, rel.alias)
     if first in columns or equality_column(index_cond, rel.alias, varchar) is None:
         return None
-    return _make(rel, label, "index condition", index_cond, ctx)
+    return _make(rel, label, "index condition", index_cond, ctx, node, above)
 
 
 def _make(
-    rel: _Relation, node: str, kind: str, condition: str, ctx: _Context
+    rel: _Relation,
+    label: str,
+    kind: str,
+    condition: str,
+    ctx: _Context,
+    node: Mapping[str, Any],
+    above: _Above,
 ) -> ScanIssue:
     varchar = ctx.varchar.get((rel.schema or "", rel.table), frozenset())
     column = hint_column(condition, rel.alias, varchar)
+    conditions = tuple(
+        text for key in ("Index Cond", "Filter") if (text := _text(node, key))
+    )
     return ScanIssue(
         rel.schema,
         rel.table,
-        node,
+        label,
         kind,
         condition,
         column,
         show_schema=rel.schema not in (None, ctx.current),
         expression=column is None and _needs_expression(condition, rel.alias, varchar),
+        alias=rel.alias,
+        conditions=conditions,
+        sort_keys=above.sort,
+        limit=above.limit,
     )
 
 
@@ -585,6 +633,18 @@ class Explained:
     leading: LeadingColumns = field(default_factory=dict)
     varchar: VarcharColumns = field(default_factory=dict)
     catalog_error: str | None = None
+    # With an advisor: the issues of the plan, with their advice, found inside
+    # the savepoint; None when the caller finds them itself.
+    issues: tuple[ScanIssue, ...] | None = None
+    advisor_notice: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AdvisorOptions:
+    """How run_explain() advises on the missing indexes it finds."""
+
+    hypopg: str = "auto"  # one of hypopg.MODES
+    server_major: int | None = None
 
 
 class SavepointError(Exception):
@@ -682,6 +742,24 @@ _VARCHAR_LOOKUP = (
     "JOIN pg_type t ON t.oid = a.atttypid "
     "WHERE {names} "
     "AND a.attnum > 0 AND NOT a.attisdropped AND t.typname = 'varchar'"
+)
+
+
+# The indexes of tables, for the advisor: here ``c`` is the table.
+_TABLE_INDEXES_LOOKUP = (
+    f"SELECT {_SCHEMA_NAME}, c.relname, ic.relname, am.amname, i.indisvalid, "
+    "ARRAY(SELECT CASE WHEN k.attnum = 0 THEN NULL ELSE "
+    "(SELECT a.attname::text FROM pg_attribute a "
+    "WHERE a.attrelid = i.indrelid AND a.attnum = k.attnum) END "
+    "FROM unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord) "
+    "WHERE k.ord <= i.indnkeyatts ORDER BY k.ord), "
+    "pg_get_expr(i.indpred, i.indrelid) "
+    "FROM pg_index i "
+    "JOIN pg_class c ON c.oid = i.indrelid "
+    "JOIN pg_class ic ON ic.oid = i.indexrelid "
+    "JOIN pg_am am ON am.oid = ic.relam "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE {names}"
 )
 
 
@@ -874,6 +952,7 @@ def run_explain(
     leading: bool = False,
     catalog: Catalog | None = None,
     asyncpg: bool = False,
+    advise: AdvisorOptions | None = None,
 ) -> Explained | ExplainError:
     """Plan ``sql`` on the test's own connection without changing its state.
 
@@ -887,6 +966,10 @@ def run_explain(
     connection's state is then unknown, and the caller stops checking.
     With ``asyncpg``, ``dbapi_connection`` is SQLAlchemy's adapted asyncpg
     connection, and the EXPLAIN runs inside a DO block (see explain_block()).
+    With ``advise``, the missing indexes of the plan are found here, inside the
+    savepoint, and each gets a suggested index (see advisor.py), verified with
+    hypopg when it is installed. A failure of the advisor leaves the issues
+    without advice and is returned as ``advisor_notice``.
     """
     if getattr(dbapi_connection, "autocommit", False):
         start, undo = ["BEGIN"], ["ROLLBACK"]
@@ -905,15 +988,12 @@ def run_explain(
         columns: dict[tuple[str, str], str] = {}
         varchar: dict[tuple[str, str], frozenset[str]] = {}
         catalog_error: str | None = None
+        issues: tuple[ScanIssue, ...] | None = None
+        advisor_notice: str | None = None
         try:
             cursor.execute(_SETTINGS)
             settings = cursor.fetchone()
-            if asyncpg:
-                cursor.execute(explain_block(sql))
-                cursor.execute(_READ_PLAN)
-            else:
-                cursor.execute(_EXPLAIN + sql)
-            row = cursor.fetchone()
+            row = _explain(cursor, sql, asyncpg)
         except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
             error = ExplainError(_error_message(exc), getattr(exc, "sqlstate", None))
         plan = None if error else _read_plan(row[0] if row else None)
@@ -924,6 +1004,20 @@ def run_explain(
                 )
             except Exception as exc:  # noqa: BLE001  # reported once by check()
                 catalog_error = _error_message(exc)
+        if plan is not None and advise is not None and catalog_error is None:
+            schema = settings[-1] if settings else None
+            issues = tuple(
+                find_scans(
+                    plan, schema if isinstance(schema, str) else None, columns, varchar
+                )
+            )
+            if issues:
+                try:
+                    issues, advisor_notice = _advise(
+                        cursor, sql, issues, varchar, catalog, advise, asyncpg
+                    )
+                except Exception as exc:  # noqa: BLE001  # fail open: no advice
+                    advisor_notice = f"index advisor: no suggestions this time: {_error_message(exc)}"
         _manage(cursor, undo)
     finally:
         cursor.close()
@@ -938,6 +1032,132 @@ def run_explain(
         columns,
         varchar,
         catalog_error,
+        issues,
+        advisor_notice,
+    )
+
+
+def _explain(cursor: Any, sql: str, asyncpg: bool) -> Any:
+    """Run EXPLAIN for ``sql`` and return the first row of its output."""
+    if asyncpg:
+        cursor.execute(explain_block(sql))
+        cursor.execute(_READ_PLAN)
+    else:
+        cursor.execute(_EXPLAIN + sql)
+    return cursor.fetchone()
+
+
+_SEQSCAN = "SELECT set_config('enable_seqscan', '{}', true)"
+
+
+def _advise(
+    cursor: Any,
+    sql: str,
+    issues: Sequence[ScanIssue],
+    varchar: VarcharColumns,
+    catalog: Catalog | None,
+    advise: AdvisorOptions,
+    asyncpg: bool,
+) -> tuple[tuple[ScanIssue, ...], str | None]:
+    """The issues with their advice; runs inside run_explain's savepoint."""
+    tables = {(i.schema, i.table) for i in issues if i.schema}
+    existing: dict[tuple[str, str], list[advisor.ExistingIndex]] = {}
+    for r in _rows(cursor, _lookup(_TABLE_INDEXES_LOOKUP, tables, asyncpg)):
+        columns = tuple(None if c is None else str(c) for c in r[5])
+        existing.setdefault((str(r[0]), str(r[1])), []).append(
+            advisor.ExistingIndex(
+                str(r[2]),
+                str(r[3]),
+                bool(r[4]),
+                columns,
+                None if r[6] is None else str(r[6]),
+            )
+        )
+    advised: list[ScanIssue] = []
+    # (position in advised, advice) of every suggestion that can be verified,
+    # then the partial alternatives
+    plain: list[tuple[int, Advice, advisor.Candidate]] = []
+    partial: dict[int, advisor.Candidate] = {}
+    for issue in issues:
+        analysis = None
+        if issue.schema:
+            analysis = advisor.analyse(
+                issue, varchar.get((issue.schema, issue.table), frozenset())
+            )
+        if analysis is None or analysis.plain is None:
+            advised.append(issue)
+            continue
+        label = table_label(issue)
+        advice = advisor.make_advice(
+            issue,
+            analysis.plain,
+            label,
+            existing.get((issue.schema or "", issue.table), []),
+        )
+        advised.append(replace(issue, advice=advice))
+        if advice.create_sql is not None:
+            plain.append((len(advised) - 1, advice, analysis.plain))
+            if analysis.partial is not None:
+                partial[len(advised) - 1] = analysis.partial
+    if not plain or advise.hypopg == "off":
+        return tuple(advised), None
+    probed: hypopg.Probe | None = catalog.hypopg if catalog is not None else None
+    if probed is None:
+        probed = hypopg.probe(cursor)
+        if catalog is not None:
+            catalog.hypopg = probed
+    installed, available = probed
+    create = installed is None and advise.hypopg == "on" and available is not None
+    if installed is None and not create:
+        return tuple(advised), hypopg.notice(probed, advise.hypopg, advise.server_major)
+
+    def plan_with(seqscan: bool) -> Mapping[str, Any]:
+        cursor.execute(_SEQSCAN.format("on" if seqscan else "off"))
+        found = _read_plan(_explain(cursor, sql, asyncpg)[0])
+        if found is None:
+            raise ValueError("unreadable plan")
+        return found
+
+    ddls = [advice.create_sql or "" for _, advice, _ in plain]
+    extra = [
+        (position, advisor.create_sql(table_label(advised[position]), candidate))
+        for position, candidate in partial.items()
+    ]
+    ddls += [ddl for _, ddl in extra]
+    results = hypopg.verify(
+        cursor, plan_with, ddls, asyncpg=asyncpg, create_extension=create
+    )
+    for (position, advice, _), result in zip(plain, results, strict=False):
+        advised[position] = replace(
+            advised[position], advice=replace(advice, verification=result)
+        )
+    for (position, ddl), result in zip(extra, results[len(plain) :], strict=True):
+        full = advised[position].advice
+        assert full is not None and full.verification is not None
+        if _prefer_partial(full.verification, result):
+            candidate = partial[position]
+            advised[position] = replace(
+                advised[position],
+                advice=Advice(
+                    keys=candidate.keys,
+                    where=candidate.where,
+                    create_sql=ddl,
+                    alembic=advisor.alembic_snippet(advised[position], candidate),
+                    verification=result,
+                ),
+            )
+    return tuple(advised), None
+
+
+def _prefer_partial(full: Verification, partial: Verification) -> bool:
+    """A partial index replaces the full one when the planner still uses it and
+    hypopg estimates it a fraction of the size."""
+    return bool(
+        full.used
+        and partial.used
+        and full.size
+        and partial.size is not None
+        and partial.size <= advisor.PARTIAL_SIZE_RATIO * full.size
     )
 
 
@@ -1066,6 +1286,16 @@ def unsupported_reason(dialect: Any) -> str | None:
     return None
 
 
+def _advisor_options(
+    targets: Sequence[QueryCollector], version: Sequence[object] | None
+) -> AdvisorOptions | None:
+    wanting = [target for target in targets if target.index_advisor]
+    if not wanting:
+        return None
+    major = version[0] if version and isinstance(version[0], int) else None
+    return AdvisorOptions(wanting[0].hypopg, major)
+
+
 def check(
     conn: Any, statement: str, executemany: bool, targets: Sequence[QueryCollector]
 ) -> None:
@@ -1109,6 +1339,7 @@ def check(
             leading=not version or version[0] < SKIP_SCAN_VERSION,
             catalog=catalog,
             asyncpg=is_async,
+            advise=_advisor_options(targets, version),
         )
     except SavepointError as exc:
         # The test's transaction may be broken now; N+1 detection and budgets
@@ -1139,13 +1370,18 @@ def check(
             if error not in target.explain_errors:
                 target.explain_errors.append(error)
         return
-    issues = find_scans(
-        outcome.plan, outcome.current_schema, outcome.leading, outcome.varchar
-    )
-    if not issues:
+    if outcome.advisor_notice is not None:
+        for target in targets:
+            target.index_notices[outcome.advisor_notice] = None
+    found: Sequence[ScanIssue] | None = outcome.issues
+    if found is None:
+        found = find_scans(
+            outcome.plan, outcome.current_schema, outcome.leading, outcome.varchar
+        )
+    if not found:
         return
     site = find_callsite()
-    for issue in issues:
+    for issue in found:
         scan = ScanEvent(issue, statement, site)
         for target in fresh:
             target.scans.append(scan)

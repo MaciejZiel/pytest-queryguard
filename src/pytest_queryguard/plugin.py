@@ -10,7 +10,7 @@ from typing import Any, cast
 import pytest
 
 from . import baseline as baselines
-from . import catalog, eager, indexes, sarif
+from . import catalog, eager, hypopg, indexes, sarif
 from .baseline import BaselineError, Identity, sorted_identities
 from .collector import QueryCollector, pop, push
 from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, detect
@@ -79,6 +79,8 @@ class _Settings:
         update_baseline: bool = False,
         baseline: frozenset[Identity] | None = None,
         sarif_path: Path | None = None,
+        index_advisor: bool = True,
+        hypopg: str = "auto",
     ) -> None:
         self.mode = mode
         self.relationship = relationship
@@ -92,6 +94,8 @@ class _Settings:
         self.fail_on = fail_on
         self.write_loop = write_loop
         self.unused_eager = unused_eager
+        self.index_advisor = index_advisor
+        self.hypopg = hypopg
         self.baseline_path = baseline_path
         self.sarif_path = sarif_path
         # findings that count (not ignored, not baselined), for the SARIF file
@@ -273,6 +277,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
     )
     parser.addini(
+        "queryguard_index_advisor",
+        "Suggest a CREATE INDEX for each missing-index finding (used with the "
+        "index check)",
+        type="bool",
+        default=True,
+    )
+    parser.addini(
+        "queryguard_hypopg",
+        "Verify suggested indexes with the hypopg extension: auto (when "
+        "installed), on (also create it inside the check's savepoint) or off",
+        default="auto",
+    )
+    parser.addini(
         "queryguard_index_ignore_tables",
         "Tables (names or fnmatch patterns) the missing-index check ignores",
         type="linelist",
@@ -406,6 +423,30 @@ def _index_check(config: pytest.Config) -> bool:
     return raw if cli is None else cli
 
 
+def _index_advisor(config: pytest.Config) -> bool:
+    name = "queryguard_index_advisor"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be true or false: {exc}") from None
+    if not isinstance(raw, bool):
+        raise pytest.UsageError(f"{name} must be true or false, got {raw!r}")
+    return raw
+
+
+def _hypopg(config: pytest.Config) -> str:
+    name = "queryguard_hypopg"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be one of auto, on, off: {exc}") from None
+    if raw not in hypopg.MODES:
+        raise pytest.UsageError(
+            f"{name} must be one of {', '.join(hypopg.MODES)}, got {raw!r}"
+        )
+    return str(raw)
+
+
 def _ignore_tables(config: pytest.Config) -> tuple[str, ...]:
     name = "queryguard_index_ignore_tables"
     try:
@@ -507,6 +548,8 @@ def _read_settings(config: pytest.Config) -> _Settings:
         update,
         baseline,
         _sarif_path(config),
+        _index_advisor(config),
+        _hypopg(config),
     )
     settings.baseline_previous_error = previous_error
     return settings
@@ -1129,6 +1172,8 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     collector = QueryCollector()
     collector.max_events = settings.max_events
     collector.index_check = index_check and not exempt_all
+    collector.index_advisor = settings.index_advisor
+    collector.hypopg = settings.hypopg
     push(collector)
     tracker = eager.start() if settings.mode != "off" and eager.is_enabled() else None
     try:

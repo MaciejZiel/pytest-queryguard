@@ -12,9 +12,12 @@ from .detectors import (
 from .events import (
     CAUSE_DEFERRED,
     CAUSE_REFRESH,
+    Advice,
     CallSite,
     ScanEvent,
+    ScanIssue,
     StatementEvent,
+    Verification,
 )
 from .findings import (
     KIND_COLUMN_LOAD,
@@ -24,6 +27,7 @@ from .findings import (
     KIND_UNUSED_EAGER_LOAD,
     KIND_WRITE_LOOP,
     Finding,
+    IndexAdvice,
 )
 from .indexes import table_label
 from .listeners import Failure
@@ -312,22 +316,74 @@ def format_time_budget(
     return "\n".join(lines)
 
 
+def _verification_line(verification: Verification) -> str:
+    if verification.error is not None:
+        return f"  hypopg: could not verify this index: {_truncate(verification.error)}"
+    costs = ""
+    before, after = verification.cost_before, verification.cost_after
+    if before is not None and after is not None:
+        costs = f"; estimated cost {before:.2f} -> {after:.2f}"
+        if round(after, 2) >= round(before, 2):
+            costs += " (no gain at the current table size)"
+    if verification.used:
+        return f"  hypopg: the planner uses it ({verification.scan}){costs}"
+    return (
+        "  hypopg: the planner would not use it for this statement, "
+        f"even with sequential scans off{costs}"
+    )
+
+
+def _advice_lines(advice: Advice) -> list[str]:
+    if advice.create_sql is None:
+        return [f"  fix: no new index: {advice.skipped}"]
+    lines = [f"  fix: {advice.create_sql}"]
+    if advice.alembic is not None:
+        first, *rest = advice.alembic.splitlines()
+        lines.append(f"  alembic: {first}")
+        lines.extend(f"  {line}" for line in rest)
+    if advice.verification is not None:
+        lines.append(_verification_line(advice.verification))
+    return lines
+
+
 def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
     issue = scan.issue
     table = table_label(issue)
     where = f"with {issue.kind}"
-    if issue.column is None:
-        fix = "add an index that matches this condition"
+    if issue.advice is not None:
+        fix = _advice_lines(issue.advice)
+    elif issue.column is None:
+        text = "add an index that matches this condition"
         if issue.expression:
-            fix += " (an expression index may be needed)"
+            text += " (an expression index may be needed)"
+        fix = [f"  fix: {text}"]
     else:
-        fix = f"CREATE INDEX ON {table} ({issue.column})"
+        fix = [f"  fix: CREATE INDEX ON {table} ({issue.column})"]
     return [
         f"  {table} is read in full: {issue.node} {where} {_truncate(issue.condition)}",
         _first_at(scan.callsite, cwd),
         f"  sql: {_truncate(scan.sql)}",
-        f"  fix: {fix}",
+        *fix,
     ]
+
+
+def _index_advice(issue: ScanIssue) -> IndexAdvice | None:
+    advice = issue.advice
+    if advice is None:
+        return None
+    verification = advice.verification
+    return IndexAdvice(
+        create_index=advice.create_sql,
+        alembic=advice.alembic,
+        columns=tuple(k.column + k.suffix for k in advice.keys),
+        where=advice.where,
+        skipped=advice.skipped,
+        verified=None if verification is None else verification.used,
+        cost_before=None if verification is None else verification.cost_before,
+        cost_after=None if verification is None else verification.cost_after,
+        size_bytes=None if verification is None else verification.size,
+        verification_error=None if verification is None else verification.error,
+    )
 
 
 def make_index_finding(scan: ScanEvent, *, cwd: Path | None = None) -> Finding:
@@ -340,6 +396,7 @@ def make_index_finding(scan: ScanEvent, *, cwd: Path | None = None) -> Finding:
         function=None if site is None else site.function,
         message="\n".join(_scan_block(scan, cwd)),
         line=None if site is None else site.lineno,
+        advice=_index_advice(scan.issue),
     )
 
 

@@ -23,6 +23,7 @@ Direct dependencies of this repository, including the GitHub Actions used by its
 | https://github.com/pypa/hatch | hatchling | MIT | https://github.com/pypa/hatch/blob/master/LICENSE.txt |
 | https://github.com/pytest-dev/pytest-xdist | pytest-xdist | MIT | https://github.com/pytest-dev/pytest-xdist/blob/master/LICENSE |
 | https://github.com/pytest-dev/execnet | execnet | MIT | https://github.com/pytest-dev/execnet/blob/main/LICENSE |
+| https://github.com/HypoPG/hypopg | hypopg (PostgreSQL extension, used optionally at runtime through SQL and installed in the CI image; not a Python dependency) | PostgreSQL | https://github.com/HypoPG/hypopg/blob/REL1_STABLE/LICENSE |
 | https://github.com/github/codeql-action | github/codeql-action/upload-sarif (GitHub Action, pinned v4.38.2) | MIT | https://github.com/github/codeql-action/blob/main/LICENSE |
 | https://github.com/actions/setup-python | actions/setup-python (GitHub Action, pinned v7.0.0) | MIT | https://github.com/actions/setup-python/blob/main/LICENSE |
 | https://github.com/actions/checkout | actions/checkout (GitHub Action, pinned v7.0.1) | MIT | https://github.com/actions/checkout/blob/main/LICENSE |

@@ -91,6 +91,8 @@ EXPECTED_INI = {
     "queryguard_baseline": "",
     "queryguard_index_check": "False",
     "queryguard_index_ignore_tables": "[]",
+    "queryguard_index_advisor": "True",
+    "queryguard_hypopg": "auto",
 }
 
 EXPECTED_FLAGS = [

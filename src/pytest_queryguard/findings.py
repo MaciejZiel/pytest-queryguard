@@ -14,6 +14,31 @@ SEVERITY_ERROR = "error"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class IndexAdvice:
+    """The index the advisor suggests for a ``missing-index`` finding.
+
+    ``create_index`` is the statement and ``alembic`` the matching
+    ``op.create_index`` call; both are None when no new index is suggested,
+    and ``skipped`` says why (an index for these columns exists but is
+    unusable). ``verified`` is None when hypopg did not check the suggestion,
+    True when it says the planner would use the index and False when it would
+    not. The costs are the planner's estimates for the whole statement, with
+    sequential scans allowed, before and after adding the index.
+    """
+
+    create_index: str | None = None
+    alembic: str | None = None
+    columns: tuple[str, ...] = ()
+    where: str | None = None
+    skipped: str | None = None
+    verified: bool | None = None
+    cost_before: float | None = None
+    cost_after: float | None = None
+    size_bytes: int | None = None
+    verification_error: str | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Finding:
     """One problem a detector found, with its report text already rendered.
 
@@ -40,6 +65,9 @@ class Finding:
     severity: str = SEVERITY_ERROR
     line: int | None = None
     count: int = 1
+    # For ``missing-index`` findings, with the index advisor on; not part of
+    # the identity.
+    advice: IndexAdvice | None = None
 
     @property
     def identity(self) -> tuple[str, str, str | None, str | None]:
