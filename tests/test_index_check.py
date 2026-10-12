@@ -1627,3 +1627,61 @@ def test_pg_dropping_the_partial_index_makes_the_statement_reportable_again(
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*queryguard: missing index*", "*t1 is read in full*"])
+
+
+BROKEN_FIND_SCANS = """
+
+
+@pytest.fixture(autouse=True)
+def broken_find_scans(monkeypatch):
+    from pytest_queryguard import indexes
+
+    def broken(*args):
+        raise RuntimeError("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+"""
+
+
+SAVEPOINT_SCENARIOS = {
+    "autocommit": """
+        from sqlalchemy import text
+
+
+        def test_autocommit_write_is_committed(engine):
+            auto = engine.execution_options(isolation_level="AUTOCOMMIT")
+            with auto.connect() as conn:
+                conn.execute(text("SELECT * FROM orders WHERE customer_id = 1")).all()
+                conn.execute(text("INSERT INTO orders (id, customer_id) VALUES (99, 1)"))
+            with engine.connect() as other:
+                count = other.execute(text("SELECT count(*) FROM orders WHERE id = 99"))
+                assert count.scalar() == 1
+        """,
+    "transaction": """
+        from sqlalchemy import text
+
+
+        def test_transaction_settings_are_unchanged(engine):
+            with engine.connect() as conn:
+                conn.execute(text("SELECT * FROM orders WHERE customer_id = 1")).all()
+                assert conn.execute(text("SHOW enable_seqscan")).scalar() == "on"
+                conn.rollback()
+        """,
+}
+
+
+@needs_pg
+@pytest.mark.parametrize("scenario", sorted(SAVEPOINT_SCENARIOS))
+def test_pg_a_bug_inside_the_savepoint_leaves_the_connection_as_it_was(
+    project: pytest.Pytester, pg16: Postgres, scenario: str
+) -> None:
+    # The bug stops the plugin; the user's connection must not keep the
+    # plugin's transaction (autocommit) or its savepoint and enable_seqscan =
+    # off (inside the user's transaction).
+    _pg_project(project, pg16)
+    conftest = project.path / "conftest.py"
+    conftest.write_text(conftest.read_text() + BROKEN_FIND_SCANS)
+    project.makepyfile(test_a=SAVEPOINT_SCENARIOS[scenario])
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1, warnings=1)
+    result.stdout.fnmatch_lines(["*QueryGuardInternalWarning*find_scans broke*"])
