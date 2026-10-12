@@ -60,12 +60,13 @@ plain relative paths; no `uriBaseId` is written.
 This changes only the locations. The finding identity, the baseline and
 `partialFingerprints` are computed from the rootdir-relative path and do not
 change, so existing baseline files keep working and the same finding gets the
-same fingerprint whatever the working directory. What that means for alerts:
-GitHub de-duplicates by `primaryLocationLineHash` within a category, so two
-uploads that differ only in the working directory still match each other.
-Moving pytest to another working directory changes the URI of an alert (it is
-a different file as far as GitHub can tell); keep one `category` per job to
-avoid mixing them.
+same fingerprint whatever the working directory. For alerts this means: the
+fingerprint no longer depends on where pytest was started, but the URI does,
+so GitHub sees an alert as the same one only while the URI stays the same.
+If you move pytest to another working directory, expect the old alerts to
+close and new ones to open at the new paths. Keep one `category` per job so
+uploads from different jobs do not mix. How GitHub combines the fingerprint
+and the location has not been verified here.
 
 ## What is left out
 
