@@ -7,8 +7,10 @@ documentation and from running their packages, every cell says which, and the
 measurements are ones I ran myself, on scenarios I wrote.
 
 - Facts about other tools were read on **2026-10-12** and re-checked on
-  **2026-10-13**: no tool had a newer release or a commit on its default
-  branch since, and the cells below that changed say so.
+  **2026-10-13**: no tool had a newer release on PyPI since, the tools with a
+  public repository had no new commit on its default branch (fastapi-nplusone
+  and pytest-capquery list none on PyPI), and the cells below that changed say
+  so.
 - pytest-queryguard: the measurements were made on the `next` branch at commit
   `b64d19c`, before 0.4.0rc1. The releases on PyPI are now 0.4.0rc2 (a release
   candidate, 2026-10-12) and the stable 0.3.0 (2026-10-11); the matrix
