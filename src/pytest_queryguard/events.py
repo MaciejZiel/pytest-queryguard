@@ -28,6 +28,9 @@ class StatementEvent:
     parameters: object = None
     # True when the driver ran the statement for a list of parameter sets.
     executemany: bool = False
+    # Which ORM flush issued the statement (a number, the same for every
+    # statement of one flush); None for a statement outside a flush.
+    flush: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
