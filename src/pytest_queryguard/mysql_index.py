@@ -462,6 +462,11 @@ def _message(exc: Exception) -> str:
     return lines[0] if lines else type(exc).__name__
 
 
+# FOUND_ROWS() reports on the previous statement, and the catalog queries of
+# the check would replace it, so such a statement is not explained.
+_CALC_FOUND_ROWS = "SQL_CALC_FOUND_ROWS"
+
+
 def _unbuffered(cursor: Any) -> bool:
     """Whether the user's own cursor still has rows to fetch from the server.
 
@@ -505,7 +510,7 @@ def check(
     """Explain one executed statement for the collectors that want it."""
     if executemany or not reader.is_checked_statement(statement):
         return
-    if _unbuffered(cursor):
+    if _unbuffered(cursor) or _CALC_FOUND_ROWS in statement.upper():
         return
     key = (DIALECT, engine_key(conn.engine), collapse_lists(statement))
     fresh = [target for target in targets if key not in target.explained]

@@ -55,7 +55,9 @@ def fill(cursor: object) -> None:
     execute = cursor.execute  # type: ignore[attr-defined]
     executemany = cursor.executemany  # type: ignore[attr-defined]
     execute("CREATE DATABASE IF NOT EXISTS qg_other")
-    execute("CREATE TABLE qg_other.orders (id INT PRIMARY KEY, customer_id INT)")
+    execute(
+        "CREATE TABLE IF NOT EXISTS qg_other.orders (id INT PRIMARY KEY, customer_id INT)"
+    )
     executemany(
         "INSERT INTO customers (email, name, country) VALUES (%s, %s, %s)",
         [(f"c{n}@x.test", f"name {n}", "PL" if n % 3 else "DE") for n in range(300)],
