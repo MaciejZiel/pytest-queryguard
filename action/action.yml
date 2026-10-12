@@ -1,0 +1,136 @@
+name: pytest-queryguard
+description: >-
+  Run pytest with pytest-queryguard and upload its findings (N+1 queries,
+  repeated statements, missing indexes) to GitHub code scanning as SARIF.
+author: MaciejZiel
+
+inputs:
+  pytest-args:
+    description: >-
+      Arguments for pytest, as in a shell: quotes work, for example
+      -k "orders or users" tests/.
+    required: false
+    default: ""
+  python-version:
+    description: >-
+      Python version to set up (for example 3.12). Empty: use the python that
+      is already on PATH, for example from your own setup-python step.
+    required: false
+    default: ""
+  package:
+    description: >-
+      What to pip install for the plugin: a requirement such as
+      "pytest-queryguard>=0.4" or a path to a checkout. pytest and SQLAlchemy
+      come with it. Your own project and its test dependencies must be
+      installed before this action runs.
+    required: false
+    default: pytest-queryguard
+  baseline:
+    description: >-
+      Path of a baseline file (--queryguard-baseline). Findings in it are
+      neither reported nor uploaded. Empty: use queryguard_baseline from your
+      pytest configuration, if any.
+    required: false
+    default: ""
+  fail:
+    description: >-
+      "true": the step fails when pytest fails, as in a normal run. "false":
+      the step never fails, findings are only uploaded.
+    required: false
+    default: "true"
+  working-directory:
+    description: Directory to run pytest in.
+    required: false
+    default: "."
+  sarif-file:
+    description: Where to write the SARIF file, relative to working-directory.
+    required: false
+    default: queryguard.sarif
+  upload:
+    description: >-
+      "true": upload the SARIF file to code scanning. Skipped on pull requests
+      from forks, where the token is read-only. "false": only write the file.
+    required: false
+    default: "true"
+  category:
+    description: Code scanning category; use one per job when several jobs upload.
+    required: false
+    default: pytest-queryguard
+
+outputs:
+  exit-code:
+    description: Exit code of pytest.
+    value: ${{ steps.pytest.outputs.exit-code }}
+  sarif-file:
+    description: Path of the SARIF file, relative to working-directory.
+    value: ${{ inputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      if: inputs.python-version != ''
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install pytest-queryguard
+      shell: bash
+      env:
+        QG_PACKAGE: ${{ inputs.package }}
+      run: python -m pip install --disable-pip-version-check "$QG_PACKAGE"
+
+    - name: Run pytest
+      id: pytest
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QG_ARGS: ${{ inputs.pytest-args }}
+        QG_BASELINE: ${{ inputs.baseline }}
+        QG_SARIF: ${{ inputs.sarif-file }}
+      run: |
+        # The inputs reach the shell as environment variables, never spliced into
+        # the script, so a value cannot inject commands.
+        extra=()
+        if [ -n "$QG_BASELINE" ]; then
+          extra+=("--queryguard-baseline=$QG_BASELINE")
+        fi
+        eval "set -- $QG_ARGS"
+        set +e
+        python -m pytest "--queryguard-sarif=$QG_SARIF" "${extra[@]}" "$@"
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        if [ ! -f "$QG_SARIF" ]; then
+          echo "::warning::pytest did not write $QG_SARIF (exit code $code)"
+        fi
+
+    - name: Find the SARIF file
+      id: sarif
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QG_SARIF: ${{ inputs.sarif-file }}
+      run: |
+        if [ -f "$QG_SARIF" ]; then
+          echo "path=$(realpath "$QG_SARIF")" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Upload SARIF to code scanning
+      if: >-
+        always() && inputs.upload == 'true' && steps.sarif.outputs.path != ''
+        && !(github.event_name == 'pull_request'
+        && github.event.pull_request.head.repo.fork)
+      uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      with:
+        sarif_file: ${{ steps.sarif.outputs.path }}
+        category: ${{ inputs.category }}
+
+    - name: Fail when pytest failed
+      if: always() && inputs.fail == 'true' && steps.pytest.outputs.exit-code != '0'
+      shell: bash
+      env:
+        QG_CODE: ${{ steps.pytest.outputs.exit-code }}
+      run: |
+        echo "::error::pytest exited with code ${QG_CODE:-unknown}"
+        exit 1
