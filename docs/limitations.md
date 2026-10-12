@@ -1,7 +1,19 @@
 # Limitations
 
 
-- SQLAlchemy only. Raw DB-API connections and other ORMs are not seen.
+- SQLAlchemy only. The plugin listens to SQLAlchemy's events, so a statement
+  that does not go through SQLAlchemy is not counted, not budgeted and not
+  checked for indexes, and nothing says so. That covers a raw `sqlite3`,
+  `psycopg` or `asyncpg` connection used directly, and the Django ORM, Peewee,
+  Tortoise ORM and any other ORM. SQLModel and Flask-SQLAlchemy build on
+  SQLAlchemy sessions, so their statements should be seen (not tested here). If your suite passes but you expect findings, run
+  with `--queryguard-report`: a test that shows 0 statements was not seen. For
+  Django see the [comparison](comparison.md).
+- The repeat rules count per test by default, so a test that makes several
+  independent requests can report a repeat that is no loop. Set
+  `queryguard_repeat_scope = session` to count per `Session`; that has limits
+  of its own, listed in [Tests with several sessions or
+  requests](several-sessions.md).
 - Everything in `site-packages` counts as library code. If your application
   is installed non-editable (for example `pip install .` in a Docker CI
   image), its frames are skipped too, and call sites point to the test file

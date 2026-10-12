@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Documentation: the limitations page, the FAQ and the README now say that a
+  raw `sqlite3` or other DB-API connection and non-SQLAlchemy ORMs (Django ORM,
+  Peewee, Tortoise ORM) are not seen, and that nothing reports it; the
+  limitations page also points to the repeat-scope limits.
 - Added `queryguard_repeat_scope` (`test` or `session`, default `test`) and
   `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
   that make several requests. The repeat, relationship,

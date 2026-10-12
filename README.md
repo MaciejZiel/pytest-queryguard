@@ -208,7 +208,8 @@ opt-in checks are in the [FAQ](docs/faq.md#does-it-slow-my-tests-down).
 
 ## Limitations
 
-- SQLAlchemy only; raw DB-API connections and other ORMs are not seen.
+- SQLAlchemy only; raw DB-API connections (`sqlite3` and the like) and other
+  ORMs (Django ORM, Peewee) are not seen, and nothing says so.
 - Only the test function body is measured, not fixtures. One measurement is
   active per process; under pytest-xdist each worker measures its own tests.
 - The PostgreSQL index check needs PostgreSQL 16 or newer and a sync engine or
