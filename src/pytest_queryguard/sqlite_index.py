@@ -595,6 +595,18 @@ def _kind(access: _Access) -> str | None:
     return None  # VIRTUAL TABLE INDEX and shapes this code does not know
 
 
+def _walked_index(access: _Access) -> str | None:
+    """What a ``SCAN t USING ...`` row walks: "index ix_t_a" or "primary key"."""
+    using = access.using.removeprefix("USING ").strip()
+    for prefix in ("COVERING INDEX ", "INDEX "):
+        if using.startswith(prefix):
+            name = using.removeprefix(prefix).strip()
+            return f"index {name}" if name else None
+    if using.endswith("PRIMARY KEY"):
+        return "primary key"
+    return None
+
+
 _AUTOMATIC_COLUMNS = re.compile(r"\((?P<terms>[^()]*)\)(?:\s+LEFT-JOIN)?\s*$")
 _TERM = re.compile(r"\s*(?P<name>.+?)\s*(?:=|>=|<=|>|<|IS)\s*\?\s*", re.IGNORECASE)
 
@@ -869,6 +881,7 @@ def _issue(
         ", ".join(shown) if shown else None,
         show_schema=False,
         expression=not plain,
+        index=_walked_index(access) if kind == "index-scan" else None,
     )
     return _advice(issue, shown, alembic)
 

@@ -393,7 +393,23 @@ def test_covering_index_scan_with_a_filter_on_a_trailing_column(
         pytest.skip(f"this SQLite plans it differently: {plan}")
     issue = one(db, sql, 1)
     assert issue.node == "SCAN COVERING INDEX ix_lines_ab"
+    assert issue.index == "index ix_lines_ab"
     assert fix(issue) == "CREATE INDEX ix_lines_b ON lines (b)"
+
+
+def test_a_scan_of_an_existing_index_names_the_index(db: sqlite3.Connection) -> None:
+    db.execute("CREATE INDEX ix_orders_total ON orders (total)")
+    sql = "SELECT * FROM orders WHERE status = ? ORDER BY total"
+    plan = [r[3] for r in db.execute("EXPLAIN QUERY PLAN " + sql, ("x",))]
+    if plan != ["SCAN orders USING INDEX ix_orders_total"]:
+        pytest.skip(f"this SQLite plans it differently: {plan}")
+    issue = one(db, sql, "x")
+    assert issue.index == "index ix_orders_total"
+    assert fix(issue) == "CREATE INDEX ix_orders_status ON orders (status)"
+
+
+def test_a_plain_scan_walks_no_index(db: sqlite3.Connection) -> None:
+    assert one(db, "SELECT * FROM orders WHERE status = ?", "x").index is None
 
 
 def test_covering_index_scan_without_a_filter_is_not_reported(
