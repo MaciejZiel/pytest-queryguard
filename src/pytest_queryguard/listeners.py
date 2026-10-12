@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -124,8 +125,37 @@ def _on_cursor_execute(
         stmt = StatementEvent(statement, find_callsite(), _take_pending())
         for target in targets:
             target.add_statement(stmt)
+        if context is not None:
+            # Read back by the after listener; per execution, so statements
+            # that overlap in time (asyncio tasks) never mix up. Taken last,
+            # so the time spent finding the call site is not counted.
+            context._queryguard_timing = (stmt, targets, time.perf_counter())
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "before_cursor_execute listener (statements)")
+
+
+def _on_timing_after(
+    conn: Any,
+    cursor: Any,
+    statement: str,
+    parameters: Any,
+    context: Any,
+    executemany: bool,
+) -> None:
+    now = time.perf_counter()  # first, so nothing else is counted as database time
+    if _error is not None:
+        return
+    try:
+        timing = getattr(context, "_queryguard_timing", None)
+        if timing is None:
+            return
+        context._queryguard_timing = None
+        stmt, targets, started = timing
+        stmt.duration = now - started
+        for target in targets:
+            target.db_time += stmt.duration
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "after_cursor_execute listener (statement timing)")
 
 
 def _on_after_cursor_execute(
@@ -204,6 +234,7 @@ def install() -> None:
         return
     event.listen(Session, "do_orm_execute", _on_orm_execute)
     event.listen(Engine, "before_cursor_execute", _on_cursor_execute)
+    event.listen(Engine, "after_cursor_execute", _on_timing_after)
     _installed = True
 
 
