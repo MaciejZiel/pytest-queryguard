@@ -126,3 +126,26 @@ def test_a_page_without_a_description_fails_the_strict_build(
     module.ROOT = tmp_path
     assert module.build(tmp_path / "out", strict=True) == 1
     assert "has no description" in capsys.readouterr().err
+
+
+def test_no_page_publishes_unrendered_markdown(site: Path) -> None:
+    # A wrapped line that starts with an HTML tag (such as "<table>" in a code
+    # span) makes Python-Markdown treat the rest of the paragraph as raw HTML,
+    # so the page shows Markdown source. Code blocks and spans may hold these
+    # characters, so they are removed first.
+    leftovers = (
+        re.compile(r"```|~~~"),
+        re.compile(r"\*\*\S"),
+        re.compile(r"(?m)^#{2,6} "),
+    )
+    for page in _pages(site):
+        text = page.read_text(encoding="utf-8")
+        text = re.sub(r"<pre\b.*?</pre>", "", text, flags=re.DOTALL)
+        text = re.sub(r"<code\b.*?</code>", "", text, flags=re.DOTALL)
+        text = re.sub(r"<(script|style)\b.*?</\1>", "", text, flags=re.DOTALL)
+        for pattern in leftovers:
+            found = pattern.search(text)
+            assert found is None, (
+                page.name,
+                text[found.start() - 80 : found.end() + 80],
+            )
