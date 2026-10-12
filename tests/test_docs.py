@@ -65,3 +65,26 @@ def test_site_builds_in_strict_mode(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "site" / "index.html").is_file()
+
+
+def _slug(heading: str) -> str:
+    return re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+
+
+@pytest.mark.skipif(not (ROOT / "README.md").is_file(), reason="README is not shipped")
+def test_readme_anchors_into_the_docs_exist() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    links = re.findall(r"\]\((docs/[\w.-]+\.md)#([\w-]+)\)", readme)
+    assert ("docs/faq.md", "does-it-slow-my-tests-down") in links
+    for path, anchor in links:
+        headings = re.findall(
+            r"^#+ (.+)$", (ROOT / path).read_text(encoding="utf-8"), re.MULTILINE
+        )
+        assert anchor in {_slug(h) for h in headings}, (path, anchor)
+
+
+def test_the_faq_states_the_overhead_with_its_conditions() -> None:
+    faq = (DOCS / "faq.md").read_text(encoding="utf-8")
+    section = faq.split("## Does it slow my tests down?")[1].split("\n## ")[0]
+    assert "in-memory SQLite" in section and "micro-benchmark" in section
+    assert "ns per" in section or "ns with" in section

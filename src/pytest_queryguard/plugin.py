@@ -134,6 +134,7 @@ class _IndexNotes:
     def __init__(self) -> None:
         self.notices: dict[str, None] = {}  # ordered set
         self.errors = 0
+        self.partial_skipped: list[tuple[str, ...]] = []
         self.first_error: tuple[str, str] | None = None
 
 
@@ -816,6 +817,7 @@ def _note_index_check(config: pytest.Config, collector: QueryCollector) -> None:
         return
     notes = config.stash.setdefault(_index_notes, _IndexNotes())
     notes.notices.update(collector.index_notices)
+    notes.partial_skipped.extend(collector.partial_skipped)
     for error in collector.explain_errors:
         notes.errors += 1
         if notes.first_error is None:
@@ -956,10 +958,12 @@ def _write_report(
 
 def _write_index_notes(terminalreporter: pytest.TerminalReporter) -> None:
     notes = terminalreporter.config.stash.get(_index_notes, None)
-    if notes is None or not (notes.notices or notes.errors):
+    if notes is None or not (notes.notices or notes.errors or notes.partial_skipped):
         return
     terminalreporter.write_sep("=", "queryguard index check")
-    for line in format_index_notes(notes.notices, notes.errors, notes.first_error):
+    for line in format_index_notes(
+        notes.notices, notes.errors, notes.first_error, notes.partial_skipped
+    ):
         terminalreporter.write_line(line)
 
 

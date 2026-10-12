@@ -1502,3 +1502,128 @@ def test_each_session_starts_with_an_empty_catalog_cache(
     project.makepyfile(test_a=SQLITE_TEST)
     project.runpytest("--queryguard-index-check").assert_outcomes(passed=1)
     assert catalog.for_engine(engine).leading == {}
+
+
+# A partial index may serve a statement that the generic plan cannot prove it
+# serves: the bound values are parameters there. The check then reports
+# nothing for the statement and counts it in the session summary.
+PARTIAL = """
+import pytest
+from sqlalchemy import column, select, table, text
+
+SETUP = [
+    "CREATE TABLE t1 (status varchar, x int, flag boolean)",
+    "CREATE INDEX t1_partial ON t1 (x) WHERE status = 'open'",
+    "CREATE INDEX t1_flagged ON t1 (x) WHERE flag",
+    "INSERT INTO t1 SELECT CASE WHEN g % 50 = 0 THEN 'open' ELSE 'done' END, "
+    "g, g % 2 = 0 FROM generate_series(1, 5000) g",
+    "ANALYZE t1",
+]
+t1 = table("t1", column("status"), column("x"), column("flag"))
+
+
+@pytest.fixture
+def db(session):
+    for statement in SETUP:
+        session.execute(text(statement))
+    return session
+"""
+
+
+def _partial_project(project: pytest.Pytester, pg: Postgres, body: str) -> None:
+    _pg_project(project, pg)
+    project.makepyfile(test_a=PARTIAL + "\n\n" + textwrap.dedent(body))
+
+
+@needs_pg
+@pytest.mark.parametrize("advisor", [False, True], ids=["plain", "advisor"])
+def test_pg_a_partial_index_that_may_serve_the_statement_is_not_reported(
+    project: pytest.Pytester, pg16: Postgres, advisor: bool
+) -> None:
+    _partial_project(
+        project,
+        pg16,
+        """
+        def test_open(db):
+            stmt = select(t1).where(t1.c.status == "open", t1.c.x == 10)
+            db.execute(stmt).all()
+        """,
+    )
+    result = project.runpytest(
+        "--queryguard-index-check", "-o", f"queryguard_index_advisor={advisor}"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*queryguard index check*",
+            (
+                "1 statement skipped: a partial index on t1 may serve it; "
+                "the generic plan cannot tell"
+            ),
+        ]
+    )
+    result.stdout.no_fnmatch_line("*missing index*")
+    result.stdout.no_fnmatch_line("*CREATE INDEX*")
+
+
+@needs_pg
+def test_pg_the_same_statement_text_is_counted_once(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _partial_project(
+        project,
+        pg16,
+        """
+        def test_open(db):
+            db.execute(select(t1).where(t1.c.status == "open", t1.c.x == 10)).all()
+            db.execute(select(t1).where(t1.c.status == "open", t1.c.x == 20)).all()
+            db.execute(select(t1).where(t1.c.status == "done", t1.c.x > 20)).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(
+        ["2 statements skipped: a partial index on t1 may serve them; *"]
+    )
+
+
+@needs_pg
+def test_pg_a_partial_index_with_another_predicate_still_reports(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # t1_flagged is on (x) WHERE flag; the statement never mentions flag, so
+    # it cannot use it and nothing may serve it: the finding stands.
+    _partial_project(
+        project,
+        pg16,
+        """
+        def test_name(db):
+            db.execute(text("DROP INDEX t1_partial"))
+            stmt = select(t1).where(t1.c.status == "open", t1.c.x == 10)
+            db.execute(stmt).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*queryguard: missing index*", "*t1 is read in full*"])
+    result.stdout.no_fnmatch_line("*statement skipped*")
+
+
+@needs_pg
+def test_pg_dropping_the_partial_index_makes_the_statement_reportable_again(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _partial_project(
+        project,
+        pg16,
+        """
+        def test_open(db):
+            stmt = select(t1).where(t1.c.status == "open", t1.c.x == 10)
+            db.execute(stmt).all()
+            db.execute(text("DROP INDEX t1_partial"))
+            db.execute(stmt).all()
+        """,
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*queryguard: missing index*", "*t1 is read in full*"])

@@ -196,8 +196,10 @@ every kind fails, as before) and `--queryguard-sarif`.
   parsing is tested on real `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` plans
   captured from PostgreSQL 14 to 18 (`scripts/capture_plans.py`).
 - The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)
-  to time statements. `scripts/bench_overhead.py` puts the added cost at a few
-  microseconds per statement.
+  to time statements. `scripts/bench_overhead.py` puts the added cost of all the
+  measurement, not of this listener alone, at about 20 to 55 microseconds per
+  statement on in-memory SQLite (roughly +30 to +40 %); against a real database
+  round trip it is small. See the FAQ.
 - Internal: detectors now hand their results to a stable `Finding` model
   (`kind`, `label`, `file`, `function`, `message`, `severity`) before the
   report is rendered. The messages and the public API are unchanged.
@@ -208,6 +210,12 @@ every kind fails, as before) and `--queryguard-sarif`.
 
 ### Fixed
 
+- The index check no longer reports a missing index, and the advisor no longer
+  recommends a redundant one, for a statement that an existing partial index
+  may serve. The generic plan cannot see bound values, so it could not know
+  that `status = $1` matches `... WHERE status = 'open'`. Such statements are
+  skipped and counted in the session summary. A missing index on them is not
+  found; see the limitations.
 - Loops over deferred or expired columns were reported as a repeated statement
   with the wrong advice (`WHERE id IN (...)`). They are now a `column-load`
   finding and no longer count towards the repeated-statement rule.
