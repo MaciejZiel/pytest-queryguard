@@ -201,3 +201,26 @@ def test_scenarios_with_only_relationship_loads_failing(
     found = _run(pytester, "queryguard_fail_on = relationship-load\n")
     problems = _problems(found, WARN_ONLY, {})
     assert not problems, "\n".join(problems)
+
+
+# With write-loop detection on, row-by-row INSERTs are findings; add_all,
+# executemany and single statements are not.
+WRITE_LOOP = {
+    **EXPECTED,
+    "test_12a_insert_flush_per_row": FAIL,
+    "test_12c_core_insert_per_row": FAIL,
+}
+
+
+def test_scenarios_with_write_loop_detection_on(pytester: pytest.Pytester) -> None:
+    found = _run(pytester, "queryguard_write_loop_threshold = 5\n")
+    hints = {
+        **HINTS,
+        "test_12a_insert_flush_per_row": (
+            ("the same INSERT ran 6 times, one row at a time", "add_all"),
+            (),
+        ),
+        "test_12c_core_insert_per_row": (("the same INSERT ran 6 times",), ()),
+    }
+    problems = _problems(found, WRITE_LOOP, hints)
+    assert not problems, "\n".join(problems)
