@@ -50,6 +50,7 @@ title = "More"
 pages = [
   { title = "Unused eager loads (experimental)", file = "unused-eager-load.md" },
   { title = "Comparison with other tools", file = "comparison.md" },
+  { title = "Accuracy on a corpus", file = "accuracy.md" },
   { title = "Migrating from nplusone", file = "migrating-from-nplusone.md" },
   { title = "Limitations", file = "limitations.md" },
   { title = "FAQ", file = "faq.md" },

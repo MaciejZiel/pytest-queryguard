@@ -268,6 +268,43 @@ def test_partial_index_skips_are_counted_in_one_line() -> None:
     ]
 
 
+def test_a_scan_of_an_existing_index_does_not_say_the_table_is_read_in_full() -> None:
+    issue = ScanIssue(
+        None,
+        "users",
+        "SCAN INDEX ix_users_created_at",
+        "filter",
+        "users.status = ?",
+        "status",
+        show_schema=False,
+        index="index ix_users_created_at",
+    )
+    lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
+    assert lines[2] == (
+        "  users scans the whole index ix_users_created_at: the filter "
+        "users.status = ? does not match the start of any index"
+    )
+    assert "read in full" not in "\n".join(lines)
+    assert lines[5] == "  fix: CREATE INDEX ON users (status)"
+
+
+def test_a_join_condition_on_a_walked_index_says_join_condition() -> None:
+    issue = ScanIssue(
+        None,
+        "users",
+        "SCAN INDEX ix",
+        "join condition",
+        "users.org_id = orgs.id",
+        None,
+        show_schema=False,
+        index="primary key",
+    )
+    lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
+    assert lines[2].startswith(
+        "  users scans the whole primary key: the join condition"
+    )
+
+
 def _repeat_message(sql: str) -> str:
     site = CallSite(filename="/work/project/app/users.py", lineno=7, function="load")
     return format_findings([RepeatFinding(sql, 5, site)], cwd=CWD)

@@ -95,6 +95,9 @@ not work.
 
 ### N+1 and budgets on SQLite
 
+A larger run, with 110 scenarios and precision and recall per finding kind, is on the
+[accuracy page](accuracy.md).
+
 I ran 45 scenarios in `tests/scenarios` (SQLAlchemy ORM and Core, sync and
 async, SQLite) against three packages, each in its own virtual environment on
 2026-10-12: pytest-queryguard `next` at `b64d19c`, queryspy 0.5.0 and
