@@ -13,7 +13,8 @@ pytest process with the plugin disabled (``-p no:queryguard``) and enabled
 (default settings, ``--queryguard-mode=warn`` so a finding cannot fail the
 run), the two interleaved, ``--runs`` times. The time is measured inside
 pytest, from session start to session finish, so interpreter start-up and
-imports are not counted. ``--index-check`` adds the missing-index check.
+imports are not counted. ``--index-check`` adds the missing-index check;
+``--src`` measures another checkout (to compare two versions).
 """
 
 from __future__ import annotations
@@ -108,7 +109,9 @@ def test_case(session, engine, n):
 """
 
 
-def run_once(tests: int, url: str, enabled: bool, index_check: bool) -> float:
+def run_once(
+    tests: int, url: str, enabled: bool, index_check: bool, src: Path
+) -> float:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "conftest.py").write_text(CONFTEST)
@@ -120,7 +123,7 @@ def run_once(tests: int, url: str, enabled: bool, index_check: bool) -> float:
         env["PYTHONPATH"] = os.pathsep.join(
             p
             for p in (
-                str(Path(__file__).resolve().parents[1] / "src"),
+                str(src),
                 env.get("PYTHONPATH"),
             )
             if p
@@ -160,14 +163,20 @@ def main() -> None:
     )
     ap.add_argument("--url", default=None)
     ap.add_argument("--index-check", action="store_true")
+    ap.add_argument(
+        "--src",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "src",
+        help="the src directory of the plugin checkout to measure",
+    )
     args = ap.parse_args()
     url = args.url or "sqlite:///{dir}/bench.db"
     if args.backend == "postgres" and not args.url:
         raise SystemExit("--url is required for postgres")
     off, on = [], []
     for _ in range(args.runs):
-        off.append(run_once(args.tests, url, False, False))
-        on.append(run_once(args.tests, url, True, args.index_check))
+        off.append(run_once(args.tests, url, False, False, args.src))
+        on.append(run_once(args.tests, url, True, args.index_check, args.src))
     m_off, m_on = statistics.median(off), statistics.median(on)
     n = args.tests
     print(
