@@ -57,6 +57,10 @@ def test_checkout(service, cart):
 def test_legacy_report(session): ...
 
 
+@pytest.mark.allow_nplusone("Order.customer", function="list_orders")  # one finding
+def test_one_finding(session): ...
+
+
 @pytest.mark.allow_missing_index("countries", "currencies")  # no args: whole test
 def test_lookup(session): ...
 ```
@@ -97,6 +101,7 @@ Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, 
 | `queryguard_relationship_threshold` | integer >= 2 | `2` |
 | `queryguard_repeat_threshold` | integer >= 2 | `5` |
 | `queryguard_max_events` | integer >= 0 (`0`: no limit) | `10000` |
+| `queryguard_ignore` | `KIND LABEL [file=GLOB] [function=GLOB]` per line | empty |
 | `queryguard_index_check` | `true`, `false` | `false` |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns | empty |
 

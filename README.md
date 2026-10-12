@@ -372,6 +372,37 @@ def test_legacy_report(session): ...
 The test is not checked for N+1. A `max_queries` marker on the same test is
 still enforced.
 
+To leave out one finding instead of the whole test, give the marker patterns
+(`fnmatch`, case-sensitive) for the finding's label, and optionally `kind`,
+`file` and `function`:
+
+```python
+@pytest.mark.allow_nplusone("Order.customer", function="list_orders")
+def test_legacy_report(session): ...
+```
+
+The same patterns work for the whole suite in `queryguard_ignore`, one per
+line as `KIND LABEL [file=GLOB] [function=GLOB]`:
+
+```toml
+[tool.pytest.ini_options]
+queryguard_ignore = [
+    "relationship-load Order.customer",
+    "repeated-statement SELECT * FROM settings*",
+    "missing-index public.audit_log",
+]
+```
+
+The kinds are `relationship-load` (the label is the relationship, as in
+`Order.customer`), `repeated-statement` (the normalized statement) and
+`missing-index` (the table, with its schema as in the report). `file` is
+relative to pytest's rootdir, with forward slashes. Findings that no longer
+exist are easy to forget, so a pattern that matched nothing in the run is
+listed in the terminal summary under "stale ignores" (not shown with
+pytest-xdist, where the workers do the matching). There is no
+`with` block form: the collector is process-wide, so a block could not
+tell its own statements from those of other threads.
+
 ### Async and FastAPI
 
 Nothing changes for async code. `AsyncSession` and `create_async_engine` run
@@ -610,6 +641,7 @@ plan, with the first error and its SQL.
 | `queryguard_relationship_threshold` | integer ≥ 2 | `2` | Number of different parent objects for which one relationship must be lazy-loaded to count as N+1. |
 | `queryguard_repeat_threshold` | integer ≥ 2 | `5` | Number of times one normalized `SELECT` must run to count as N+1. |
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
+| `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](#opting-out). |
 | `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer). |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |
 
