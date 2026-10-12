@@ -68,6 +68,19 @@ jobs:
       - run: uv run --no-sync pytest tests/test_xdist.py -v
       - run: uv run --no-sync pytest -n 2 --ignore=tests/test_xdist.py
 
+  # Per-statement overhead of the measurement against the stored baseline in
+  # scripts/bench_baseline.json (relative overhead, generous margin). Linux
+  # and one Python version only: timing on several runners is just noise.
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run --no-sync python scripts/bench_gate.py
+
   # The SQLite-only suite on the other operating systems (paths, temp dirs,
   # newline handling, file locking). PostgreSQL tests skip without a server.
   os:
