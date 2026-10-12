@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from .detectors import Finding, RelationshipFinding
+from .detectors import Detection, RelationshipFinding
 from .events import CallSite, ScanEvent, StatementEvent
+from .findings import KIND_MISSING_INDEX, KIND_RELATIONSHIP, KIND_REPEAT, Finding
 from .indexes import table_label
 
 _SQL_LIMIT = 200
@@ -50,7 +51,7 @@ def _first_at(site: CallSite | None, cwd: Path | None) -> str:
     return f"  first at {where}"
 
 
-def _block(finding: Finding, cwd: Path | None) -> list[str]:
+def _block(finding: Detection, cwd: Path | None) -> list[str]:
     if isinstance(finding, RelationshipFinding):
         parent = finding.relationship.split(".", 1)[0]
         lines = [
@@ -72,11 +73,40 @@ def _block(finding: Finding, cwd: Path | None) -> list[str]:
     ]
 
 
-def format_findings(findings: list[Finding], *, cwd: Path | None = None) -> str:
+def make_finding(detection: Detection, *, cwd: Path | None = None) -> Finding:
+    """The finding for one detector result, its message rendered for ``cwd``."""
+    site = detection.first
+    if isinstance(detection, RelationshipFinding):
+        kind, label = KIND_RELATIONSHIP, detection.relationship
+    else:
+        kind, label = KIND_REPEAT, detection.sql
+    return Finding(
+        kind=kind,
+        label=label,
+        file=None if site is None else _display_path(site.filename, cwd),
+        function=None if site is None else site.function,
+        message="\n".join(_block(detection, cwd)),
+        line=None if site is None else site.lineno,
+        count=detection.count,
+    )
+
+
+def make_findings(
+    detections: Iterable[Detection], *, cwd: Path | None = None
+) -> list[Finding]:
+    return [make_finding(d, cwd=cwd) for d in detections]
+
+
+def format_findings(
+    findings: Sequence[Finding | Detection], *, cwd: Path | None = None
+) -> str:
+    """The N+1 report; detector results are turned into findings first."""
     lines = ["queryguard: N+1 detected"]
     for finding in findings:
+        if not isinstance(finding, Finding):
+            finding = make_finding(finding, cwd=cwd)
         lines.append("")
-        lines.extend(_block(finding, cwd))
+        lines.append(finding.message)
     return "\n".join(lines)
 
 
@@ -120,11 +150,24 @@ def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
     ]
 
 
+def make_index_finding(scan: ScanEvent, *, cwd: Path | None = None) -> Finding:
+    """The finding for one missing-index scan, its message rendered for ``cwd``."""
+    site = scan.callsite
+    return Finding(
+        kind=KIND_MISSING_INDEX,
+        label=table_label(scan.issue),
+        file=None if site is None else _display_path(site.filename, cwd),
+        function=None if site is None else site.function,
+        message="\n".join(_scan_block(scan, cwd)),
+        line=None if site is None else site.lineno,
+    )
+
+
 def format_index_findings(scans: list[ScanEvent], *, cwd: Path | None = None) -> str:
     lines = ["queryguard: missing index"]
     for scan in scans:
         lines.append("")
-        lines.extend(_scan_block(scan, cwd))
+        lines.append(make_index_finding(scan, cwd=cwd).message)
     lines.extend(
         [
             "",

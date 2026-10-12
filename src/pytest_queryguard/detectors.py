@@ -63,7 +63,9 @@ class RepeatFinding:
     first: CallSite | None
 
 
-Finding = RelationshipFinding | RepeatFinding
+Detection = RelationshipFinding | RepeatFinding
+# The name this union had before findings.Finding existed.
+Finding = Detection
 
 
 def _relationship_findings(
@@ -112,8 +114,8 @@ def _repeat_findings(collector: QueryCollector, threshold: int) -> list[RepeatFi
 
 def detect(
     collector: QueryCollector, *, relationship_threshold: int, repeat_threshold: int
-) -> list[Finding]:
-    findings: list[Finding] = []
+) -> list[Detection]:
+    findings: list[Detection] = []
     findings.extend(_relationship_findings(collector, relationship_threshold))
     findings.extend(_repeat_findings(collector, repeat_threshold))
     return findings

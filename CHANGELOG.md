@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: detectors now hand their results to a stable `Finding` model
+  (`kind`, `label`, `file`, `function`, `message`, `severity`) before the
+  report is rendered. The messages and the public API are unchanged.
+
 ## [0.3.0] - 2026-10-11
 
 ### Added
