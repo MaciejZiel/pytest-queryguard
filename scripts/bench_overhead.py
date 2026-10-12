@@ -197,18 +197,20 @@ def _report_index_check(statements: int, runs: int) -> None:
 def _report_app(statements: int, runs: int) -> None:
     modes = ("off", "app-idle", "app-request")
     times = _times(statements, runs, modes)
-    print(f"{statements} statements per loop, median of {runs} runs (us/statement)")
+    print(f"{statements} statements per loop, {runs} runs (us/statement)")
     print(
-        f"{'loop':<6}{'off':>9}{'idle':>9}{'request':>10}{'idle+':>9}{'request+':>10}"
+        f"{'loop':<6}{'stat':<8}{'off':>8}{'idle':>8}{'request':>9}"
+        f"{'idle+':>8}{'request+':>10}"
     )
+    # The minimum is shown next to the median: on a busy machine it is the
+    # steadier of the two.
     for index, name in enumerate(("core", "orm")):
-        off, idle, request = (
-            statistics.median(t[index] for t in times[mode]) for mode in modes
-        )
-        print(
-            f"{name:<6}{off:>9.1f}{idle:>9.1f}{request:>10.1f}"
-            f"{idle - off:>9.1f}{request - off:>10.1f}"
-        )
+        for stat in (statistics.median, min):
+            off, idle, request = (stat(t[index] for t in times[mode]) for mode in modes)
+            print(
+                f"{name:<6}{stat.__name__:<8}{off:>8.1f}{idle:>8.1f}{request:>9.1f}"
+                f"{idle - off:>8.1f}{request - off:>10.1f}"
+            )
     print("idle: engine watched, no request in progress; request: inside track()")
 
 
