@@ -21,3 +21,5 @@ Direct dependencies of this repository.
 | https://github.com/astral-sh/ruff | ruff | MIT | https://github.com/astral-sh/ruff/blob/main/LICENSE |
 | https://github.com/python/mypy | mypy | MIT | https://github.com/python/mypy/blob/master/LICENSE |
 | https://github.com/pypa/hatch | hatchling | MIT | https://github.com/pypa/hatch/blob/master/LICENSE.txt |
+| https://github.com/pytest-dev/pytest-xdist | pytest-xdist | MIT | https://github.com/pytest-dev/pytest-xdist/blob/master/LICENSE |
+| https://github.com/pytest-dev/execnet | execnet | MIT | https://github.com/pytest-dev/execnet/blob/main/LICENSE |
