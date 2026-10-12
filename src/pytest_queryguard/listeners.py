@@ -14,7 +14,7 @@ from sqlalchemy.orm import ORMExecuteState, Session
 from sqlalchemy.pool import Pool
 
 from . import catalog, collector, indexes, sqlite_index
-from .callsite import find_callsite
+from .callsite import find_callsite, find_flush
 from .events import (
     CAUSE_DEFERRED,
     CAUSE_EXPIRED,
@@ -152,6 +152,10 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         _fail(exc, "do_orm_execute listener (relationship loads)")
 
 
+def _is_write(statement: str) -> bool:
+    return statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
+
+
 def _on_cursor_execute(
     conn: Any,
     cursor: Any,
@@ -176,6 +180,7 @@ def _on_cursor_execute(
             column_load=column_load is not None,
             parameters=None if executemany else parameters,
             executemany=bool(executemany),
+            flush=find_flush() if _is_write(statement) else None,
         )
         for target in targets:
             target.add_statement(stmt)

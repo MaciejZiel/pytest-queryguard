@@ -75,7 +75,13 @@ the same `INSERT`, `UPDATE` or `DELETE` shape, one row per statement, run that
 many times from one source line is reported, with a hint to write the rows
 together (`session.add_all()` and one flush, or
 `session.execute(insert(Model), rows)`). `executemany` and multi-row `VALUES`
-statements are already batched and never counted.
+statements are already batched and never counted. The statements of one ORM
+flush count as one: on a dialect without `insertmanyvalues`, `session.add_all()`
+and one `flush()` still send one `INSERT` per row, and that is not a loop in
+your code. A `flush()` or `commit()` per row, which is, is reported. The flush
+is recognized from the call stack (SQLAlchemy's `Session._flush`); if a future
+SQLAlchemy release changes that, such a flush is reported again until the
+detection is updated.
 
 ### unused-eager-load (experimental)
 

@@ -89,9 +89,38 @@ by the index check, with a notice in the session summary.
 
 It adds work per statement: a stack walk for the call site and a timer around
 the cursor call. `scripts/bench_overhead.py` measures it, and CI compares it
-with a stored baseline. The index check adds a few database round trips per
-distinct statement per test, about 1 ms per statement in the benchmark in
-[Missing-index check](index-check.md); the numbers depend on your machine.
+with a stored baseline.
+
+Measured with `scripts/bench_overhead.py` on an Intel Core i5-13500H, Python
+3.13, SQLAlchemy 2.1.1, median of 7 runs of 5000 statements, each configuration
+in a fresh process, against an **in-memory SQLite** database:
+
+| Per statement | Measurement off | On | Added |
+|---|---|---|---|
+| Core `select` by key | 62.9 us | 86.1 us | +23.1 us (+37 %) |
+| ORM `select` by primary key | 132.0 us | 185.9 us | +53.9 us (+41 %) |
+
+An earlier run of the same script gave +29 % (Core) and +35 % (ORM), so read
+these as "roughly a third to two fifths" and not as exact figures. The
+percentages are large because an in-memory SQLite statement is almost free:
+the added cost is a fixed 20 to 55 microseconds, and a statement that goes to a
+real database over a network takes milliseconds, so the share is far smaller
+there. These are micro-benchmarks, not a measure of a real test suite.
+
+The options that are off by default cost nothing until you turn them on:
+
+- The missing-index check (PostgreSQL) adds a few database round trips per
+  distinct statement per test, about 1 ms per statement in the benchmark in
+  [Missing-index check](index-check.md). On SQLite it adds, over the "on" column
+  above, +13.5 us for a repeated statement shape, +31.5 us for a repeated ORM
+  statement and +34.5 us for a new shape that must be explained
+  (`scripts/bench_overhead.py --index-check`).
+- Eager-load tracking (`queryguard_unused_eager_load`) wraps attribute reads:
+  171 ns per attribute read with the option off, 207 ns with it on but idle
+  (outside a test body), 306 ns while a test body is tracked
+  (`scripts/bench_eager_overhead.py`).
+
+The numbers depend on your machine and database.
 
 ## Does it work with Django, Peewee or raw SQL?
 

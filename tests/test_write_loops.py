@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import Engine, create_engine, insert, select, text, update
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from pytest_queryguard import NPlusOneDetected, record_queries
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.detectors import WriteLoopFinding, _value_rows, detect
 from pytest_queryguard.events import CallSite, StatementEvent
 from pytest_queryguard.messages import make_findings
-from tests.models import Customer, make_sync_session
+from tests.models import Base, Customer, make_sync_session
 
 # pytester runs sessions in-process, so the outer plugin sees their queries too.
 pytestmark = pytest.mark.allow_nplusone
@@ -344,3 +346,82 @@ def test_warn_mode_warns(pytester: pytest.Pytester) -> None:
     _write(pytester)
     pytester.makeini("[pytest]\nqueryguard_write_loop_threshold = 5\n")
     pytester.runpytest("--queryguard-mode=warn").assert_outcomes(passed=1, warnings=1)
+
+
+# ----------------------------------------- one flush that SQLAlchemy cannot batch
+
+
+def _unbatched_session() -> Session:
+    """A session whose dialect has no insertmanyvalues: new rows whose primary
+    key the database makes are inserted one statement per row."""
+    engine = create_engine(
+        "sqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+        use_insertmanyvalues=False,
+    )
+    Base.metadata.create_all(engine)
+    return sessionmaker(engine, expire_on_commit=False)()
+
+
+def test_add_all_and_one_flush_without_insertmanyvalues_is_not_a_loop() -> None:
+    session = _unbatched_session()
+    with record_queries() as log:
+        session.add_all([Customer(name=f"c{i}") for i in range(20)])
+        session.flush()
+    inserts = [s for s in log if s.sql.lstrip().startswith("INSERT")]
+    assert len(inserts) == 20  # the premise: one INSERT per row from one flush
+    log.assert_no_nplusone(write_loop_threshold=2)
+
+
+def test_a_flush_per_row_without_insertmanyvalues_is_still_a_loop() -> None:
+    session = _unbatched_session()
+    with record_queries() as log:
+        for i in range(6):
+            session.add(Customer(name=f"c{i}"))
+            session.flush()
+    with pytest.raises(NPlusOneDetected, match="the same INSERT ran 6 times"):
+        log.assert_no_nplusone(write_loop_threshold=5)
+
+
+def test_a_commit_per_row_is_still_a_loop() -> None:
+    session = _unbatched_session()
+    with record_queries() as log:
+        for i in range(6):
+            session.add(Customer(name=f"c{i}"))
+            session.commit()
+    with pytest.raises(NPlusOneDetected, match="the same INSERT ran 6 times"):
+        log.assert_no_nplusone(write_loop_threshold=5)
+
+
+def test_two_unbatched_flushes_are_two_units_not_one_loop() -> None:
+    session = _unbatched_session()
+    with record_queries() as log:
+        for _ in range(2):
+            session.add_all([Customer(name=f"c{i}") for i in range(10)])
+            session.flush()
+    log.assert_no_nplusone(write_loop_threshold=5)
+    with pytest.raises(NPlusOneDetected, match="the same INSERT ran 2 times"):
+        log.assert_no_nplusone(write_loop_threshold=2)
+
+
+def test_statements_outside_a_flush_carry_no_flush_token() -> None:
+    # statements outside any flush carry no flush token and count one by one
+    stmts = _stmts(INSERT, 6)
+    assert all(s.flush is None for s in stmts)
+    assert len(_loops(stmts)) == 1
+
+
+def test_without_flush_detection_the_old_behavior_remains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # if a SQLAlchemy release moves Session._flush, statements get no token
+    from pytest_queryguard import callsite
+
+    monkeypatch.setattr(callsite, "_SESSION_FILE", None)
+    session = _unbatched_session()
+    with record_queries() as log:
+        session.add_all([Customer(name=f"c{i}") for i in range(6)])
+        session.flush()
+    with pytest.raises(NPlusOneDetected, match="the same INSERT ran 6 times"):
+        log.assert_no_nplusone(write_loop_threshold=5)
