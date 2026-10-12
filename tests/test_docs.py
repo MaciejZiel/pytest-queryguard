@@ -85,7 +85,7 @@ def test_the_changelog_lists_default_changes_first() -> None:
     entry = next(
         part
         for part in log.split("\n## [")[1:]
-        if "\n### Added" in part and "\n### Changed" in part
+        if "\n### Added" in part and "**Behavior changes**" in part
     )
     intro, rest = entry.split("\n### Added", 1)
     for phrase in ("column-load", "index advisor", "SQLite"):
