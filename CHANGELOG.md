@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
+  `scripts/release_gate.py`) that checks the test matrix, the accuracy
+  minimums, the documentation examples, clean installs, the upgrade from the
+  previous release, the overhead budget, the package contents and the
+  changelog before a release is tagged. See `docs/releasing.md`.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
