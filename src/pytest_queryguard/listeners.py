@@ -207,8 +207,15 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         _fail(exc, "do_orm_execute listener (relationship loads)")
 
 
+_WRITE_VERBS = frozenset(("INSERT", "UPDATE", "DELETE"))
+
+
 def _is_write(statement: str) -> bool:
-    return statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
+    # Slice first: only a statement that starts with whitespace needs lstrip().
+    head = statement[:6]
+    if head[:1].isspace():
+        head = statement.lstrip()[:6]
+    return head.upper() in _WRITE_VERBS
 
 
 def _on_cursor_execute(
@@ -228,7 +235,8 @@ def _on_cursor_execute(
         # The ORM runs do_orm_execute before it autoflushes, so the first
         # statement after a lazy load may be the flush's write, not the load's
         # SELECT. Loads are reads: leave the pending attribution for the SELECT.
-        if _is_write(statement):
+        write = _is_write(statement)
+        if write:
             relationship, column_load = None, None
         else:
             relationship, column_load = _take_pending()
@@ -241,7 +249,7 @@ def _on_cursor_execute(
             column_load=column_load is not None,
             parameters=None if executemany else parameters,
             executemany=bool(executemany),
-            flush=find_flush() if _is_write(statement) else None,
+            flush=find_flush() if write else None,
             scope=scope_of_connection(conn),
         )
         for target in targets:
