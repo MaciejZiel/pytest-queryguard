@@ -464,6 +464,21 @@ pytest-xdist, where the workers do the matching). There is no
 `with` block form: the collector is process-wide, so a block could not
 tell its own statements from those of other threads.
 
+### Baseline for existing findings
+
+Adopting the plugin on a large project? Record today's findings once, and only
+new ones fail:
+
+```console
+pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline
+```
+
+Commit the file and set `queryguard_baseline = "queryguard-baseline.json"`.
+Findings in the file neither fail nor warn; entries that no longer occur are
+listed as stale so the file can be pruned. An entry is the kind, label, file
+and function of a finding, so line numbers and counts do not matter. Details
+in [docs/baseline.md](docs/baseline.md).
+
 ### Async and FastAPI
 
 Nothing changes for async code. `AsyncSession` and `create_async_engine` run
@@ -708,6 +723,7 @@ plan, with the first error and its SQL.
 | `queryguard_column_load_threshold` | integer ≥ 2 | `5` | Number of different instances of one class that must load deferred or expired columns on their own to count as N+1. |
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
 | `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](#opting-out). |
+| `queryguard_baseline` | path | empty | Baseline file, relative to the rootdir: findings listed in it do not fail or warn, see [Baseline](#baseline-for-existing-findings). |
 | `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer). |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |
 
@@ -755,6 +771,8 @@ Command-line options:
 |---|---|
 | `--queryguard-mode=fail\|warn\|off` | Overrides `queryguard_mode` for this run. |
 | `--queryguard-report` | Prints the 10 tests with the most queries at the end of the session. |
+| `--queryguard-baseline=PATH` | Baseline file for this run; overrides `queryguard_baseline`. |
+| `--queryguard-update-baseline` | Writes the findings of this run to the baseline file instead of reporting them. |
 | `--queryguard-index-check` | Turns the missing-index check on for this run. |
 | `--no-queryguard-index-check` | Turns the missing-index check off for this run, whatever `queryguard_index_check` says. |
 

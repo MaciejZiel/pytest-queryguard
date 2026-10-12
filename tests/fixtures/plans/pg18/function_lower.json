@@ -1,0 +1,26 @@
+{
+ "query": "SELECT * FROM customers WHERE lower(name) = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "customers",
+    "Schema": "public",
+    "Alias": "customers",
+    "Startup Cost": 0.0,
+    "Total Cost": 1.75,
+    "Plan Rows": 1,
+    "Plan Width": 17,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "email",
+     "name"
+    ],
+    "Filter": "(lower((customers.name)::text) = $1)"
+   }
+  }
+ ]
+}

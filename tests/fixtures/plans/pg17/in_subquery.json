@@ -1,0 +1,87 @@
+{
+ "query": "SELECT * FROM customers WHERE id IN (SELECT customer_id FROM orders WHERE total > $1)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Hash Join",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Semi",
+    "Startup Cost": 10000000017.48,
+    "Total Cost": 10000000031.16,
+    "Plan Rows": 50,
+    "Plan Width": 17,
+    "Output": [
+     "customers.id",
+     "customers.email",
+     "customers.name"
+    ],
+    "Inner Unique": false,
+    "Hash Cond": "(customers.id = orders.customer_id)",
+    "Plans": [
+     {
+      "Node Type": "Index Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Scan Direction": "Forward",
+      "Index Name": "customers_pkey",
+      "Relation Name": "customers",
+      "Schema": "public",
+      "Alias": "customers",
+      "Startup Cost": 0.14,
+      "Total Cost": 12.89,
+      "Plan Rows": 50,
+      "Plan Width": 17,
+      "Output": [
+       "customers.id",
+       "customers.email",
+       "customers.name"
+      ]
+     },
+     {
+      "Node Type": "Hash",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000015.25,
+      "Total Cost": 10000000015.25,
+      "Plan Rows": 167,
+      "Plan Width": 4,
+      "Output": [
+       "orders.customer_id"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 167,
+        "Plan Width": 4,
+        "Output": [
+         "orders.customer_id"
+        ],
+        "Filter": "(orders.total > $1)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 12,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ]
+}

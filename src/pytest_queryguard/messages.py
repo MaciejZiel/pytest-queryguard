@@ -405,3 +405,29 @@ def format_stale_ignores(
     if lines:
         lines.append("Remove them if the finding is fixed, or fix a mistyped pattern.")
     return lines
+
+
+_STALE_BASELINE_SHOWN = 20
+
+
+def format_stale_baseline(
+    stale: Sequence[tuple[str, str, str | None, str | None]], path: Path
+) -> list[str]:
+    """The session summary lines for baseline entries no finding matched."""
+    if not stale:
+        return []
+    noun = "entry" if len(stale) == 1 else "entries"
+    lines = [f"{len(stale)} baseline {noun} in {path} matched no finding in this run:"]
+    for kind, label, file, function in stale[:_STALE_BASELINE_SHOWN]:
+        where = "" if file is None else f" ({file}"
+        if where and function is not None:
+            where += f", {function}"
+        where += ")" if where else ""
+        lines.append(f"  {kind} {_truncate(label)}{where}")
+    if len(stale) > _STALE_BASELINE_SHOWN:
+        lines.append(f"  ... and {len(stale) - _STALE_BASELINE_SHOWN} more")
+    lines.append(
+        "They are fixed, or this run did not cover them. After a full run, "
+        "prune them with --queryguard-update-baseline."
+    )
+    return lines

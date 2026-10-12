@@ -4,11 +4,13 @@ import warnings as std_warnings
 from collections.abc import Generator
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from . import baseline as baselines
 from . import catalog, eager, indexes
+from .baseline import BaselineError, Identity, sorted_identities
 from .collector import QueryCollector, pop, push
 from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, detect
 from .findings import KIND_MISSING_INDEX, KIND_UNUSED_EAGER_LOAD, Finding
@@ -28,6 +30,7 @@ from .messages import (
     format_findings,
     format_index_findings,
     format_index_notes,
+    format_stale_baseline,
     format_stale_ignores,
     format_time_budget,
     format_truncation,
@@ -71,6 +74,9 @@ class _Settings:
         fail_on: tuple[str, ...] = (),
         write_loop: int | None = None,
         unused_eager: str = "off",
+        baseline_path: Path | None = None,
+        update_baseline: bool = False,
+        baseline: frozenset[Identity] | None = None,
     ) -> None:
         self.mode = mode
         self.relationship = relationship
@@ -84,9 +90,25 @@ class _Settings:
         self.fail_on = fail_on
         self.write_loop = write_loop
         self.unused_eager = unused_eager
+        self.baseline_path = baseline_path
+        self.update_baseline = update_baseline
+        # None: no baseline in use (or one that is about to be rewritten, which
+        # then starts empty and is compared with what the run finds)
+        self.baseline = baseline
+        # identities of the findings the run made (after ignores), baselined or not
+        self.seen: set[Identity] = set()
+        # the run is incomplete: a worker crashed or stopped measuring
+        self.baseline_incomplete = False
+        self.baseline_previous_error: str | None = None
+        self.baseline_written: str | None = None
+        self.baseline_failed: str | None = None
         # what the ignores did, for the stale-ignore warning in the summary
         self.ignore_used: set[IgnoreRule] = set()
         self.stale_markers: list[tuple[str, IgnoreRule]] = []
+
+    @property
+    def baselining(self) -> bool:
+        return self.baseline_path is not None
 
     def fails(self, kind: str) -> bool:
         """True when a finding of this kind fails the test; else it only warns."""
@@ -140,6 +162,22 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_const",
         const=False,
         help="Turn the missing-index check off for this run.",
+    )
+    group.addoption(
+        "--queryguard-baseline",
+        dest="queryguard_baseline",
+        default=None,
+        metavar="PATH",
+        help="Baseline file: findings listed in it do not fail or warn "
+        "(overrides queryguard_baseline).",
+    )
+    group.addoption(
+        "--queryguard-update-baseline",
+        dest="queryguard_update_baseline",
+        action="store_true",
+        default=False,
+        help="Write the findings of this run to the baseline file instead of "
+        "reporting them. Run the whole suite to avoid dropping entries.",
     )
     parser.addini("queryguard_mode", "fail, warn or off", default="fail")
     parser.addini(
@@ -206,6 +244,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "joinedload, subqueryload or immediateload and never reads: off "
         "(default), warn or fail",
         default="off",
+    )
+    parser.addini(
+        "queryguard_baseline",
+        "Baseline file (relative to the rootdir): findings listed in it do not "
+        "fail or warn",
+        default="",
     )
     parser.addini(
         "queryguard_index_check",
@@ -360,6 +404,22 @@ def _ignore_tables(config: pytest.Config) -> tuple[str, ...]:
     return tuple(raw)
 
 
+def _baseline_path(config: pytest.Config) -> Path | None:
+    cli: str | None = config.getoption("queryguard_baseline")
+    if cli is not None:
+        if not cli.strip():
+            raise pytest.UsageError("--queryguard-baseline needs a path")
+        return Path(config.invocation_params.dir, cli.strip())
+    name = "queryguard_baseline"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be a path: {exc}") from None
+    if not isinstance(raw, str):
+        raise pytest.UsageError(f"{name} must be a path, got {raw!r}")
+    return Path(config.rootpath, raw.strip()) if raw.strip() else None
+
+
 def _read_settings(config: pytest.Config) -> _Settings:
     cli_mode = config.getoption("queryguard_mode")
     if cli_mode is not None:
@@ -378,7 +438,33 @@ def _read_settings(config: pytest.Config) -> _Settings:
             f"{source} must be one of {', '.join(_MODES)}, got {mode!r}"
         )
     repeat = _threshold(config, "queryguard_repeat_threshold")
-    return _Settings(
+    baseline_path = _baseline_path(config)
+    update = bool(config.getoption("queryguard_update_baseline"))
+    baseline: frozenset[Identity] | None = None
+    previous_error: str | None = None
+    if update and baseline_path is None:
+        raise pytest.UsageError(
+            "--queryguard-update-baseline needs a baseline file: pass "
+            "--queryguard-baseline=PATH or set queryguard_baseline"
+        )
+    if update and mode == "off":
+        raise pytest.UsageError(
+            "--queryguard-update-baseline cannot run with measurement off "
+            f"({source} = off)"
+        )
+    if baseline_path is not None:
+        try:
+            baseline = baselines.load(baseline_path)
+        except BaselineError as exc:
+            if not update:
+                raise pytest.UsageError(f"queryguard baseline: {exc}") from None
+            # an update replaces a missing or unreadable file
+            baseline = frozenset()
+            previous_error = str(exc) if baseline_path.exists() else None
+        # the CLI path is relative to the invocation directory; workers resolve
+        # the same file, whatever their own working directory is
+        config.option.queryguard_baseline = str(baseline_path)
+    settings = _Settings(
         mode,
         _threshold(config, "queryguard_relationship_threshold"),
         repeat,
@@ -391,7 +477,12 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _fail_on(config),
         _write_loop(config),
         _unused_eager(config),
+        baseline_path,
+        update,
+        baseline,
     )
+    settings.baseline_previous_error = previous_error
+    return settings
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -549,6 +640,7 @@ def _analyse(
             findings.extend(eager.findings(tracker, cwd=root))
         if settings.ignore or marker_rules:
             findings = _drop_ignored(item, settings, findings, marker_rules)
+        findings = _apply_baseline(settings, findings)
         failing = [f for f in findings if _fails(settings, f)]
         warning = [f for f in findings if not _fails(settings, f)]
         note = ""
@@ -561,6 +653,19 @@ def _analyse(
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "N+1 analysis")
         return None, None
+
+
+def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Finding]:
+    """The findings that still count: not in the baseline, and no update run.
+
+    Records every finding it gets, for the stale-entry report and for an update.
+    """
+    if not settings.baselining:
+        return findings
+    settings.seen.update(f.identity for f in findings)
+    if settings.update_baseline:
+        return []
+    return baselines.split(findings, settings.baseline or frozenset())[0]
 
 
 def _drop_ignored(
@@ -607,14 +712,16 @@ def _analyse_indexes(
     try:
         root = item.config.rootpath
         scans = select_findings(collector.scans, (*settings.ignore_tables, *exempt))
-        if settings.ignore and scans:
+        if (settings.ignore or settings.baselining) and scans:
             findings = [make_index_finding(scan, cwd=root) for scan in scans]
-            _, used = apply_rules(findings, settings.ignore)
+            kept, used = apply_rules(findings, settings.ignore)
             settings.ignore_used.update(used)
+            kept = _apply_baseline(settings, kept)
+            keep_ids = {id(f) for f in kept}
             scans = [
                 scan
                 for scan, finding in zip(scans, findings, strict=True)
-                if not any(rule.matches(finding) for rule in settings.ignore)
+                if id(finding) in keep_ids
             ]
         if not scans:
             return None
@@ -798,6 +905,107 @@ def _write_stale_ignores(
             terminalreporter.write_line(line)
 
 
+def _is_worker(config: pytest.Config) -> bool:
+    return hasattr(config, "workerinput")
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node: Any, error: object) -> None:
+    """pytest-xdist, on the controller: collect what a worker found."""
+    settings = node.config.stash.get(_settings, None)
+    if settings is None or not settings.baselining:
+        return
+    output = getattr(node, "workeroutput", None) or {}
+    if error is not None or output.get("queryguard_incomplete", True):
+        settings.baseline_incomplete = True
+    for identity in output.get("queryguard_seen", []):
+        settings.seen.add(_identity(identity))
+
+
+def _identity(raw: Any) -> Identity:
+    kind, label, file, function = raw
+    return (kind, label, file, function)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    config = session.config
+    settings = config.stash.get(_settings, None)
+    if settings is None or not settings.baselining:
+        return
+    if _is_worker(config):
+        # sent to the controller when the worker finishes
+        output = cast(Any, config).workeroutput
+        output["queryguard_seen"] = [
+            list(identity) for identity in sorted_identities(settings.seen)
+        ]
+        output["queryguard_incomplete"] = internal_error() is not None
+        return
+    if internal_error() is not None:
+        settings.baseline_incomplete = True
+    if settings.update_baseline:
+        _update_baseline(session, settings)
+
+
+def _update_baseline(session: pytest.Session, settings: _Settings) -> None:
+    path = settings.baseline_path
+    if path is None:
+        return
+    if session.shouldstop or session.shouldfail or settings.baseline_incomplete:
+        settings.baseline_failed = (
+            "not updated: the run stopped early or measurement failed"
+        )
+        return
+    before = settings.baseline or frozenset()
+    after = frozenset(settings.seen)
+    try:
+        baselines.write(path, after)
+    except OSError as exc:
+        settings.baseline_failed = f"could not write {path}: {exc}"
+        return
+    settings.baseline_written = (
+        f"{path}: {len(after)} entries ({len(after - before)} added, "
+        f"{len(before - after)} removed)"
+    )
+
+
+def _write_baseline_summary(
+    terminalreporter: pytest.TerminalReporter, settings: _Settings
+) -> None:
+    if not settings.baselining:
+        return
+    if settings.update_baseline:
+        if settings.baseline_failed is not None:
+            terminalreporter.write_sep("=", "queryguard: baseline", red=True)
+            terminalreporter.write_line(
+                f"queryguard baseline {settings.baseline_failed}"
+            )
+        elif settings.baseline_written is not None:
+            terminalreporter.write_sep("=", "queryguard: baseline updated")
+            terminalreporter.write_line(settings.baseline_written)
+            if settings.baseline_previous_error is not None:
+                terminalreporter.write_line(
+                    f"replaced an unusable file ({settings.baseline_previous_error})"
+                )
+        return
+    if (
+        settings.mode == "off"
+        or settings.baseline_incomplete
+        or internal_error() is not None
+        or settings.baseline_path is None
+    ):
+        return
+    stale = baselines.sorted_identities(
+        (settings.baseline or frozenset()) - settings.seen
+    )
+    lines = format_stale_baseline(stale, settings.baseline_path)
+    if lines:
+        terminalreporter.write_sep(
+            "=", "queryguard: stale baseline entries", yellow=True
+        )
+        for line in lines:
+            terminalreporter.write_line(line)
+
+
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     config = terminalreporter.config
     settings = config.stash.get(_settings, None)
@@ -816,6 +1024,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         _write_stale_ignores(terminalreporter, settings)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "stale-ignore summary")
+    try:
+        _write_baseline_summary(terminalreporter, settings)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "baseline summary")
     _report_internal_error(config)
     try:
         _write_internal_failure(terminalreporter)

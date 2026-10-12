@@ -1,0 +1,71 @@
+{
+ "query": "SELECT status, count(*) FROM orders WHERE customer_id = $1 GROUP BY status",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Sorted",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000015.42,
+    "Total Cost": 10000000015.5,
+    "Plan Rows": 1,
+    "Plan Width": 12,
+    "Output": [
+     "status",
+     "count(*)"
+    ],
+    "Group Key": [
+     "orders.status"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000015.42,
+      "Total Cost": 10000000015.44,
+      "Plan Rows": 10,
+      "Plan Width": 4,
+      "Output": [
+       "status"
+      ],
+      "Sort Key": [
+       "orders.status"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 10,
+        "Plan Width": 4,
+        "Output": [
+         "status"
+        ],
+        "Filter": "(orders.customer_id = $1)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 8,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ]
+}

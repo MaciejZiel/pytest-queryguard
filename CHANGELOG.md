@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   option. While the option is `off` nothing is installed. Opt out with
   `allow_nplusone(kind="unused-eager-load")` or `queryguard_ignore`. See
   `docs/unused-eager-load.md` for how it works and its limits.
+- Baseline file for existing findings: `queryguard_baseline` (ini) or
+  `--queryguard-baseline=PATH`, and `--queryguard-update-baseline` to write it.
+  A finding whose identity (kind, label, file and function; rootdir-relative
+  paths, no line numbers or counts) is in the file does not fail or warn, for
+  every finding kind. New findings are reported as before, and entries that
+  matched nothing in the run are listed as stale baseline entries. The file is
+  JSON with a `version` field, sorted for clean diffs; a missing, corrupt or
+  unknown-version file is a usage error. Works with pytest-xdist: workers apply
+  the file, the controller merges what they saw and writes it on an update.
+  See `docs/baseline.md`.
 - Per-statement timing. `Query.duration` is the time in seconds the database
   and the driver took for a statement, measured around the cursor call;
   `QueryLog.db_time` is the total and `QueryLog.slowest(n)` the slowest
@@ -65,6 +75,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The missing-index check reads the conditions of a plan node with a tokenizer
+  and parser (`pytest_queryguard.predicates`) instead of regular expressions
+  over the text. PostgreSQL's JSON plan has no structured form of a predicate,
+  so the relation, alias, schema and index still come from the plan's fields and
+  the condition text is parsed into a tree; the old text matching stays as the
+  fallback for syntax the parser does not know. Findings do not change. The
+  parsing is tested on real `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` plans
+  captured from PostgreSQL 14 to 18 (`scripts/capture_plans.py`).
 - The hint for a lazy-loaded many-to-one or one-to-one relationship is now
   `joinedload(...)`; collections still get `selectinload(...)`.
 - The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)

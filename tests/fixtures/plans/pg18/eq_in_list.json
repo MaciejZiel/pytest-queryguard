@@ -1,0 +1,32 @@
+{
+ "query": "SELECT * FROM orders WHERE customer_id IN ($1, $2)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.0,
+    "Total Cost": 15.25,
+    "Plan Rows": 20,
+    "Plan Width": 93,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Filter": "(orders.customer_id = ANY (ARRAY[$1, $2]))"
+   }
+  }
+ ]
+}

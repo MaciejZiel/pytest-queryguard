@@ -1,0 +1,26 @@
+{
+ "query": "SELECT * FROM \"Mixed Case\" AS \"M x\" WHERE \"M x\".\"customerId\" = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "Mixed Case",
+    "Schema": "public",
+    "Alias": "M x",
+    "Startup Cost": 0.0,
+    "Total Cost": 2.25,
+    "Plan Rows": 10,
+    "Plan Width": 10,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "\"customerId\"",
+     "\"Name\""
+    ],
+    "Filter": "(\"M x\".\"customerId\" = $1)"
+   }
+  }
+ ]
+}

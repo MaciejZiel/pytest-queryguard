@@ -1,0 +1,101 @@
+{
+ "query": "SELECT * FROM customers LEFT JOIN orders o2 ON o2.customer_id = customers.id WHERE customers.email = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Hash Join",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Right",
+    "Startup Cost": 13.03,
+    "Total Cost": 28.45,
+    "Plan Rows": 10,
+    "Plan Width": 110,
+    "Disabled": false,
+    "Output": [
+     "customers.id",
+     "customers.email",
+     "customers.name",
+     "o2.id",
+     "o2.customer_id",
+     "o2.status",
+     "o2.total",
+     "o2.created_at",
+     "o2.tags",
+     "o2.data",
+     "o2.note",
+     "o2.kind"
+    ],
+    "Inner Unique": true,
+    "Hash Cond": "(o2.customer_id = customers.id)",
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "o2",
+      "Startup Cost": 0.0,
+      "Total Cost": 14.0,
+      "Plan Rows": 500,
+      "Plan Width": 93,
+      "Disabled": true,
+      "Output": [
+       "o2.id",
+       "o2.customer_id",
+       "o2.status",
+       "o2.total",
+       "o2.created_at",
+       "o2.tags",
+       "o2.data",
+       "o2.note",
+       "o2.kind"
+      ]
+     },
+     {
+      "Node Type": "Hash",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 13.02,
+      "Total Cost": 13.02,
+      "Plan Rows": 1,
+      "Plan Width": 17,
+      "Disabled": false,
+      "Output": [
+       "customers.id",
+       "customers.email",
+       "customers.name"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "customers_pkey",
+        "Relation Name": "customers",
+        "Schema": "public",
+        "Alias": "customers",
+        "Startup Cost": 0.14,
+        "Total Cost": 13.02,
+        "Plan Rows": 1,
+        "Plan Width": 17,
+        "Disabled": false,
+        "Output": [
+         "customers.id",
+         "customers.email",
+         "customers.name"
+        ],
+        "Filter": "((customers.email)::text = $1)"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -1,0 +1,28 @@
+{
+ "query": "SELECT * FROM archive WHERE owner_id = $1 AND deleted_at IS NULL",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Index Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Scan Direction": "Forward",
+    "Index Name": "archive_live",
+    "Relation Name": "archive",
+    "Schema": "public",
+    "Alias": "archive",
+    "Startup Cost": 0.14,
+    "Total Cost": 8.23,
+    "Plan Rows": 5,
+    "Plan Width": 16,
+    "Disabled": false,
+    "Output": [
+     "id",
+     "deleted_at",
+     "owner_id"
+    ],
+    "Index Cond": "(archive.owner_id = $1)"
+   }
+  }
+ ]
+}
