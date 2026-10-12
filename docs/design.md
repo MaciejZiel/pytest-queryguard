@@ -221,7 +221,7 @@ must never break a test suite because of its own bug.
 
 - Name `pytest-queryguard` (free on PyPI as of 2026-10-11), import name
   `pytest_queryguard`, registered through the `pytest11` entry point.
-- Runtime dependencies: `pytest>=8`, `sqlalchemy>=2.0`. Test dependencies:
+- Runtime dependencies: `pytest>=8`, `sqlalchemy>=2.0.13`. Test dependencies:
   `aiosqlite`, `fastapi`, `httpx`. All are permissively licensed and listed
   in `3rdparty_licenses.md`.
 - MIT license, `uv` for development, semantic versioning, `CHANGELOG.md` in

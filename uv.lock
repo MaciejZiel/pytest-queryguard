@@ -1186,7 +1186,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "pytest", specifier = ">=8" },
-    { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "sqlalchemy", specifier = ">=2.0.13" },
 ]
 
 [package.metadata.requires-dev]

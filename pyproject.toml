@@ -47,7 +47,7 @@ classifiers = [
     "Topic :: Software Development :: Testing",
     "Typing :: Typed",
 ]
-dependencies = ["pytest>=8", "sqlalchemy>=2.0"]
+dependencies = ["pytest>=8", "sqlalchemy>=2.0.13"]
 
 [project.urls]
 Homepage = "https://github.com/MaciejZiel/pytest-queryguard"
