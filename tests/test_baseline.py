@@ -338,6 +338,34 @@ def test_a_write_error_is_reported_not_raised(
     result.stdout.fnmatch_lines(["*could not write *qg.json: read-only*"])
 
 
+@pytest.mark.parametrize("error", [RuntimeError, MemoryError])
+def test_any_write_error_is_reported_not_raised(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, error: type
+) -> None:
+    def fail(path: Path, identities: object) -> None:
+        raise error("broken")
+
+    monkeypatch.setattr(baseline, "write", fail)
+    project.makepyfile(test_a=ONE_LOOP)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*could not write *qg.json: broken*"])
+    assert "Traceback" not in result.stdout.str() + result.stderr.str()
+
+
+def test_an_update_replaces_a_deeply_nested_file(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=ONE_LOOP)
+    (project.path / "qg.json").write_text("[" * 200_000)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*replaced an unusable file*nested too deeply*"])
+    assert baseline.load(project.path / "qg.json")
+
+
 def test_an_unexpected_write_error_is_reported_not_raised(
     project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
