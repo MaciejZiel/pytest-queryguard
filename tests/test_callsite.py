@@ -73,7 +73,9 @@ def test_callsite_greenlet_lookup_never_raises(monkeypatch: pytest.MonkeyPatch) 
     assert list(callsite._parent_greenlet_frames()) == []
 
 
-def test_internal_answer_is_cached_per_filename(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_internal_answer_is_cached_per_filename(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from pytest_queryguard import callsite
 
     calls: list[str] = []
