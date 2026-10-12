@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `repeated-statement` hint no longer says to fetch the rows with
+  `WHERE id IN (...)` when the statement already uses `IN (...)`. It says the
+  batched query ran several times and should be called once, or the calls
+  combined.
 - Added `queryguard_repeat_scope` (`test` or `session`, default `test`) and
   `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
   that make several requests. The repeat, relationship,
