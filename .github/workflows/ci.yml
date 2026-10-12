@@ -55,7 +55,9 @@ jobs:
       - run: uv sync
       - name: Pin SQLAlchemy to the 2.0 series
         if: matrix.sqlalchemy == '2.0'
-        run: uv pip install "sqlalchemy==2.0.*"
+        # SQLModel requires SQLAlchemy below 2.1, so it is not in uv.lock; the
+        # corpus scenarios that use it run only here.
+        run: uv pip install "sqlalchemy==2.0.*" sqlmodel
       - name: Pin pytest to the oldest supported series
         if: matrix.pytest == '8.0'
         run: uv pip install "pytest==8.0.*"
