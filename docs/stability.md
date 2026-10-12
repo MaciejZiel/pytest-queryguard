@@ -35,13 +35,13 @@ changes by accident.
   implementation details even though they can be imported.
 - The wording and layout of failure messages, warnings, summaries and
   reports. They are written for people and improve between releases; do not
-  parse them. Use `QueryLog` or the machine-readable outputs, once those
-  exist, when a program needs the data.
+  parse them. Use `QueryLog`, the SARIF file or the baseline file when a program needs
+  the data.
 - Which statements SQLAlchemy emits for a given ORM call; that depends on the
   SQLAlchemy version.
-- The PostgreSQL index check beyond what the documentation promises: it is
-  documented for PostgreSQL 16 and newer, and on older servers it only prints
-  a notice.
+- The index check beyond what the documentation promises: it is documented
+  for PostgreSQL 16 and newer and for SQLite, and on older PostgreSQL servers
+  it only prints a notice.
 
 ## Version numbers
 
