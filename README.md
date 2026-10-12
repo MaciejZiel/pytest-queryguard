@@ -34,8 +34,9 @@ pip install "pytest-queryguard>=0.4.0rc2"
 ```
 
 The documentation describes 0.4.0rc2, a release candidate. A plain
-`pip install pytest-queryguard` gets the stable 0.3.0, which finds the same
-N+1 queries and enforces budgets but has none of the adoption features below.
+`pip install pytest-queryguard` gets the stable 0.3.0: the same N+1 detection
+and `max_queries` budgets, but no baseline, SARIF, ignore patterns, timing,
+column-load or write-loop rules and no SQLite or MySQL index check.
 Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+.
 
 | Check | Default | Fails a test when |
