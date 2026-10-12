@@ -45,7 +45,7 @@ failed. Install your own project first: the action does not know how.
 | `package` | `pytest-queryguard` | What to `pip install`: a requirement like `pytest-queryguard>=0.4`, or a path. |
 | `baseline` | empty | Baseline file, see [baseline.md](baseline.md). Empty: `queryguard_baseline` from your config. |
 | `fail` | `true` | `true`: fail the step when pytest fails. `false`: never fail, only report. |
-| `working-directory` | `.` | Where to run pytest. |
+| `working-directory` | `.` | Where to run pytest. Locations in the SARIF file are still relative to the repository root (see [SARIF output](sarif.md#paths-and-the-repository-root)). |
 | `sarif-file` | `queryguard.sarif` | Output file, relative to `working-directory`. |
 | `upload` | `true` | Upload to code scanning. `false`: only write the file. |
 | `category` | `pytest-queryguard` | Code scanning category; use one per job when several jobs upload. |
@@ -64,9 +64,16 @@ A typical rollout: run once with `fail: "false"` to see the alerts, create a
 - **Pull requests from forks get a read-only token**, and GitHub does not
   allow them to upload. The action skips the upload for them and still runs
   pytest, so the test result is unaffected; the findings are in the job log.
-  The same holds for Dependabot-triggered runs, which also have a read-only
-  token: set `upload: "false"` for them, for example
-  `upload: ${{ github.actor != 'dependabot[bot]' }}`.
+  The same holds for runs started by Dependabot (`github.actor` is
+  `dependabot[bot]`), which also have a read-only token: the upload is skipped
+  for them too.
+- The upload step has `continue-on-error: true`: an upload that GitHub refuses
+  (for example a read-only token in a case the action does not recognize, such
+  as `pull_request_target`, or code scanning turned off) shows as a failed step
+  and a warning, but does not fail a job whose tests passed. The flip side is
+  that a missing `security-events: write` also does not fail the job; look at
+  the step in the log if alerts do not appear. Set `upload: "false"` for
+  events where you do not want an upload at all.
 - Code scanning is free for public repositories. Private repositories need
   GitHub Code Security.
 
@@ -86,5 +93,8 @@ A typical rollout: run once with `fail: "false"` to see the alerts, create a
 
 The `action` job in `.github/workflows/ci.yml` runs the local action
 (`uses: ./action`) on `examples/action-sample`, a project with one N+1 query:
-once with `fail: "false"` (the SARIF file is checked), once expecting the
-step to fail, and once with the finding in a baseline, which also uploads.
+once with `fail: "false"` (the SARIF file is checked, including that its URI
+starts with `examples/action-sample/`, the working directory), once expecting
+the step to fail, and once with the finding in a baseline. None of them
+uploads: a sample upload with no results would make every pull request report
+"1 configuration not found" in its checks.

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- SARIF locations are now relative to the repository root when
+  `GITHUB_WORKSPACE` is set and the pytest rootdir is inside it. Before, they
+  were relative to the rootdir, so with the action's `working-directory` set to
+  a subdirectory GitHub created alerts on paths that do not exist and showed no
+  pull request annotations. Fingerprints and baseline identities are
+  unchanged. See `docs/sarif.md`.
+- The action skips the SARIF upload for runs triggered by Dependabot (read-only
+  token), and a refused upload no longer fails the job.
+
 ## [0.4.0rc1] - 2026-10-12
 
 Release candidate: install it with `pip install --pre pytest-queryguard`.
