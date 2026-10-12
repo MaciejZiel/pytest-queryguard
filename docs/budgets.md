@@ -13,10 +13,14 @@ def test_order_page(client):
     client.get("/orders/1")
 
 
-@pytest.mark.max_queries(n=3)  # the same, with a keyword
+@pytest.mark.max_queries(limit=3)  # the same, with a keyword
 def test_order_page_again(client):
     client.get("/orders/1")
 ```
+
+The keyword is `limit`, as in the function below. Releases before 0.4 called
+it `n`; `n=3` keeps working, without a warning, through 0.4.x and is removed
+in 0.5.
 
 The test fails when its body runs more SQL statements than the limit. The
 failure lists every statement with the line that issued it. Budgets count

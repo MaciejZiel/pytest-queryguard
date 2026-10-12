@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+- The keyword of the `max_queries` marker is now `limit`, as in the
+  `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The
+  keyword `n=` of earlier releases is still accepted, without a warning,
+  through 0.4.x and will be removed in 0.5. The positional form is unchanged.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
