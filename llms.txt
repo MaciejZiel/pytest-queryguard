@@ -102,6 +102,7 @@ Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, 
 | `queryguard_repeat_threshold` | integer >= 2 | `5` |
 | `queryguard_max_events` | integer >= 0 (`0`: no limit) | `10000` |
 | `queryguard_ignore` | `KIND LABEL [file=GLOB] [function=GLOB]` per line | empty |
+| `queryguard_baseline` | path relative to the rootdir | empty |
 | `queryguard_index_check` | `true`, `false` | `false` |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns | empty |
 
@@ -117,6 +118,7 @@ Command-line options:
 
 - `--queryguard-mode=fail|warn|off`: overrides `queryguard_mode` for this run.
 - `--queryguard-report`: prints the 10 tests with the most queries at the end of the session.
+- `--queryguard-baseline=PATH`: findings listed in the baseline file do not fail or warn; `--queryguard-update-baseline` writes the file from this run (docs/baseline.md).
 - `--queryguard-index-check` / `--no-queryguard-index-check`: turn the missing-index check on or off for this run.
 
 ## Missing-index check (PostgreSQL 16+)
