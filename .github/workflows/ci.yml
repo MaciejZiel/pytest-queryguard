@@ -50,6 +50,24 @@ jobs:
       - run: uv run --no-sync coverage run -m pytest
       - run: uv run --no-sync coverage report
 
+  # Real pytest-xdist runs: tests/test_xdist.py starts pytest with -n 2 and
+  # -n 4 in subprocesses; the whole suite then runs once more under -n 2,
+  # with the plugin measuring its own tests across workers.
+  xdist:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync
+      - run: uv run --no-sync pytest tests/test_xdist.py -v
+      - run: uv run --no-sync pytest -n 2 --ignore=tests/test_xdist.py
+
   # Per-statement overhead of the measurement against the stored baseline in
   # scripts/bench_baseline.json (relative overhead, generous margin). Linux
   # and one Python version only: timing on several runners is just noise.

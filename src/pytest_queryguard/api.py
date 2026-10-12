@@ -205,19 +205,26 @@ class QueryLog:
         return tuple(sorted(timed, key=lambda q: q.duration or 0.0, reverse=True)[:n])
 
     def assert_no_nplusone(
-        self, *, relationship_threshold: int = 2, repeat_threshold: int = 5
+        self,
+        *,
+        relationship_threshold: int = 2,
+        repeat_threshold: int = 5,
+        column_load_threshold: int = 5,
     ) -> None:
         """Raise ``NPlusOneDetected`` when the recorded block has N+1 queries.
 
         The rules, and the defaults of the thresholds, are the plugin's: one
         relationship lazy-loaded for ``relationship_threshold`` different
         parent objects, or one ``SELECT``, without its literals and
-        parameters, run ``repeat_threshold`` times.
+        parameters, run ``repeat_threshold`` times, or ``column_load_threshold``
+        instances of one class each loading deferred or expired columns on
+        their own.
 
-        The thresholds are these two arguments only. The ``queryguard_*`` ini
+        The thresholds are these three arguments only. The ``queryguard_*`` ini
         options, ``queryguard_mode`` and the ``allow_nplusone`` marker are not
-        read, so a project that changes ``queryguard_repeat_threshold`` or
-        ``queryguard_relationship_threshold`` must pass the same values here.
+        read, so a project that changes ``queryguard_repeat_threshold``,
+        ``queryguard_relationship_threshold`` or
+        ``queryguard_column_load_threshold`` must pass the same values here.
 
         Raises ``RuntimeError`` instead of checking when pytest-queryguard hit
         an internal error and stopped recording, because the log may then be
@@ -234,6 +241,7 @@ class QueryLog:
         for name, value in (
             ("relationship_threshold", relationship_threshold),
             ("repeat_threshold", repeat_threshold),
+            ("column_load_threshold", column_load_threshold),
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 2:
                 raise ValueError(f"{name} must be an integer >= 2, got {value!r}")
@@ -243,6 +251,7 @@ class QueryLog:
                 self._collector,
                 relationship_threshold=relationship_threshold,
                 repeat_threshold=repeat_threshold,
+                column_load_threshold=column_load_threshold,
             ),
             cwd=root,
         )

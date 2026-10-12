@@ -138,3 +138,16 @@ def test_report_counts_statements_past_the_cap(pytester: pytest.Pytester) -> Non
     pytester.makepyfile(test_a=LOOP.format(marker=""))
     result = pytester.runpytest("--queryguard-report")
     result.stdout.fnmatch_lines(["*   30  test_a.py::test_loop"])
+
+
+def test_column_loads_are_capped_and_make_the_collector_truncated() -> None:
+    from pytest_queryguard.events import ColumnLoadEvent
+
+    collector = QueryCollector(max_events=2)
+    for i in range(5):
+        collector.add_column_load(
+            ColumnLoadEvent("Child", ("blob",), "deferred", i, None)
+        )
+    assert collector.column_load_count == 5
+    assert len(collector.column_loads) == 2
+    assert collector.truncated

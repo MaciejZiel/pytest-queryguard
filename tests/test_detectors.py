@@ -201,3 +201,85 @@ def test_first_callsite_skips_none() -> None:
     c.statements.extend(_stmts("SELECT 1", 4))
     rel, rep = detect(c, relationship_threshold=2, repeat_threshold=5)
     assert rel.first == SITE and rep.first == SITE
+
+
+# ------------------------------------------------------------- column loads
+
+
+def _column_loads(
+    owner: str,
+    keys: list[object],
+    cause: str = "deferred",
+    attributes: tuple[str, ...] = ("blob",),
+) -> QueryCollector:
+    from pytest_queryguard.events import ColumnLoadEvent
+
+    c = QueryCollector()
+    c.column_loads.extend(
+        ColumnLoadEvent(owner, attributes, cause, k, SITE, f"SELECT {owner}")
+        for k in keys
+    )
+    return c
+
+
+def test_column_loads_below_the_threshold_are_not_reported() -> None:
+    c = _column_loads("Child", list(range(4)))
+    assert detect(c, relationship_threshold=2, repeat_threshold=5) == []
+    found = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=4
+    )
+    assert [f.label for f in found] == ["Child.blob"]  # type: ignore[union-attr]
+
+
+def test_column_load_threshold_counts_distinct_instances() -> None:
+    c = _column_loads("Child", [1] * 10)
+    assert detect(c, relationship_threshold=2, repeat_threshold=5) == []
+
+
+def test_column_loads_are_grouped_by_class_attributes_and_cause() -> None:
+    c = _column_loads("Child", list(range(5)))
+    c.column_loads.extend(
+        _column_loads("Child", list(range(5)), "expired").column_loads
+    )
+    c.column_loads.extend(
+        _column_loads("Child", list(range(5)), attributes=("note",)).column_loads
+    )
+    c.column_loads.extend(_column_loads("Parent", [1]).column_loads)
+    labels = sorted(
+        f.label  # type: ignore[union-attr]
+        for f in detect(c, relationship_threshold=2, repeat_threshold=5)
+    )
+    assert labels == ["Child (expired)", "Child.blob", "Child.note"]
+
+
+def test_expired_loads_ignore_the_attributes_when_grouping() -> None:
+    c = _column_loads("Parent", list(range(3)), "expired", ("name",))
+    c.column_loads.extend(
+        _column_loads(
+            "Parent", list(range(3, 6)), "expired", ("id", "name")
+        ).column_loads
+    )
+    (finding,) = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert finding.count == 6  # type: ignore[union-attr]
+    assert finding.instances == 6  # type: ignore[union-attr]
+
+
+def test_column_load_statements_are_not_a_repeated_statement() -> None:
+    c = QueryCollector()
+    c.statements.extend(
+        StatementEvent("SELECT blob FROM t WHERE id = 1", SITE, None, column_load=True)
+        for _ in range(8)
+    )
+    assert detect(c, relationship_threshold=2, repeat_threshold=5) == []
+    c.statements.extend(_stmts("SELECT blob FROM t WHERE id = 1", 5))
+    assert len(detect(c, relationship_threshold=2, repeat_threshold=5)) == 1
+
+
+def test_relationship_finding_remembers_a_scalar_relationship() -> None:
+    c = QueryCollector()
+    c.relationship_loads.extend(
+        RelationshipLoadEvent("Order.customer", k, SITE, True) for k in (1, 2)
+    )
+    (finding,) = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(finding, RelationshipFinding)
+    assert finding.scalar

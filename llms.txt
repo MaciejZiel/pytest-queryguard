@@ -31,7 +31,7 @@ queryguard: N+1 detected
   first at app/orders.py:9 in list_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
-       select(Order).options(selectinload(Order.customer))
+       select(Order).options(joinedload(Order.customer))
 ```
 
 A test fails when, inside the test function, one relationship is lazy-loaded for 2 or more different parent objects, or one `SELECT` (parameters and literals removed) runs 5 or more times. `INSERT`, `UPDATE` and `DELETE` are never reported as N+1; use a budget for write loops.
@@ -76,15 +76,15 @@ def test_lookup(session): ...
 from pytest_queryguard import record_queries
 
 
-def test_orders_use_two_queries(session):  # 50 orders in the database
+def test_orders_use_one_query(session):  # 50 orders in the database
     with record_queries() as log:
-        list_orders(session)  # the fixed version, with selectinload
-    assert log.count == 2  # the orders, then their customers in one IN query
+        list_orders(session)  # the fixed version, with joinedload
+    assert log.count == 1  # the orders joined with their customers
     assert log.queries[0].sql.startswith("SELECT")
     log.assert_no_nplusone(repeat_threshold=5)
 ```
 
-Here `list_orders` is the fixed function from the README (`select(Order).options(selectinload(Order.customer))`), not the N+1 version above: that one sends 51 queries for 50 orders and fails `assert_no_nplusone()`.
+Here `list_orders` is the fixed function from the README (`select(Order).options(joinedload(Order.customer))`), not the N+1 version above: that one sends 51 queries for 50 orders and fails `assert_no_nplusone()`.
 
 - `record_queries()` records the statements a block sends, from any thread, and yields a `QueryLog`. It works outside pytest and changes nothing else.
 - `log.queries` is a tuple of `Query` objects (`sql`, `callsite` as a `CallSite` with `filename`, `lineno` and `function`, or `None`, and `relationship`, such as `"Order.customer"`, or `None`). `log.count`, `len(log)`, iteration and indexing also work; a `QueryLog` is not a `collections.abc.Sequence`.
