@@ -487,6 +487,16 @@ a rootdir-relative location, and fingerprints from the finding identity so
 GitHub keeps one alert per finding across runs. Baselined and ignored findings
 are left out. Details in [docs/sarif.md](docs/sarif.md).
 
+### GitHub Action
+
+`MaciejZiel/pytest-queryguard/action` installs the plugin, runs pytest with
+SARIF output and uploads it to GitHub code scanning, so findings show up as
+alerts with a line and a fix hint. It needs `security-events: write`, and
+cannot upload for pull requests from forks (GitHub gives them a read-only
+token); the tests still run there. Inputs for pytest arguments, Python
+version, baseline and failure behaviour, and a copy-paste workflow, are in
+[docs/ci.md](docs/ci.md).
+
 ### Async and FastAPI
 
 Nothing changes for async code. `AsyncSession` and `create_async_engine` run

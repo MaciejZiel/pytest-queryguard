@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "kind": "relationship-load",
+      "label": "Book.author",
+      "file": "test_books.py",
+      "function": "test_author_names_n_plus_one"
+    }
+  ]
+}
