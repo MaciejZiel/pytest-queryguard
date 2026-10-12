@@ -20,17 +20,21 @@ pytestmark = pytest.mark.allow_nplusone
 
 MODELS = (Path(__file__).parent / "models.py").read_text()
 
+# A statement from a dialect the check does not support. The tables are SQLite's,
+# but the connection reports another dialect name (SQLite itself is checked, see
+# tests/test_sqlite_index.py).
 SQLITE_TEST = """
 from qgmodels import Order, make_sync_session
 
 
 def test_sqlite():
     session = make_sync_session()
+    session.get_bind().dialect.name = "mysql"
     assert session.query(Order).filter(Order.customer_id == 1).count() == 2
 """
 
 SQLITE_NOTICE = (
-    "sqlite statements were not checked: the index check needs PostgreSQL 16 or newer"
+    "mysql statements were not checked: the index check needs PostgreSQL 16 or newer"
 )
 
 
