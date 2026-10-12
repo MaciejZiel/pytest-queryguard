@@ -104,6 +104,8 @@ Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, 
 | `queryguard_ignore` | `KIND LABEL [file=GLOB] [function=GLOB]` per line | empty |
 | `queryguard_baseline` | path relative to the rootdir | empty |
 | `queryguard_index_check` | `true`, `false` | `false` |
+| `queryguard_index_advisor` | `true`, `false` | `true` |
+| `queryguard_hypopg` | `auto`, `on`, `off` | `auto` |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns | empty |
 
 ```toml
@@ -134,6 +136,8 @@ queryguard: missing index
   sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = %s::INTEGER
   fix: CREATE INDEX ON orders (customer_id)
 ```
+
+With the index advisor (`queryguard_index_advisor`, on with the check) each finding also carries a suggested `CREATE INDEX` (equality columns, then a range or `ORDER BY` columns, or a partial index) and an Alembic `op.create_index` call. When the hypopg extension is installed in the database, the suggestion is verified in the same savepoint: whether the planner would use it and the statement's estimated cost before and after (`queryguard_hypopg = auto|on|off`). Without hypopg one notice at the end of the session says how to install it. When the table already has a matching invalid, partial or unused index, no new index is suggested and the finding says why. See docs/index-advisor.md.
 
 Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_index_ignore_tables` or `@pytest.mark.allow_missing_index`. Async engines on asyncpg are checked too: asyncpg prepares statements, so the `EXPLAIN` runs in a PL/pgSQL `DO` block on the test's own connection (PL/pgSQL is installed by default; without it one notice is reported). Statements that cannot be checked (other databases, PostgreSQL before 16, async drivers other than asyncpg, statements PostgreSQL cannot plan) do not fail the test; they are summed up once at the end of the session. Cost: a few round trips per distinct statement per test.
 

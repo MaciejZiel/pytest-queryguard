@@ -718,6 +718,32 @@ The same summary names a PostgreSQL server older than 16, async drivers
 other than asyncpg, and the number of statements PostgreSQL could not
 plan, with the first error and its SQL.
 
+### Index advisor
+
+For each missing-index finding the check also suggests the index to create:
+a `CREATE INDEX` with the equality columns first, then a range column or the
+`ORDER BY` columns, a partial index when a constant predicate is selective, and
+the Alembic `op.create_index` call. When the
+[hypopg](https://github.com/HypoPG/hypopg) extension is installed in the test
+database, it also says whether the planner would use the index and what the
+statement's estimated cost would be before and after:
+
+```
+  fix: CREATE INDEX ON orders (customer_id, status, created_at DESC)
+  alembic: op.create_index(
+      "ix_orders_customer_id_status_created_at",
+      "orders",
+      ["customer_id", "status", sa.text("created_at DESC")],
+  )
+  hypopg: the planner uses it (Index Scan); estimated cost 1070.42 -> 19.34
+```
+
+Without hypopg the suggestion stays and one notice at the end of the session
+says how to install it. `queryguard_index_advisor = false` turns the advisor
+off, `queryguard_hypopg = off` stops the use of hypopg. See
+[docs/index-advisor.md](docs/index-advisor.md) for how the index is chosen,
+when none is suggested and what the verification does.
+
 ## Configuration
 
 | Option | Values | Default | Meaning |
@@ -733,6 +759,8 @@ plan, with the first error and its SQL.
 | `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](#opting-out). |
 | `queryguard_baseline` | path | empty | Baseline file, relative to the rootdir: findings listed in it do not fail or warn, see [Baseline](#baseline-for-existing-findings). |
 | `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer). |
+| `queryguard_index_advisor` | `true`, `false` | `true` | Suggests an index for each missing-index finding, see [Index advisor](#index-advisor). Used with the index check. |
+| `queryguard_hypopg` | `auto`, `on`, `off` | `auto` | Verifies the suggested indexes with the hypopg extension: `auto` when it is installed, `on` also creates it inside the check's savepoint, `off` never uses it. |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |
 
 Any invalid value stops pytest with a usage error.
