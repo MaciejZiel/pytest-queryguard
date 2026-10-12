@@ -106,6 +106,22 @@ def _scan(
     return ScanEvent(issue, sql, site)
 
 
+def test_index_message_uses_a_ready_made_fix() -> None:
+    issue = ScanIssue(
+        None,
+        "orders",
+        "SCAN",
+        "filter",
+        "orders.customer_id = ?",
+        "customer_id",
+        show_schema=False,
+        fix="CREATE INDEX ix_orders_customer_id ON orders (customer_id)",
+    )
+    lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
+    assert "  orders is read in full: SCAN with filter orders.customer_id = ?" in lines
+    assert "  fix: CREATE INDEX ix_orders_customer_id ON orders (customer_id)" in lines
+
+
 def test_index_message_for_a_filter_with_hint() -> None:
     site = CallSite(
         filename="/work/project/app/orders.py", lineno=12, function="orders_for"

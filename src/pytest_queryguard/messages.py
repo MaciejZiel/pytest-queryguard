@@ -313,7 +313,9 @@ def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
     issue = scan.issue
     table = table_label(issue)
     where = f"with {issue.kind}"
-    if issue.column is None:
+    if issue.fix is not None:
+        fix = issue.fix
+    elif issue.column is None:
         fix = "add an index that matches this condition"
         if issue.expression:
             fix += " (an expression index may be needed)"

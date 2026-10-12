@@ -68,6 +68,7 @@ class ScanIssue:
     column: str | None  # the column for a CREATE INDEX hint, when obvious
     show_schema: bool = True  # False when the table is in the current schema
     expression: bool = False  # the column sits in a function or a non-text cast
+    fix: str | None = None  # a ready-made fix hint, for dialects that build their own
 
 
 @dataclass(frozen=True, slots=True)
