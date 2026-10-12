@@ -70,7 +70,9 @@ to 18. psycopg2 and psycopg 3 are LGPL-licensed, so the project does not
 depend on them and does not run them in CI. They were checked by hand during
 review and gave the same findings for plain statements, `%` in SQL, expanding
 `IN`, autocommit and `stream_results`; this is not covered by an automated
-test. Async drivers other than asyncpg (for example psycopg's async mode) are
+test. On 2026-10-12 the 14 index scenarios of the
+[comparison](comparison.md) also gave the same results through psycopg 3 (3.3.6)
+as through pg8000, on PostgreSQL 17.11; psycopg2 was not run again. Async drivers other than asyncpg (for example psycopg's async mode) are
 skipped by the index check, with a notice in the session summary.
 
 ## Why was nothing reported for my test?
