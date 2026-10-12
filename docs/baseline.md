@@ -18,7 +18,10 @@ The baseline applies to the pytest plugin and to every finding kind
 pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline
 ```
 
-The run writes the file and does not fail on findings. Run the whole suite:
+The run writes the file and does not fail on findings. Budgets
+(`max_queries`, `max_db_time`) are not findings: a test over its budget still
+fails on this run and is never recorded, so fix the code or raise the budget.
+Run the whole suite:
 the file holds what this run found, so a partial run drops the entries of the
 tests it did not run. Commit the file.
 
