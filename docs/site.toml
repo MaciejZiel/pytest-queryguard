@@ -30,6 +30,8 @@ pages = [
   { title = "Flask-SQLAlchemy", file = "recipes-flask-sqlalchemy.md", description = "Catch N+1 queries in Flask-SQLAlchemy views with the Flask test client." },
   { title = "SQLModel", file = "recipes-sqlmodel.md", description = "Catch N+1 queries in SQLModel code that uses Session.exec and relationships." },
   { title = "Litestar", file = "recipes-litestar.md", description = "Catch N+1 queries in Litestar handlers with an overridden async session dependency." },
+  { title = "pytest-asyncio pitfalls", file = "recipes-pytest-asyncio.md", description = "Configuration mistakes with pytest-asyncio that look like database problems: strict mode, fixtures, event loop scopes." },
+  { title = "Budgets for hot endpoints", file = "recipes-budgets.md", description = "Put a query budget on the endpoints where a regression costs most, and choose the number." },
 ]
 
 [[section]]
