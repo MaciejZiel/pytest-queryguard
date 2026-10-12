@@ -23,6 +23,16 @@ pages = [
 ]
 
 [[section]]
+title = "Recipes"
+pages = [
+  { title = "Recipes", file = "recipes.md", description = "Runnable how-tos for FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, budgets, legacy codebases and CI." },
+  { title = "FastAPI", file = "recipes-fastapi.md", description = "Test FastAPI endpoints with TestClient and httpx.AsyncClient on dependency-overridden sessions, and what the findings look like." },
+  { title = "Flask-SQLAlchemy", file = "recipes-flask-sqlalchemy.md", description = "Catch N+1 queries in Flask-SQLAlchemy views with the Flask test client." },
+  { title = "SQLModel", file = "recipes-sqlmodel.md", description = "Catch N+1 queries in SQLModel code that uses Session.exec and relationships." },
+  { title = "Litestar", file = "recipes-litestar.md", description = "Catch N+1 queries in Litestar handlers with an overridden async session dependency." },
+]
+
+[[section]]
 title = "Indexes"
 pages = [
   { title = "Index check (PostgreSQL)", file = "index-check.md" },
