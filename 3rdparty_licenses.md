@@ -1,5 +1,9 @@
 # Third-party licenses
 
+Every third-party component of this repository: the direct and transitive dependencies in `uv.lock` (runtime, `dev` and `docs` groups), the build-time dependencies of hatchling, the PostgreSQL extension used in CI, and the GitHub Actions used by its workflows and by `action/action.yml`. One row per component. `certifi` and `pathspec` are MPL-2.0 and were already in the lock file as transitive dependencies of the `dev` group; they are recorded here and are not part of the installed package.
+
+| source | name | license type | license link |
+|---|---|---|---|
 | https://github.com/fastapi/annotated-doc | annotated-doc | MIT | https://github.com/fastapi/annotated-doc/blob/main/LICENSE |
 | https://github.com/annotated-types/annotated-types | annotated-types | MIT | https://github.com/annotated-types/annotated-types/blob/main/LICENSE |
 | https://github.com/agronholm/anyio | anyio | MIT | https://github.com/agronholm/anyio/blob/master/LICENSE |
@@ -24,10 +28,6 @@
 | https://github.com/pydantic/typing-inspection | typing-inspection | MIT | https://github.com/pydantic/typing-inspection/blob/main/LICENSE |
 | https://github.com/pypa/trove-classifiers | trove-classifiers (build-time dependency of hatchling, not in uv.lock) | Apache-2.0 | https://github.com/pypa/trove-classifiers/blob/main/LICENSE |
 | https://github.com/python-poetry/tomlkit | tomlkit (build-time dependency of hatchling, not in uv.lock) | MIT | https://github.com/python-poetry/tomlkit/blob/master/LICENSE |
-Every third-party component of this repository: the direct and transitive dependencies in `uv.lock` (runtime, `dev` and `docs` groups), the build-time dependencies of hatchling, the PostgreSQL extension used in CI, and the GitHub Actions used by its workflows and by `action/action.yml`. One row per component. `certifi` and `pathspec` are MPL-2.0 and were already in the lock file as transitive dependencies of the `dev` group; they are recorded here and are not part of the installed package.
-
-| source | name | license type | license link |
-|---|---|---|---|
 | https://github.com/pytest-dev/pytest | pytest | MIT | https://github.com/pytest-dev/pytest/blob/main/LICENSE |
 | https://github.com/sqlalchemy/sqlalchemy | SQLAlchemy | MIT | https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE |
 | https://github.com/python-greenlet/greenlet | greenlet | MIT AND PSF-2.0 | https://github.com/python-greenlet/greenlet/blob/master/LICENSE |
@@ -54,3 +54,6 @@ Every third-party component of this repository: the direct and transitive depend
 | https://github.com/actions/setup-python | actions/setup-python (GitHub Action, pinned v7.0.0) | MIT | https://github.com/actions/setup-python/blob/main/LICENSE |
 | https://github.com/actions/checkout | actions/checkout (GitHub Action, pinned v7.0.1) | MIT | https://github.com/actions/checkout/blob/main/LICENSE |
 | https://github.com/astral-sh/setup-uv | astral-sh/setup-uv (GitHub Action, pinned v10.2.0) | MIT | https://github.com/astral-sh/setup-uv/blob/main/LICENSE |
+| https://github.com/actions/upload-artifact | actions/upload-artifact (GitHub Action, pinned v7.0.1) | MIT | https://github.com/actions/upload-artifact/blob/main/LICENSE |
+| https://github.com/actions/download-artifact | actions/download-artifact (GitHub Action, pinned v8.0.1) | MIT | https://github.com/actions/download-artifact/blob/main/LICENSE |
+| https://github.com/pypa/gh-action-pypi-publish | pypa/gh-action-pypi-publish (GitHub Action, pinned v1.14.2) | BSD-3-Clause | https://github.com/pypa/gh-action-pypi-publish/blob/release/v1/LICENSE.md |

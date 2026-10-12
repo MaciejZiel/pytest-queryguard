@@ -185,10 +185,24 @@ returns, so the hint works as written on that connection.
 
 - Per test, statements are explained once per engine and statement text,
   with whitespace and `IN` lists collapsed, so `IN` lists of any length
-  count as one. Literals are kept: a partial index can serve
-  `status = 'open'` and not `status = 'closed'`. DDL, and the end of a
+  count as one. Literals that SQLAlchemy writes into the text stay part of the
+  key (a `NULL` or a constant in the SQL); values it binds do not exist in the
+  statement text at all. DDL, and the end of a
   transaction that ran it, forget the statements explained so far, so the
   next identical statement is explained against the new catalog.
+- A partial index cannot be judged by a generic plan. SQLAlchemy binds
+  values, so `status = $1` carries no value and the planner cannot prove that
+  `... (x) WHERE status = 'open'` serves it, although the custom plan of a
+  real execution does use it (checked on PostgreSQL 16 with the statement
+  `status = 'open' AND x = 10`). When the scanned table has a valid partial
+  index whose predicate columns are all filtered by the statement, and at
+  least one of them is compared with a parameter, the statement is not
+  reported and gets no advice; it is counted and the session summary says so.
+  A predicate the statement fixes with a literal (`deleted_at IS NULL`) is
+  decided by the generic plan and still counts. A second `EXPLAIN` with the
+  real values was considered and not built: the check sees the statement
+  text, not the parameters, and binding them would be the unsound plan of
+  `design-0.3.md` section 3.1.
 - Per test, findings are grouped by table and column when the column is
   known (the same query under two aliases, as in a `UNION ALL`), otherwise
   by table and condition; each is reported once with the first statement

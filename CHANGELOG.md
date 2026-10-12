@@ -206,6 +206,12 @@ every kind fails, as before) and `--queryguard-sarif`.
 
 ### Fixed
 
+- The index check no longer reports a missing index, and the advisor no longer
+  recommends a redundant one, for a statement that an existing partial index
+  may serve. The generic plan cannot see bound values, so it could not know
+  that `status = $1` matches `... WHERE status = 'open'`. Such statements are
+  skipped and counted in the session summary. A missing index on them is not
+  found; see the limitations.
 - Loops over deferred or expired columns were reported as a repeated statement
   with the wrong advice (`WHERE id IN (...)`). They are now a `column-load`
   finding and no longer count towards the repeated-statement rule.

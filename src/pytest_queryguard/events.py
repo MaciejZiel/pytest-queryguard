@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .partial import PartialIndex
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CallSite:
@@ -129,5 +131,9 @@ class Catalog:
     leading: dict[tuple[str, str], str | None] = field(default_factory=dict)
     # (schema, table) -> names of its varchar columns
     varchar: dict[tuple[str, str], frozenset[str]] = field(default_factory=dict)
+    # (schema, table) -> its valid partial indexes (see partial.py)
+    partial: dict[tuple[str, str], tuple[PartialIndex, ...]] = field(
+        default_factory=dict
+    )
     # (installed, available) versions of the hypopg extension; None until read
     hypopg: tuple[str | None, str | None] | None = None

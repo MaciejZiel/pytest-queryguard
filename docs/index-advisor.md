@@ -87,6 +87,9 @@ index may be needed). The advisor never suggests an expression index, because
 PostgreSQL only accepts one if every function in it is immutable, which the
 plan does not say.
 
+Statements that a partial index already on the table may serve are not
+advised at all, and not reported (see [index-check.md](index-check.md)).
+
 A **partial index** is considered when the statement has a constant predicate
 on the table (`deleted_at IS NULL`, `status = 'open'` written as a literal; a
 bound parameter is not constant). The index is then built without that column
