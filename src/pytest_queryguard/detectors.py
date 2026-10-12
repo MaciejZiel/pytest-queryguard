@@ -174,15 +174,21 @@ def _relationship_findings(
         if best is None:
             continue
         scope = best[0].scope
+        # A lazy load is the statement the finding counts; the query of an
+        # eager loader carries the same label and is used only when no lazy
+        # load was recorded (events beyond the cap).
         sample = None
+        best_rank = 0
         for stmt in collector.statements:
             if stmt.relationship != name:
                 continue
-            if sample is None:
-                sample = stmt.sql
-            if not scoped or stmt.scope == scope:
-                sample = stmt.sql
-                break
+            rank = (2 if stmt.lazy_load else 1) * 2 + (
+                1 if not scoped or stmt.scope == scope else 0
+            )
+            if rank > best_rank:
+                sample, best_rank = stmt.sql, rank
+                if rank == 5:
+                    break
         site = next((load.callsite for load in best if load.callsite), None)
         found.append(
             RelationshipFinding(
