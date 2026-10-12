@@ -1,0 +1,297 @@
+"""watch(), track(), Settings and reporting of the in-app mode."""
+
+from __future__ import annotations
+
+import logging
+import subprocess
+import sys
+import warnings
+
+import pytest
+from sqlalchemy import create_engine, event, select, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.orm import Session, joinedload
+
+from pytest_queryguard import QueryGuardWarning, record_queries
+from pytest_queryguard import app as queryguard
+from pytest_queryguard import listeners as pytest_listeners
+from pytest_queryguard.app import RequestReport, Settings, _listeners
+
+from .conftest import CUSTOMERS, Customer, Order, seed
+
+
+def _lazy_loop(engine: Engine) -> list[str]:
+    with Session(engine) as session:
+        return [o.customer.name for o in session.scalars(select(Order))]
+
+
+def test_importing_registers_nothing_and_needs_no_pytest() -> None:
+    code = (
+        "import sys\n"
+        "from sqlalchemy import event\n"
+        "from sqlalchemy.engine import Engine\n"
+        "from sqlalchemy.orm import Session\n"
+        "import pytest_queryguard.app as qg\n"
+        "from pytest_queryguard.app import _listeners as L\n"
+        "assert 'pytest' not in sys.modules, 'pytest was imported'\n"
+        "assert not event.contains(Session, 'do_orm_execute', L._on_orm_execute)\n"
+        "assert not L._watched\n"
+        "qg.QueryGuardASGI(lambda *a: None)\n"
+        "qg.QueryGuardWSGI(lambda *a: [])\n"
+        "assert not event.contains(Session, 'do_orm_execute', L._on_orm_execute)\n"
+        "print('ok')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert result.stdout.strip() == "ok", result.stderr
+
+
+def test_watch_and_unwatch_are_idempotent(engine: Engine) -> None:
+    queryguard.watch(engine)
+    queryguard.watch(engine)
+    assert queryguard.is_watched(engine)
+    assert event.contains(
+        engine, "before_cursor_execute", _listeners._on_before_cursor_execute
+    )
+    assert event.contains(Session, "do_orm_execute", _listeners._on_orm_execute)
+    queryguard.unwatch(engine)
+    queryguard.unwatch(engine)
+    assert not queryguard.is_watched(engine)
+    assert not event.contains(
+        engine, "before_cursor_execute", _listeners._on_before_cursor_execute
+    )
+    # The Session listeners go with the last watched engine.
+    assert not event.contains(Session, "do_orm_execute", _listeners._on_orm_execute)
+
+
+def test_watch_takes_the_sync_engine_of_an_async_engine(
+    async_engine: AsyncEngine,
+) -> None:
+    queryguard.watch(async_engine)
+    assert queryguard.is_watched(async_engine.sync_engine)
+
+
+def test_watch_rejects_other_objects() -> None:
+    with pytest.raises(TypeError, match="Engine or AsyncEngine"):
+        queryguard.watch(object())
+
+
+def test_track_reports_an_n_plus_one(watched: Engine) -> None:
+    seen: list[RequestReport] = []
+    with queryguard.track("list orders", report=seen.append) as report:
+        _lazy_loop(watched)
+    assert seen == [report]
+    assert report.statement_count == 1 + CUSTOMERS
+    assert [f.kind for f in report.findings] == ["relationship-load"]
+    assert report.findings[0].label == "Order.customer"
+    assert report.findings[0].file == "tests/inapp/test_core.py"
+    assert report.statements[1].relationship == "Order.customer"
+    assert report.duration is not None and report.duration > 0
+    assert "Order.customer was lazy-loaded 5 times" in report.message
+
+
+def test_the_fixed_code_has_no_findings_and_is_not_reported(watched: Engine) -> None:
+    seen: list[RequestReport] = []
+    query = select(Order).options(joinedload(Order.customer))
+    with queryguard.track(report=seen.append) as report, Session(watched) as session:
+        [o.customer.name for o in session.scalars(query)]
+    assert report.statement_count == 1
+    assert report.findings == ()
+    assert not report.problems
+    assert report.message == ""
+    assert seen == []
+
+
+def test_only_watched_engines_count(watched: Engine, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    other = create_engine(f"sqlite:///{tmp_path / 'other.sqlite'}")
+    seed(other)
+    with queryguard.track(report=[]) as report:
+        _lazy_loop(other)
+        with watched.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    assert report.statement_count == 1
+    # The other engine's lazy loads are not kept either.
+    assert report.findings == ()
+    other.dispose()
+
+
+def test_nothing_is_recorded_outside_a_unit(watched: Engine) -> None:
+    _lazy_loop(watched)
+    with queryguard.track(report=[]) as report:
+        pass
+    assert report.statement_count == 0
+
+
+def test_column_loads_and_repeated_statements(watched: Engine) -> None:
+    with queryguard.track(report=[]) as report:
+        with Session(watched) as session:
+            customers = session.scalars(select(Customer)).all()
+            [c.bio for c in customers]  # deferred: one SELECT each
+        with watched.connect() as conn:
+            for _ in range(5):
+                conn.execute(text("SELECT count(*) FROM orders")).scalar()
+    kinds = sorted(f.kind for f in report.findings)
+    assert kinds == ["column-load", "repeated-statement"]
+
+
+def test_budgets_follow_settings(watched: Engine) -> None:
+    with queryguard.track("job", default_budget=2, report=[]) as report:
+        _lazy_loop(watched)
+    assert report.budget == 2
+    assert report.over_budget
+    assert "expected at most 2 queries, got 6" in report.message
+
+
+def test_max_events_caps_what_is_stored(watched: Engine) -> None:
+    with queryguard.track(max_events=2, report=[]) as report:
+        _lazy_loop(watched)
+    assert report.statement_count == 6
+    assert len(report.statements) == 2
+    assert report.truncated
+
+
+def test_repeat_scope_session_counts_each_session_alone(watched: Engine) -> None:
+    def work() -> None:
+        for _ in range(2):
+            with Session(watched) as session:
+                for _ in range(3):
+                    session.execute(text("SELECT count(*) FROM customers")).scalar()
+
+    with queryguard.track(report=[]) as per_request:
+        work()
+    with queryguard.track(repeat_scope="session", report=[]) as per_session:
+        work()
+    assert [f.kind for f in per_request.findings] == ["repeated-statement"]
+    assert per_session.findings == ()
+
+
+def test_the_report_targets(watched: Engine, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="pytest_queryguard.app")
+    with queryguard.track("logged"):
+        _lazy_loop(watched)
+    assert "queryguard: logged: 6 statements" in caplog.text
+    with (
+        pytest.warns(QueryGuardWarning, match="Order.customer"),
+        queryguard.track(report="warn"),
+    ):
+        _lazy_loop(watched)
+
+
+def test_a_failing_callback_is_logged_not_raised(
+    watched: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(report: RequestReport) -> None:
+        raise RuntimeError("callback bug")
+
+    with queryguard.track(report=[broken, "log"]):
+        _lazy_loop(watched)
+    assert "the report callback" in caplog.text
+    assert "callback bug" in caplog.text
+    assert "Order.customer was lazy-loaded" in caplog.text
+
+
+def test_settings_are_validated() -> None:
+    with pytest.raises(ValueError, match="repeat_threshold"):
+        Settings(repeat_threshold=1)
+    with pytest.raises(ValueError, match="small_repeat_threshold"):
+        Settings(small_repeat_threshold=5)
+    with pytest.raises(ValueError, match="repeat_scope"):
+        Settings(repeat_scope="test")
+    with pytest.raises(ValueError, match="budget"):
+        Settings(budgets={"/x": -1})
+    with pytest.raises(ValueError, match="report"):
+        Settings(report="print")
+    with (
+        pytest.raises(TypeError, match="either settings"),
+        queryguard.track(settings=Settings(), report="log"),
+    ):
+        pass
+
+
+@pytest.mark.parametrize(
+    ("method", "route", "path", "budget"),
+    [
+        ("GET", "/orders", "/orders", 3),
+        ("POST", "/orders", "/orders", 10),
+        ("GET", "/orders/{order_id}", "/orders/7", 4),
+        ("DELETE", "/orders/{order_id}", "/orders/7", 4),
+        ("GET", None, "/admin/users", 50),
+        ("GET", None, "/health", 1),
+        ("GET", None, "/other", None),
+    ],
+)
+def test_budget_keys(
+    method: str, route: str | None, path: str, budget: int | None
+) -> None:
+    settings = Settings(
+        budgets={
+            "GET /orders": 3,
+            "/orders": 10,
+            "/orders/{order_id}": 4,
+            "/admin/*": 50,
+            "get /health": 1,
+        }
+    )
+    assert settings.budget_for(method, route, path) == budget
+
+
+def test_settings_copy_the_budgets() -> None:
+    budgets = {"/a": 1}
+    settings = Settings(budgets=budgets)
+    budgets["/b"] = 2
+    assert settings.budget_for("GET", None, "/b") is None
+
+
+def test_set_route_outside_a_request_does_nothing() -> None:
+    queryguard.set_route("/x")
+
+
+def test_the_pytest_plugin_still_records_alongside(watched: Engine) -> None:
+    with record_queries() as log, queryguard.track(report=[]) as report:
+        _lazy_loop(watched)
+    assert log.count == report.statement_count == 6
+
+
+def test_an_internal_error_switches_the_mode_off_but_not_the_app(
+    watched: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def broken() -> None:
+        raise RuntimeError("callsite bug")
+
+    monkeypatch.setattr(_listeners, "find_callsite", broken)
+    seen: list[RequestReport] = []
+    with queryguard.track(default_budget=0, report=seen.append) as report:
+        names = _lazy_loop(watched)
+    assert len(names) == 2 * CUSTOMERS  # the application got its rows
+    assert isinstance(queryguard.internal_error(), RuntimeError)
+    assert report.error == "RuntimeError: callsite bug"
+    assert report.findings == ()
+    # Incomplete counts: no budget verdict either, so nothing is reported.
+    assert report.budget is None
+    assert seen == []
+    assert caplog.text.count("in-app mode switched off") == 1
+    # The pytest plugin's own error state is untouched.
+    assert pytest_listeners.internal_error() is None
+    monkeypatch.undo()
+    with queryguard.track(report=[]) as later:
+        _lazy_loop(watched)
+    assert later.statement_count == 0  # off for the rest of the process
+
+
+def test_an_error_at_the_end_of_a_unit_is_contained(
+    watched: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("detector bug")
+
+    monkeypatch.setattr("pytest_queryguard.app._core.detect", broken)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with queryguard.track(report=[]) as report:
+            _lazy_loop(watched)
+    assert report.error == "RuntimeError: detector bug"
+    assert isinstance(queryguard.internal_error(), RuntimeError)

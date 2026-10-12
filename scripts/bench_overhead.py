@@ -10,6 +10,11 @@ runs with measurement off (no listeners, no collector) and on (the listeners
 installed and a collector active, as around each test). The script starts a
 fresh Python process per configuration, the two interleaved, ``--runs``
 times, and prints the median time per statement and the overhead of "on".
+
+With ``--app`` it times the in-application mode instead (``pytest_queryguard.app``):
+"off" (nothing imported or watched), "idle" (the engine watched, no request in
+progress: what every statement outside a request pays) and "request" (inside a
+``track()`` block, as during a request).
 """
 
 from __future__ import annotations
@@ -65,6 +70,16 @@ def _child(mode: str, statements: int) -> None:
         if mode == "index":
             install_index_check()
         push(collector)
+    unit = None
+    if mode in ("app-idle", "app-request"):
+        from pytest_queryguard import app as queryguard
+
+        queryguard.watch(engine)
+        if mode == "app-request":
+            # One unit around everything, with no cap and no report: the cost
+            # of measuring each statement, not of reporting.
+            unit = queryguard.track(max_events=None, report=[])
+            unit.__enter__()
 
     def core() -> None:
         with engine.connect() as conn:
@@ -97,6 +112,8 @@ def _child(mode: str, statements: int) -> None:
         results.append((time.perf_counter() - start) / statements * 1e6)
     if mode in ("on", "index"):
         pop(collector)
+    if unit is not None:
+        unit.__exit__(None, None, None)
     print(
         f"{results[0]:.3f} {results[1]:.3f} {len(collector.statements)} "
         f"{results[2]:.3f}"
@@ -107,15 +124,25 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--statements", type=int, default=5000)
     parser.add_argument("--runs", type=int, default=7)
-    parser.add_argument("--child", choices=("on", "off", "index"))
+    parser.add_argument(
+        "--child", choices=("on", "off", "index", "app-idle", "app-request")
+    )
     parser.add_argument(
         "--index-check",
         action="store_true",
         help="also time the missing-index check (SQLite EXPLAIN QUERY PLAN)",
     )
+    parser.add_argument(
+        "--app",
+        action="store_true",
+        help="time the in-application mode (pytest_queryguard.app) instead",
+    )
     args = parser.parse_args()
     if args.child:
         _child(args.child, args.statements)
+        return
+    if args.app:
+        _report_app(args.statements, args.runs)
         return
     if args.index_check:
         _report_index_check(args.statements, args.runs)
@@ -165,6 +192,26 @@ def _report_index_check(statements: int, runs: int) -> None:
         )
         print(f"{name:<10}{off:>9.1f}{on:>9.1f}{check:>13.1f}{check - on:>13.1f}")
     print("distinct: every statement is a new shape, so each is explained")
+
+
+def _report_app(statements: int, runs: int) -> None:
+    modes = ("off", "app-idle", "app-request")
+    times = _times(statements, runs, modes)
+    print(f"{statements} statements per loop, {runs} runs (us/statement)")
+    print(
+        f"{'loop':<6}{'stat':<8}{'off':>8}{'idle':>8}{'request':>9}"
+        f"{'idle+':>8}{'request+':>10}"
+    )
+    # The minimum is shown next to the median: on a busy machine it is the
+    # steadier of the two.
+    for index, name in enumerate(("core", "orm")):
+        for stat in (statistics.median, min):
+            off, idle, request = (stat(t[index] for t in times[mode]) for mode in modes)
+            print(
+                f"{name:<6}{stat.__name__:<8}{off:>8.1f}{idle:>8.1f}{request:>9.1f}"
+                f"{idle - off:>8.1f}{request - off:>10.1f}"
+            )
+    print("idle: engine watched, no request in progress; request: inside track()")
 
 
 def measure(statements: int, runs: int) -> dict[str, tuple[float, float]]:
