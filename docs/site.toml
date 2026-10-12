@@ -1,0 +1,50 @@
+# The pages of the documentation site and their order; read by
+# scripts/build_docs.py. Paths are relative to this directory.
+title = "pytest-queryguard"
+
+[[section]]
+title = "Start"
+pages = [
+  { title = "Overview", file = "index.md" },
+  { title = "Getting started", file = "getting-started.md" },
+  { title = "How detection works", file = "how-detection-works.md" },
+]
+
+[[section]]
+title = "Using it"
+pages = [
+  { title = "Configuration reference", file = "configuration.md" },
+  { title = "Budgets and timing", file = "budgets.md" },
+  { title = "Reading the queries", file = "python-api.md" },
+  { title = "Ignoring findings", file = "ignoring.md" },
+  { title = "Baseline", file = "baseline.md" },
+  { title = "CI and GitHub Action", file = "ci.md" },
+  { title = "SARIF output", file = "sarif.md" },
+]
+
+[[section]]
+title = "Indexes"
+pages = [
+  { title = "Index check (PostgreSQL)", file = "index-check.md" },
+  { title = "Index check (SQLite)", file = "index-check-sqlite.md" },
+  { title = "Index advisor", file = "index-advisor.md" },
+]
+
+[[section]]
+title = "More"
+pages = [
+  { title = "Unused eager loads (experimental)", file = "unused-eager-load.md" },
+  { title = "Limitations", file = "limitations.md" },
+  { title = "FAQ", file = "faq.md" },
+  { title = "Stability and versioning", file = "stability.md" },
+  { title = "Changelog", file = "../CHANGELOG.md" },
+]
+
+[[section]]
+title = "Design notes"
+pages = [
+  { title = "Design (0.1)", file = "design.md" },
+  { title = "Design: missing index (0.2)", file = "design-0.2.md" },
+  { title = "Design: async index check (0.3)", file = "design-0.3.md" },
+  { title = "Design: reading queries (0.3)", file = "design-0.3-api.md" },
+]
