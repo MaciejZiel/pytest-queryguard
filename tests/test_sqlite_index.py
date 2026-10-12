@@ -39,6 +39,10 @@ def issues(conn: sqlite3.Connection, sql: str, *params: object) -> list[ScanIssu
     return si.analyse(rows, sql, si.Schema(cursor))
 
 
+def fix(issue: ScanIssue) -> str | None:
+    return None if issue.advice is None else issue.advice.create_sql
+
+
 def one(conn: sqlite3.Connection, sql: str, *params: object) -> ScanIssue:
     found = issues(conn, sql, *params)
     assert len(found) == 1, found
@@ -52,7 +56,7 @@ def test_filter_without_an_index_is_a_scan(db: sqlite3.Connection) -> None:
     issue = one(db, "SELECT * FROM orders WHERE customer_id = ?", 1)
     assert (issue.table, issue.node, issue.kind) == ("orders", "SCAN", "filter")
     assert issue.column == "customer_id"
-    assert issue.fix == "CREATE INDEX ix_orders_customer_id ON orders (customer_id)"
+    assert fix(issue) == "CREATE INDEX ix_orders_customer_id ON orders (customer_id)"
     assert not issue.show_schema
 
 
@@ -91,7 +95,7 @@ def test_range_filter_is_reported_and_hints_the_column(
     db: sqlite3.Connection,
 ) -> None:
     issue = one(db, "SELECT * FROM orders WHERE total > ? AND total < ?", 1, 2)
-    assert issue.fix == "CREATE INDEX ix_orders_total ON orders (total)"
+    assert fix(issue) == "CREATE INDEX ix_orders_total ON orders (total)"
 
 
 def test_between_is_a_range(db: sqlite3.Connection) -> None:
@@ -104,7 +108,7 @@ def test_equality_columns_come_first_in_a_composite_hint(
 ) -> None:
     sql = "SELECT * FROM orders WHERE total > ? AND status = ? AND customer_id = ?"
     issue = one(db, sql, 1, "x", 2)
-    assert issue.fix == (
+    assert fix(issue) == (
         "CREATE INDEX ix_orders_status_customer_id_total "
         "ON orders (status, customer_id, total)"
     )
@@ -162,7 +166,7 @@ def test_or_with_one_unindexed_branch_hints_only_that_column(
 ) -> None:
     db.execute("CREATE INDEX ix_o ON orders (customer_id)")
     issue = one(db, "SELECT * FROM orders WHERE customer_id = ? OR status = ?", 1, "x")
-    assert issue.fix == "CREATE INDEX ix_orders_status ON orders (status)"
+    assert fix(issue) == "CREATE INDEX ix_orders_status ON orders (status)"
 
 
 def test_or_with_both_branches_indexed_is_not_reported(db: sqlite3.Connection) -> None:
@@ -177,7 +181,7 @@ def test_or_with_two_unindexed_branches_gets_a_generic_hint(
 ) -> None:
     issue = one(db, "SELECT * FROM orders WHERE total = ? OR status = ?", 1, "x")
     assert issue.column is None
-    assert issue.fix == si.GENERIC_FIX
+    assert issue.advice is None and issue.column is None and not issue.expression
 
 
 def test_function_on_the_column_asks_for_an_expression_index(
@@ -187,7 +191,7 @@ def test_function_on_the_column_asks_for_an_expression_index(
     issue = one(db, "SELECT * FROM customers WHERE lower(name) = ?", "a")
     assert issue.expression
     assert issue.column is None
-    assert issue.fix == si.EXPRESSION_FIX
+    assert issue.advice is None and issue.expression
 
 
 def test_arithmetic_on_the_column_is_not_judged(db: sqlite3.Connection) -> None:
@@ -234,7 +238,7 @@ def test_automatic_index_is_a_missing_index(db: sqlite3.Connection) -> None:
     assert issue.table == "orders"
     assert issue.node.startswith("SEARCH USING AUTOMATIC")
     assert issue.kind == "join condition"
-    assert issue.fix == "CREATE INDEX ix_orders_customer_id ON orders (customer_id)"
+    assert fix(issue) == "CREATE INDEX ix_orders_customer_id ON orders (customer_id)"
 
 
 def test_automatic_index_is_gone_once_the_column_is_indexed(
@@ -342,7 +346,7 @@ def test_compound_select_gives_one_generic_finding_per_table(
     )
     issue = one(db, sql, "a", 1)
     assert issue.table == "orders"
-    assert issue.fix == si.GENERIC_FIX
+    assert issue.advice is None and issue.column is None and not issue.expression
 
 
 def test_tables_behind_a_view_are_not_judged(db: sqlite3.Connection) -> None:
@@ -364,7 +368,7 @@ def test_composite_index_with_the_leading_column_missing(
     db: sqlite3.Connection,
 ) -> None:
     issue = one(db, "SELECT * FROM lines WHERE b = ?", 1)
-    assert issue.fix == "CREATE INDEX ix_lines_b ON lines (b)"
+    assert fix(issue) == "CREATE INDEX ix_lines_b ON lines (b)"
 
 
 def test_composite_index_with_its_leading_column_is_not_reported(
@@ -382,7 +386,7 @@ def test_covering_index_scan_with_a_filter_on_a_trailing_column(
     assert plan == ["SCAN lines USING COVERING INDEX ix_lines_ab"]
     issue = one(db, sql, 1)
     assert issue.node == "SCAN COVERING INDEX ix_lines_ab"
-    assert issue.fix == "CREATE INDEX ix_lines_b ON lines (b)"
+    assert fix(issue) == "CREATE INDEX ix_lines_b ON lines (b)"
 
 
 def test_covering_index_scan_without_a_filter_is_not_reported(
@@ -521,15 +525,15 @@ def test_automatic_index_with_unreadable_columns_gets_a_generic_hint(
     schema = si.Schema(db.cursor())
     rows = [(2, 0, 0, "SEARCH orders USING AUTOMATIC INDEX (lower(status)=?)")]
     found = si.analyse(rows, "SELECT * FROM orders", schema)
-    assert found[0].fix == si.GENERIC_FIX
+    assert found[0].advice is None and found[0].column is None
 
 
 def test_quoted_and_mixed_case_names(db: sqlite3.Connection) -> None:
     db.execute('CREATE TABLE "Mixed Case" ("Some Col" INT, other INT)')
     issue = one(db, 'SELECT * FROM "mixed case" WHERE "some col" = ?', 1)
     assert issue.table == "Mixed Case"
-    assert issue.fix == (
-        'CREATE INDEX ix_mixed_case_some_col ON "Mixed Case" ("Some Col")'
+    assert fix(issue) == (
+        'CREATE INDEX ix_Mixed_Case_Some_Col ON "Mixed Case" ("Some Col")'
     )
 
 
@@ -733,3 +737,31 @@ def test_automatic_index_of_a_left_join(db: sqlite3.Connection) -> None:
     plan = [r[3] for r in db.execute("EXPLAIN QUERY PLAN " + sql)]
     if any("AUTOMATIC" in d for d in plan):  # the real plan, whatever its text
         assert [i.table for i in issues(db, sql)] == ["orders"]
+
+
+def test_advice_has_the_create_index_and_the_alembic_call(
+    db: sqlite3.Connection,
+) -> None:
+    issue = one(db, "SELECT * FROM orders WHERE customer_id = ? AND status = ?", 1, "x")
+    assert issue.advice is not None
+    assert [k.column for k in issue.advice.keys] == ["customer_id", "status"]
+    assert issue.advice.create_sql == (
+        "CREATE INDEX ix_orders_customer_id_status ON orders (customer_id, status)"
+    )
+    assert issue.advice.alembic == (
+        'op.create_index("ix_orders_customer_id_status", "orders", '
+        '["customer_id", "status"])'
+    )
+    assert issue.advice.verification is None
+
+
+def test_advice_without_the_advisor_has_no_alembic_call(
+    db: sqlite3.Connection,
+) -> None:
+    cursor = db.cursor()
+    sql = "SELECT * FROM orders WHERE customer_id = ?"
+    cursor.execute("EXPLAIN QUERY PLAN " + sql, (1,))
+    rows = [si._row(r) for r in cursor.fetchall()]
+    (issue,) = si.analyse(rows, sql, si.Schema(cursor), alembic=False)
+    assert issue.advice is not None and issue.advice.alembic is None
+    assert fix(issue) == "CREATE INDEX ix_orders_customer_id ON orders (customer_id)"

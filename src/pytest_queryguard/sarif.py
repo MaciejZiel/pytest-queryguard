@@ -20,6 +20,7 @@ from .findings import (
     KIND_MISSING_INDEX,
     KIND_RELATIONSHIP,
     KIND_REPEAT,
+    KIND_UNUSED_EAGER_LOAD,
     KIND_WRITE_LOOP,
     Finding,
 )
@@ -76,6 +77,14 @@ _RULES: dict[str, _Rule] = {
         "Write the rows together: session.add_all() and one flush, a bulk "
         "insert() or update() with a list of parameter sets, or one "
         "DELETE ... WHERE id IN (...).",
+    ),
+    KIND_UNUSED_EAGER_LOAD: _Rule(
+        "UnusedEagerLoad",
+        "A relationship is eager-loaded and never read (experimental)",
+        "A query loaded a relationship with selectinload(), joinedload(), "
+        "subqueryload() or immediateload() and the test never read it.",
+        "Remove the eager option from the query, or load the relationship "
+        "only in the queries whose result uses it.",
     ),
     KIND_MISSING_INDEX: _Rule(
         "MissingIndex",

@@ -8,8 +8,34 @@ KIND_REPEAT = "repeated-statement"
 KIND_MISSING_INDEX = "missing-index"
 KIND_COLUMN_LOAD = "column-load"
 KIND_WRITE_LOOP = "write-loop"
+KIND_UNUSED_EAGER_LOAD = "unused-eager-load"
 
 SEVERITY_ERROR = "error"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class IndexAdvice:
+    """The index the advisor suggests for a ``missing-index`` finding.
+
+    ``create_index`` is the statement and ``alembic`` the matching
+    ``op.create_index`` call; both are None when no new index is suggested,
+    and ``skipped`` says why (an index for these columns exists but is
+    unusable). ``verified`` is None when hypopg did not check the suggestion,
+    True when it says the planner would use the index and False when it would
+    not. The costs are the planner's estimates for the whole statement, with
+    sequential scans allowed, before and after adding the index.
+    """
+
+    create_index: str | None = None
+    alembic: str | None = None
+    columns: tuple[str, ...] = ()
+    where: str | None = None
+    skipped: str | None = None
+    verified: bool | None = None
+    cost_before: float | None = None
+    cost_after: float | None = None
+    size_bytes: int | None = None
+    verification_error: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -20,7 +46,8 @@ class Finding:
     relationship (``Order.customer``), for ``repeated-statement`` the
     normalized statement, for ``column-load`` the class and the deferred
     attributes (``Child.blob``) or its cause (``Parent (expired)``), for ``write-loop`` the normalized
-    INSERT, UPDATE or DELETE, for ``missing-index`` the table. ``file`` and
+    INSERT, UPDATE or DELETE, for ``unused-eager-load`` the relationship
+    (``Order.customer``), for ``missing-index`` the table. ``file`` and
     ``function`` say where it first happened: ``file`` is relative to pytest's
     rootdir, with forward slashes, or as the interpreter reports it when the
     file is outside the rootdir; both are None when the call site is unknown.
@@ -38,6 +65,9 @@ class Finding:
     severity: str = SEVERITY_ERROR
     line: int | None = None
     count: int = 1
+    # For ``missing-index`` findings, with the index advisor on; not part of
+    # the identity.
+    advice: IndexAdvice | None = None
 
     @property
     def identity(self) -> tuple[str, str, str | None, str | None]:

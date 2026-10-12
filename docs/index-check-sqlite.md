@@ -34,6 +34,7 @@ queryguard: missing index
   first at app/orders.py:11 in orders_of
   sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = ?
   fix: CREATE INDEX ix_orders_customer_id ON orders (customer_id)
+  alembic: op.create_index("ix_orders_customer_id", "orders", ["customer_id"])
 ```
 
 Findings are `missing-index` findings: they follow `queryguard_mode`,
@@ -52,8 +53,11 @@ in the SQL.
 
 The fix hint is `CREATE INDEX ix_<table>_<columns> ON <table> (<columns>)`
 with the equality columns first and at most one range column. It is only given
-when the columns are certain; otherwise the text is "add an index on the
-filtered column(s)". That happens for `OR` over several unindexed columns, for
+when the columns are certain, together with the Alembic `op.create_index`
+call (the index advisor's output; `queryguard_index_advisor = false` keeps only
+the `CREATE INDEX`, which SQLite needs a name for, unlike PostgreSQL). Otherwise
+the text is "add an index that matches this condition" (with "an expression
+index may be needed" for a function of the column). That happens for `OR` over several unindexed columns, for
 compound selects that read one table twice, and when the plan gives no
 readable column.
 
@@ -119,7 +123,9 @@ These are covered by tests in `tests/test_sqlite_index.py`.
 - Only scan rows are judged. A table that SQLite searches by primary key but
   filters on an unindexed column (an unselective lookup after a scan of the
   other side of the join) is not reported.
-- No Alembic snippet: the PostgreSQL check does not print one yet either.
+- No hypopg-style verification: SQLite has no hypothetical indexes, so the
+  suggested index is derived from the statement and the existing indexes, and
+  is not tried before it is suggested.
 - Notices. Other dialects still get the one-line notice at the end of the
   session; SQLite does not.
 

@@ -17,10 +17,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, NamedTuple
 
+from . import advisor
 from .callsite import find_callsite
 from .collector import QueryCollector
 from .detectors import collapse_lists
-from .events import ScanEvent, ScanIssue
+from .events import Advice, IndexKey, ScanEvent, ScanIssue
 from .indexes import engine_key, quote_ident
 from .sqltext import skip_prefix
 
@@ -691,25 +692,31 @@ def _distinct(names: Iterable[str]) -> list[str]:
     return out
 
 
-def _index_name(table: str, columns: Sequence[str]) -> str:
-    name = re.sub(r"\W+", "_", "_".join(["ix", table, *columns]).lower()).strip("_")
-    return name[:60]
+def _advice(
+    issue: ScanIssue, columns: Sequence[str] | None, alembic: bool
+) -> ScanIssue:
+    """The issue with a CREATE INDEX (and an Alembic call) for its columns.
 
-
-def _create_index(table: str, columns: Sequence[str]) -> str:
-    listed = ", ".join(quote_ident(c) for c in columns)
-    return (
-        f"CREATE INDEX {_index_name(table, columns)} ON {quote_ident(table)} ({listed})"
+    SQLite needs a name in CREATE INDEX, unlike PostgreSQL, so the suggestion
+    is always built here and never left to the PostgreSQL fallback text.
+    """
+    if not columns:
+        return issue
+    keys = tuple(IndexKey(quote_ident(c)) for c in columns)
+    candidate = advisor.Candidate(keys)
+    listed = ", ".join(key.column for key in keys)
+    name = advisor.index_name(issue.table, keys)
+    advice = Advice(
+        keys=keys,
+        create_sql=f"CREATE INDEX {name} ON {quote_ident(issue.table)} ({listed})",
+        alembic=advisor.alembic_snippet(issue, candidate) if alembic else None,
     )
+    return replace(issue, advice=advice)
 
 
-GENERIC_FIX = "add an index on the filtered column(s)"
-EXPRESSION_FIX = (
-    "add an index that matches this condition (an expression index may be needed)"
-)
-
-
-def analyse(rows: Sequence[Sequence[Any]], sql: str, schema: Schema) -> list[ScanIssue]:
+def analyse(
+    rows: Sequence[Sequence[Any]], sql: str, schema: Schema, alembic: bool = True
+) -> list[ScanIssue]:
     """The tables the plan reads in full although the statement narrows them.
 
     One issue per table. Anything this does not understand gives no issue.
@@ -781,7 +788,7 @@ def analyse(rows: Sequence[Sequence[Any]], sql: str, schema: Schema) -> list[Sca
         outermost = len(group) > 1 and access.id == min(group)
         issue = _issue(
             access, kind or "", table, by_key.get(key, []), columns[key],
-            schema.leading(table), outermost, has_or, len(same) > 1,
+            schema.leading(table), outermost, has_or, len(same) > 1, alembic,
         )  # fmt: skip
         if issue is not None:
             seen.add(table)
@@ -812,6 +819,7 @@ def _issue(
     outermost: bool,
     has_or: bool,
     repeated: bool,
+    alembic: bool,
 ) -> ScanIssue | None:
     if kind == "automatic":
         cols = _automatic_columns(access)
@@ -819,7 +827,7 @@ def _issue(
         joined = any(a.other is not None for a in atoms)
         terms = _AUTOMATIC_COLUMNS.search(access.using)
         condition = terms["terms"] if cols and terms else ""
-        return ScanIssue(
+        issue = ScanIssue(
             None,
             table,
             f"SEARCH {access.using}".strip(),
@@ -827,8 +835,8 @@ def _issue(
             condition,
             ", ".join(shown) if shown else None,
             show_schema=False,
-            fix=_create_index(table, shown) if shown else GENERIC_FIX,
         )
+        return _advice(issue, shown, alembic)
     # A join condition is no filter for the table the join starts from.
     own = [a for a in atoms if a.other is None or not outermost]
     if kind == "index-scan":
@@ -851,12 +859,8 @@ def _issue(
     shown = (
         [declared.get(c.lower(), c) for c in index_columns] if index_columns else None
     )
-    if shown:
-        fix = _create_index(table, shown)
-    else:
-        fix = EXPRESSION_FIX if not plain else GENERIC_FIX
     node = "SCAN" + (f" {access.using.removeprefix('USING ')}" if access.using else "")
-    return ScanIssue(
+    issue = ScanIssue(
         None,
         table,
         node,
@@ -865,8 +869,8 @@ def _issue(
         ", ".join(shown) if shown else None,
         show_schema=False,
         expression=not plain,
-        fix=fix,
     )
+    return _advice(issue, shown, alembic)
 
 
 # ---------------------------------------------------------------- listener
@@ -881,7 +885,9 @@ def _message(exc: Exception) -> str:
     return lines[0] if lines else type(exc).__name__
 
 
-def explain(dbapi_connection: Any, statement: str, parameters: Any) -> list[ScanIssue]:
+def explain(
+    dbapi_connection: Any, statement: str, parameters: Any, alembic: bool = True
+) -> list[ScanIssue]:
     """Plan ``statement`` on the test's own connection and analyse the plan.
 
     EXPLAIN QUERY PLAN does not run the statement, so there is no savepoint
@@ -892,7 +898,7 @@ def explain(dbapi_connection: Any, statement: str, parameters: Any) -> list[Scan
         try:
             cursor.execute(_EXPLAIN + statement, parameters if parameters else ())
             rows = [_row(r) for r in cursor.fetchall()]
-            return analyse(rows, statement, Schema(cursor))
+            return analyse(rows, statement, Schema(cursor), alembic)
         except Exception as exc:  # any database error from EXPLAIN
             raise _ExplainFailed(_message(exc)) from exc
     finally:
@@ -916,7 +922,10 @@ def check(
     for target in fresh:
         target.explained.add(key)
     try:
-        issues = explain(conn.connection.dbapi_connection, statement, parameters)
+        alembic = any(target.index_advisor for target in fresh)
+        issues = explain(
+            conn.connection.dbapi_connection, statement, parameters, alembic
+        )
     except _ExplainFailed as exc:
         error = (str(exc), statement)
         for target in fresh:

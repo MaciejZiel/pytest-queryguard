@@ -50,8 +50,25 @@ def test_filter_without_an_index_fails_the_test(project: pytest.Pytester) -> Non
             "  first at test_a.py:*in test_orders_of_customer",
             "  sql: SELECT count(*) AS count_1 FROM (*orders.customer_id = ?*",
             "  fix: CREATE INDEX ix_orders_customer_id ON orders (customer_id)",
+            (
+                '  alembic: op.create_index("ix_orders_customer_id", "orders", '
+                '["customer_id"])'
+            ),
         ]
     )
+
+
+def test_advisor_off_keeps_the_create_index_but_drops_alembic(
+    project: pytest.Pytester,
+) -> None:
+    project.makeini("[pytest]\nqueryguard_index_advisor = false\n")
+    project.makepyfile(test_a=SCAN_TEST)
+    result = project.runpytest(*ARGS)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        ["  fix: CREATE INDEX ix_orders_customer_id ON orders (customer_id)"]
+    )
+    result.stdout.no_fnmatch_line("*alembic:*")
 
 
 def test_check_is_off_by_default(project: pytest.Pytester) -> None:
@@ -169,7 +186,8 @@ def test_sarif_has_the_finding_and_its_fix(project: pytest.Pytester) -> None:
     sarif: Any = json.loads((project.path / "qg.sarif").read_text())
     results = sarif["runs"][0]["results"]
     assert [r["ruleId"] for r in results] == ["queryguard/missing-index"]
-    assert "ix_orders_customer_id" in results[0]["message"]["text"]
+    text = results[0]["message"]["text"]
+    assert "CREATE INDEX ix_orders_customer_id ON orders (customer_id)" in text
 
 
 def test_fail_on_can_exclude_missing_index(project: pytest.Pytester) -> None:
@@ -243,9 +261,9 @@ def test_one_explain_per_statement_shape(
     calls: list[str] = []
     real = sqlite_index.explain
 
-    def counting(connection: Any, statement: str, parameters: Any) -> Any:
+    def counting(connection: Any, statement: str, parameters: Any, *more: Any) -> Any:
         calls.append(statement)
-        return real(connection, statement, parameters)
+        return real(connection, statement, parameters, *more)
 
     monkeypatch.setattr(sqlite_index, "explain", counting)
     project.makepyfile(
@@ -277,7 +295,7 @@ def test_executemany_is_not_explained(
     monkeypatch.setattr(
         sqlite_index,
         "explain",
-        lambda c, s, p: calls.append(s) or real(c, s, p),
+        lambda c, s, p, *m: calls.append(s) or real(c, s, p, *m),
     )
     project.makepyfile(
         test_a="""

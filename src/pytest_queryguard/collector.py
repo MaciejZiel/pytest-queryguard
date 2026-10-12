@@ -12,6 +12,9 @@ class QueryCollector:
     column_loads: list[ColumnLoadEvent] = field(default_factory=list)
     # Missing-index check (see indexes.py); only used when index_check is set.
     index_check: bool = False
+    # Suggest an index for each finding; hypopg is "auto", "on" or "off".
+    index_advisor: bool = False
+    hypopg: str = "auto"
     explained: set[object] = field(default_factory=set)
     scans: list[ScanEvent] = field(default_factory=list)
     index_notices: dict[str, None] = field(default_factory=dict)  # ordered set

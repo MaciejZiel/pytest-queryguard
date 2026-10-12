@@ -21,6 +21,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pytest-xdist; findings honor `queryguard_ignore`, `allow_missing_index`,
   `queryguard_index_ignore_tables`, the baseline and SARIF. See
   `docs/index-check-sqlite.md`. `scripts/bench_overhead.py --index-check` times it.
+- Index advisor. Each missing-index finding now suggests an index: a
+  `CREATE INDEX` built from the equality, range and `ORDER BY` columns of the
+  plan node, a partial index when a constant predicate is selective, and the
+  Alembic `op.create_index` call. When the hypopg extension is installed, the
+  suggestion is verified inside the check's savepoint: whether the planner
+  would use the index and the statement's estimated cost before and after;
+  hypothetical indexes are reset, also after errors, on sync drivers and
+  asyncpg. No new index is suggested when the table already has one for these
+  columns (invalid, partial, or valid but unused), and the finding says why.
+  Without hypopg the suggestion stays and one notice says how to install it.
+  New options `queryguard_index_advisor` (default `true`, used with the index
+  check) and `queryguard_hypopg` (`auto`, `on` or `off`). Findings carry the
+  suggestion in an additive `advice` field. See `docs/index-advisor.md`.
+- Experimental detection of unused eager loads, off by default:
+  `queryguard_unused_eager_load` (`off`, `warn` or `fail`). A relationship a
+  test loads with `selectinload()`, `joinedload()`, `subqueryload()` or
+  `immediateload()` and never reads is reported as the new finding kind
+  `unused-eager-load` (label `Class.relationship`), with a hint to remove the
+  option. While the option is `off` nothing is installed. Opt out with
+  `allow_nplusone(kind="unused-eager-load")` or `queryguard_ignore`. See
+  `docs/unused-eager-load.md` for how it works and its limits.
 - A composite GitHub Action in `action/`: installs the plugin, runs pytest with
   `--queryguard-sarif`, uploads the file with `github/codeql-action/upload-sarif`
   (pinned by commit SHA) and fails the step when pytest fails. Inputs:
