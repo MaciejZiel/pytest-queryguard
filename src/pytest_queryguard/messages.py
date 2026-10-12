@@ -227,3 +227,19 @@ def format_failure(failure: Failure) -> list[str]:
         ]
     )
     return lines
+
+
+def format_stale_ignores(
+    patterns: Sequence[object], markers: Sequence[tuple[str, object]]
+) -> list[str]:
+    """The session summary lines for ignores that matched no finding."""
+    lines: list[str] = []
+    if patterns:
+        lines.append("queryguard_ignore patterns that matched no finding in this run:")
+        lines.extend(f"  {pattern}" for pattern in patterns)
+    if markers:
+        lines.append("allow_nplusone patterns that matched no finding in their test:")
+        lines.extend(f"  {nodeid}: {rule}" for nodeid, rule in markers)
+    if lines:
+        lines.append("Remove them if the finding is fixed, or fix a mistyped pattern.")
+    return lines

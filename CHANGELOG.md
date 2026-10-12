@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `queryguard_ignore`, an ini option that leaves single findings out of the
+  reports. One pattern per line, `KIND LABEL [file=GLOB] [function=GLOB]`,
+  matched with `fnmatch`. The kinds are `relationship-load`,
+  `repeated-statement` and `missing-index`; `file` is relative to the rootdir.
+- `allow_nplusone` takes label patterns and the keywords `kind`, `file` and
+  `function` to ignore only the findings they match. Without arguments it
+  still ignores the whole test.
+- Ignore patterns that matched no finding in the run are listed in the
+  terminal summary as stale ignores (not with pytest-xdist).
+
 ### Changed
 
 - Internal: detectors now hand their results to a stable `Finding` model

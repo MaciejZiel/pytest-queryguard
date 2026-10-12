@@ -10,6 +10,8 @@ import pytest
 from . import catalog, indexes
 from .collector import QueryCollector, pop, push
 from .detectors import detect
+from .findings import Finding
+from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
 from .indexes import select_findings
 from .listeners import (
     install,
@@ -25,8 +27,10 @@ from .messages import (
     format_findings,
     format_index_findings,
     format_index_notes,
+    format_stale_ignores,
     format_truncation,
     make_findings,
+    make_index_finding,
     swap_root,
 )
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
@@ -57,6 +61,7 @@ class _Settings:
         index_check: bool = False,
         ignore_tables: tuple[str, ...] = (),
         max_events: int | None = DEFAULT_MAX_EVENTS,
+        ignore: tuple[IgnoreRule, ...] = (),
     ) -> None:
         self.mode = mode
         self.relationship = relationship
@@ -64,6 +69,10 @@ class _Settings:
         self.index_check = index_check
         self.ignore_tables = ignore_tables
         self.max_events = max_events
+        self.ignore = ignore
+        # what the ignores did, for the stale-ignore warning in the summary
+        self.ignore_used: set[IgnoreRule] = set()
+        self.stale_markers: list[tuple[str, IgnoreRule]] = []
 
 
 class _IndexNotes:
@@ -133,6 +142,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         **_INT_TYPE,
     )
     parser.addini(
+        "queryguard_ignore",
+        "Findings to leave out of reports, one per line: "
+        "KIND LABEL [file=GLOB] [function=GLOB] (fnmatch patterns)",
+        type="linelist",
+        default=[],
+    )
+    parser.addini(
         "queryguard_index_check",
         "Check each SELECT for a missing index (PostgreSQL 16 or newer)",
         type="bool",
@@ -175,6 +191,20 @@ def _max_events(config: pytest.Config) -> int | None:
     if value < 0:
         raise pytest.UsageError(f"{name} must be an integer >= 0, got {raw!r}")
     return value or None
+
+
+def _ignore_rules(config: pytest.Config) -> tuple[IgnoreRule, ...]:
+    name = "queryguard_ignore"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be a list of patterns: {exc}") from None
+    if not isinstance(raw, list) or not all(isinstance(line, str) for line in raw):
+        raise pytest.UsageError(f"{name} must be a list of patterns, got {raw!r}")
+    try:
+        return parse_rules(raw)
+    except ValueError as exc:
+        raise pytest.UsageError(f"{name}: {exc}") from None
 
 
 def _index_check(config: pytest.Config) -> bool:
@@ -226,6 +256,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _index_check(config),
         _ignore_tables(config),
         _max_events(config),
+        _ignore_rules(config),
     )
 
 
@@ -236,7 +267,9 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
-        "allow_nplusone: do not report N+1 query findings for this test.",
+        "allow_nplusone(*labels, kind=..., file=..., function=...): do not report "
+        "N+1 query findings for this test; with arguments, only the findings "
+        "they match (fnmatch patterns).",
     )
     config.addinivalue_line(
         "markers",
@@ -297,11 +330,49 @@ def _write_internal_failure(terminalreporter: pytest.TerminalReporter) -> None:
         terminalreporter.write_line(line)
 
 
+def _nplusone_ignores(item: pytest.Item) -> tuple[bool, tuple[IgnoreRule, ...]]:
+    """(ignore every N+1 finding, rules) from allow_nplusone markers."""
+    ignore_all = False
+    rules: list[IgnoreRule] = []
+    for marker in item.iter_markers("allow_nplusone"):
+        patterns = marker.args
+        extra = set(marker.kwargs) - {"kind", "file", "function"}
+        values = [*patterns, *marker.kwargs.values()]
+        if extra or not all(isinstance(v, str) and v for v in values):
+            pytest.fail(
+                f"allow_nplusone on {item.nodeid} takes label patterns and the "
+                "keywords kind, file and function, all as strings, got "
+                f"{marker.args!r} {marker.kwargs!r}",
+                pytrace=False,
+            )
+        if not marker.args and not marker.kwargs:
+            ignore_all = True
+            continue
+        kind = marker.kwargs.get("kind", "*")
+        try:
+            check_kind(kind)
+        except ValueError as exc:
+            pytest.fail(f"allow_nplusone on {item.nodeid}: {exc}", pytrace=False)
+        for label in patterns or ("*",):
+            rules.append(
+                IgnoreRule(
+                    kind,
+                    label,
+                    marker.kwargs.get("file"),
+                    marker.kwargs.get("function"),
+                )
+            )
+    return ignore_all, tuple(rules)
+
+
 def _analyse(
     item: pytest.Item, collector: QueryCollector, settings: _Settings
 ) -> str | None:
     """The report for the finished test, or None; never raises."""
-    if internal_error() is not None or item.get_closest_marker("allow_nplusone"):
+    if internal_error() is not None:
+        return None
+    ignore_all, marker_rules = _nplusone_ignores(item)
+    if ignore_all:
         return None
     try:
         root = item.config.rootpath
@@ -313,6 +384,8 @@ def _analyse(
             ),
             cwd=root,
         )
+        if settings.ignore or marker_rules:
+            findings = _drop_ignored(item, settings, findings, marker_rules)
         if not findings:
             return None
         report = format_findings(findings, cwd=root)
@@ -322,6 +395,21 @@ def _analyse(
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "N+1 analysis")
         return None
+
+
+def _drop_ignored(
+    item: pytest.Item,
+    settings: _Settings,
+    findings: list[Finding],
+    marker_rules: tuple[IgnoreRule, ...],
+) -> list[Finding]:
+    """The findings the ini patterns and the test's markers do not ignore."""
+    kept, used = apply_rules(findings, (*settings.ignore, *marker_rules))
+    settings.ignore_used.update(used)
+    settings.stale_markers.extend(
+        (item.nodeid, rule) for rule in marker_rules if rule not in used
+    )
+    return kept
 
 
 def _index_exemption(item: pytest.Item) -> tuple[bool, tuple[str, ...]]:
@@ -351,10 +439,20 @@ def _analyse_indexes(
     if internal_error() is not None or not collector.scans:
         return None
     try:
+        root = item.config.rootpath
         scans = select_findings(collector.scans, (*settings.ignore_tables, *exempt))
+        if settings.ignore and scans:
+            findings = [make_index_finding(scan, cwd=root) for scan in scans]
+            _, used = apply_rules(findings, settings.ignore)
+            settings.ignore_used.update(used)
+            scans = [
+                scan
+                for scan, finding in zip(scans, findings, strict=True)
+                if not any(rule.matches(finding) for rule in settings.ignore)
+            ]
         if not scans:
             return None
-        return format_index_findings(scans, cwd=item.config.rootpath)
+        return format_index_findings(scans, cwd=root)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "missing-index analysis")
         return None
@@ -462,6 +560,27 @@ def _write_index_notes(terminalreporter: pytest.TerminalReporter) -> None:
         terminalreporter.write_line(line)
 
 
+def _write_stale_ignores(
+    terminalreporter: pytest.TerminalReporter, settings: _Settings
+) -> None:
+    """Warn about ignores that matched no finding in this run."""
+    config = terminalreporter.config
+    # The ini patterns match in the workers, so the controller cannot tell.
+    # After an internal error or with measurement off, nothing was matched.
+    if (
+        config.pluginmanager.has_plugin("dsession")
+        or settings.mode == "off"
+        or internal_error() is not None
+    ):
+        return
+    stale = [rule for rule in settings.ignore if rule not in settings.ignore_used]
+    lines = format_stale_ignores(stale, settings.stale_markers)
+    if lines:
+        terminalreporter.write_sep("=", "queryguard: stale ignores", yellow=True)
+        for line in lines:
+            terminalreporter.write_line(line)
+
+
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     config = terminalreporter.config
     settings = config.stash.get(_settings, None)
@@ -476,6 +595,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
             _write_report(terminalreporter, settings)
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             record_error(exc, "queryguard report")
+    try:
+        _write_stale_ignores(terminalreporter, settings)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "stale-ignore summary")
     _report_internal_error(config)
     try:
         _write_internal_failure(terminalreporter)
