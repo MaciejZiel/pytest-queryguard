@@ -1101,7 +1101,7 @@ def _update_baseline(session: pytest.Session, settings: _Settings) -> None:
     after = frozenset(settings.seen)
     try:
         baselines.write(path, after)
-    except OSError as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.baseline_failed = f"could not write {path}: {exc}"
         return
     settings.baseline_written = (
