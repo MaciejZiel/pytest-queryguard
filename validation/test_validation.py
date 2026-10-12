@@ -1,11 +1,12 @@
 # Comment line that shifts every line number by one.
 from sqlalchemy import select
+from sqlalchemy.orm import joinedload
 
 from models import Book, Order, make_session
 
 
 def test_author_names_n_plus_one():
-    names = [book.author.name for book in make_session().query(Book).all()]
+    names = [book.author.name for book in make_session().query(Book).options(joinedload(Book.author)).all()]
     assert len(names) == 4
 
 
