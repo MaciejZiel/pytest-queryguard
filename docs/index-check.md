@@ -18,7 +18,9 @@ or for the project, with `queryguard_index_check = true` (see
 [Configuration](configuration.md)).
 
 The example below uses a real PostgreSQL 17 server through pg8000. All
-output is copied from a run with Python 3.13, SQLAlchemy 2.1 and pytest 9.1.
+output is copied from a run with Python 3.13, SQLAlchemy 2.1 and pytest 9.1, with
+`queryguard_hypopg = off` (without it, one notice at the end of the session says how
+to install the hypopg extension, see the [index advisor](index-advisor.md)).
 
 `app/models.py`:
 
@@ -59,6 +61,7 @@ queryguard: missing index
   first at app/orders.py:11 in orders_of
   sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = %s::INTEGER
   fix: CREATE INDEX ON orders (customer_id)
+  alembic: op.create_index("ix_orders_customer_id", "orders", ["customer_id"])
 
   a sequential scan is fine on a small lookup table:
   list it in queryguard_index_ignore_tables
@@ -99,6 +102,7 @@ queryguard: missing index
   first at app/orders.py:11 in orders_of
   sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = $1::INTEGER
   fix: CREATE INDEX ON orders (customer_id)
+  alembic: op.create_index("ix_orders_customer_id", "orders", ["customer_id"])
 
   a sequential scan is fine on a small lookup table:
   list it in queryguard_index_ignore_tables
