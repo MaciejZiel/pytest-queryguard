@@ -87,6 +87,20 @@
   }
  ],
  "catalog": {
+  "roots": [
+   [
+    "public",
+    "events_2025",
+    "public",
+    "events"
+   ],
+   [
+    "public",
+    "events_2026",
+    "public",
+    "events"
+   ]
+  ],
   "leading": [
    [
     "public",
