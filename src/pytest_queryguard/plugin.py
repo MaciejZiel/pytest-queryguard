@@ -23,6 +23,7 @@ from .messages import (
     format_findings,
     format_index_findings,
     format_index_notes,
+    make_findings,
     swap_root,
 )
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
@@ -256,14 +257,18 @@ def _analyse(
     if internal_error() is not None or item.get_closest_marker("allow_nplusone"):
         return None
     try:
-        findings = detect(
-            collector,
-            relationship_threshold=settings.relationship,
-            repeat_threshold=settings.repeat,
+        root = item.config.rootpath
+        findings = make_findings(
+            detect(
+                collector,
+                relationship_threshold=settings.relationship,
+                repeat_threshold=settings.repeat,
+            ),
+            cwd=root,
         )
         if not findings:
             return None
-        return format_findings(findings, cwd=item.config.rootpath)
+        return format_findings(findings, cwd=root)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc)
         return None

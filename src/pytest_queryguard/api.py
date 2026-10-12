@@ -10,7 +10,7 @@ from .collector import QueryCollector, pop, push
 from .detectors import detect
 from .events import CallSite, StatementEvent
 from .listeners import install, internal_error
-from .messages import display_root, format_budget, format_findings
+from .messages import display_root, format_budget, format_findings, make_findings
 from .warnings import QueryGuardInternalWarning
 
 
@@ -177,13 +177,17 @@ class QueryLog:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 2:
                 raise ValueError(f"{name} must be an integer >= 2, got {value!r}")
-        findings = detect(
-            self._collector,
-            relationship_threshold=relationship_threshold,
-            repeat_threshold=repeat_threshold,
+        root = display_root()
+        findings = make_findings(
+            detect(
+                self._collector,
+                relationship_threshold=relationship_threshold,
+                repeat_threshold=repeat_threshold,
+            ),
+            cwd=root,
         )
         if findings:
-            raise NPlusOneDetected(format_findings(findings, cwd=display_root()))
+            raise NPlusOneDetected(format_findings(findings, cwd=root))
 
     def __repr__(self) -> str:
         return f"<QueryLog {self.count} queries>"
