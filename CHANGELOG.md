@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0rc2] - 2026-10-12
+
 ### Added
 
 - Community files: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`
@@ -435,7 +437,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc1...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc2...HEAD
+[0.4.0rc2]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc1...v0.4.0rc2
 [0.4.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.3.0...v0.4.0rc1
 [0.3.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.1.0...v0.2.0
