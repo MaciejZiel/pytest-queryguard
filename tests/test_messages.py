@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pytest_queryguard.detectors import Finding, RelationshipFinding, RepeatFinding
 from pytest_queryguard.events import CallSite, ScanEvent, ScanIssue, StatementEvent
 from pytest_queryguard.messages import (
     format_budget,
+    format_duration,
     format_findings,
     format_index_findings,
     format_index_notes,
@@ -229,3 +232,22 @@ def test_index_notes_list_notices_then_the_first_error() -> None:
     assert format_index_notes([], 1, ("boom", "SELECT 1"))[0] == (
         "1 statement could not be explained; the first: boom"
     )
+
+
+@pytest.mark.parametrize(
+    ("seconds", "text"),
+    [
+        (0.0000004, "0 us"),
+        (0.000037, "37 us"),
+        (0.00099, "990 us"),
+        (0.001, "1.0 ms"),
+        (0.4, "400.0 ms"),
+        (0.9994, "999.4 ms"),
+        (1.0, "1.00 s"),
+        (1.254, "1.25 s"),
+    ],
+)
+def test_format_duration_uses_microseconds_below_a_millisecond(
+    seconds: float, text: str
+) -> None:
+    assert format_duration(seconds) == text
