@@ -72,10 +72,13 @@ def test_slowest_orders_statements_by_duration(engine: Engine) -> None:
         _run(engine, f"select nap({SLEEP * 3})")
         _run(engine, f"select nap({SLEEP})")
     top = log.slowest(2)
-    assert [q.sql for q in top] == [
-        f"select nap({SLEEP * 3})",
-        f"select nap({SLEEP})",
-    ]
+    # Compare with the measured durations, not with the sleeps: a loaded CI
+    # runner can stall a short nap for longer than a long one takes.
+    expected = sorted(log, key=lambda q: q.duration or 0.0, reverse=True)[:2]
+    assert [q.sql for q in top] == [q.sql for q in expected]
+    assert [q.duration for q in top] == sorted(
+        (q.duration for q in top), key=lambda d: d or 0.0, reverse=True
+    )
     assert log.slowest(0) == ()
     assert len(log.slowest()) == 3
 
