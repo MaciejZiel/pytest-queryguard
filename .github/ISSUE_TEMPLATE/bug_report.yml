@@ -1,0 +1,46 @@
+name: Bug report
+description: A wrong finding, a missed N+1, a crash or a wrong failure message.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A minimal reproduction is the most useful thing you can attach.
+        See the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html) first for the usual causes (fixtures are not measured, `raiseload`, pytest-xdist).
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: Output of `pip list | grep -i -E "pytest|sqlalchemy|queryguard|asyncpg|aiosqlite|psycopg|pg8000"` plus your Python version and OS.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: A self-contained test file (models, engine, the test) that shows the problem with SQLite in memory if possible. Without it the report is hard to act on.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen (a finding, no finding, a different message).
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Actual output
+      description: The full pytest output, including the `queryguard:` block if there is one. Remove anything private.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: Your `queryguard_*` ini options and any command-line flags.
+      render: toml

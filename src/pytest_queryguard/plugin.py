@@ -14,7 +14,7 @@ from . import baseline as baselines
 from . import catalog, eager, hypopg, indexes, sarif
 from .baseline import BaselineError, Identity, sorted_identities
 from .collector import QueryCollector, pop, push
-from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, detect
+from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, SCOPE_TEST, SCOPES, detect
 from .findings import KIND_MISSING_INDEX, KIND_UNUSED_EAGER_LOAD, Finding
 from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
 from .indexes import select_findings
@@ -82,8 +82,10 @@ class _Settings:
         sarif_path: Path | None = None,
         index_advisor: bool = True,
         hypopg: str = "auto",
+        repeat_scope: str = SCOPE_TEST,
     ) -> None:
         self.mode = mode
+        self.repeat_scope = repeat_scope
         self.relationship = relationship
         self.repeat = repeat
         self.index_check = index_check
@@ -231,6 +233,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         **_INT_TYPE,
     )
     parser.addini(
+        "queryguard_repeat_scope",
+        "What the repeat, relationship, column-load and write-loop rules count "
+        "together: test (everything one test runs) or session (each SQLAlchemy "
+        "Session or connection checkout on its own, for tests that make several "
+        "requests)",
+        default=SCOPE_TEST,
+    )
+    parser.addini(
         "queryguard_fail_on",
         "Finding kinds that fail a test in fail mode, one per line (fnmatch "
         "patterns); the other kinds only warn. Empty: all kinds fail",
@@ -334,6 +344,22 @@ def _small_repeat(config: pytest.Config, repeat: int) -> int | None:
         raise pytest.UsageError(
             f"{name} must be lower than queryguard_repeat_threshold ({repeat}), "
             f"got {value}"
+        )
+    return value
+
+
+def _repeat_scope(config: pytest.Config) -> str:
+    name = "queryguard_repeat_scope"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(
+            f"{name} must be one of {', '.join(SCOPES)}: {exc}"
+        ) from None
+    value = str(raw).strip().lower()
+    if value not in SCOPES:
+        raise pytest.UsageError(
+            f"{name} must be one of {', '.join(SCOPES)}, got {raw!r}"
         )
     return value
 
@@ -553,6 +579,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _sarif_path(config),
         _index_advisor(config),
         _hypopg(config),
+        _repeat_scope(config),
     )
     settings.baseline_previous_error = previous_error
     settings.rootpath = config.rootpath
@@ -707,6 +734,7 @@ def _analyse(
                 column_load_threshold=settings.column_load,
                 small_repeat_threshold=settings.small_repeat,
                 write_loop_threshold=settings.write_loop,
+                scope=settings.repeat_scope,
             ),
             cwd=root,
         )

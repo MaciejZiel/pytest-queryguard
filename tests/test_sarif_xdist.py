@@ -71,6 +71,12 @@ def test_workers_produce_the_same_file_as_a_serial_run(
     # two tests share one identity (same helper), so they make one result of count 6
     by_label = {r["properties"]["label"]: r["properties"]["count"] for r in results}
     assert by_label == {"Customer.orders": 3, "Order.customer": 6}
+    peaks = {
+        r["properties"]["label"]: r["properties"].get("peakCount") for r in results
+    }
+    assert peaks == {"Customer.orders": None, "Order.customer": 3}
+    merged = next(r for r in results if r["properties"]["label"] == "Order.customer")
+    assert "6 times in total, up to 3 times in one test" in merged["message"]["text"]
 
 
 @WORKERS

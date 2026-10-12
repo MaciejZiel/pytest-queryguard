@@ -36,6 +36,32 @@ _SQL_LIMIT = 200
 _REPEAT_FIX = (
     "fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop"
 )
+_BATCHED_FIX = (
+    "fix: this query already fetches several rows with IN (...), so it is the "
+    "calls that repeat: call it once with all the ids, or combine the calls"
+)
+_IN_LIST = "IN (...)"
+
+
+def _across(finding: Detection, noun: str) -> str:
+    """ " across N different <noun>" when a per-test count spans several scopes."""
+    scopes = getattr(finding, "scopes", 1)
+    return f" across {scopes} different {noun}" if scopes > 1 else ""
+
+
+def _in_one(finding: Detection, noun: str) -> str:
+    return f" in one {noun}" if getattr(finding, "scoped", False) else ""
+
+
+def _scope_hint(finding: Detection) -> list[str]:
+    """The note for a count that adds up several Sessions, which may be requests."""
+    if getattr(finding, "scopes", 1) <= 1:
+        return []
+    return [
+        "  note: if each belongs to a separate request or unit of work, this is not a",
+        "  loop; set queryguard_repeat_scope = session to count each Session on its",
+        "  own (QueryLog.assert_no_nplusone: repeat_scope='session')",
+    ]
 
 
 _root: Path | None = None
@@ -79,7 +105,10 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
     if isinstance(finding, RelationshipFinding):
         parent = finding.relationship.split(".", 1)[0]
         lines = [
-            f"  {finding.relationship} was lazy-loaded {finding.count} times",
+            (
+                f"  {finding.relationship} was lazy-loaded {finding.count} times"
+                f"{_across(finding, 'Sessions')}{_in_one(finding, 'Session')}"
+            ),
             _first_at(finding.first, cwd),
         ]
         if finding.sample_sql is not None:
@@ -87,6 +116,7 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
         loader = "joinedload" if finding.scalar else "selectinload"
         return [
             *lines,
+            *_scope_hint(finding),
             "  fix: load it with the parent query, e.g.",
             f"       select({parent}).options({loader}({finding.relationship}))",
         ]
@@ -95,11 +125,15 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
     if isinstance(finding, WriteLoopFinding):
         return _write_block(finding, cwd)
     how = " with different parameters" if finding.varying else ""
+    where = _across(finding, "Sessions or connection checkouts") + _in_one(
+        finding, "Session or connection checkout"
+    )
     return [
-        f"  the same statement ran {finding.count} times{how}",
+        f"  the same statement ran {finding.count} times{how}{where}",
         _first_at(finding.first, cwd),
         f"  {_truncate(finding.sql)}",
-        f"  {_REPEAT_FIX}",
+        *_scope_hint(finding),
+        f"  {_BATCHED_FIX if _IN_LIST in finding.sql else _REPEAT_FIX}",
     ]
 
 
@@ -121,16 +155,24 @@ _WRITE_FIX = {
 
 def _write_block(finding: WriteLoopFinding, cwd: Path | None) -> list[str]:
     return [
-        f"  the same {finding.verb} ran {finding.count} times, one row at a time",
+        (
+            f"  the same {finding.verb} ran {finding.count} times, one row at a "
+            f"time{_across(finding, 'Sessions or connection checkouts')}"
+            f"{_in_one(finding, 'Session or connection checkout')}"
+        ),
         _first_at(finding.first, cwd),
         f"  {_truncate(finding.sql)}",
+        *_scope_hint(finding),
         *_WRITE_FIX.get(finding.verb, _WRITE_FIX["INSERT"]),
     ]
 
 
 def _column_block(finding: ColumnLoadFinding, cwd: Path | None) -> list[str]:
     owner = finding.owner
-    count = f"{finding.count} times for {finding.instances} instances"
+    count = (
+        f"{finding.count} times for {finding.instances} instances"
+        f"{_across(finding, 'Sessions')}{_in_one(finding, 'Session')}"
+    )
     if finding.cause == CAUSE_DEFERRED:
         names = ", ".join(finding.attributes)
         head = f"  {owner}.{names} was loaded on its own {count} (deferred column)"
@@ -166,7 +208,7 @@ def _column_block(finding: ColumnLoadFinding, cwd: Path | None) -> list[str]:
     lines = [head, _first_at(finding.first, cwd)]
     if finding.sample_sql is not None:
         lines.append(f"  sql: {_truncate(finding.sample_sql)}")
-    return [*lines, *fix]
+    return [*lines, *_scope_hint(finding), *fix]
 
 
 def make_finding(detection: Detection, *, cwd: Path | None = None) -> Finding:

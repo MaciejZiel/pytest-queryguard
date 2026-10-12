@@ -51,6 +51,10 @@ pytest, to the working directory). The thresholds are keyword arguments,
 `relationship_threshold=2` and `repeat_threshold=5` by default, the same
 defaults as the ini options.
 
+`repeat_scope="session"` counts each `Session` on its own, like
+`queryguard_repeat_scope = session` (see [Tests with several sessions or
+requests](several-sessions.md)); the default is `"test"`.
+
 It does not read the ini options, `queryguard_mode` or the `allow_nplusone`
 marker; calling it is an explicit request. A project that sets
 `queryguard_repeat_threshold = 10` in its configuration therefore has to pass

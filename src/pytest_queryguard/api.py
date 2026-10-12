@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import overload
 
 from .collector import QueryCollector, pop, push
-from .detectors import detect
+from .detectors import SCOPES, detect
 from .events import CallSite, StatementEvent
 from .listeners import install, internal_error
 from .messages import (
@@ -212,6 +212,7 @@ class QueryLog:
         column_load_threshold: int = 5,
         small_repeat_threshold: int | None = None,
         write_loop_threshold: int | None = None,
+        repeat_scope: str = "test",
     ) -> None:
         """Raise ``NPlusOneDetected`` when the recorded block has N+1 queries.
 
@@ -227,7 +228,12 @@ class QueryLog:
         2), that many single-row INSERT, UPDATE or DELETE statements of one
         shape from one line count too.
 
-        The thresholds are these five arguments only. The ``queryguard_*`` ini
+        ``repeat_scope`` is ``"test"`` (the default: everything in the block counts
+        together) or ``"session"``: each SQLAlchemy ``Session`` (or, for a
+        connection no Session opened, each connection checkout) counts on its
+        own, which is what a block that makes several independent requests needs.
+
+        The thresholds and ``repeat_scope`` are these arguments only. The ``queryguard_*`` ini
         options, ``queryguard_mode`` and the ``allow_nplusone`` marker are not
         read, so a project that changes ``queryguard_repeat_threshold``,
         ``queryguard_relationship_threshold`` or
@@ -264,6 +270,10 @@ class QueryLog:
                 "small_repeat_threshold must be None or an integer >= 2 and "
                 f"below repeat_threshold ({repeat_threshold}), got {small!r}"
             )
+        if repeat_scope not in SCOPES:
+            raise ValueError(
+                f"repeat_scope must be one of {', '.join(SCOPES)}, got {repeat_scope!r}"
+            )
         loop = write_loop_threshold
         if loop is not None and (
             isinstance(loop, bool) or not isinstance(loop, int) or loop < 2
@@ -280,6 +290,7 @@ class QueryLog:
                 column_load_threshold=column_load_threshold,
                 small_repeat_threshold=small_repeat_threshold,
                 write_loop_threshold=write_loop_threshold,
+                scope=repeat_scope,
             ),
             cwd=root,
         )
