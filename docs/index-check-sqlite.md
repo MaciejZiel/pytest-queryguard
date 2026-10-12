@@ -125,11 +125,21 @@ These are covered by tests in `tests/test_sqlite_index.py`.
 
 ## Cost
 
-One `EXPLAIN QUERY PLAN` per distinct statement shape per test, plus two
-catalog queries when a scan needs judging. `scripts/bench_overhead.py
---index-check` measures it; see the pull request that introduced the check for
-numbers. A statement that is already known in the test costs a text
-normalization and a set lookup.
+One `EXPLAIN QUERY PLAN` per distinct statement shape per test, plus a few
+catalog queries only when a scan needs judging. `scripts/bench_overhead.py
+--index-check --statements 3000 --runs 7` on in-memory SQLite (Python 3.13,
+SQLAlchemy 2.1, one machine, median microseconds per statement):
+
+| loop | measurement off | listeners on | plus index check | index check alone |
+|---|---|---|---|---|
+| Core `select` by key | 64.2 | 81.9 | 98.7 | +16.8 |
+| ORM `select` by key | 127.1 | 190.2 | 210.1 | +19.8 |
+| Core, every statement a new shape | 285.9 | 334.5 | 372.7 | +38.2 |
+
+A statement shape that was already explained in the test costs a text
+normalization and a set lookup (the first two rows); a new shape costs one more
+`EXPLAIN QUERY PLAN` on the same connection (the third row). These are timings
+of one machine and an in-memory database, not a promise.
 
 ## Limits to keep in mind
 
