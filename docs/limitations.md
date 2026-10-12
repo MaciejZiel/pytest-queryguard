@@ -38,14 +38,16 @@
   flush count as one write, so `add_all()` plus one `flush()` is not reported
   even when the dialect sends one `INSERT` per row. That relies on finding
   `Session._flush` on the call stack, a SQLAlchemy internal.
-- The repeat rule at its default threshold counts every run of one `SELECT`
-  shape, including the pages of a pagination loop (`LIMIT` and `OFFSET`, or a
-  keyset `WHERE id > :last`) and the chunks of a batched `IN (...)` load. Five
-  or more pages or chunks are reported as a repeated statement. Only the
-  opt-in small-repeat rule leaves pagination alone, and neither rule can tell
-  a polling loop that repeats a statement on purpose from an N+1. Raise
-  `queryguard_repeat_threshold` or mark the test with `allow_nplusone` for such
-  code. The [accuracy page](accuracy.md) lists the scenarios.
+- The repeat rules leave pagination and chunked `IN` loads alone only when the
+  bound parameters show them (see "Pagination and chunks" in
+  [How detection works](how-detection-works.md)). Composite keyset conditions,
+  MySQL's `LIMIT offset, count`, literal `IN` lists, `IN` lists shorter than 10
+  values and the same keys loaded twice in one test are still reported. Neither
+  rule can tell a polling loop that repeats a statement on purpose from a
+  loop-invariant query inside a loop: both repeat one statement with the same
+  parameters, so both are reported. Raise `queryguard_repeat_threshold` or mark
+  the test with `allow_nplusone` for such code. The
+  [accuracy page](accuracy.md) lists the scenarios.
 - A few statements below the thresholds are not reported by default: fewer than
   five runs of one statement (`queryguard_small_repeat_threshold` reports them)
   and fewer than five instances that reload columns after a commit

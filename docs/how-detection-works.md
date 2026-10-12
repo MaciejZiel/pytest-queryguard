@@ -47,15 +47,65 @@ one test. Statements are compared after normalization: whitespace is
 collapsed, literals and parameter placeholders become `?`, and `IN (...)`
 lists of any length are one shape. Statements already reported as a
 relationship or column load are not counted again, and `INSERT`, `UPDATE`
-and `DELETE` are never counted by this rule. The label is the normalized
-statement. This rule sees Core and `text()` statements as well as ORM ones.
+and `DELETE` are never counted by this rule. Pagination and chunked `IN`
+loads are not counted either, when their parameters show it (see below). The
+label is the normalized statement. This rule sees Core and `text()`
+statements as well as ORM ones.
 
 With `queryguard_small_repeat_threshold` set (off by default, for example
 `2`), a statement that ran at least that many times but fewer than the repeat
 threshold is reported too, if all of these hold: every run came from the same
 source line, every run had different parameters, the statement is not a write,
 and it is not pagination (`OFFSET`, or `LIMIT` with a `>` or `<` condition on
-a parameter).
+a parameter) or a chunked `IN` load as described below.
+
+#### Pagination and chunks
+
+Walking through a result page by page, and loading a long list of keys in
+slices, run one statement shape many times on purpose. Both rules leave such
+runs alone when the statements and their bound parameters show it. Each
+parameter is classified by the SQL just before it: after `OFFSET` it is the
+offset, after `LIMIT` (or `FETCH FIRST`, `TOP`) the page size, after `<`,
+`<=`, `>` or `>=` a range bound, inside an `IN (...)` list a list member, and
+anything else a plain value. Literal `LIMIT 4 OFFSET 8` values count as page
+size and offset. The values come from the parameters the driver got, by
+position (`?`, `%s`, `$1`) or by name (`%(name)s`, `:name`).
+
+The runs of one shape are **pagination** when all of these hold:
+
+- the statement has `OFFSET`, or `LIMIT` with a range bound;
+- the plain values, the `IN` lists and the page size are the same in every run:
+  only the cursor (the offsets and range bounds) changes. A loop over items
+  changes a plain value (`WHERE customer_id = ?`), so the first page of each
+  customer's orders is still reported;
+- the page size, when it is known, is more than one row. `LIMIT 1 OFFSET n`
+  reads a table one row per statement and is still reported, which answers the
+  concern in [#60](https://github.com/MaciejZiel/pytest-queryguard/issues/60);
+- the cursor moves the same way (up or down) from run to run and never repeats,
+  and an offset moves by at least the page size, so pages do not overlap. The
+  walk may start again from its first cursor (a test that reads the same list
+  twice); a restart anywhere else is reported.
+
+The runs are a **chunked `IN` load** when all of these hold:
+
+- one `IN` list changes from run to run and everything else is the same;
+- the lists share no value: together they partition one list of keys;
+- every list has the same length, at least 10 values, except one shorter list
+  (the remainder, in any position).
+
+The minimum of 10 is there because per-item lists are short: the two
+addresses of an order, the lines of one order. A list of one id per run is
+reported.
+
+What these rules cannot see, and so still report: a polling loop and a
+loop-invariant query, which both repeat one statement with the same
+parameters (the first is fine, the second is a bug, and the statements are the
+same); composite keyset conditions such as `a < ? OR (a = ? AND b < ?)`, where
+the bound is also a plain value; MySQL's `LIMIT offset, count`; `IN` lists
+written as literals; and two chunked loads of the same keys in one test (the
+lists overlap). A parameter that cannot be read (an unknown placeholder
+style, values that do not compare) means the statements are reported as
+before.
 
 ### column-load
 
