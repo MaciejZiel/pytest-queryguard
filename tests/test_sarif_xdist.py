@@ -89,3 +89,20 @@ def test_baseline_and_sarif_together_under_workers(
     assert (
         json.loads((project.path / "qg.sarif").read_text())["runs"][0]["results"] == []
     )
+
+
+@WORKERS
+def test_workers_use_the_workspace_prefix(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, workers: int
+) -> None:
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(project.path.parent))
+    _run(project, "--queryguard-sarif=serial.sarif")
+    _run(project, "-n", str(workers), "--queryguard-sarif=parallel.sarif")
+    serial = (project.path / "serial.sarif").read_text()
+    assert (project.path / "parallel.sarif").read_text() == serial
+    results = json.loads(serial)["runs"][0]["results"]
+    uris = {
+        r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        for r in results
+    }
+    assert uris == {f"{project.path.name}/test_loops.py"}

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, NamedTuple
@@ -188,6 +189,25 @@ def repo_path(file: str | None) -> str | None:
     return PurePosixPath(file.replace("\\", "/")).as_posix()
 
 
+def workspace_prefix(rootdir: Path | None, workspace: str | None) -> str:
+    """Path of the rootdir below the repository root, as posix text ("" if none).
+
+    GitHub reads ``artifactLocation.uri`` relative to the repository root. The
+    findings carry rootdir-relative paths, so when pytest runs in a
+    subdirectory the prefix has to be added. ``workspace`` is the value of
+    ``GITHUB_WORKSPACE``; both paths are resolved, so symlinks on either side
+    do not matter. Rootdir outside the workspace (or no workspace): "".
+    """
+    if rootdir is None or not workspace or not workspace.strip():
+        return ""
+    try:
+        base = Path(os.path.realpath(workspace.strip()))
+        relative = Path(os.path.realpath(rootdir)).relative_to(base)
+    except (ValueError, OSError):
+        return ""
+    return "" if relative == Path() else relative.as_posix()
+
+
 def _rule(kind: str) -> dict[str, Any]:
     name, short, full, fix = _RULES[kind]
     text = f"{full}\n\nFix: {fix}"
@@ -208,10 +228,12 @@ def _message(finding: Finding) -> str:
     return "\n".join(lines).strip() or finding.label
 
 
-def _result(finding: Finding, level: str) -> dict[str, Any] | None:
+def _result(finding: Finding, level: str, prefix: str = "") -> dict[str, Any] | None:
     path = repo_path(finding.file)
     if path is None:
         return None  # GitHub shows a result only with a location
+    if prefix:
+        path = f"{prefix}/{path}"
     region: dict[str, Any] = {"startLine": finding.line if finding.line else 1}
     location: dict[str, Any] = {
         "physicalLocation": {
@@ -238,8 +260,15 @@ def _result(finding: Finding, level: str) -> dict[str, Any] | None:
     }
 
 
-def build(store: Collected, version: str) -> tuple[dict[str, Any], int]:
-    """(SARIF document, number of findings left out for lack of a location)."""
+def build(
+    store: Collected, version: str, prefix: str = ""
+) -> tuple[dict[str, Any], int]:
+    """(SARIF document, number of findings left out for lack of a location).
+
+    ``prefix`` is put before every location URI (see ``workspace_prefix``); the
+    fingerprints are computed from the rootdir-relative identity and do not
+    depend on it.
+    """
     results: list[dict[str, Any]] = []
     omitted = 0
     for identity in sorted(store, key=_sort_key):
@@ -247,7 +276,7 @@ def build(store: Collected, version: str) -> tuple[dict[str, Any], int]:
         if finding.kind not in _RULES:
             omitted += 1
             continue
-        result = _result(finding, level)
+        result = _result(finding, level, prefix)
         if result is None:
             omitted += 1
         else:
