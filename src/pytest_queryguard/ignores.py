@@ -10,10 +10,17 @@ from .findings import (
     KIND_MISSING_INDEX,
     KIND_RELATIONSHIP,
     KIND_REPEAT,
+    KIND_WRITE_LOOP,
     Finding,
 )
 
-KINDS = (KIND_RELATIONSHIP, KIND_REPEAT, KIND_COLUMN_LOAD, KIND_MISSING_INDEX)
+KINDS = (
+    KIND_RELATIONSHIP,
+    KIND_REPEAT,
+    KIND_COLUMN_LOAD,
+    KIND_WRITE_LOOP,
+    KIND_MISSING_INDEX,
+)
 _OPTION = re.compile(r"\s+(file|function)=(\S+)$")
 
 

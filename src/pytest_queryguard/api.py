@@ -211,6 +211,7 @@ class QueryLog:
         repeat_threshold: int = 5,
         column_load_threshold: int = 5,
         small_repeat_threshold: int | None = None,
+        write_loop_threshold: int | None = None,
     ) -> None:
         """Raise ``NPlusOneDetected`` when the recorded block has N+1 queries.
 
@@ -222,14 +223,17 @@ class QueryLog:
         their own. With ``small_repeat_threshold`` (an integer, at least 2 and
         below ``repeat_threshold``), a statement that ran that many times or
         more from one line, each time with other parameters, counts too,
-        unless it paginates.
+        unless it paginates. With ``write_loop_threshold`` (an integer, at least
+        2), that many single-row INSERT, UPDATE or DELETE statements of one
+        shape from one line count too.
 
-        The thresholds are these four arguments only. The ``queryguard_*`` ini
+        The thresholds are these five arguments only. The ``queryguard_*`` ini
         options, ``queryguard_mode`` and the ``allow_nplusone`` marker are not
         read, so a project that changes ``queryguard_repeat_threshold``,
         ``queryguard_relationship_threshold`` or
-        ``queryguard_column_load_threshold`` or ``queryguard_small_repeat_threshold``
-        must pass the same values here.
+        ``queryguard_column_load_threshold``,
+        ``queryguard_small_repeat_threshold`` or
+        ``queryguard_write_loop_threshold`` must pass the same values here.
 
         Raises ``RuntimeError`` instead of checking when pytest-queryguard hit
         an internal error and stopped recording, because the log may then be
@@ -260,6 +264,13 @@ class QueryLog:
                 "small_repeat_threshold must be None or an integer >= 2 and "
                 f"below repeat_threshold ({repeat_threshold}), got {small!r}"
             )
+        loop = write_loop_threshold
+        if loop is not None and (
+            isinstance(loop, bool) or not isinstance(loop, int) or loop < 2
+        ):
+            raise ValueError(
+                f"write_loop_threshold must be None or an integer >= 2, got {loop!r}"
+            )
         root = display_root()
         findings = make_findings(
             detect(
@@ -268,6 +279,7 @@ class QueryLog:
                 repeat_threshold=repeat_threshold,
                 column_load_threshold=column_load_threshold,
                 small_repeat_threshold=small_repeat_threshold,
+                write_loop_threshold=write_loop_threshold,
             ),
             cwd=root,
         )
