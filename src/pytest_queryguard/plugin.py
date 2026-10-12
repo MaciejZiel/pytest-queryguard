@@ -9,7 +9,7 @@ import pytest
 
 from . import catalog, indexes
 from .collector import QueryCollector, pop, push
-from .detectors import detect
+from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, detect
 from .findings import Finding
 from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
 from .indexes import select_findings
@@ -63,6 +63,7 @@ class _Settings:
         ignore_tables: tuple[str, ...] = (),
         max_events: int | None = DEFAULT_MAX_EVENTS,
         ignore: tuple[IgnoreRule, ...] = (),
+        column_load: int = DEFAULT_COLUMN_LOAD_THRESHOLD,
     ) -> None:
         self.mode = mode
         self.relationship = relationship
@@ -71,6 +72,7 @@ class _Settings:
         self.ignore_tables = ignore_tables
         self.max_events = max_events
         self.ignore = ignore
+        self.column_load = column_load
         # what the ignores did, for the stale-ignore warning in the summary
         self.ignore_used: set[IgnoreRule] = set()
         self.stale_markers: list[tuple[str, IgnoreRule]] = []
@@ -133,6 +135,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "queryguard_repeat_threshold",
         "Executions of one statement treated as N+1 (integer >= 2)",
         default=5 if _NATIVE_INT else "5",
+        **_INT_TYPE,
+    )
+    parser.addini(
+        "queryguard_column_load_threshold",
+        "Instances of one class that must load deferred or expired columns on "
+        "their own to count as N+1 (integer >= 2)",
+        default=DEFAULT_COLUMN_LOAD_THRESHOLD
+        if _NATIVE_INT
+        else str(DEFAULT_COLUMN_LOAD_THRESHOLD),
         **_INT_TYPE,
     )
     parser.addini(
@@ -258,6 +269,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _ignore_tables(config),
         _max_events(config),
         _ignore_rules(config),
+        _threshold(config, "queryguard_column_load_threshold"),
     )
 
 
@@ -387,6 +399,7 @@ def _analyse(
                 collector,
                 relationship_threshold=settings.relationship,
                 repeat_threshold=settings.repeat,
+                column_load_threshold=settings.column_load,
             ),
             cwd=root,
         )

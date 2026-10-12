@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from .collector import QueryCollector
-from .events import CallSite
+from .events import CAUSE_DEFERRED, CallSite, ColumnLoadEvent
 
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
@@ -31,6 +31,10 @@ _IN_LIST = re.compile(
 _DOLLAR_PARAM = re.compile(r"\$\d+")
 _WS = re.compile(r"\s+")
 _WRITES = ("INSERT", "UPDATE", "DELETE")
+# Distinct instances that must load columns on their own to count as N+1: as
+# high as the repeat rule, because touching a few objects after a commit is
+# ordinary test code.
+DEFAULT_COLUMN_LOAD_THRESHOLD = 5
 
 
 def collapse_lists(sql: str) -> str:
@@ -54,6 +58,7 @@ class RelationshipFinding:
     count: int
     first: CallSite | None
     sample_sql: str | None
+    scalar: bool = False  # many-to-one or one-to-one: joinedload, not selectinload
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +68,26 @@ class RepeatFinding:
     first: CallSite | None
 
 
-Detection = RelationshipFinding | RepeatFinding
+@dataclass(frozen=True, slots=True)
+class ColumnLoadFinding:
+    """Instances of one class that each loaded columns in their own statement."""
+
+    owner: str  # the mapped class
+    attributes: tuple[str, ...]  # what was loaded (deferred columns only)
+    cause: str  # events.CAUSE_*
+    count: int  # loads
+    instances: int  # distinct instances
+    first: CallSite | None
+    sample_sql: str | None
+
+    @property
+    def label(self) -> str:
+        if self.cause == CAUSE_DEFERRED and self.attributes:
+            return f"{self.owner}.{','.join(self.attributes)}"
+        return f"{self.owner} ({self.cause})"
+
+
+Detection = RelationshipFinding | RepeatFinding | ColumnLoadFinding
 # The name this union had before findings.Finding existed.
 Finding = Detection
 
@@ -74,6 +98,7 @@ def _relationship_findings(
     parents: dict[str, set[object]] = {}
     counts: Counter[str] = Counter()
     first: dict[str, CallSite | None] = {}
+    scalar: dict[str, bool] = {}
     for load in collector.relationship_loads:
         if load.parent_key is None:
             continue
@@ -82,15 +107,41 @@ def _relationship_findings(
         counts[name] += 1
         if first.get(name) is None:
             first[name] = load.callsite
+        scalar[name] = load.scalar
     samples: dict[str, str] = {}
     for stmt in collector.statements:
         if stmt.relationship is not None:
             samples.setdefault(stmt.relationship, stmt.sql)
     found = [
-        RelationshipFinding(name, counts[name], first[name], samples.get(name))
+        RelationshipFinding(
+            name, counts[name], first[name], samples.get(name), scalar[name]
+        )
         for name, keys in parents.items()
         if len(keys) >= threshold
     ]
+    return sorted(found, key=lambda f: -f.count)
+
+
+def _column_load_findings(
+    collector: QueryCollector, threshold: int
+) -> list[ColumnLoadFinding]:
+    groups: dict[tuple[str, tuple[str, ...], str], list[ColumnLoadEvent]] = {}
+    for load in collector.column_loads:
+        if load.cause != CAUSE_DEFERRED:
+            attrs: tuple[str, ...] = ()
+        else:
+            attrs = load.attributes
+        groups.setdefault((load.owner, attrs, load.cause), []).append(load)
+    found: list[ColumnLoadFinding] = []
+    for (owner, attrs, cause), loads in groups.items():
+        keys = {load.instance_key for load in loads}
+        if len(keys) < threshold:
+            continue
+        site = next((load.callsite for load in loads if load.callsite), None)
+        sample = next((load.sql for load in loads if load.sql), None)
+        found.append(
+            ColumnLoadFinding(owner, attrs, cause, len(loads), len(keys), site, sample)
+        )
     return sorted(found, key=lambda f: -f.count)
 
 
@@ -98,7 +149,7 @@ def _repeat_findings(collector: QueryCollector, threshold: int) -> list[RepeatFi
     counts: Counter[str] = Counter()
     first: dict[str, CallSite | None] = {}
     for stmt in collector.statements:
-        if stmt.relationship is not None:
+        if stmt.relationship is not None or stmt.column_load:
             continue
         if stmt.sql.lstrip().upper().startswith(_WRITES):
             continue
@@ -113,9 +164,14 @@ def _repeat_findings(collector: QueryCollector, threshold: int) -> list[RepeatFi
 
 
 def detect(
-    collector: QueryCollector, *, relationship_threshold: int, repeat_threshold: int
+    collector: QueryCollector,
+    *,
+    relationship_threshold: int,
+    repeat_threshold: int,
+    column_load_threshold: int = DEFAULT_COLUMN_LOAD_THRESHOLD,
 ) -> list[Detection]:
     findings: list[Detection] = []
     findings.extend(_relationship_findings(collector, relationship_threshold))
+    findings.extend(_column_load_findings(collector, column_load_threshold))
     findings.extend(_repeat_findings(collector, repeat_threshold))
     return findings

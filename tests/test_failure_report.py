@@ -84,6 +84,7 @@ def test_summary_names_the_statement_listener(project: pytest.Pytester) -> None:
 @_quiet
 def test_orm_listener_failure_is_named() -> None:
     class State:
+        is_column_load = False
         is_relationship_load = True
 
         @property

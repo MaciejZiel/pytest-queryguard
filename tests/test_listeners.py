@@ -159,3 +159,19 @@ def test_listener_error_is_swallowed_and_disables(
     before = len(rec.statements)
     session.execute(select(Customer)).all()
     assert len(rec.statements) == before
+
+
+def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
+    class State:
+        is_column_load = True
+        load_options = object()  # no _refresh_state: an unknown SQLAlchemy shape
+
+    target = collector.QueryCollector()
+    collector.push(target)
+    try:
+        listeners._on_orm_execute(State())  # type: ignore[arg-type]
+    finally:
+        collector.pop(target)
+    assert listeners.internal_error() is None
+    assert target.column_loads == []
+    assert listeners._take_pending() == (None, None)

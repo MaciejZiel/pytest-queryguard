@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .events import RelationshipLoadEvent, ScanEvent, StatementEvent
+from .events import ColumnLoadEvent, RelationshipLoadEvent, ScanEvent, StatementEvent
 
 
 @dataclass(slots=True, eq=False)
 class QueryCollector:
     statements: list[StatementEvent] = field(default_factory=list)
     relationship_loads: list[RelationshipLoadEvent] = field(default_factory=list)
+    column_loads: list[ColumnLoadEvent] = field(default_factory=list)
     # Missing-index check (see indexes.py); only used when index_check is set.
     index_check: bool = False
     explained: set[object] = field(default_factory=set)
@@ -20,15 +21,18 @@ class QueryCollector:
     max_events: int | None = None
     statement_count: int = 0
     relationship_load_count: int = 0
+    column_load_count: int = 0
     # Seconds the statements took, all of them, stored or only counted.
     db_time: float = 0.0
 
     @property
     def truncated(self) -> bool:
         """True when some statements or loads were counted but not stored."""
-        return self.statement_count > len(
-            self.statements
-        ) or self.relationship_load_count > len(self.relationship_loads)
+        return (
+            self.statement_count > len(self.statements)
+            or self.relationship_load_count > len(self.relationship_loads)
+            or self.column_load_count > len(self.column_loads)
+        )
 
     def add_statement(self, event: StatementEvent) -> None:
         self.statement_count += 1
@@ -39,6 +43,11 @@ class QueryCollector:
         self.relationship_load_count += 1
         if self.max_events is None or len(self.relationship_loads) < self.max_events:
             self.relationship_loads.append(event)
+
+    def add_column_load(self, event: ColumnLoadEvent) -> None:
+        self.column_load_count += 1
+        if self.max_events is None or len(self.column_loads) < self.max_events:
+            self.column_loads.append(event)
 
 
 # Process-wide on purpose: the code under test may run in another thread.

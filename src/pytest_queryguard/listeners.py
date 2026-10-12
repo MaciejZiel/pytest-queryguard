@@ -15,7 +15,14 @@ from sqlalchemy.pool import Pool
 
 from . import catalog, collector, indexes
 from .callsite import find_callsite
-from .events import RelationshipLoadEvent, StatementEvent
+from .events import (
+    CAUSE_DEFERRED,
+    CAUSE_EXPIRED,
+    CAUSE_REFRESH,
+    ColumnLoadEvent,
+    RelationshipLoadEvent,
+    StatementEvent,
+)
 
 _installed = False
 _index_installed = False
@@ -63,16 +70,20 @@ def _innermost(exc: BaseException) -> str | None:
     return f"{os.path.basename(last.filename)}:{last.lineno} in {last.name}"
 
 
-def _set_pending(name: str | None) -> None:
-    _local.pending = None if name is None else (collector.generation(), name)
+def _set_pending(name: str | None, column_load: ColumnLoadEvent | None = None) -> None:
+    if name is None and column_load is None:
+        _local.pending = None
+    else:
+        _local.pending = (collector.generation(), name, column_load)
 
 
-def _take_pending() -> str | None:
+def _take_pending() -> tuple[str | None, ColumnLoadEvent | None]:
+    """(relationship, column load) of the ORM execution the next statement belongs to."""
     pending = getattr(_local, "pending", None)
     _local.pending = None
     if pending is not None and pending[0] == collector.generation():
-        return str(pending[1])
-    return None
+        return pending[1], pending[2]
+    return None, None
 
 
 def _reset_for_tests() -> None:
@@ -82,6 +93,34 @@ def _reset_for_tests() -> None:
     _local.pending = None
 
 
+def _record_column_load(
+    state: ORMExecuteState, targets: tuple[collector.QueryCollector, ...]
+) -> None:
+    """Note an instance that loads columns it already has a row for."""
+    instance = getattr(state.load_options, "_refresh_state", None)
+    if instance is None:
+        _set_pending(None)
+        return
+    options = getattr(state.statement, "_compile_options", None)
+    only = getattr(options, "_only_load_props", None)
+    expired = instance.expired_attributes
+    columns = {prop.key for prop in instance.mapper.column_attrs}
+    if only is None:
+        cause, names = CAUSE_REFRESH, ()
+    elif instance.expired or (only and set(only) <= expired):
+        cause, names = CAUSE_EXPIRED, ()
+    else:
+        cause = CAUSE_DEFERRED
+        names = tuple(sorted(set(only) & columns or only))
+    key = instance.key if instance.key is not None else id(instance)
+    load = ColumnLoadEvent(
+        instance.mapper.class_.__name__, names, cause, key, find_callsite()
+    )
+    _set_pending(None, column_load=load)
+    for target in targets:
+        target.add_column_load(load)
+
+
 def _on_orm_execute(state: ORMExecuteState) -> None:
     if _error is not None:
         return
@@ -89,10 +128,15 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         targets = collector.active()
         if not targets:
             return
+        if state.is_column_load:
+            _record_column_load(state, targets)
+            return
         if not state.is_relationship_load:
             _set_pending(None)
             return
-        name = str(state.loader_strategy_path[-1])  # type: ignore[index]
+        prop = state.loader_strategy_path[-1]  # type: ignore[index]
+        name = str(prop)
+        scalar = getattr(prop, "uselist", None) is False
         parent = state.lazy_loaded_from
         key: object = None
         if parent is not None:
@@ -101,7 +145,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
                 key = id(parent)
         _set_pending(name)
         site = find_callsite()
-        load = RelationshipLoadEvent(name, key, site)
+        load = RelationshipLoadEvent(name, key, site, scalar)
         for target in targets:
             target.add_relationship_load(load)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
@@ -122,7 +166,15 @@ def _on_cursor_execute(
         targets = collector.active()
         if not targets:
             return
-        stmt = StatementEvent(statement, find_callsite(), _take_pending())
+        relationship, column_load = _take_pending()
+        if column_load is not None:
+            column_load.sql = statement
+        stmt = StatementEvent(
+            statement,
+            find_callsite(),
+            relationship,
+            column_load=column_load is not None,
+        )
         for target in targets:
             target.add_statement(stmt)
         if context is not None:
