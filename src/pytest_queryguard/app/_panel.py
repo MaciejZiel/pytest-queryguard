@@ -166,7 +166,10 @@ function el(tag, text, cls) {
   if (cls) e.className = cls;
   return e;
 }
-function ms(s) { return s === null || s === undefined ? "" : (s * 1000).toFixed(1) + " ms"; }
+function ms(s) {
+  if (s === null || s === undefined) return "";
+  return s < 0.001 ? (s * 1e6).toFixed(0) + " us" : (s * 1000).toFixed(1) + " ms";
+}
 function where(x) { return x.file ? " (" + x.file + ":" + x.line + " in " + x.function + ")" : ""; }
 function detail(r) {
   const td = el("td", null, "detail"); td.colSpan = 7;
