@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Tests: the public API snapshot recorded a wrong return type for
+  `QueryLog.slowest()` and did not assert it. It now records
+  `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
 ### Changed
 
 - The repeated-statement rules no longer report pagination and chunked `IN`

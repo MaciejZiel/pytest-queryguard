@@ -148,8 +148,9 @@ Off by default. See [Unused eager loads](unused-eager-load.md).
 
 ### missing-index
 
-Off by default; PostgreSQL 16 and newer, and SQLite. See the
-[PostgreSQL](index-check.md) and [SQLite](index-check-sqlite.md) pages.
+Off by default; PostgreSQL 16 and newer, SQLite, MySQL and MariaDB. See the
+[PostgreSQL](index-check.md), [SQLite](index-check-sqlite.md) and
+[MySQL and MariaDB](index-check-mysql.md) pages.
 
 ## Thresholds and why
 
