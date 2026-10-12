@@ -15,11 +15,13 @@ from .listeners import (
     install,
     install_index_check,
     internal_error,
+    internal_failure,
     record_error,
     swap_error,
 )
 from .messages import (
     format_budget,
+    format_failure,
     format_findings,
     format_index_findings,
     format_index_notes,
@@ -31,6 +33,7 @@ from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
 _MODES = ("fail", "warn", "off")
 _internal_reported = pytest.StashKey[bool]()
+_failure_summarised = pytest.StashKey[bool]()
 _outer_error = pytest.StashKey[BaseException | None]()
 _outer_stopped = pytest.StashKey[str | None]()
 _outer_catalog_error = pytest.StashKey[str | None]()
@@ -271,12 +274,27 @@ def _report_internal_error(config: pytest.Config) -> None:
     if error is None or config.stash.get(_internal_reported, False):
         return
     config.stash[_internal_reported] = True
+    failure = internal_failure()
+    where = f" ({failure.source})" if failure is not None else ""
     std_warnings.warn(
         QueryGuardInternalWarning(
             f"pytest-queryguard disabled itself after an internal error: {error!r}"
+            f"{where}"
         ),
         stacklevel=1,
     )
+
+
+def _write_internal_failure(terminalreporter: pytest.TerminalReporter) -> None:
+    """Tell the user, once, that measurement stopped, where and why."""
+    config = terminalreporter.config
+    failure = internal_failure()
+    if failure is None or config.stash.get(_failure_summarised, False):
+        return
+    config.stash[_failure_summarised] = True
+    terminalreporter.write_sep("=", "queryguard: measurement stopped", yellow=True)
+    for line in format_failure(failure):
+        terminalreporter.write_line(line)
 
 
 def _analyse(
@@ -302,7 +320,7 @@ def _analyse(
             report += "\n\n" + format_truncation(settings.max_events)
         return report
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        record_error(exc)
+        record_error(exc, "N+1 analysis")
         return None
 
 
@@ -338,7 +356,7 @@ def _analyse_indexes(
             return None
         return format_index_findings(scans, cwd=item.config.rootpath)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        record_error(exc)
+        record_error(exc, "missing-index analysis")
         return None
 
 
@@ -392,7 +410,7 @@ def _budget_report(
             total=collector.statement_count,
         )
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        record_error(exc)
+        record_error(exc, "budget report")
         return None
 
 
@@ -452,14 +470,17 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     try:
         _write_index_notes(terminalreporter)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        record_error(exc)
-    if not config.getoption("queryguard_report"):
-        return
-    try:
-        _write_report(terminalreporter, settings)
-    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        record_error(exc)
+        record_error(exc, "summary of the index check")
+    if config.getoption("queryguard_report"):
+        try:
+            _write_report(terminalreporter, settings)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "queryguard report")
     _report_internal_error(config)
+    try:
+        _write_internal_failure(terminalreporter)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "failure summary")
 
 
 @pytest.hookimpl(wrapper=True)

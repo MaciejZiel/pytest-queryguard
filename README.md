@@ -327,7 +327,8 @@ FAILED tests/test_queries.py::test_fetch_customers - pytest_queryguard.api.NP...
 ```
 
 If pytest-queryguard hits an internal error, it stops recording and issues a
-`QueryGuardInternalWarning`. A `record_queries()` block that ends after such
+`QueryGuardInternalWarning` that names the listener that failed; the
+session summary repeats it with the error and the line that raised it. A `record_queries()` block that ends after such
 an error then warns that its log may be incomplete (the warning class is
 exported from `pytest_queryguard`), and `log.assert_no_nplusone()` raises
 `RuntimeError` instead of passing on a log that may be empty. This also holds
