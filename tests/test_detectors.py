@@ -370,6 +370,17 @@ def test_relationship_sample_sql_is_the_first_statement_across_sessions() -> Non
     assert f.scopes == 1
 
 
+def test_relationship_sample_sql_falls_back_when_no_statement_is_in_the_session() -> (
+    None
+):
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, 2) for k in (1, 2))
+    c.statements.append(StatementEvent("SELECT elsewhere", SITE, "A.b", scope=1))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5, scope="session")
+    assert isinstance(f, RelationshipFinding)
+    assert f.sample_sql == "SELECT elsewhere"
+
+
 def test_relationship_counts_the_sessions_it_came_from() -> None:
     c = QueryCollector()
     c.relationship_loads.extend(_rel_load("A.b", k, k % 3) for k in range(6))
