@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An in-application mode, `pytest_queryguard.app`, that runs the N+1 rules
+  and per-route query budgets on every HTTP request of a running
+  application, for development and staging: `watch(engine)` and
+  `unwatch(engine)` for an `Engine` or `AsyncEngine`, `QueryGuardASGI` (pure
+  ASGI, for FastAPI and Starlette), `QueryGuardWSGI` (Flask and other WSGI
+  apps) and `track()` for other units of work. Findings are reported through
+  `logging`, `QueryGuardWarning` or a callback. Statements are collected per
+  request in a `contextvars.ContextVar`, so concurrent requests, tasks and
+  threads never mix. An optional development panel (`panel=True`, off by
+  default) serves the last requests as JSON and as a self-contained HTML
+  page. Importing it registers nothing; the pytest plugin is unchanged. Not
+  yet part of the public API. See `docs/in-app.md` and the new
+  `examples/in-app`; `scripts/bench_overhead.py --app` times it.
+
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The

@@ -169,6 +169,7 @@ Every option, flag and marker is in the
 | [How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html) | The rules, the thresholds and why |
 | [Configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html) | Ini options, flags, markers |
 | [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html) | `max_queries`, `max_db_time` |
+| [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html) | The same rules per request in a running FastAPI, Starlette or Flask app; a development panel |
 | [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html), [CI and Action](https://maciejziel.github.io/pytest-queryguard/ci.html), [SARIF](https://maciejziel.github.io/pytest-queryguard/sarif.html) | Adoption and code scanning |
 | [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html) | FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, budgets, legacy projects, CI |
 | [Index check](https://maciejziel.github.io/pytest-queryguard/index-check.html), [SQLite](https://maciejziel.github.io/pytest-queryguard/index-check-sqlite.html), [advisor](https://maciejziel.github.io/pytest-queryguard/index-advisor.html) | Missing indexes |
