@@ -65,3 +65,32 @@ def test_site_builds_in_strict_mode(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "site" / "index.html").is_file()
+
+
+def test_the_stability_policy_has_the_pre_1_0_clause() -> None:
+    policy = (DOCS / "stability.md").read_text(encoding="utf-8")
+    assert "Pre-1.0 clause for new checks" in policy
+    assert "From 1.0 on, the rules above apply strictly" in policy
+
+
+@pytest.mark.skipif(
+    not (ROOT / "CHANGELOG.md").is_file(), reason="CHANGELOG is not shipped"
+)
+def test_the_changelog_lists_default_changes_first() -> None:
+    """Defaults changed by a new check are named at the top of the entry and
+    are the first things under "Changed", as the pre-1.0 clause requires."""
+    log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    entry = log.split("\n## [Unreleased]")[1].split("\n## [")[0]
+    intro, rest = entry.split("\n### Added", 1)
+    for phrase in ("column-load", "index advisor", "SQLite"):
+        assert phrase in intro, phrase
+    changed = rest.split("\n### Changed", 1)[1].split("\n### ")[0]
+    first_group = changed.strip().splitlines()[0]
+    assert first_group == "**Behavior changes**"
+    behavior = changed.split("**Internals**")[0]
+    for phrase in (
+        "`column-load` finding kind is on by default",
+        "advisor is on by default",
+        "now also checks SQLite",
+    ):
+        assert phrase in behavior, phrase
