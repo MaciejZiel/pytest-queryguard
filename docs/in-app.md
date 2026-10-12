@@ -255,7 +255,7 @@ nothing; only `watch()` adds listeners, to that engine and, while any engine
 is watched, to `Session` for the ORM events. `unwatch(engine)` removes them.
 `python scripts/bench_overhead.py --app` times a statement with the engine not
 watched, watched but outside a request, and inside one. On an in-memory SQLite
-database, on a machine that was busy with other work (load average about 20
+database, on a machine that was busy with other work (load average 20 to 90
 on 16 cores; minimum of 21 runs, microseconds per statement):
 
 | Statement | Not watched | Watched, outside a request | Inside a request |
