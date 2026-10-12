@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A lazy load or column load that autoflushed pending changes first was
+  attributed to the flush's write: the UPDATE or DELETE carried the relationship
+  name and the load's SELECT carried none, so one loop was also reported as a
+  repeated statement. Writes no longer take the pending attribution (#59).
 - Documentation: the limitations page, the FAQ and the README now say that a
   raw `sqlite3` or other DB-API connection and non-SQLAlchemy ORMs (Django ORM,
   Peewee, Tortoise ORM) are not seen, and that nothing reports it; the

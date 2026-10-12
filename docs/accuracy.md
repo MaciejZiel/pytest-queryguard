@@ -101,7 +101,7 @@ reported repeats one statement inside one `Session`.
 |---|---|---|---|
 | `bug_42_small_get_loop_below_threshold`, `bug_45_async_session_get_small` | BUG: 4 and 3 `get` calls | not reported | The repeat threshold is 5. The small-repeat rule reports both. |
 | `bug_44_expired_after_commit_three` | BUG: 3 objects reload after a commit | not reported | The column-load threshold is 5. Threshold 2 reports it. |
-| `bug_50_cascade_delete_loop` | BUG: delete cascade loads per parent | `relationship-load` and also `repeated-statement` | Bug [#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59): an autoflush before the lazy load takes over its relationship attribution. |
+| `bug_50_cascade_delete_loop` | BUG: delete cascade loads per parent | `relationship-load` and also `repeated-statement` (measured before the fix) | Bug [#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59), fixed: an autoflush before the lazy load took over its relationship attribution. The numbers on this page were measured before the fix; after it, the repeated-statement false positive of this scenario is gone. |
 | `clean_12_offset_pagination`, `clean_13_keyset_pagination` | CLEAN: 6 and 7 pages | `repeated-statement` | Five or more pages are one statement five times; only the small-repeat rule skips pagination. [#60](https://github.com/MaciejZiel/pytest-queryguard/issues/60). |
 | `clean_15_chunked_in_six_chunks` | CLEAN: 3000 ids in chunks of 500 | `repeated-statement` | The chunks share one shape. |
 | `clean_16_polling_loop` | CLEAN: polling a status on purpose | `repeated-statement` | A deliberate repeat looks like a loop. Use `allow_nplusone`. |

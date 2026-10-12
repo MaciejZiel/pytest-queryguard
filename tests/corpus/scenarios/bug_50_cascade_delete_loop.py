@@ -13,9 +13,6 @@ from ..kit import BUG, REL, WRITE, Ctx
 
 VERDICT = BUG
 KINDS = frozenset({REL, WRITE})
-KNOWN = {
-    "*": "bug #59: the autoflush before each cascade load takes the relationship attribution, so the load is also reported as a repeated statement"
-}
 
 
 class Base(DeclarativeBase):
