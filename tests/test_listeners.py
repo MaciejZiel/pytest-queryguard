@@ -214,3 +214,26 @@ def test_the_present_attribute_is_classified_as_before(
     assert listeners.internal_error() is None
     [load] = rec.column_loads
     assert load.cause == "expired"
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "INSERT INTO t VALUES (1)",
+        "insert into t values (1)",
+        "  \n\tUpdate t set a = 1",
+        " DELETE FROM t",
+        "DELETE",
+        "SELECT * FROM t",
+        "  select 1",
+        "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+        "INSER",
+        "",
+        "   ",
+    ],
+)
+def test_is_write_matches_the_plain_definition(statement: str) -> None:
+    from pytest_queryguard.listeners import _is_write
+
+    expected = statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
+    assert _is_write(statement) is expected

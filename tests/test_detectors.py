@@ -283,3 +283,13 @@ def test_relationship_finding_remembers_a_scalar_relationship() -> None:
     (finding,) = detect(c, relationship_threshold=2, repeat_threshold=5)
     assert isinstance(finding, RelationshipFinding)
     assert finding.scalar
+
+
+def test_normalize_is_stable_across_cached_calls() -> None:
+    from pytest_queryguard.detectors import normalize
+
+    sql = "SELECT * FROM t WHERE id IN (1, 2, 3) AND name = 'x' AND n = 42"
+    expected = "SELECT * FROM t WHERE id IN (...) AND name = ? AND n = ?"
+    assert normalize(sql) == expected
+    assert normalize(sql) == expected  # second call is served from the cache
+    assert normalize(sql.replace("42", "43")) == expected

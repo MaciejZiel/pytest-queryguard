@@ -56,6 +56,7 @@ pages = [
   { title = "Unused eager loads (experimental)", file = "unused-eager-load.md", description = "The experimental check that reports relationships a test eager-loads and never reads." },
   { title = "Comparison with other tools", file = "comparison.md", description = "A dated comparison of pytest-queryguard with other N+1 detection tools, with what was run and what was only read." },
   { title = "Accuracy on a corpus", file = "accuracy.md", description = "How accurately pytest-queryguard finds N+1 queries on a corpus of 110 realistic scenarios, with precision and recall." },
+  { title = "Performance", file = "performance.md", description = "What pytest-queryguard costs per statement and per test suite, how it was measured on SQLite and PostgreSQL, and what was optimised." },
   { title = "Migrating from nplusone", file = "migrating-from-nplusone.md", description = "Move from the nplusone library to pytest-queryguard: what maps to what and what differs." },
   { title = "Limitations", file = "limitations.md", description = "What pytest-queryguard does not see or judge: other ORMs, fixtures, drivers, plans and partial indexes." },
   { title = "FAQ", file = "faq.md", description = "Answers about overhead, raiseload, false positives, pytest-xdist, async drivers and more." },
