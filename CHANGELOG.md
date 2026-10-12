@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
   for file-based SQLite or PostgreSQL).
 
+- The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
+  resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
+  caching repositories, `with_for_update`, nested transactions, `yield_per`,
+  large `selectinload`, ORM bulk statements, upserts, and BUG scenarios that
+  look like pagination, batching or polling. `docs/accuracy.md` and the release
+  gate's minimum scenario count are updated; the plugin is unchanged.
+
 - Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
   `scripts/release_gate.py`) that checks the test matrix, the accuracy
   minimums, the documentation examples, clean installs, the upgrade from the
