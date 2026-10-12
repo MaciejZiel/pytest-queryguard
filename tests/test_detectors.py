@@ -4,12 +4,18 @@ import pytest
 
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.detectors import (
+    ColumnLoadFinding,
     RelationshipFinding,
     RepeatFinding,
     detect,
     normalize,
 )
-from pytest_queryguard.events import CallSite, RelationshipLoadEvent, StatementEvent
+from pytest_queryguard.events import (
+    CallSite,
+    ColumnLoadEvent,
+    RelationshipLoadEvent,
+    StatementEvent,
+)
 
 SITE = CallSite(filename="app.py", lineno=10, function="handler")
 OTHER = CallSite(filename="app.py", lineno=20, function="other")
@@ -368,3 +374,113 @@ def test_relationship_counts_the_sessions_it_came_from() -> None:
     [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
     assert isinstance(f, RelationshipFinding)
     assert (f.count, f.scopes, f.scoped) == (6, 3, False)
+
+
+# ------------------------------------------- column-load rule: edge cases
+
+
+def _column_events(
+    owner: str,
+    keys: list[object],
+    *,
+    scope: int | None = None,
+    site: CallSite | None = SITE,
+    cause: str = "deferred",
+    sql: str | None = "SELECT 1",
+) -> list[ColumnLoadEvent]:
+    return [ColumnLoadEvent(owner, ("blob",), cause, k, site, sql, scope) for k in keys]
+
+
+def test_column_load_threshold_of_one_reports_a_single_instance() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1]))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=1
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.count, f.instances, f.scopes, f.scoped) == (1, 1, 1, False)
+
+
+def test_column_load_below_threshold_does_not_hide_a_later_class() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Small", [1]))
+    c.column_loads.extend(_column_events("Big", [1, 2, 3]))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=3
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert f.owner == "Big"
+
+
+def test_non_deferred_column_loads_have_no_attributes() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], cause="expired"))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert f.attributes == ()
+
+
+def test_column_loads_without_callsite_or_sql_are_still_reported() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], site=None, sql=None))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.first, f.sample_sql) == (None, None)
+
+
+def test_column_loads_per_session_report_the_busiest_session() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], scope=1))
+    c.column_loads.extend(_column_events("Child", [1, 2, 3], scope=2))
+    [f] = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=5,
+        column_load_threshold=2,
+        scope="session",
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.count, f.instances, f.scopes, f.scoped) == (3, 3, 1, True)
+
+
+def test_column_loads_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 1, 1, 2], scope=1))
+    c.column_loads.extend(_column_events("Child", [1, 2], scope=2))
+    [f] = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=5,
+        column_load_threshold=2,
+        scope="session",
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert f.count == 4
+
+
+def test_column_load_findings_are_sorted_by_count_descending() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Few", [1, 2]))
+    c.column_loads.extend(_column_events("Many", [1, 2, 3, 4]))
+    found = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert [f.owner for f in found if isinstance(f, ColumnLoadFinding)] == [
+        "Many",
+        "Few",
+    ]
+
+
+def test_column_loads_count_the_sessions_they_came_from() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], scope=1))
+    c.column_loads.extend(_column_events("Child", [3, 4], scope=2))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.count, f.scopes, f.scoped) == (4, 2, False)
