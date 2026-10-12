@@ -49,9 +49,9 @@ The warning classes, `pytest_queryguard.QueryGuardWarning` for N+1 and
 missing indexes in `warn` mode,
 `pytest_queryguard.QueryGuardInternalWarning` for an internal error and
 `pytest_queryguard.QueryGuardDeprecationWarning` for an option or name that a
-later release removes (a `DeprecationWarning`, not a `QueryGuardWarning`), work
-with pytest's usual warning filters. For example, to turn these warnings
-back into failures for one job:
+later release may remove (a `DeprecationWarning`, not a `QueryGuardWarning`),
+work with pytest's usual warning filters. For example, to turn the findings
+of `warn` mode back into failures for one job:
 
 ```toml
 [tool.pytest.ini_options]
