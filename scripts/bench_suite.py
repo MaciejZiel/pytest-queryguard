@@ -26,7 +26,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-CONFTEST = '''
+CONFTEST = """
 import time
 _t = {}
 def pytest_sessionstart(session):
@@ -34,9 +34,9 @@ def pytest_sessionstart(session):
 def pytest_sessionfinish(session):
     with open(__import__("os").environ["QG_BENCH_OUT"], "w") as f:
         f.write(str(time.perf_counter() - _t["s"]))
-'''
+"""
 
-TESTS = '''
+TESTS = """
 import os
 import pytest
 from sqlalchemy import (Column, ForeignKey, Integer, MetaData, String, Table,
@@ -105,7 +105,7 @@ def test_case(session, engine, n):
     session.commit()
     session.query(Child).filter(Child.id == 100000 + n * 7 + os.getpid() % 5).delete()
     session.commit()
-'''
+"""
 
 
 def run_once(tests: int, url: str, enabled: bool, index_check: bool) -> float:
@@ -114,18 +114,37 @@ def run_once(tests: int, url: str, enabled: bool, index_check: bool) -> float:
         (root / "conftest.py").write_text(CONFTEST)
         (root / "test_suite.py").write_text(TESTS.replace("__N__", str(tests)))
         out = root / "out.txt"
-        env = dict(os.environ, QG_BENCH_URL=url.replace("{dir}", tmp), QG_BENCH_OUT=str(out))
-        env["PYTHONPATH"] = os.pathsep.join(
-            p for p in (str(Path(__file__).resolve().parents[1] / "src"), env.get("PYTHONPATH")) if p
+        env = dict(
+            os.environ, QG_BENCH_URL=url.replace("{dir}", tmp), QG_BENCH_OUT=str(out)
         )
-        cmd = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
-               str(root), "--rootdir", str(root)]
+        env["PYTHONPATH"] = os.pathsep.join(
+            p
+            for p in (
+                str(Path(__file__).resolve().parents[1] / "src"),
+                env.get("PYTHONPATH"),
+            )
+            if p
+        )
+        cmd = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-x",
+            "-p",
+            "no:cacheprovider",
+            str(root),
+            "--rootdir",
+            str(root),
+        ]
         if enabled:
             cmd += ["--queryguard-mode=warn"]
             cmd += ["--queryguard-index-check"] if index_check else []
         else:
             cmd += ["-p", "no:queryguard"]
-        proc = subprocess.run(cmd, env=env, capture_output=True, text=True, cwd=tmp)
+        proc = subprocess.run(
+            cmd, env=env, capture_output=True, text=True, cwd=tmp, check=False
+        )
         if proc.returncode != 0:
             sys.stderr.write(proc.stdout[-3000:] + proc.stderr[-2000:])
             raise SystemExit("suite failed")
@@ -136,7 +155,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tests", type=int, default=300)
     ap.add_argument("--runs", type=int, default=5)
-    ap.add_argument("--backend", choices=("sqlite-file", "postgres"), default="sqlite-file")
+    ap.add_argument(
+        "--backend", choices=("sqlite-file", "postgres"), default="sqlite-file"
+    )
     ap.add_argument("--url", default=None)
     ap.add_argument("--index-check", action="store_true")
     args = ap.parse_args()
@@ -149,12 +170,16 @@ def main() -> None:
         on.append(run_once(args.tests, url, True, args.index_check))
     m_off, m_on = statistics.median(off), statistics.median(on)
     n = args.tests
-    print(f"{args.backend}: {n} tests, median of {args.runs} runs"
-          f"{' (index check on)' if args.index_check else ''}")
+    print(
+        f"{args.backend}: {n} tests, median of {args.runs} runs"
+        f"{' (index check on)' if args.index_check else ''}"
+    )
     print(f"  off {m_off:.3f} s ({m_off / n * 1e3:.2f} ms/test)")
     print(f"  on  {m_on:.3f} s ({m_on / n * 1e3:.2f} ms/test)")
-    print(f"  overhead {m_on - m_off:.3f} s = {(m_on - m_off) / m_off:.1%}; "
-          f"all runs off={[round(x, 2) for x in off]} on={[round(x, 2) for x in on]}")
+    print(
+        f"  overhead {m_on - m_off:.3f} s = {(m_on - m_off) / m_off:.1%}; "
+        f"all runs off={[round(x, 2) for x in off]} on={[round(x, 2) for x in on]}"
+    )
 
 
 if __name__ == "__main__":
