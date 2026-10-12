@@ -479,17 +479,26 @@ def _unbuffered(cursor: Any) -> bool:
 
 
 def explain(
-    dbapi_connection: Any, statement: str, parameters: Any, alembic: bool = True
+    dbapi_connection: Any,
+    statement: str,
+    parameters: Any,
+    alembic: bool = True,
+    no_parameters: bool = False,
 ) -> list[ScanIssue]:
     """Plan ``statement`` on the test's own connection and analyse the plan.
 
     EXPLAIN does not run the statement, so there is no savepoint and nothing to
     roll back. Raises _ExplainFailed for a database error.
+
+    PyMySQL formats the text with ``query % args`` unless ``args`` is None. The
+    EXPLAIN gets the formatting the application's execution got: with the
+    ``no_parameters`` execution option the text went to the server as it is,
+    and so does the EXPLAIN.
     """
     cursor = dbapi_connection.cursor()
     try:
         try:
-            cursor.execute(_EXPLAIN + statement, parameters)
+            cursor.execute(_EXPLAIN + statement, None if no_parameters else parameters)
             names = [str(d[0]) for d in cursor.description or ()]
             rows = [dict(zip(names, _row(r), strict=False)) for r in cursor.fetchall()]
             return analyse(rows, statement, Schema(cursor), alembic)
@@ -506,6 +515,7 @@ def check(
     parameters: Any,
     executemany: bool,
     targets: Sequence[QueryCollector],
+    no_parameters: bool = False,
 ) -> None:
     """Explain one executed statement for the collectors that want it."""
     if executemany or not reader.is_checked_statement(statement):
@@ -521,7 +531,11 @@ def check(
     try:
         alembic = any(target.index_advisor for target in fresh)
         issues = explain(
-            conn.connection.dbapi_connection, statement, parameters, alembic
+            conn.connection.dbapi_connection,
+            statement,
+            parameters,
+            alembic,
+            no_parameters,
         )
     except _ExplainFailed as exc:
         error = (str(exc), statement)
