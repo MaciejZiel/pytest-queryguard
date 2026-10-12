@@ -3,20 +3,101 @@
 ## Install
 
 ```bash
-pip install pytest-queryguard
+pip install "pytest-queryguard>=0.4.0rc2"
 ```
 
+This documentation describes 0.4.0rc2, a release candidate. A plain
+`pip install pytest-queryguard` installs the last stable release, 0.3.0, which
+finds the same N+1 queries and enforces the same `max_queries` budgets, but
+has none of the baseline, SARIF, GitHub Action, ignore patterns, timing,
+column-load, write-loop or SQLite and MySQL index checks described here
+(on 0.3.0, `--queryguard-baseline` stops with
+`pytest: error: unrecognized arguments`), and
+suggests `selectinload` where 0.4 suggests `joinedload`. The version
+specifier above opts into the release candidate (pip and uv install a
+pre-release when the specifier names one) and keeps working once 0.4.0 is
+out. `pytest -VV` lists the installed version (`pytest-queryguard-0.4.0rc2`),
+and so does the `plugins:` line at the top of every run.
+
 It needs Python 3.10 or newer, pytest 8 or newer and SQLAlchemy 2.0.13 or
-newer. The plugin registers itself with pytest. There is nothing to import
-or configure.
+newer; pip installs pytest and SQLAlchemy with it if they are missing. The
+plugin registers itself with pytest. There is nothing to import or configure.
 
 
 ## A first test
 
 Every test is checked automatically; you do not write anything to get N+1
-detection. The project below is in
+detection. The project below is
 [examples/sync-n-plus-one](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples/sync-n-plus-one),
 where a test runs it and checks that its README shows the output you see here.
+To follow along, make an empty directory and create the files of this page in
+it; every file is shown.
+
+`pytest.ini` puts the project directory on `sys.path`, so that the tests can
+`import app` (in `pyproject.toml` the same is
+`[tool.pytest.ini_options]` with `pythonpath = ["."]`):
+
+```ini
+[pytest]
+pythonpath = .
+```
+
+`app/__init__.py` and `tests/__init__.py` are empty files. The models are an
+order that belongs to a customer.
+
+`app/models.py`:
+
+```python
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Customer(Base):
+    __tablename__ = "customer"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"))
+    customer: Mapped[Customer] = relationship()
+```
+
+The `session` fixture creates 50 customers with one order each, in an
+in-memory SQLite database. It runs before the test body, so its own
+statements are not counted.
+
+`tests/conftest.py`:
+
+```python
+from collections.abc import Iterator
+
+import pytest
+from app.models import Base, Customer, Order
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+
+@pytest.fixture
+def session() -> Iterator[Session]:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all(Customer(id=i, name=f"customer {i}") for i in range(1, 51))
+        session.add_all(Order(id=i, customer_id=i) for i in range(1, 51))
+        session.commit()
+        yield session
+```
+
+The code under test lists the orders with their customer's name.
 
 `app/orders.py`:
 
@@ -220,3 +301,26 @@ queryguard: N+1 detected
 
 pytest cannot run `async def` tests by itself. With pytest-asyncio or anyio you
 can write a test as `async def` and use an `AsyncSession` directly.
+
+An application that gets its session from a dependency (`Depends(get_session)`)
+is tested by overriding the dependency with a session on the test database;
+the [FastAPI recipe](recipes-fastapi.md) shows it for `TestClient` and
+`httpx.AsyncClient`.
+
+## What next
+
+The path from here, in the order most projects need it:
+
+1. [A test failed: now what](when-a-test-fails.md): read the report, check that
+   the finding is real, fix it, or silence it on purpose.
+2. [CI and GitHub Action](ci.md): nothing to add for a plain pytest job; the
+   action also shows the findings in pull requests.
+3. [Baseline](baseline.md): on an existing project, record today's findings
+   so that only new ones fail. [Adopting on a legacy
+   codebase](recipes-legacy.md) walks through it.
+4. [Index check](index-check.md) and [index advisor](index-advisor.md): fail
+   tests whose queries no index can serve, with the `CREATE INDEX` to add.
+
+[How detection works](how-detection-works.md) explains the rules and their
+thresholds, and the [configuration reference](configuration.md) lists every
+option.
