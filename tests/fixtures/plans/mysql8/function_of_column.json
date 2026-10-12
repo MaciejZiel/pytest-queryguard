@@ -1,0 +1,125 @@
+{
+  "server": "8.4.11",
+  "sql": "SELECT id FROM customers WHERE LOWER(name) = %s",
+  "params": [
+    "name 7"
+  ],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "customers",
+      "partitions": null,
+      "type": "ALL",
+      "possible_keys": null,
+      "key": null,
+      "key_len": null,
+      "ref": null,
+      "rows": 300,
+      "filtered": 100.0,
+      "Extra": "Using where"
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost_info": {
+        "query_cost": "30.25"
+      },
+      "table": {
+        "table_name": "customers",
+        "access_type": "ALL",
+        "rows_examined_per_scan": 300,
+        "rows_produced_per_join": 300,
+        "filtered": "100.00",
+        "cost_info": {
+          "read_cost": "0.25",
+          "eval_cost": "30.00",
+          "prefix_cost": "30.25",
+          "data_read_per_join": "241K"
+        },
+        "used_columns": [
+          "id",
+          "name"
+        ],
+        "attached_condition": "(lower(`qg_capture`.`customers`.`name`) = 'name 7')"
+      }
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}

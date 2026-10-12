@@ -28,7 +28,10 @@ AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_session)]
 
 @app.get("/orders")
 def list_orders(session: SessionDep) -> list[str]:
-    return [order.customer.name for order in session.scalars(select(Order))]
+    names = []
+    for order in session.scalars(select(Order)):
+        names.append(order.customer.name)
+    return names
 
 
 @app.get("/orders-fixed")

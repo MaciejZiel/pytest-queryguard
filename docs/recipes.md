@@ -17,3 +17,5 @@ output was produced by running the code on it, and says with which versions.
 The versions used for the output on these pages: Python 3.12, pytest 9.1.1,
 SQLAlchemy 2.1.4, pytest-queryguard 0.4.0rc1. Messages from older SQLAlchemy
 releases differ in small ways, for example column aliases in the SQL.
+Before Python 3.12 a list comprehension is a frame of its own, so a finding
+raised inside one says `in <listcomp>` instead of the name of the function.

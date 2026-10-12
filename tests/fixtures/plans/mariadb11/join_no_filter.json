@@ -1,0 +1,147 @@
+{
+  "server": "11.8.9-MariaDB-ubu2404",
+  "sql": "SELECT o.id, c.name FROM orders o JOIN customers c ON c.id = o.customer_id",
+  "params": [],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "o",
+      "type": "ALL",
+      "possible_keys": null,
+      "key": null,
+      "key_len": null,
+      "ref": null,
+      "rows": "3000",
+      "Extra": "Using where"
+    },
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "c",
+      "type": "eq_ref",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "4",
+      "ref": "qg_capture.o.customer_id",
+      "rows": "1",
+      "Extra": ""
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost": 3.1933968,
+      "nested_loop": [
+        {
+          "table": {
+            "table_name": "o",
+            "access_type": "ALL",
+            "loops": 1,
+            "rows": 3000,
+            "cost": 0.5092576,
+            "filtered": 100,
+            "attached_condition": "o.customer_id is not null"
+          }
+        },
+        {
+          "table": {
+            "table_name": "c",
+            "access_type": "eq_ref",
+            "possible_keys": [
+              "PRIMARY"
+            ],
+            "key": "PRIMARY",
+            "key_length": "4",
+            "used_key_parts": [
+              "id"
+            ],
+            "ref": [
+              "qg_capture.o.customer_id"
+            ],
+            "loops": 3000,
+            "rows": 1,
+            "cost": 2.6841392,
+            "filtered": 100
+          }
+        }
+      ]
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}

@@ -99,7 +99,9 @@ by the index check, with a notice in the session summary.
 ## Why was nothing reported for my test?
 
 - the code under test ran in a fixture, not in the test body;
-- the statements did not come through SQLAlchemy (a raw DB-API connection);
+- the statements did not come through SQLAlchemy (a raw `sqlite3` or other
+  DB-API connection, the Django ORM, Peewee, Tortoise ORM): the plugin does not
+  see them, and `--queryguard-report` shows 0 statements for the test;
 - `queryguard_mode = off`, or the finding is in the baseline or an ignore
   pattern;
 - the count is below the threshold. `--queryguard-report` shows how many
@@ -144,7 +146,7 @@ The numbers depend on your machine and database.
 
 ## Does it work with Django, Peewee or raw SQL?
 
-Not with Django's ORM or Peewee: only SQLAlchemy 2 is supported (the
+Not with Django's ORM, Peewee or Tortoise ORM: only SQLAlchemy 2 is supported (the
 [comparison](comparison.md) lists tools for Django). Raw SQL that
 goes through SQLAlchemy (`text()`, Core) is seen; a raw DB-API connection that
 SQLAlchemy does not manage is not.

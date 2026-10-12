@@ -15,7 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import ORMExecuteState, Session
 from sqlalchemy.pool import Pool
 
-from . import catalog, collector, indexes, sqlite_index
+from . import catalog, collector, indexes, mysql_index, sqlite_index
 from .callsite import find_callsite, find_flush
 from .events import (
     CAUSE_DEFERRED,
@@ -225,7 +225,13 @@ def _on_cursor_execute(
         targets = collector.active()
         if not targets:
             return
-        relationship, column_load = _take_pending()
+        # The ORM runs do_orm_execute before it autoflushes, so the first
+        # statement after a lazy load may be the flush's write, not the load's
+        # SELECT. Loads are reads: leave the pending attribution for the SELECT.
+        if _is_write(statement):
+            relationship, column_load = None, None
+        else:
+            relationship, column_load = _take_pending()
         if column_load is not None:
             column_load.sql = statement
         stmt = StatementEvent(
@@ -289,6 +295,8 @@ def _on_after_cursor_execute(
         targets = [target for target in collector.active() if target.index_check]
         if targets and conn.dialect.name == sqlite_index.DIALECT:
             sqlite_index.check(conn, statement, parameters, executemany, targets)
+        elif targets and conn.dialect.name in mysql_index.DIALECTS:
+            mysql_index.check(conn, cursor, statement, parameters, executemany, targets)
         elif targets:
             indexes.check(conn, statement, executemany, targets)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite

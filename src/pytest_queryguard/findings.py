@@ -65,6 +65,11 @@ class Finding:
     severity: str = SEVERITY_ERROR
     line: int | None = None
     count: int = 1
+    # Set when the same finding was merged over several tests (SARIF): how
+    # many tests it came from, and the largest count in any one of them.
+    # ``count`` is then the total. Not part of the identity.
+    tests: int = 1
+    peak: int | None = None
     # For ``missing-index`` findings, with the index advisor on; not part of
     # the identity.
     advice: IndexAdvice | None = None

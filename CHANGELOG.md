@@ -21,9 +21,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SQLModel, Litestar, pytest-asyncio configuration pitfalls, budgets for hot
   endpoints, adopting the plugin on a legacy codebase and CI. A new example,
   `examples/fastapi-dependency-override`, is run by the test suite.
+- Missing-index check for MySQL and MariaDB, behind the same switch
+  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
+  `SELECT`, `UPDATE` and `DELETE` is explained with `EXPLAIN` and the real bound
+  parameters (never `ANALYZE`); a table read in full (`type: ALL`, or an index
+  read in full on a column that leads no index) although the statement filters
+  or joins on its columns is a `missing-index` finding with a `CREATE INDEX`
+  hint and an Alembic call. The suggestion is not verified: neither server has
+  hypothetical indexes. Tested with PyMySQL and aiomysql on MySQL 8.4 and
+  MariaDB 11.8 on a developer machine; CI does not run a MySQL or MariaDB
+  server. See `docs/index-check-mysql.md`.
+
+### Changed
+
+- Tests: an accuracy corpus under `tests/corpus`: 110 small scenarios of realistic ORM
+  code (views, serializers, FastAPI, Flask-SQLAlchemy, SQLModel, repositories,
+  pagination, bulk writes, async), each marked BUG or CLEAN, run through the
+  plugin in its default configuration and with each opt-in rule. Limitations it
+  found are in `docs/limitations.md`; `scripts/accuracy_report.py` prints the
+  precision and recall.
 
 ### Fixed
 
+- A lazy load or column load that autoflushed pending changes first was
+  attributed to the flush's write: the UPDATE or DELETE carried the relationship
+  name and the load's SELECT carried none, so one loop was also reported as a
+  repeated statement. Writes no longer take the pending attribution (#59).
+- Documentation: the limitations page, the FAQ and the README now say that a
+  raw `sqlite3` or other DB-API connection and non-SQLAlchemy ORMs (Django ORM,
+  Peewee, Tortoise ORM) are not seen, and that nothing reports it; the
+  limitations page also points to the repeat-scope limits.
+- The SQLite index check no longer says a table "is read in full" when the
+  plan walks an existing index that the filter cannot use (`SCAN INDEX ix_...`).
+  It says the table scans the whole index and that the filter does not match
+  the start of any index; the suggested `CREATE INDEX` is unchanged.
+- A SARIF result merged from several tests no longer shows one test's count in
+  `message.text` next to the total in `properties.count`. The message now
+  starts with `Seen in N tests: T times in total, up to M times in one test`,
+  and `properties` gains `tests` and `peakCount` for such results. `count`,
+  the fingerprints and the baseline identity are unchanged. See
+  `docs/sarif.md`.
+- The `repeated-statement` hint no longer says to fetch the rows with
+  `WHERE id IN (...)` when the statement already uses `IN (...)`. It says the
+  batched query ran several times and should be called once, or the calls
+  combined.
 - Added `queryguard_repeat_scope` (`test` or `session`, default `test`) and
   `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
   that make several requests. The repeat, relationship,

@@ -41,16 +41,16 @@ F                                                                        [100%]
 ___________________________ test_order_detail_budget ___________________________
 queryguard: expected at most 2 queries, got 4
 
-  1. SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:60 in order_detail)
-  2. SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:61 in order_detail)
-  3. SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:62 in order_detail)
-  4. SELECT count(*) AS count_1 FROM orders  (app/main.py:65 in order_detail)
+  1. SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:63 in order_detail)
+  2. SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:64 in order_detail)
+  3. SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:68 in order_detail)
+  4. SELECT count(*) AS count_1 FROM orders  (app/main.py:68 in order_detail)
 
   database time: 77 us
   slowest:
-        24 us  SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:62 in order_detail)
-        24 us  SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:60 in order_detail)
-        15 us  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:61 in order_detail)
+        24 us  SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:68 in order_detail)
+        24 us  SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:63 in order_detail)
+        15 us  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:64 in order_detail)
 =========================== short test summary info ============================
 FAILED tests/test_budget.py::test_order_detail_budget - Failed: queryguard: e...
 1 failed in 0.06s

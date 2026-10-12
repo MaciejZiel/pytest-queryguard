@@ -1,7 +1,19 @@
 # Limitations
 
 
-- SQLAlchemy only. Raw DB-API connections and other ORMs are not seen.
+- SQLAlchemy only. The plugin listens to SQLAlchemy's events, so a statement
+  that does not go through SQLAlchemy is not counted, not budgeted and not
+  checked for indexes, and nothing says so. That covers a raw `sqlite3`,
+  `psycopg` or `asyncpg` connection used directly, and the Django ORM, Peewee,
+  Tortoise ORM and any other ORM. SQLModel and Flask-SQLAlchemy build on
+  SQLAlchemy sessions, so their statements should be seen (not tested here). If your suite passes but you expect findings, run
+  with `--queryguard-report`: a test that shows 0 statements was not seen. For
+  Django see the [comparison](comparison.md).
+- The repeat rules count per test by default, so a test that makes several
+  independent requests can report a repeat that is no loop. Set
+  `queryguard_repeat_scope = session` to count per `Session`; that has limits
+  of its own, listed in [Tests with several sessions or
+  requests](several-sessions.md).
 - Everything in `site-packages` counts as library code. If your application
   is installed non-editable (for example `pip install .` in a Docker CI
   image), its frames are skipped too, and call sites point to the test file
@@ -26,6 +38,23 @@
   flush count as one write, so `add_all()` plus one `flush()` is not reported
   even when the dialect sends one `INSERT` per row. That relies on finding
   `Session._flush` on the call stack, a SQLAlchemy internal.
+- The repeat rule at its default threshold counts every run of one `SELECT`
+  shape, including the pages of a pagination loop (`LIMIT` and `OFFSET`, or a
+  keyset `WHERE id > :last`) and the chunks of a batched `IN (...)` load. Five
+  or more pages or chunks are reported as a repeated statement. Only the
+  opt-in small-repeat rule leaves pagination alone, and neither rule can tell
+  a polling loop that repeats a statement on purpose from an N+1. Raise
+  `queryguard_repeat_threshold` or mark the test with `allow_nplusone` for such
+  code. The [accuracy page](accuracy.md) lists the scenarios.
+- A few statements below the thresholds are not reported by default: fewer than
+  five runs of one statement (`queryguard_small_repeat_threshold` reports them)
+  and fewer than five instances that reload columns after a commit
+  (`queryguard_column_load_threshold`). The same thresholds make the opt-in
+  rules report legitimate code: a cached lookup that runs twice, or two objects
+  read after a commit.
+- The write-loop rule cannot tell test seeding (Factory Boy creating rows with
+  a flush each) or a per-row insert with its own error handling from a write
+  loop in the code under test. It is off by default for that reason.
 - The PostgreSQL index check needs PostgreSQL 16 or newer, and a sync engine or an
   async engine on asyncpg. Other async drivers, such as psycopg's async
   mode, are skipped with a notice. The test suite uses pg8000 and asyncpg.

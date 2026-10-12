@@ -61,15 +61,21 @@ queryguard = "pytest_queryguard.plugin"
 
 [dependency-groups]
 dev = [
+    # Async MySQL and MariaDB tests (MIT; PyMySQL, MIT). Not mysqlclient (GPL).
+    "aiomysql>=0.3.2",
     "aiosqlite",
     # Async PostgreSQL tests (Apache-2.0; async-timeout, Apache-2.0, below 3.11).
     "asyncpg>=0.31",
     "coverage[toml]",
+    "factory-boy>=3.3.3",
     "fastapi",
+    "flask-sqlalchemy>=3.1.1",
     "httpx>=0.28,<0.29",
     "mypy",
     # PostgreSQL tests (BSD-3-Clause); psycopg and psycopg2 are LGPL.
     "pg8000>=1.31.5",
+    # MySQL and MariaDB tests (MIT).
+    "pymysql>=1.2.3",
     # The multi-process tests in tests/test_xdist.py (MIT; execnet, MIT).
     "pytest-xdist>=3.5",
     "ruff",
@@ -116,6 +122,11 @@ extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 extend-select = ["I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's Depends() in a default and the mutable __mapper_args__ dictionaries
+# are how the code the corpus imitates is written.
+"tests/corpus/**" = ["B008", "RUF012"]
 
 [tool.mypy]
 strict = true

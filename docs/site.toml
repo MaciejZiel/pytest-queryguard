@@ -46,6 +46,7 @@ title = "Indexes"
 pages = [
   { title = "Index check (PostgreSQL)", file = "index-check.md", description = "Fail tests whose SQL has no index to use, on PostgreSQL 16 and newer, by planning each SELECT without sequential scans." },
   { title = "Index check (SQLite)", file = "index-check-sqlite.md", description = "The missing-index check on SQLite: how EXPLAIN QUERY PLAN is used and where it judges less precisely." },
+  { title = "Index check (MySQL and MariaDB)", file = "index-check-mysql.md", description = "Fail tests whose SQL has no index to use on MySQL and MariaDB, by reading EXPLAIN plans; tested by hand, not in CI." },
   { title = "Index advisor", file = "index-advisor.md", description = "How the index advisor suggests CREATE INDEX statements and Alembic calls, and verifies them with hypopg." },
 ]
 
@@ -54,6 +55,7 @@ title = "More"
 pages = [
   { title = "Unused eager loads (experimental)", file = "unused-eager-load.md", description = "The experimental check that reports relationships a test eager-loads and never reads." },
   { title = "Comparison with other tools", file = "comparison.md", description = "A dated comparison of pytest-queryguard with other N+1 detection tools, with what was run and what was only read." },
+  { title = "Accuracy on a corpus", file = "accuracy.md", description = "How accurately pytest-queryguard finds N+1 queries on a corpus of 110 realistic scenarios, with precision and recall." },
   { title = "Migrating from nplusone", file = "migrating-from-nplusone.md", description = "Move from the nplusone library to pytest-queryguard: what maps to what and what differs." },
   { title = "Limitations", file = "limitations.md", description = "What pytest-queryguard does not see or judge: other ORMs, fixtures, drivers, plans and partial indexes." },
   { title = "FAQ", file = "faq.md", description = "Answers about overhead, raiseload, false positives, pytest-xdist, async drivers and more." },

@@ -112,6 +112,10 @@ def _rank(finding: Finding) -> tuple[int, str]:
     return (finding.line if finding.line is not None else 1 << 31, finding.message)
 
 
+def _peak(finding: Finding) -> int:
+    return finding.count if finding.peak is None else finding.peak
+
+
 def add(store: Collected, finding: Finding, level: str) -> None:
     """Remember a reported finding; one entry per identity."""
     key = finding.identity
@@ -129,6 +133,8 @@ def add(store: Collected, finding: Finding, level: str) -> None:
         severity=best.severity,
         line=best.line,
         count=old.count + finding.count,
+        tests=old.tests + finding.tests,
+        peak=max(_peak(old), _peak(finding)),
     )
     store[key] = (merged, LEVEL_ERROR if LEVEL_ERROR in (level, old_level) else level)
 
@@ -145,6 +151,8 @@ def to_wire(store: Collected) -> list[dict[str, Any]]:
             "severity": f.severity,
             "line": f.line,
             "count": f.count,
+            "tests": f.tests,
+            "peak": f.peak,
             "level": level,
         }
         for f, level in store.values()
@@ -162,6 +170,8 @@ def merge_wire(store: Collected, wire: Iterable[Mapping[str, Any]]) -> None:
             severity=entry["severity"],
             line=entry["line"],
             count=entry["count"],
+            tests=entry.get("tests", 1),
+            peak=entry.get("peak"),
         )
         add(store, finding, entry["level"])
 
@@ -225,7 +235,24 @@ def _rule(kind: str) -> dict[str, Any]:
 
 def _message(finding: Finding) -> str:
     lines = [line.removeprefix("  ") for line in finding.message.splitlines()]
-    return "\n".join(lines).strip() or finding.label
+    text = "\n".join(lines).strip() or finding.label
+    if finding.tests <= 1:
+        return text
+    # The result merges the finding from several tests: say how the counts
+    # relate, because the text below is the one test that has the earliest line.
+    return (
+        f"Seen in {finding.tests} tests: {finding.count} times in total, up to "
+        f"{_peak(finding)} times in one test. The test with the earliest line:\n"
+        f"{text}"
+    )
+
+
+def _properties(finding: Finding) -> dict[str, Any]:
+    properties: dict[str, Any] = {"count": finding.count, "label": finding.label}
+    if finding.tests > 1:
+        properties["tests"] = finding.tests
+        properties["peakCount"] = _peak(finding)
+    return properties
 
 
 def _result(finding: Finding, level: str, prefix: str = "") -> dict[str, Any] | None:
@@ -256,7 +283,7 @@ def _result(finding: Finding, level: str, prefix: str = "") -> dict[str, Any] | 
             "primaryLocationLineHash": f"{digest[:32]}:1",
             FINGERPRINT_KEY: digest,
         },
-        "properties": {"count": finding.count, "label": finding.label},
+        "properties": _properties(finding),
     }
 
 

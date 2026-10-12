@@ -1,0 +1,138 @@
+{
+  "server": "8.4.11",
+  "sql": "SELECT id FROM articles WHERE MATCH(title, body) AGAINST (%s)",
+  "params": [
+    "topic7"
+  ],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "articles",
+      "partitions": null,
+      "type": "fulltext",
+      "possible_keys": "ft_articles",
+      "key": "ft_articles",
+      "key_len": "0",
+      "ref": "const",
+      "rows": 1,
+      "filtered": 100.0,
+      "Extra": "Using where; Ft_hints: sorted"
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost_info": {
+        "query_cost": "0.35"
+      },
+      "table": {
+        "table_name": "articles",
+        "access_type": "fulltext",
+        "possible_keys": [
+          "ft_articles"
+        ],
+        "key": "ft_articles",
+        "used_key_parts": [
+          "title"
+        ],
+        "key_length": "0",
+        "ref": [
+          "const"
+        ],
+        "rows_examined_per_scan": 1,
+        "rows_produced_per_join": 1,
+        "filtered": "100.00",
+        "ft_hints": "sorted",
+        "cost_info": {
+          "read_cost": "0.25",
+          "eval_cost": "0.10",
+          "prefix_cost": "0.35",
+          "data_read_per_join": "424"
+        },
+        "used_columns": [
+          "id",
+          "title",
+          "body"
+        ],
+        "attached_condition": "(match `qg_capture`.`articles`.`title`,`qg_capture`.`articles`.`body` against ('topic7'))"
+      }
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}
