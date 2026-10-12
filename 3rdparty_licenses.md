@@ -1,6 +1,30 @@
 # Third-party licenses
 
-Direct dependencies of this repository, including the GitHub Actions used by its workflows and by `action/action.yml`.
+| https://github.com/fastapi/annotated-doc | annotated-doc | MIT | https://github.com/fastapi/annotated-doc/blob/main/LICENSE |
+| https://github.com/annotated-types/annotated-types | annotated-types | MIT | https://github.com/annotated-types/annotated-types/blob/main/LICENSE |
+| https://github.com/agronholm/anyio | anyio | MIT | https://github.com/agronholm/anyio/blob/master/LICENSE |
+| https://github.com/mypyc/ast_serialize | ast-serialize | MIT | https://github.com/mypyc/ast_serialize/blob/main/LICENSE |
+| https://github.com/certifi/python-certifi | certifi (transitive dependency of httpx; copyleft, already in uv.lock; recorded, not modified) | MPL-2.0 | https://github.com/certifi/python-certifi/blob/master/LICENSE |
+| https://github.com/tartley/colorama | colorama | BSD-3-Clause | https://github.com/tartley/colorama/blob/master/LICENSE.txt |
+| https://github.com/agronholm/exceptiongroup | exceptiongroup | MIT AND PSF-2.0 | https://github.com/agronholm/exceptiongroup/blob/main/LICENSE |
+| https://github.com/python-hyper/h11 | h11 | MIT | https://github.com/python-hyper/h11/blob/master/LICENSE.txt |
+| https://github.com/encode/httpcore | httpcore | BSD-3-Clause | https://github.com/encode/httpcore/blob/master/LICENSE.md |
+| https://github.com/kjd/idna | idna | BSD-3-Clause | https://github.com/kjd/idna/blob/master/LICENSE.md |
+| https://github.com/pytest-dev/iniconfig | iniconfig | MIT | https://github.com/pytest-dev/iniconfig/blob/main/LICENSE |
+| https://github.com/mypyc/librt | librt | MIT AND PSF-2.0 AND BSD-2-Clause | https://github.com/mypyc/librt/blob/master/LICENSE |
+| https://github.com/python/mypy_extensions | mypy-extensions | MIT | https://github.com/python/mypy_extensions/blob/master/LICENSE |
+| https://github.com/pypa/packaging | packaging | Apache-2.0 OR BSD-2-Clause | https://github.com/pypa/packaging/blob/main/LICENSE |
+| https://github.com/cpburnz/python-pathspec | pathspec (transitive dependency of mypy and of hatchling; copyleft, already in uv.lock; recorded, not modified; version 1.1.1 ships the MPL-2.0 text only) | MPL-2.0 | https://github.com/cpburnz/python-pathspec/blob/master/LICENSE-MPL-2.0 |
+| https://github.com/pytest-dev/pluggy | pluggy | MIT | https://github.com/pytest-dev/pluggy/blob/main/LICENSE |
+| https://github.com/pydantic/pydantic | pydantic | MIT | https://github.com/pydantic/pydantic/blob/main/LICENSE |
+| https://github.com/pydantic/pydantic | pydantic-core | MIT | https://github.com/pydantic/pydantic/blob/main/pydantic-core/LICENSE |
+| https://github.com/Kludex/starlette | starlette | BSD-3-Clause | https://github.com/Kludex/starlette/blob/main/LICENSE.md |
+| https://github.com/hukkin/tomli | tomli | MIT | https://github.com/hukkin/tomli/blob/master/LICENSE |
+| https://github.com/python/typing_extensions | typing-extensions | PSF-2.0 | https://github.com/python/typing_extensions/blob/main/LICENSE |
+| https://github.com/pydantic/typing-inspection | typing-inspection | MIT | https://github.com/pydantic/typing-inspection/blob/main/LICENSE |
+| https://github.com/pypa/trove-classifiers | trove-classifiers (build-time dependency of hatchling, not in uv.lock) | Apache-2.0 | https://github.com/pypa/trove-classifiers/blob/main/LICENSE |
+| https://github.com/python-poetry/tomlkit | tomlkit (build-time dependency of hatchling, not in uv.lock) | MIT | https://github.com/python-poetry/tomlkit/blob/master/LICENSE |
+Every third-party component of this repository: the direct and transitive dependencies in `uv.lock` (runtime, `dev` and `docs` groups), the build-time dependencies of hatchling, the PostgreSQL extension used in CI, and the GitHub Actions used by its workflows and by `action/action.yml`. One row per component. `certifi` and `pathspec` are MPL-2.0 and were already in the lock file as transitive dependencies of the `dev` group; they are recorded here and are not part of the installed package.
 
 | source | name | license type | license link |
 |---|---|---|---|

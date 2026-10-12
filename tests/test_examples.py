@@ -21,7 +21,11 @@ ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
 
 # pytester-style isolation is not needed: the examples run in their own process.
-pytestmark = pytest.mark.allow_nplusone
+pytestmark = [
+    pytest.mark.allow_nplusone,
+    # the source distribution ships tests/ but not examples/
+    pytest.mark.skipif(not EXAMPLES.is_dir(), reason="examples/ is not available"),
+]
 
 
 def run(

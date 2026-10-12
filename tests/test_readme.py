@@ -19,7 +19,11 @@ ROOT = Path(__file__).resolve().parent.parent
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 EXAMPLE = ROOT / "examples" / "sync-n-plus-one"
 
-pytestmark = pytest.mark.allow_nplusone
+pytestmark = [
+    pytest.mark.allow_nplusone,
+    # the source distribution ships README.md and docs/ but not examples/
+    pytest.mark.skipif(not EXAMPLE.is_dir(), reason="examples/ is not available"),
+]
 
 
 def _blocks() -> list[str]:
