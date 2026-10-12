@@ -620,3 +620,141 @@ def test_write_loops_are_sorted_by_count_descending() -> None:
     c.statements.extend(_writes(INSERT, 3, site=OTHER))
     c.statements.extend(_writes("DELETE FROM t WHERE id = ?", 5))
     assert [f.verb for f in _write_loops(c, 3)] == ["DELETE", "INSERT"]
+
+
+# --------------------------------------------- repeat rules: edge cases
+
+SELECT = "SELECT * FROM t WHERE id = ?"
+
+
+def _runs(
+    sql: str,
+    n: int,
+    *,
+    scope: int | None = None,
+    site: CallSite | None = SITE,
+    start: int = 0,
+) -> list[StatementEvent]:
+    """``n`` runs of one statement, each with its own parameter."""
+    return [
+        StatementEvent(sql, site, None, parameters=(start + i,), scope=scope)
+        for i in range(n)
+    ]
+
+
+def _repeats(
+    c: QueryCollector, *, small: int | None = None, scope: str = "test"
+) -> list[RepeatFinding]:
+    found = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=5,
+        small_repeat_threshold=small,
+        scope=scope,
+    )
+    return [f for f in found if isinstance(f, RepeatFinding)]
+
+
+def test_repeat_finding_is_not_marked_as_a_small_repeat() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5))
+    [f] = _repeats(c)
+    assert f.varying is False
+    assert (f.scopes, f.scoped) == (1, False)
+
+
+def test_repeat_without_any_call_site_is_still_reported() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5, site=None))
+    [f] = _repeats(c)
+    assert f.first is None
+
+
+def test_repeat_per_session_picks_the_busiest_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5, scope=1))
+    c.statements.extend(_runs(SELECT, 7, scope=2))
+    [f] = _repeats(c, scope="session")
+    assert (f.count, f.scopes, f.scoped) == (7, 1, True)
+
+
+def test_repeat_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5, scope=1, site=SITE))
+    c.statements.extend(_runs(SELECT, 5, scope=2, site=OTHER))
+    [f] = _repeats(c, scope="session")
+    assert f.first is SITE
+
+
+def test_repeat_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3, scope=1))
+    c.statements.extend(_runs(SELECT, 3, scope=2))
+    [f] = _repeats(c)
+    assert (f.count, f.scopes, f.scoped) == (6, 2, False)
+
+
+def test_small_repeat_reports_runs_from_one_line_with_other_parameters() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3))
+    [f] = _repeats(c, small=3)
+    assert f.varying is True
+    assert (f.count, f.first, f.scopes, f.scoped) == (3, SITE, 1, False)
+    assert f.sql == SELECT
+
+
+def test_small_repeat_handles_a_statement_that_ran_once() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs("SELECT 1 FROM once", 1))
+    c.statements.extend(_runs(SELECT, 3))
+    [f] = _repeats(c, small=3)
+    assert f.sql == SELECT
+
+
+def test_small_repeat_leaves_pagination_alone_and_checks_the_next_statement() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs("SELECT * FROM t LIMIT 10 OFFSET 10", 3))
+    c.statements.extend(_runs(SELECT, 3))
+    [f] = _repeats(c, small=3)
+    assert f.sql == SELECT
+
+
+def test_small_repeat_per_session_skips_a_session_with_two_call_sites() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 2, scope=1))
+    c.statements.extend(_runs(SELECT, 2, scope=1, site=OTHER, start=10))
+    c.statements.extend(_runs(SELECT, 3, scope=2, start=20))
+    [f] = _repeats(c, small=3, scope="session")
+    assert (f.count, f.scopes, f.scoped) == (3, 1, True)
+
+
+def test_small_repeat_per_session_keeps_the_larger_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3, scope=1))
+    c.statements.extend(_runs(SELECT, 4, scope=2, start=10))
+    [f] = _repeats(c, small=3, scope="session")
+    assert f.count == 4
+
+
+def test_small_repeat_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3, scope=1, site=SITE))
+    c.statements.extend(_runs(SELECT, 3, scope=2, site=OTHER, start=10))
+    [f] = _repeats(c, small=3, scope="session")
+    assert f.first is SITE
+    assert f.count == 3
+
+
+def test_small_repeat_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 2, scope=1))
+    c.statements.extend(_runs(SELECT, 2, scope=2, start=10))
+    [f] = _repeats(c, small=4)
+    assert (f.count, f.scopes, f.scoped) == (4, 2, False)
+
+
+def test_small_repeats_are_sorted_by_count_descending() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs("SELECT 1 FROM few", 3))
+    c.statements.extend(_runs("SELECT 1 FROM many", 4, site=OTHER))
+    assert [f.count for f in _repeats(c, small=3)] == [4, 3]
