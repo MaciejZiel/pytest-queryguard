@@ -28,6 +28,7 @@ from .messages import (
     format_index_findings,
     format_index_notes,
     format_stale_ignores,
+    format_time_budget,
     format_truncation,
     make_findings,
     make_index_finding,
@@ -267,6 +268,11 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
+        "max_db_time(seconds): fail the test if its SQL statements take more "
+        "than that many seconds in total.",
+    )
+    config.addinivalue_line(
+        "markers",
         "allow_nplusone(*labels, kind=..., file=..., function=...): do not report "
         "N+1 query findings for this test; with arguments, only the findings "
         "they match (fnmatch patterns).",
@@ -494,6 +500,56 @@ def _budget(item: pytest.Item) -> int | None:
     return limit
 
 
+def _time_budget(item: pytest.Item) -> float | None:
+    marker = item.get_closest_marker("max_db_time")
+    if marker is None:
+        return None
+    if len(marker.args) > 1 or set(marker.kwargs) - {"seconds"}:
+        pytest.fail(
+            f"max_db_time on {item.nodeid} takes a single argument, the limit "
+            "in seconds",
+            pytrace=False,
+        )
+    if marker.args and "seconds" in marker.kwargs:
+        pytest.fail(
+            f"max_db_time on {item.nodeid} got the limit twice, positionally "
+            "and as seconds=",
+            pytrace=False,
+        )
+    limit = marker.args[0] if marker.args else marker.kwargs.get("seconds")
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, (int, float))
+        or not limit >= 0
+        or limit == float("inf")
+    ):
+        pytest.fail(
+            f"max_db_time on {item.nodeid} needs a non-negative number of "
+            f"seconds as its limit, got {limit!r}",
+            pytrace=False,
+        )
+    return float(limit)
+
+
+def _time_budget_report(
+    item: pytest.Item, collector: QueryCollector, limit: float
+) -> str | None:
+    """The database-time failure text, or None; a bug here never fails the test."""
+    try:
+        if collector.db_time <= limit:
+            return None
+        return format_time_budget(
+            limit,
+            collector.statements,
+            cwd=item.config.rootpath,
+            total=collector.statement_count,
+            db_time=collector.db_time,
+        )
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "database-time budget report")
+        return None
+
+
 def _budget_report(
     item: pytest.Item, collector: QueryCollector, limit: int
 ) -> str | None:
@@ -506,6 +562,7 @@ def _budget_report(
             collector.statements,
             cwd=item.config.rootpath,
             total=collector.statement_count,
+            db_time=collector.db_time,
         )
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "budget report")
@@ -614,11 +671,12 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         # for a bad option), so there is nothing to measure with.
         return (yield)
     limit = _budget(item)
-    if settings.mode == "off" and limit is None:
+    time_limit = _time_budget(item)
+    if settings.mode == "off" and limit is None and time_limit is None:
         return (yield)
     index_check = settings.mode != "off" and settings.index_check
     exempt_all, exempt = _index_exemption(item) if index_check else (False, ())
-    if limit is not None:
+    if limit is not None or time_limit is not None:
         install()  # idempotent; budgets also work when the mode is off
     collector = QueryCollector()
     collector.max_events = settings.max_events
@@ -636,6 +694,10 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         budget = _budget_report(item, collector, limit)
         if budget is not None:
             parts.append(budget)
+    if time_limit is not None:
+        time_budget = _time_budget_report(item, collector, time_limit)
+        if time_budget is not None:
+            parts.append(time_budget)
     message = None
     if settings.mode != "off":
         found = [

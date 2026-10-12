@@ -12,11 +12,14 @@ class CallSite:
     function: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class StatementEvent:
     sql: str
     callsite: CallSite | None
     relationship: str | None
+    # Seconds between the before and after cursor-execute events; None until
+    # the statement has finished (or when it never did, because it raised).
+    duration: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,6 +5,7 @@ from .api import (
     Query,
     QueryBudgetExceeded,
     QueryLog,
+    max_db_time,
     max_queries,
     record_queries,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "QueryGuardWarning",
     "QueryLog",
     "__version__",
+    "max_db_time",
     "max_queries",
     "record_queries",
 ]
