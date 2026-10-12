@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+### Fixed
+
+- A baseline file nested too deep for the JSON parser (`RecursionError`)
+  is now the usual "not a queryguard baseline" usage error, and
+  `--queryguard-update-baseline` replaces it, instead of an `INTERNALERROR`.
+- Any error while writing the baseline file, not only an `OSError`, is
+  reported in the "queryguard: baseline" section instead of crashing the end
+  of the session.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
