@@ -305,6 +305,10 @@ def test_correlated_subquery_reports_the_inner_table(db: sqlite3.Connection) -> 
         "SELECT * FROM customers c WHERE EXISTS "
         "(SELECT 1 FROM orders o WHERE o.customer_id = c.id)"
     )
+    plan = [r[3] for r in db.execute("EXPLAIN QUERY PLAN " + sql)]
+    if not any("CORRELATED" in d for d in plan):
+        # Newer SQLite turns EXISTS into a join; the plan has no inner loop.
+        pytest.skip(f"this SQLite plans the EXISTS as a join: {plan}")
     issue = one(db, sql)
     assert (issue.table, issue.column) == ("orders", "customer_id")
     db.execute("CREATE INDEX ix_o ON orders (customer_id)")

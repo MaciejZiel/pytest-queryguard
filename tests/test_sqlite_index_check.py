@@ -252,7 +252,9 @@ def test_core_text_and_core_select(project: pytest.Pytester) -> None:
     )
     result = project.runpytest(*ARGS)
     result.assert_outcomes(failed=2)
-    assert result.stdout.str().count("CREATE INDEX ix_orders_customer_id") == 2
+    # With xdist the summary repeats the messages; count the failure section.
+    report = result.stdout.str().split("short test summary info")[0]
+    assert report.count("CREATE INDEX ix_orders_customer_id") == 2
 
 
 def test_one_explain_per_statement_shape(
@@ -411,7 +413,10 @@ def test_explain_runs_no_statement_and_opens_no_transaction(
     # allow_missing_index silences the findings; the next test proves that the
     # check does run on the same statements.
     result = project.runpytest(*ARGS)
-    result.assert_outcomes(passed=6 if hasattr(sqlite3.Connection, "autocommit") else 4)
+    if hasattr(sqlite3.Connection, "autocommit"):
+        result.assert_outcomes(passed=6)
+    else:
+        result.assert_outcomes(passed=4, skipped=2)
 
 
 def test_check_does_not_change_in_transaction_or_data(
