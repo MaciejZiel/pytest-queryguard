@@ -17,6 +17,8 @@ pytestmark = [
     pytest.mark.allow_nplusone,
     pytest.mark.skipif(not ACTION.is_file(), reason="action/ is not available"),
     pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required"),
+    # the action runs on Linux and macOS; symlinks need privileges on Windows
+    pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell"),
 ]
 
 
@@ -57,7 +59,6 @@ def test_empty_input_gives_no_arguments(tmp_path: Path) -> None:
     assert [w for w in words if w] == []
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell syntax")
 def test_command_substitution_and_backticks_are_not_executed(tmp_path: Path) -> None:
     marker = tmp_path / "marker"
     payload = f'-k "a or b" $(touch {marker}) `touch {marker}` $HOME'
