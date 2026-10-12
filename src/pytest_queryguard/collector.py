@@ -15,6 +15,28 @@ class QueryCollector:
     scans: list[ScanEvent] = field(default_factory=list)
     index_notices: dict[str, None] = field(default_factory=dict)  # ordered set
     explain_errors: list[tuple[str, str]] = field(default_factory=list)
+    # Most statements (and, separately, relationship loads) whose details are
+    # stored; None for no limit. Past it the collector only counts.
+    max_events: int | None = None
+    statement_count: int = 0
+    relationship_load_count: int = 0
+
+    @property
+    def truncated(self) -> bool:
+        """True when some statements or loads were counted but not stored."""
+        return self.statement_count > len(
+            self.statements
+        ) or self.relationship_load_count > len(self.relationship_loads)
+
+    def add_statement(self, event: StatementEvent) -> None:
+        self.statement_count += 1
+        if self.max_events is None or len(self.statements) < self.max_events:
+            self.statements.append(event)
+
+    def add_relationship_load(self, event: RelationshipLoadEvent) -> None:
+        self.relationship_load_count += 1
+        if self.max_events is None or len(self.relationship_loads) < self.max_events:
+            self.relationship_loads.append(event)
 
 
 # Process-wide on purpose: the code under test may run in another thread.

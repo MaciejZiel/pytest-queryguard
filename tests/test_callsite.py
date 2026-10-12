@@ -71,3 +71,25 @@ def test_callsite_greenlet_lookup_never_raises(monkeypatch: pytest.MonkeyPatch) 
     from pytest_queryguard import callsite
 
     assert list(callsite._parent_greenlet_frames()) == []
+
+
+def test_internal_answer_is_cached_per_filename(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pytest_queryguard import callsite
+
+    calls: list[str] = []
+    real = callsite._classify
+
+    def spy(filename: str) -> bool:
+        calls.append(filename)
+        return real(filename)
+
+    monkeypatch.setattr(callsite, "_classify", spy)
+    monkeypatch.setattr(callsite, "_internal", {})
+    name = "/some/project/app/models.py"
+    assert callsite._is_internal(name) is False
+    assert callsite._is_internal(name) is False
+    assert callsite._is_internal("<string>") is True
+    assert callsite._is_internal("<string>") is True
+    assert calls == [name, "<string>"]

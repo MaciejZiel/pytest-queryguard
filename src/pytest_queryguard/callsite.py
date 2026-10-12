@@ -33,9 +33,12 @@ def _compute_prefixes() -> tuple[str, ...]:
 
 
 _prefixes: tuple[str, ...] | None = None
+# filename -> internal?  A suite touches a few hundred files at most, and the
+# answer never changes while the process runs, so each is classified once.
+_internal: dict[str, bool] = {}
 
 
-def _is_internal(filename: str) -> bool:
+def _classify(filename: str) -> bool:
     global _prefixes
     if filename.startswith("<"):
         return True
@@ -45,6 +48,14 @@ def _is_internal(filename: str) -> bool:
         return True
     parts = Path(filename).parts
     return "site-packages" in parts or "dist-packages" in parts
+
+
+def _is_internal(filename: str) -> bool:
+    try:
+        return _internal[filename]
+    except KeyError:
+        result = _internal[filename] = _classify(filename)
+        return result
 
 
 def _parent_greenlet_frames() -> Iterator[FrameType]:

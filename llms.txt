@@ -96,6 +96,7 @@ Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, 
 | `queryguard_mode` | `fail`, `warn`, `off` | `fail` |
 | `queryguard_relationship_threshold` | integer >= 2 | `2` |
 | `queryguard_repeat_threshold` | integer >= 2 | `5` |
+| `queryguard_max_events` | integer >= 0 (`0`: no limit) | `10000` |
 | `queryguard_index_check` | `true`, `false` | `false` |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns | empty |
 
