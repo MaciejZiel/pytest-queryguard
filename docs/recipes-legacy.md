@@ -4,10 +4,11 @@ A suite that has never been checked will have findings. Turning the plugin
 on in its default mode fails them all at once, which is not an adoption plan.
 This one has three steps. The project is
 [examples/sync-n-plus-one](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples/sync-n-plus-one)
-plus one more module, added in step 3, so that there is a "new" finding at
-the end. The output is from real runs (paths shortened, SQLAlchemy 2.1.4,
-pytest 9.1; Python 3.14 also prints the test's first line under each
-warning).
+without its `*_fixed.py` files (`app/orders_fixed.py`,
+`app/customers_fixed.py`, `tests/test_orders_fixed.py`), plus one more module,
+added in step 3, so that there is a "new" finding at the end. The output is
+from real runs (SQLAlchemy 2.1.4, pytest 9.1; paths shortened, and the source
+line pytest prints under each warning left out).
 
 `test_rename_customers` has a `max_queries(2)` budget and runs 4 statements.
 Budgets fail in every mode and are never baselined, so it would fail every run
@@ -108,7 +109,7 @@ queryguard_baseline = "queryguard-baseline.json"
 
 With `queryguard_mode` unset (so `fail`) and the baseline in place, the old
 findings pass. A new module with a loop of queries (`app/reports.py`) fails
-its test (`tests/test_new.py` calls it with ten names):
+its test:
 
 ```python
 from sqlalchemy import select
@@ -124,6 +125,21 @@ def customer_ids_by_name(session: Session, names: list[str]) -> list[int]:
             session.scalars(select(Customer.id).where(Customer.name == name)).one()
         )
     return ids
+```
+
+Its test, in `tests/test_new.py`:
+
+```python
+from app.reports import customer_ids_by_name
+
+
+def test_customer_ids_by_name(session):
+    names = [f"customer {i}" for i in range(1, 11)]
+    assert customer_ids_by_name(session, names) == list(range(1, 11))
+```
+
+```console
+$ pytest -q --deselect tests/test_orders.py::test_rename_customers
 ```
 
 ```
@@ -142,7 +158,13 @@ FAILED tests/test_new.py::test_customer_ids_by_name - Failed: queryguard: N+1...
 ```
 
 As the old code gets fixed, entries stop matching. A run that matches none
-of them lists the stale ones, so the file can shrink:
+of them lists the stale ones, so the file can shrink. Here, after copying the
+fixed code from the example in the repository (`app/orders_fixed.py` over
+`app/orders.py`, `app/customers_fixed.py` over `app/customers.py`):
+
+```console
+$ pytest -q tests/test_orders.py
+```
 
 ```
 ...                                                                      [100%]
