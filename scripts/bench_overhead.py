@@ -88,8 +88,21 @@ def main() -> None:
     if args.child:
         _child(args.child, args.statements)
         return
+    results = measure(args.statements, args.runs)
+    print(f"{args.statements} statements per loop, median of {args.runs} runs")
+    print(
+        f"{'loop':<6}{'off us/stmt':>13}{'on us/stmt':>13}{'overhead us':>13}{'overhead':>10}"
+    )
+    for name, (off, on) in results.items():
+        print(
+            f"{name:<6}{off:>13.1f}{on:>13.1f}{on - off:>13.1f}{(on - off) / off:>9.0%}"
+        )
+
+
+def measure(statements: int, runs: int) -> dict[str, tuple[float, float]]:
+    """Median microseconds per statement, {loop: (off, on)}, for core and orm."""
     times: dict[str, list[tuple[float, float]]] = {"off": [], "on": []}
-    for _ in range(args.runs):
+    for _ in range(runs):
         for mode in ("off", "on"):
             out = subprocess.run(
                 [
@@ -98,23 +111,20 @@ def main() -> None:
                     "--child",
                     mode,
                     "--statements",
-                    str(args.statements),
+                    str(statements),
                 ],
                 check=True,
                 capture_output=True,
                 text=True,
             ).stdout.split()
             times[mode].append((float(out[0]), float(out[1])))
-    print(f"{args.statements} statements per loop, median of {args.runs} runs")
-    print(
-        f"{'loop':<6}{'off us/stmt':>13}{'on us/stmt':>13}{'overhead us':>13}{'overhead':>10}"
-    )
-    for index, name in enumerate(("core", "orm")):
-        off = statistics.median(t[index] for t in times["off"])
-        on = statistics.median(t[index] for t in times["on"])
-        print(
-            f"{name:<6}{off:>13.1f}{on:>13.1f}{on - off:>13.1f}{(on - off) / off:>9.0%}"
+    return {
+        name: (
+            statistics.median(t[index] for t in times["off"]),
+            statistics.median(t[index] for t in times["on"]),
         )
+        for index, name in enumerate(("core", "orm"))
+    }
 
 
 if __name__ == "__main__":
