@@ -22,9 +22,15 @@ keywords = [
     "missing-index",
     "testing",
     "fastapi",
+    "pytest-plugin",
+    "query-count",
+    "sqlite",
+    "async",
+    "sarif",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Environment :: Plugins",
     "Framework :: FastAPI",
     "Framework :: Pytest",
     "Intended Audience :: Developers",
@@ -37,6 +43,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Database",
+    "Topic :: Software Development :: Quality Assurance",
     "Topic :: Software Development :: Testing",
     "Typing :: Typed",
 ]
