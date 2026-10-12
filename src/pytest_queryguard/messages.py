@@ -36,6 +36,11 @@ _SQL_LIMIT = 200
 _REPEAT_FIX = (
     "fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop"
 )
+_BATCHED_FIX = (
+    "fix: this query already fetches several rows with IN (...), so it is the "
+    "calls that repeat: call it once with all the ids, or combine the calls"
+)
+_IN_LIST = "IN (...)"
 
 
 def _across(finding: Detection, noun: str) -> str:
@@ -128,7 +133,7 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
         _first_at(finding.first, cwd),
         f"  {_truncate(finding.sql)}",
         *_scope_hint(finding),
-        f"  {_REPEAT_FIX}",
+        f"  {_BATCHED_FIX if _IN_LIST in finding.sql else _REPEAT_FIX}",
     ]
 
 

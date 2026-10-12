@@ -303,3 +303,29 @@ def test_a_join_condition_on_a_walked_index_says_join_condition() -> None:
     assert lines[2].startswith(
         "  users scans the whole primary key: the join condition"
     )
+
+
+def _repeat_message(sql: str) -> str:
+    site = CallSite(filename="/work/project/app/users.py", lineno=7, function="load")
+    return format_findings([RepeatFinding(sql, 5, site)], cwd=CWD)
+
+
+def test_a_repeated_statement_without_in_suggests_one_query_with_in() -> None:
+    message = _repeat_message("SELECT users.id FROM users WHERE users.id = ?")
+    assert "fix: fetch all rows in one query (WHERE id IN (...))" in message
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT users.id FROM users WHERE users.id IN (...)",
+        "SELECT users.id FROM users WHERE users.id NOT IN (...) ORDER BY users.id",
+    ],
+)
+def test_a_repeated_statement_that_already_uses_in_says_the_calls_repeat(
+    sql: str,
+) -> None:
+    message = _repeat_message(sql)
+    assert "already fetches several rows with IN (...)" in message
+    assert "call it once with all the ids, or combine the calls" in message
+    assert "fetch all rows in one query" not in message
