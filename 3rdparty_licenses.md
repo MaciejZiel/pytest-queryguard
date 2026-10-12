@@ -32,6 +32,8 @@ Every third-party component of this repository: the text of the Code of Conduct 
 | https://github.com/sqlalchemy/sqlalchemy | SQLAlchemy | MIT | https://github.com/sqlalchemy/sqlalchemy/blob/main/LICENSE |
 | https://github.com/python-greenlet/greenlet | greenlet | MIT AND PSF-2.0 | https://github.com/python-greenlet/greenlet/blob/master/LICENSE |
 | https://github.com/omnilib/aiosqlite | aiosqlite | MIT | https://github.com/omnilib/aiosqlite/blob/main/LICENSE |
+| https://github.com/PyMySQL/PyMySQL | PyMySQL (dev group, MySQL and MariaDB tests; MIT text verified in the 1.2.3 sdist) | MIT | https://github.com/PyMySQL/PyMySQL/blob/main/LICENSE |
+| https://github.com/aio-libs/aiomysql | aiomysql (dev group, async MySQL and MariaDB tests; MIT text verified in the 0.3.2 sdist) | MIT | https://github.com/aio-libs/aiomysql/blob/main/LICENSE |
 | https://github.com/fastapi/fastapi | FastAPI | MIT | https://github.com/fastapi/fastapi/blob/master/LICENSE |
 | https://github.com/encode/httpx | httpx | BSD-3-Clause | https://github.com/encode/httpx/blob/master/LICENSE.md |
 | https://github.com/MagicStack/asyncpg | asyncpg | Apache-2.0 | https://github.com/MagicStack/asyncpg/blob/master/LICENSE |

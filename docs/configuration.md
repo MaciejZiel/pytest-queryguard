@@ -14,7 +14,7 @@
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
 | `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](ignoring.md). |
 | `queryguard_baseline` | path | empty | Baseline file, relative to the rootdir: findings listed in it do not fail or warn, see [Baseline](baseline.md). |
-| `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer, and `SELECT`, `UPDATE` and `DELETE` on SQLite). |
+| `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer, and `SELECT`, `UPDATE` and `DELETE` on SQLite, MySQL and MariaDB). |
 | `queryguard_index_advisor` | `true`, `false` | `true` | Suggests an index for each missing-index finding, see [Index advisor](index-advisor.md). Used with the index check. |
 | `queryguard_hypopg` | `auto`, `on`, `off` | `auto` | Verifies the suggested indexes with the hypopg extension: `auto` when it is installed, `on` also creates it inside the check's savepoint, `off` never uses it. |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |

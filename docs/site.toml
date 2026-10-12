@@ -28,6 +28,7 @@ title = "Indexes"
 pages = [
   { title = "Index check (PostgreSQL)", file = "index-check.md" },
   { title = "Index check (SQLite)", file = "index-check-sqlite.md" },
+  { title = "Index check (MySQL and MariaDB)", file = "index-check-mysql.md" },
   { title = "Index advisor", file = "index-advisor.md" },
 ]
 

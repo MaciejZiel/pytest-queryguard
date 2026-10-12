@@ -15,7 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import ORMExecuteState, Session
 from sqlalchemy.pool import Pool
 
-from . import catalog, collector, indexes, sqlite_index
+from . import catalog, collector, indexes, mysql_index, sqlite_index
 from .callsite import find_callsite, find_flush
 from .events import (
     CAUSE_DEFERRED,
@@ -289,6 +289,8 @@ def _on_after_cursor_execute(
         targets = [target for target in collector.active() if target.index_check]
         if targets and conn.dialect.name == sqlite_index.DIALECT:
             sqlite_index.check(conn, statement, parameters, executemany, targets)
+        elif targets and conn.dialect.name in mysql_index.DIALECTS:
+            mysql_index.check(conn, cursor, statement, parameters, executemany, targets)
         elif targets:
             indexes.check(conn, statement, executemany, targets)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
