@@ -1875,3 +1875,46 @@ def test_rows_read_before_a_clear_are_not_written_after_it(text_cast: bool) -> N
     assert varchar == ({("public", "t"): frozenset({"s"})} if text_cast else {})
     assert entry.leading == {}
     assert entry.varchar == {}
+
+
+# ------------------------------------------------------------ partition roots
+
+
+def _partition_issue(alias: str, table: str, condition: str) -> ScanIssue:
+    return ScanIssue(
+        "public",
+        table,
+        "Seq Scan",
+        "filter",
+        condition,
+        None,
+        show_schema=False,
+        alias=alias,
+    )
+
+
+def test_partitions_of_one_root_become_one_issue_on_the_root() -> None:
+    issues = [
+        _partition_issue("ev_1", "ev_a", "((ev_1.a = $1) AND (ev_1.b > $2))"),
+        _partition_issue(
+            '"Ev x_2"', "ev_b", '(("Ev x_2".a = $1) AND ("Ev x_2".b > $2))'
+        ),
+        _partition_issue("ev_3", "ev_c", "((ev_3.a = $1) AND (ev_3.c > $2))"),
+        _partition_issue("other", "other", "(other.a = $1)"),
+    ]
+    roots = {("public", t): ("sales", "ev") for t in ("ev_a", "ev_b", "ev_c")}
+    varchar = {("public", "ev_a"): frozenset({"a"})}
+    found, widened = indexes.to_roots(issues, roots, "public", varchar)
+    assert [(i.schema, i.table, i.alias, i.show_schema) for i in found] == [
+        ("sales", "ev", "ev_1", True),
+        ("sales", "ev", "ev_3", True),  # another condition: another index
+        ("public", "other", "other", False),
+    ]
+    assert widened[("sales", "ev")] == frozenset({"a"})
+    assert widened[("public", "ev_a")] == frozenset({"a"})
+
+
+def test_no_roots_change_nothing() -> None:
+    issues = [_partition_issue("t", "t", "(t.a = $1)")]
+    found, widened = indexes.to_roots(issues, {}, None, {})
+    assert list(found) == issues and widened == {}

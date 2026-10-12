@@ -270,6 +270,106 @@ def test_a_temporary_table_is_advised(db: Db) -> None:
         conn.rollback()
 
 
+PARTITIONED = (
+    (
+        "CREATE TABLE events (id int, account_id int, kind text, "
+        "created_at timestamp NOT NULL) PARTITION BY RANGE (created_at)"
+    ),
+    (
+        "CREATE TABLE events_2025 PARTITION OF events "
+        "FOR VALUES FROM ('2025-01-01') TO ('2026-01-01')"
+    ),
+    (
+        "CREATE TABLE events_2026 PARTITION OF events "
+        "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01') PARTITION BY HASH (id)"
+    ),
+    (
+        "CREATE TABLE events_2026_a PARTITION OF events_2026 "
+        "FOR VALUES WITH (MODULUS 2, REMAINDER 0)"
+    ),
+    (
+        "CREATE TABLE events_2026_b PARTITION OF events_2026 "
+        "FOR VALUES WITH (MODULUS 2, REMAINDER 1)"
+    ),
+    (
+        "INSERT INTO events SELECT g, g % 50, 'k' || g % 7, "
+        "timestamp '2025-06-01' + g * interval '1 hour' FROM generate_series(1, 9000) g"
+    ),
+    "ANALYZE events",
+)
+
+
+def test_a_partitioned_table_gets_one_verified_suggestion_on_its_root(
+    db: Db,
+) -> None:
+    # #86: the partitions (two levels deep here) are read in full; the index
+    # belongs on the partitioned table, which creates it on every partition.
+    db.run(*PARTITIONED)
+    try:
+        outcome = advise(db, "SELECT * FROM events WHERE kind = $1")
+        issue = only(outcome)
+        assert (issue.table, issue.column) == ("events", "kind")
+        assert issue.alias.startswith("events_")  # the condition keeps it
+        advice = issue.advice
+        assert advice is not None and advice.verification is not None
+        assert advice.create_sql == "CREATE INDEX ON events (kind)"
+        assert advice.alembic is not None and '"events", ["kind"]' in advice.alembic
+        assert advice.verification.used is True
+    finally:
+        db.run("DROP TABLE events")
+
+
+def test_an_index_on_the_partitioned_table_is_why_no_new_one_is_suggested(
+    db: Db,
+) -> None:
+    db.run(*PARTITIONED, "CREATE INDEX events_kind ON events (kind) WHERE id > 0")
+    try:
+        advice = only(advise(db, "SELECT * FROM events WHERE kind = $1")).advice
+        assert advice is not None and advice.create_sql is None
+        assert advice.skipped is not None and "events_kind" in advice.skipped
+    finally:
+        db.run("DROP TABLE events")
+
+
+def test_an_inheritance_child_keeps_its_own_finding(db: Db) -> None:
+    db.run(
+        "CREATE TABLE vehicles (id int, owner_id int)",
+        "CREATE TABLE cars (seats int) INHERITS (vehicles)",
+        "INSERT INTO cars SELECT g, g % 10, 4 FROM generate_series(1, 5000) g",
+        "ANALYZE cars",
+    )
+    try:
+        outcome = advise(db, "SELECT * FROM vehicles WHERE owner_id = $1")
+        assert outcome.issues is not None
+        assert [(i.table, i.column) for i in outcome.issues] == [
+            ("vehicles", "owner_id"),
+            ("cars", "owner_id"),
+        ]
+    finally:
+        db.run("DROP TABLE vehicles CASCADE")
+
+
+def test_a_failing_partition_lookup_keeps_the_partitions(
+    db: Db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        indexes, "_ROOT_LOOKUP", "SELECT * FROM no_such_table WHERE {names}"
+    )
+    db.run(*PARTITIONED)
+    try:
+        outcome = advise(db, "SELECT * FROM events WHERE kind = $1")
+        assert outcome.issues is not None
+        assert {i.table for i in outcome.issues} == {
+            "events_2025",
+            "events_2026_a",
+            "events_2026_b",
+        }
+        assert outcome.advisor_notice is not None
+        assert outcome.advisor_notice.startswith("partition lookup failed")
+    finally:
+        db.run("DROP TABLE events")
+
+
 # ------------------------------------------------------------ existing indexes
 
 

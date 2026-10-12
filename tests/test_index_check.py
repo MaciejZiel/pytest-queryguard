@@ -783,6 +783,54 @@ def test_pg_before_16_gets_one_notice(
     )
 
 
+EVENTS = """
+from sqlalchemy import text
+
+
+def test_events(session):
+    for statement in [
+        "CREATE TABLE events (id int, kind text, created_at timestamp NOT NULL) "
+        "PARTITION BY RANGE (created_at)",
+        "CREATE TABLE events_2025 PARTITION OF events "
+        "FOR VALUES FROM ('2025-01-01') TO ('2026-01-01')",
+        "CREATE TABLE events_2026 PARTITION OF events "
+        "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+    ]:
+        session.execute(text(statement))
+    session.execute(text("SELECT * FROM events WHERE kind = :k"), {"k": "a"}).all()
+"""
+
+
+@needs_pg
+def test_pg_a_partitioned_table_is_one_finding_on_the_table(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # #86: not one finding per partition, and the fix names the partitioned
+    # table, which creates the index on every partition.
+    _pg_project(project, pg16).makepyfile(test_a=EVENTS)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    out = result.stdout.str()
+    assert out.count("is read in full") == 1
+    result.stdout.fnmatch_lines(
+        [
+            "  events is read in full: Seq Scan with filter (events_*.kind = $1)",
+            "*fix: CREATE INDEX ON events (kind)",
+        ]
+    )
+    assert "events_20" not in out
+
+
+@needs_pg
+def test_pg_a_partitioned_table_is_ignored_by_its_own_name(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(test_a=EVENTS)
+    project.makeini("[pytest]\nqueryguard_index_ignore_tables = events\n")
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+
+
 # A table with columns for the pagination and cast cases, created inside the
 # test's own transaction (the check sees it), with or without statistics.
 ITEMS = """
