@@ -19,8 +19,9 @@ def test_order_page_again(client):
 ```
 
 The keyword is `limit`, as in the function below. Releases before 0.4 called
-it `n`; `n=3` keeps working, without a warning, through 0.4.x and is removed
-in 0.5.
+it `n`; `n=3` keeps working, without a warning. It may be removed in a future
+minor release, but only after a deprecation period with a warning (see
+[Stability](stability.md)).
 
 The test fails when its body runs more SQL statements than the limit. The
 failure lists every statement with the line that issued it. Budgets count

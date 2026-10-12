@@ -860,7 +860,7 @@ def _budget(item: pytest.Item) -> int | None:
     if marker is None:
         return None
     # ``n`` is the spelling of 0.1 to 0.3; it stays accepted, without a warning,
-    # through 0.4.x.
+    # until a deprecation period (docs/stability.md) says otherwise.
     if len(marker.args) > 1 or set(marker.kwargs) - {"limit", "n"}:
         pytest.fail(
             f"max_queries on {item.nodeid} takes a single argument, the limit",

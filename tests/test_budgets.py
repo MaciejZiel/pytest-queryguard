@@ -246,7 +246,7 @@ STRICT = ("-W", "error::DeprecationWarning", "-W", "error::UserWarning")
 
 
 def test_marker_still_accepts_n_without_a_warning(project: pytest.Pytester) -> None:
-    """``n=`` was the keyword of 0.1 to 0.3; it works through 0.4.x, silently."""
+    """``n=`` was the keyword of 0.1 to 0.3; it still works, silently."""
     project.makepyfile(test_a=BODY.format(limit="n=2"))
     result = project.runpytest("test_a.py", *STRICT)
     result.assert_outcomes(failed=1, warnings=0)
