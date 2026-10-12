@@ -40,6 +40,14 @@
   existing index is a good one. A missing index that only a join would use
   (a join without a `WHERE` on that table) is not reported, because the
   plan for it depends on statistics.
+- The index check plans with a generic plan, which cannot see bound values.
+  When a table has a partial index (`... WHERE status = 'open'`) whose
+  predicate columns are all filtered by the statement, and one of them is
+  compared with a parameter, the plan cannot tell whether the index serves
+  that value. Such a statement is not reported and gets no advice; the
+  session summary counts them (`N statements skipped: a partial index on
+  <table> may serve them; the generic plan cannot tell`). A genuinely
+  missing index on such a statement is therefore not found.
 - A partitioned table is reported under the partition's name, and
   `queryguard_index_ignore_tables` matches partition names, not the parent
   table's.
