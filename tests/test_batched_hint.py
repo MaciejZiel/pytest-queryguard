@@ -53,12 +53,29 @@ def test_single_lookup_called_five_times():
 """
 
 
+@pytest.mark.parametrize(
+    ("test", "present", "absent"),
+    [
+        (
+            "test_batched_lookup_called_five_times",
+            "already fetches several rows with IN (...)",
+            "fix: fetch all rows in one query",
+        ),
+        (
+            "test_single_lookup_called_five_times",
+            "fix: fetch all rows in one query (WHERE id IN (...))",
+            "already fetches several rows",
+        ),
+    ],
+)
 def test_the_hint_depends_on_whether_the_statement_uses_in(
-    pytester: pytest.Pytester,
+    pytester: pytest.Pytester, test: str, present: str, absent: str
 ) -> None:
     pytester.makepyfile(test_batched=BATCHED)
-    result = pytester.runpytest_subprocess("-p", "no:cacheprovider", "--tb=short")
-    result.assert_outcomes(failed=2)
+    result = pytester.runpytest_subprocess(
+        "-p", "no:cacheprovider", "--tb=short", "-k", test
+    )
+    result.assert_outcomes(failed=1)
     out = result.stdout.str()
-    assert out.count("already fetches several rows with IN (...)") == 1
-    assert out.count("fix: fetch all rows in one query (WHERE id IN (...))") == 1
+    assert present in out
+    assert absent not in out
