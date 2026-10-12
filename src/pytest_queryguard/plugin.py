@@ -771,9 +771,7 @@ def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Findin
     if settings.sarif_path is not None:
         for finding in findings:
             level = (
-                sarif.LEVEL_ERROR
-                if settings.fails(finding.kind)
-                else sarif.LEVEL_WARNING
+                sarif.LEVEL_ERROR if _fails(settings, finding) else sarif.LEVEL_WARNING
             )
             sarif.add(settings.reported, finding, level)
     return findings
