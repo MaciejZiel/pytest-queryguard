@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The SQLite index check no longer says a table "is read in full" when the
+  plan walks an existing index that the filter cannot use (`SCAN INDEX ix_...`).
+  It says the table scans the whole index and that the filter does not match
+  the start of any index; the suggested `CREATE INDEX` is unchanged.
 - A SARIF result merged from several tests no longer shows one test's count in
   `message.text` next to the total in `properties.count`. The message now
   starts with `Seen in N tests: T times in total, up to M times in one test`,
