@@ -68,6 +68,12 @@ dev = [
     # SQLAlchemy 2.1 no longer installs greenlet, which the async tests need.
     "sqlalchemy[asyncio]",
 ]
+# Builds the documentation site (scripts/build_docs.py): Markdown and Pygments, both BSD.
+# Not installed with the package, and not part of the default groups' tests.
+docs = [
+    "markdown>=3.6",
+    "pygments>=2.17",
+]
 
 [tool.hatch.version]
 path = "src/pytest_queryguard/__init__.py"
