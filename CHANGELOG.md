@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
   for file-based SQLite or PostgreSQL).
 
+- `allow_nplusone` with patterns now also applies to missing-index findings.
+  `kind="missing-index"` was accepted but never matched anything and was then
+  reported as a stale ignore; it now works like the same pattern in
+  `queryguard_ignore`. The marker without arguments still leaves the index
+  check alone (`allow_missing_index` skips it).
+
 - Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
   `scripts/release_gate.py`) that checks the test matrix, the accuracy
   minimums, the documentation examples, clean installs, the upgrade from the
