@@ -11,7 +11,25 @@ title = "Start"
 pages = [
   { title = "Overview", file = "index.md", description = "pytest-queryguard fails tests that run N+1 queries, enforces query budgets and finds missing indexes for SQLAlchemy 2, in sync, async and FastAPI code." },
   { title = "Getting started", file = "getting-started.md", description = "Install pytest-queryguard, see a first N+1 failure and its fix, and use it with async code and FastAPI." },
+  { title = "A test failed: now what", file = "when-a-test-fails.md", description = "Read a pytest-queryguard failure, check that the finding is real, fix it, or leave it out on purpose." },
   { title = "How detection works", file = "how-detection-works.md", description = "The rules pytest-queryguard applies to find N+1 queries, repeated statements, column loads and write loops, and why the thresholds are what they are." },
+]
+
+[[section]]
+title = "Adopting it"
+pages = [
+  { title = "CI and GitHub Action", file = "ci.md", description = "Run pytest-queryguard in CI and upload its findings to GitHub code scanning with the GitHub Action or a SARIF file." },
+  { title = "Baseline", file = "baseline.md", description = "Record existing findings in a baseline file so that only new N+1 queries and missing indexes fail." },
+  { title = "SARIF output", file = "sarif.md", description = "The SARIF 2.1.0 file pytest-queryguard writes for GitHub code scanning: fields, paths, fingerprints and upload rules." },
+]
+
+[[section]]
+title = "Indexes"
+pages = [
+  { title = "Index check (PostgreSQL)", file = "index-check.md", description = "Fail tests whose SQL has no index to use, on PostgreSQL 16 and newer, by planning each SELECT without sequential scans." },
+  { title = "Index check (SQLite)", file = "index-check-sqlite.md", description = "The missing-index check on SQLite: how EXPLAIN QUERY PLAN is used and where it judges less precisely." },
+  { title = "Index check (MySQL and MariaDB)", file = "index-check-mysql.md", description = "Fail tests whose SQL has no index to use on MySQL and MariaDB, by reading EXPLAIN plans; tested by hand, not in CI." },
+  { title = "Index advisor", file = "index-advisor.md", description = "How the index advisor suggests CREATE INDEX statements and Alembic calls, and verifies them with hypopg." },
 ]
 
 [[section]]
@@ -19,13 +37,10 @@ title = "Using it"
 pages = [
   { title = "Configuration reference", file = "configuration.md", description = "Every ini option, command-line flag and marker of pytest-queryguard, with defaults and accepted values." },
   { title = "Budgets and timing", file = "budgets.md", description = "Fail a pytest test that runs too many SQL statements or spends too long in the database, with markers or context managers." },
+  { title = "Ignoring findings", file = "ignoring.md", description = "Leave out single findings or whole kinds with the allow_nplusone marker, queryguard_ignore and baselines." },
   { title = "Several sessions or requests", file = "several-sessions.md", description = "Count repeated statements per Session or connection checkout, for tests that make several independent requests." },
   { title = "Reading the queries", file = "python-api.md", description = "Read the SQL statements, durations and call sites of a block in a test with record_queries and QueryLog." },
   { title = "In-application mode", file = "in-app.md", description = "Run the N+1 rules and query budgets on every request of a running FastAPI, Starlette or Flask app, with an optional development panel." },
-  { title = "Ignoring findings", file = "ignoring.md", description = "Leave out single findings or whole kinds with the allow_nplusone marker, queryguard_ignore and baselines." },
-  { title = "Baseline", file = "baseline.md", description = "Record existing findings in a baseline file so that only new N+1 queries and missing indexes fail." },
-  { title = "CI and GitHub Action", file = "ci.md", description = "Run pytest-queryguard in CI and upload its findings to GitHub code scanning with the GitHub Action or a SARIF file." },
-  { title = "SARIF output", file = "sarif.md", description = "The SARIF 2.1.0 file pytest-queryguard writes for GitHub code scanning: fields, paths, fingerprints and upload rules." },
 ]
 
 [[section]]
@@ -40,15 +55,6 @@ pages = [
   { title = "Budgets for hot endpoints", file = "recipes-budgets.md", description = "Put a query budget on the endpoints where a regression costs most, and choose the number." },
   { title = "Adopting on a legacy codebase", file = "recipes-legacy.md", description = "Introduce pytest-queryguard step by step: warn mode, a baseline of existing findings, then fail on anything new." },
   { title = "CI recipes", file = "recipes-ci.md", description = "Run pytest-queryguard in GitHub Actions and GitLab CI, keep JUnit output, and why pre-commit does not apply." },
-]
-
-[[section]]
-title = "Indexes"
-pages = [
-  { title = "Index check (PostgreSQL)", file = "index-check.md", description = "Fail tests whose SQL has no index to use, on PostgreSQL 16 and newer, by planning each SELECT without sequential scans." },
-  { title = "Index check (SQLite)", file = "index-check-sqlite.md", description = "The missing-index check on SQLite: how EXPLAIN QUERY PLAN is used and where it judges less precisely." },
-  { title = "Index check (MySQL and MariaDB)", file = "index-check-mysql.md", description = "Fail tests whose SQL has no index to use on MySQL and MariaDB, by reading EXPLAIN plans; tested by hand, not in CI." },
-  { title = "Index advisor", file = "index-advisor.md", description = "How the index advisor suggests CREATE INDEX statements and Alembic calls, and verifies them with hypopg." },
 ]
 
 [[section]]
