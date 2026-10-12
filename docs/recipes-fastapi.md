@@ -221,10 +221,11 @@ which use `joinedload` and `selectinload`, and passes.
 
 ## Several requests in one test
 
-The repeated-statement rule counts a statement across the whole test body, not
-per request. A test that calls a fine endpoint in a loop is therefore
-reported, although each request sends only a few queries. With a detail
-endpoint that sends four queries per call, a test like this:
+By default the repeated-statement rule counts a statement across the whole
+test body, not per request. A test that calls a fine endpoint in a loop is
+therefore reported, although each request sends only a few queries. With a
+detail endpoint that sends four queries per call (each request has its own
+session, from the dependency), a test like this:
 
 ```python
 def test_every_order_page_loads(client):
@@ -241,35 +242,50 @@ F                                                                        [100%]
 _________________________ test_every_order_page_loads __________________________
 queryguard: N+1 detected
 
-  the same statement ran 6 times
+  the same statement ran 6 times across 6 different Sessions or connection checkouts
   first at app/main.py:60 in order_detail
   SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?
+  note: if each belongs to a separate request or unit of work, this is not a
+  loop; set queryguard_repeat_scope = session to count each Session on its
+  own (QueryLog.assert_no_nplusone: repeat_scope='session')
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
-  the same statement ran 6 times
+  the same statement ran 6 times across 6 different Sessions or connection checkouts
   first at app/main.py:61 in order_detail
   SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+  note: if each belongs to a separate request or unit of work, this is not a
+  loop; set queryguard_repeat_scope = session to count each Session on its
+  own (QueryLog.assert_no_nplusone: repeat_scope='session')
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
-  the same statement ran 6 times
+  the same statement ran 6 times across 6 different Sessions or connection checkouts
   first at app/main.py:62 in order_detail
   SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?
+  note: if each belongs to a separate request or unit of work, this is not a
+  loop; set queryguard_repeat_scope = session to count each Session on its
+  own (QueryLog.assert_no_nplusone: repeat_scope='session')
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
-  the same statement ran 6 times
+  the same statement ran 6 times across 6 different Sessions or connection checkouts
   first at app/main.py:65 in order_detail
   SELECT count(*) AS count_1 FROM orders
+  note: if each belongs to a separate request or unit of work, this is not a
+  loop; set queryguard_repeat_scope = session to count each Session on its
+  own (QueryLog.assert_no_nplusone: repeat_scope='session')
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 =========================== short test summary info ============================
 FAILED tests/test_loop_tmp.py::test_every_order_page_loads - Failed: querygua...
-1 failed in 0.08s
+1 failed in 0.07s
 ```
 
 The first call site is the endpoint, which is where the statement is written,
-so the report reads like an N+1 in the endpoint even though the loop is in the
-test. Two ways out, both run for this page: write one request per test with
-`pytest.mark.parametrize` over the ids, so that no statement repeats within a
-test, or mark the test with `@pytest.mark.allow_nplusone` when a loop over
-requests is the point of it (see [Ignoring findings](ignoring.md)). A
-`with max_queries(4):` around each request does not help here: it checks its
-own block, and the repeated-statement rule still looks at the whole test.
+and the report says that the runs were spread over six sessions. Because every
+request used its own `Session`, this is not a loop in the endpoint. Setting
+`queryguard_repeat_scope = session` makes the rules count each session on its
+own, and the same test then passes (run for this page; see
+[Several sessions or requests](several-sessions.md) for what the option does
+and does not change). Other ways out: write one request per test with
+`pytest.mark.parametrize` over the ids, or mark the test with
+`@pytest.mark.allow_nplusone` (see [Ignoring findings](ignoring.md)). A
+`with max_queries(4):` around each request does not help: it checks its own
+block, and the repeated-statement rule still looks at the whole test.
