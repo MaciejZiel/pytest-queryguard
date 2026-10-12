@@ -25,6 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+### Fixed
+
+- `--queryguard-update-baseline` no longer ends the run with an
+  `INTERNALERROR` when a test lives in a directory whose name is not valid
+  UTF-8. The baseline is written with `\udcXX` escapes for such characters
+  (other text stays readable), so the entry matches on the next run, and any
+  other error while writing is reported as `could not write ...` like the
+  SARIF writer does. A baseline file with deeply nested JSON is now the usual
+  "invalid baseline" error instead of a `RecursionError`. Fixes #89.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
