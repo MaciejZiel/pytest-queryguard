@@ -1,0 +1,55 @@
+{
+ "query": "SELECT status, count(*) FROM orders WHERE customer_id = $1 GROUP BY status",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Hashed",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 15.3,
+    "Total Cost": 15.31,
+    "Plan Rows": 1,
+    "Plan Width": 12,
+    "Disabled": false,
+    "Output": [
+     "status",
+     "count(*)"
+    ],
+    "Group Key": [
+     "orders.status"
+    ],
+    "Planned Partitions": 0,
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 0.0,
+      "Total Cost": 15.25,
+      "Plan Rows": 10,
+      "Plan Width": 4,
+      "Disabled": true,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ],
+      "Filter": "(orders.customer_id = $1)"
+     }
+    ]
+   }
+  }
+ ]
+}
