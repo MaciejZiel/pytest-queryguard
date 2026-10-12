@@ -51,6 +51,26 @@ From the narrowest to the widest:
 See [Ignoring findings](ignoring.md). Patterns that match nothing are listed
 as stale ignores, so they do not outlive the code.
 
+## My integration test makes several requests and fails with repeated-statement
+
+By default the repeat rules count everything one test runs. A test that calls
+an API five times, with a test client for example, runs the same lookups
+(authentication, the organisation, a webhook) once per request, each in its own
+SQLAlchemy `Session`. Nothing loops, but the count is five. The failure says so
+when it can: `ran 9 times across 8 different Sessions or connection checkouts`,
+with a note naming the option. Set it to count each `Session` on its own:
+
+```toml
+[tool.pytest.ini_options]
+queryguard_repeat_scope = "session"
+```
+
+A loop inside one request, or any code that runs the same statement five times
+in one `Session`, is still reported. The same applies to lazy loads, column
+loads and write loops. See [Tests with several sessions or
+requests](several-sessions.md) for how the scope is chosen and where it stops
+being exact.
+
 ## Does it work with pytest-xdist?
 
 Yes for detection, budgets, the baseline and SARIF: each worker measures its

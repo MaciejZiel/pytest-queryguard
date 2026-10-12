@@ -69,7 +69,8 @@ EXPECTED_QUERYLOG = {
         "(self, *, relationship_threshold: 'int' = 2, repeat_threshold: 'int' = 5, "
         "column_load_threshold: 'int' = 5, "
         "small_repeat_threshold: 'int | None' = None, "
-        "write_loop_threshold: 'int | None' = None) -> 'None'"
+        "write_loop_threshold: 'int | None' = None, "
+        "repeat_scope: 'str' = 'test') -> 'None'"
     ),
     "count": "property",
     "db_time": "property",
@@ -84,6 +85,7 @@ EXPECTED_INI = {
     "queryguard_column_load_threshold": "5",
     "queryguard_max_events": "10000",
     "queryguard_small_repeat_threshold": "0",
+    "queryguard_repeat_scope": "test",
     "queryguard_write_loop_threshold": "0",
     "queryguard_unused_eager_load": "off",
     "queryguard_fail_on": "[]",

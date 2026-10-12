@@ -15,6 +15,7 @@ title = "Using it"
 pages = [
   { title = "Configuration reference", file = "configuration.md" },
   { title = "Budgets and timing", file = "budgets.md" },
+  { title = "Several sessions or requests", file = "several-sessions.md" },
   { title = "Reading the queries", file = "python-api.md" },
   { title = "Ignoring findings", file = "ignoring.md" },
   { title = "Baseline", file = "baseline.md" },

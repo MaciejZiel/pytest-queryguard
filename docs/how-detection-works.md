@@ -83,6 +83,15 @@ is recognized from the call stack (SQLAlchemy's `Session._flush`); if a future
 SQLAlchemy release changes that, such a flush is reported again until the
 detection is updated.
 
+### What the count rules count together
+
+The relationship, repeated-statement, column-load and write-loop rules count
+over a scope. By default (`queryguard_repeat_scope = test`) the scope is the
+whole test. With `session`, each SQLAlchemy `Session`, or each connection
+checkout for statements no `Session` ran, is counted on its own, and a finding
+needs one scope to reach the threshold. See [Tests with several sessions or
+requests](several-sessions.md).
+
 ### unused-eager-load (experimental)
 
 Off by default. See [Unused eager loads](unused-eager-load.md).

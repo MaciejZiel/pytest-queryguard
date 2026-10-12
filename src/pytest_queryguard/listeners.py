@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import itertools
 import os
 import threading
 import time
@@ -29,6 +31,11 @@ _index_installed = False
 _error: BaseException | None = None
 _failure: Failure | None = None
 _local = threading.local()
+# Scope numbers for the repeat rules: one per Session, one per connection that
+# no Session opened. Process-wide and never reused; the number is stored on the
+# Session or Connection object, so it cannot be mixed up by a recycled id().
+_scopes = itertools.count(1)
+_SCOPE_ATTR = "_queryguard_scope"
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +75,40 @@ def _innermost(exc: BaseException) -> str | None:
         return None
     last = frames[-1]
     return f"{os.path.basename(last.filename)}:{last.lineno} in {last.name}"
+
+
+def _scope_of(owner: Any) -> int | None:
+    """The scope number of a Session or Connection, assigned on first use."""
+    try:
+        scope = owner.__dict__.get(_SCOPE_ATTR)
+        if scope is None:
+            scope = next(_scopes)
+            setattr(owner, _SCOPE_ATTR, scope)
+        return scope  # type: ignore[no-any-return]
+    except (AttributeError, TypeError):
+        return None
+
+
+def scope_of_session(session: Any) -> int | None:
+    """The scope of a Session: the same number for all its transactions."""
+    return _scope_of(session)
+
+
+def scope_of_connection(conn: Any) -> int | None:
+    """The scope of a statement's connection.
+
+    A connection a Session opened (see ``_on_after_begin``) belongs to that
+    Session; any other connection is its own scope, and ``engine.connect()``
+    gives a new one for each checkout.
+    """
+    return _scope_of(conn)
+
+
+def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
+    """Tell the connection which Session it serves, for every transaction."""
+    # Without the tag the connection counts as a scope of its own.
+    with contextlib.suppress(AttributeError, TypeError):
+        setattr(connection, _SCOPE_ATTR, scope_of_session(session))
 
 
 def _set_pending(name: str | None, column_load: ColumnLoadEvent | None = None) -> None:
@@ -121,7 +162,12 @@ def _record_column_load(
         names = tuple(sorted(set(only) & columns or only))
     key = instance.key if instance.key is not None else id(instance)
     load = ColumnLoadEvent(
-        instance.mapper.class_.__name__, names, cause, key, find_callsite()
+        instance.mapper.class_.__name__,
+        names,
+        cause,
+        key,
+        find_callsite(),
+        scope=scope_of_session(state.session),
     )
     _set_pending(None, column_load=load)
     for target in targets:
@@ -152,7 +198,9 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
                 key = id(parent)
         _set_pending(name)
         site = find_callsite()
-        load = RelationshipLoadEvent(name, key, site, scalar)
+        load = RelationshipLoadEvent(
+            name, key, site, scalar, scope_of_session(state.session)
+        )
         for target in targets:
             target.add_relationship_load(load)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
@@ -188,6 +236,7 @@ def _on_cursor_execute(
             parameters=None if executemany else parameters,
             executemany=bool(executemany),
             flush=find_flush() if _is_write(statement) else None,
+            scope=scope_of_connection(conn),
         )
         for target in targets:
             target.add_statement(stmt)
@@ -301,6 +350,7 @@ def install() -> None:
     if _installed:
         return
     event.listen(Session, "do_orm_execute", _on_orm_execute)
+    event.listen(Session, "after_begin", _on_after_begin)
     event.listen(Engine, "before_cursor_execute", _on_cursor_execute)
     event.listen(Engine, "after_cursor_execute", _on_timing_after)
     _installed = True
