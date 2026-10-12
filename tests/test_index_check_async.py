@@ -652,3 +652,44 @@ def test_pg_async_catalog_lookups_are_one_prepared_statement(
             indexes._VARCHAR_LOOKUP.format(names=indexes._NAMES_ARRAYS),
         ]
     )
+
+
+ASYNC_PARTIAL = """
+import asyncio
+
+from sqlalchemy import column, select, table, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+t1 = table("t1", column("status"), column("x"))
+
+
+async def run(engine):
+    async with AsyncSession(engine) as session:
+        for sql in (
+            "CREATE TABLE t1 (status varchar, x int)",
+            "CREATE INDEX t1_partial ON t1 (x) WHERE status = 'open'",
+            "INSERT INTO t1 SELECT CASE WHEN g % 50 = 0 THEN 'open' ELSE 'done' END, g "
+            "FROM generate_series(1, 5000) g",
+            "ANALYZE t1",
+        ):
+            await session.execute(text(sql))
+        stmt = select(t1).where(t1.c.status == "open", t1.c.x == 10)
+        await session.execute(stmt)
+
+
+def test_open(engine):
+    asyncio.run(run(engine))
+"""
+
+
+@needs_pg
+def test_pg_async_a_partial_index_that_may_serve_the_statement_is_not_reported(
+    project: pytest.Pytester, pg16_async: Postgres
+) -> None:
+    _async_project(project, pg16_async).makepyfile(test_a=ASYNC_PARTIAL)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(
+        ["1 statement skipped: a partial index on t1 may serve it; *"]
+    )
+    result.stdout.no_fnmatch_line("*missing index*")

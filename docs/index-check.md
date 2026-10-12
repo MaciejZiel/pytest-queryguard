@@ -132,6 +132,17 @@ What is reported:
   case is not checked there. BRIN and GIN indexes serve any of their
   columns and are not judged this way.
 
+A table with a partial index is judged with one exception. The check
+plans with a generic plan, where bound values are parameters, so it cannot
+tell whether `... (x) WHERE status = 'open'` serves `status = $1 AND x = $2`
+for the value your test binds. When every column of such an index's
+predicate is filtered by the statement and one of them is compared with a
+parameter, the statement is not reported and gets no advice. The session
+summary counts those statements: `N statements skipped: a partial index on
+<table> may serve them; the generic plan cannot tell`. A predicate that the
+statement fixes with a literal (`deleted_at IS NULL`) is decided by the
+generic plan and is judged as before.
+
 Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
 `SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
 reads the whole table anyway; scans of PostgreSQL's own catalogs. Whether a

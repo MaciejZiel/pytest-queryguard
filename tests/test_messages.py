@@ -229,3 +229,18 @@ def test_index_notes_list_notices_then_the_first_error() -> None:
     assert format_index_notes([], 1, ("boom", "SELECT 1"))[0] == (
         "1 statement could not be explained; the first: boom"
     )
+
+
+def test_partial_index_skips_are_counted_in_one_line() -> None:
+    assert format_index_notes([], 0, None, [("t1",)]) == [
+        (
+            "1 statement skipped: a partial index on t1 may serve it; "
+            "the generic plan cannot tell"
+        )
+    ]
+    assert format_index_notes([], 0, None, [("t1",), ("orders", "t1")]) == [
+        (
+            "2 statements skipped: a partial index on orders, t1 may serve them; "
+            "the generic plan cannot tell"
+        )
+    ]
