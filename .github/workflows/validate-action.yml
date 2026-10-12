@@ -18,7 +18,6 @@ jobs:
         with:
           python-version: "3.12"
           package: ${{ github.workspace }}
-          working-directory: validation
-          pytest-args: --queryguard-index-check
+          pytest-args: -c validation/pytest.ini --rootdir=. --queryguard-index-check validation
           fail: "false"
           category: queryguard-validation
