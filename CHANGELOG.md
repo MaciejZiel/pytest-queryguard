@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fail when the statements take longer than the limit in total. The failure
   lists the slowest statements. A `max_queries` failure now shows the total
   database time and its slowest statements as well.
+- `queryguard_small_repeat_threshold`, an ini option (off by default) and the
+  `small_repeat_threshold` argument of `QueryLog.assert_no_nplusone()`: a
+  statement that ran a few times (below `queryguard_repeat_threshold`) from one
+  source line, each time with different parameters, is reported as a repeated
+  statement. Identical parameters, runs from several lines, writes and
+  pagination are left alone. The default threshold of 5 is unchanged, so a batch
+  of two to four statements is not flagged unless this is turned on.
+- `queryguard_fail_on`, an ini option with finding kinds (`fnmatch` patterns,
+  one per line). In `fail` mode only these kinds fail a test; the other kinds
+  are reported as `QueryGuardWarning`. Empty means every kind fails, as before.
+  Budgets are not affected.
 - Column-load detection, a new finding kind `column-load`. Instances that each
   load a deferred column, or whose attributes were expired by `commit()`,
   `expire()` or `expire_all()`, on their own are reported with the right
