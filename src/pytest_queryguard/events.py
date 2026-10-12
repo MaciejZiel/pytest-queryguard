@@ -20,6 +20,9 @@ class StatementEvent:
     # Seconds between the before and after cursor-execute events; None until
     # the statement has finished (or when it never did, because it raised).
     duration: float | None = None
+    # True when the statement loaded columns of an instance that already
+    # existed (a deferred column, or attributes expired by commit or expire()).
+    column_load: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +30,25 @@ class RelationshipLoadEvent:
     relationship: str
     parent_key: object
     callsite: CallSite | None
+    scalar: bool = False  # many-to-one or one-to-one, not a collection
+
+
+# What made the instance load columns again.
+CAUSE_DEFERRED = "deferred"  # a deferred column, or one a query option left out
+CAUSE_EXPIRED = "expired"  # expired by commit(), expire() or expire_all()
+CAUSE_REFRESH = "refresh"  # session.refresh() without attribute names
+
+
+@dataclass(slots=True)
+class ColumnLoadEvent:
+    """An instance that went back to the database for some of its columns."""
+
+    owner: str  # the mapped class, "Child"
+    attributes: tuple[str, ...]  # the attributes loaded, sorted
+    cause: str  # one of the CAUSE_* values
+    instance_key: object
+    callsite: CallSite | None
+    sql: str | None = None  # set when the statement runs
 
 
 @dataclass(frozen=True, slots=True)

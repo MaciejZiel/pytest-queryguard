@@ -3,9 +3,21 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from .detectors import Detection, RelationshipFinding
-from .events import CallSite, ScanEvent, StatementEvent
-from .findings import KIND_MISSING_INDEX, KIND_RELATIONSHIP, KIND_REPEAT, Finding
+from .detectors import ColumnLoadFinding, Detection, RelationshipFinding
+from .events import (
+    CAUSE_DEFERRED,
+    CAUSE_REFRESH,
+    CallSite,
+    ScanEvent,
+    StatementEvent,
+)
+from .findings import (
+    KIND_COLUMN_LOAD,
+    KIND_MISSING_INDEX,
+    KIND_RELATIONSHIP,
+    KIND_REPEAT,
+    Finding,
+)
 from .indexes import table_label
 from .listeners import Failure
 
@@ -61,11 +73,14 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
         ]
         if finding.sample_sql is not None:
             lines.append(f"  sql: {_truncate(finding.sample_sql)}")
+        loader = "joinedload" if finding.scalar else "selectinload"
         return [
             *lines,
             "  fix: load it with the parent query, e.g.",
-            f"       select({parent}).options(selectinload({finding.relationship}))",
+            f"       select({parent}).options({loader}({finding.relationship}))",
         ]
+    if isinstance(finding, ColumnLoadFinding):
+        return _column_block(finding, cwd)
     return [
         f"  the same statement ran {finding.count} times",
         _first_at(finding.first, cwd),
@@ -74,11 +89,54 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
     ]
 
 
+def _column_block(finding: ColumnLoadFinding, cwd: Path | None) -> list[str]:
+    owner = finding.owner
+    count = f"{finding.count} times for {finding.instances} instances"
+    if finding.cause == CAUSE_DEFERRED:
+        names = ", ".join(finding.attributes)
+        head = f"  {owner}.{names} was loaded on its own {count} (deferred column)"
+        undefer = ", ".join(f"undefer({owner}.{name})" for name in finding.attributes)
+        fix = [
+            "  fix: load it with the query, e.g.",
+            f"       select({owner}).options({undefer})",
+            (
+                "       or remove defer(), load_only() or deferred() if it is "
+                "usually needed"
+            ),
+        ]
+    elif finding.cause == CAUSE_REFRESH:
+        head = f"  {owner} was reloaded with session.refresh() {count}"
+        fix = [
+            "  fix: reload them with one query, e.g.",
+            (
+                f"       select({owner}).where({owner}.id.in_(ids))"
+                ".execution_options(populate_existing=True)"
+            ),
+        ]
+    else:
+        head = (
+            f"  {owner} had its columns reloaded {count}, "
+            "after commit(), expire() or expire_all()"
+        )
+        fix = [
+            (
+                "  fix: create the Session with expire_on_commit=False, "
+                "or load the instances again with one query"
+            ),
+        ]
+    lines = [head, _first_at(finding.first, cwd)]
+    if finding.sample_sql is not None:
+        lines.append(f"  sql: {_truncate(finding.sample_sql)}")
+    return [*lines, *fix]
+
+
 def make_finding(detection: Detection, *, cwd: Path | None = None) -> Finding:
     """The finding for one detector result, its message rendered for ``cwd``."""
     site = detection.first
     if isinstance(detection, RelationshipFinding):
         kind, label = KIND_RELATIONSHIP, detection.relationship
+    elif isinstance(detection, ColumnLoadFinding):
+        kind, label = KIND_COLUMN_LOAD, detection.label
     else:
         kind, label = KIND_REPEAT, detection.sql
     return Finding(

@@ -5,9 +5,15 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 
-from .findings import KIND_MISSING_INDEX, KIND_RELATIONSHIP, KIND_REPEAT, Finding
+from .findings import (
+    KIND_COLUMN_LOAD,
+    KIND_MISSING_INDEX,
+    KIND_RELATIONSHIP,
+    KIND_REPEAT,
+    Finding,
+)
 
-KINDS = (KIND_RELATIONSHIP, KIND_REPEAT, KIND_MISSING_INDEX)
+KINDS = (KIND_RELATIONSHIP, KIND_REPEAT, KIND_COLUMN_LOAD, KIND_MISSING_INDEX)
 _OPTION = re.compile(r"\s+(file|function)=(\S+)$")
 
 
