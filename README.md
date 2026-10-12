@@ -196,6 +196,13 @@ missing-index check of its own, queryspy has middleware and a request panel for
 running apps, which pytest-queryguard does not, and django-zeal covers Django.
 Moving from nplusone: [migration guide](docs/migrating-from-nplusone.md).
 
+## Overhead
+
+On in-memory SQLite, the measurement adds about 23 us (Core, +37 %) or 54 us
+(ORM, +41 %) per statement. Those percentages are an artifact of a very cheap
+database: a real round trip takes milliseconds. Details and the cost of the
+opt-in checks are in the [FAQ](docs/faq.md#does-it-slow-my-tests-down).
+
 ## Limitations
 
 - SQLAlchemy only; raw DB-API connections and other ORMs are not seen.
