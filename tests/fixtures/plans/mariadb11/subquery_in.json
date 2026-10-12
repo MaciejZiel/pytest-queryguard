@@ -1,0 +1,186 @@
+{
+  "server": "11.8.9-MariaDB-ubu2404",
+  "sql": "SELECT id FROM customers WHERE id IN (SELECT customer_id FROM orders WHERE total > %s)",
+  "params": [
+    990
+  ],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "customers",
+      "type": "index",
+      "possible_keys": "PRIMARY",
+      "key": "ix_customers_email",
+      "key_len": "402",
+      "ref": null,
+      "rows": "300",
+      "Extra": "Using index"
+    },
+    {
+      "id": 1,
+      "select_type": "PRIMARY",
+      "table": "<subquery2>",
+      "type": "eq_ref",
+      "possible_keys": "distinct_key",
+      "key": "distinct_key",
+      "key_len": "4",
+      "ref": "func",
+      "rows": "1",
+      "Extra": ""
+    },
+    {
+      "id": 2,
+      "select_type": "MATERIALIZED",
+      "table": "orders",
+      "type": "ALL",
+      "possible_keys": null,
+      "key": null,
+      "key_len": null,
+      "ref": null,
+      "rows": "3000",
+      "Extra": "Using where"
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost": 1.14110542,
+      "nested_loop": [
+        {
+          "table": {
+            "table_name": "customers",
+            "access_type": "index",
+            "possible_keys": [
+              "PRIMARY"
+            ],
+            "key": "ix_customers_email",
+            "key_length": "402",
+            "used_key_parts": [
+              "email"
+            ],
+            "loops": 1,
+            "rows": 300,
+            "cost": 0.05834462,
+            "filtered": 100,
+            "using_index": true
+          }
+        },
+        {
+          "table": {
+            "table_name": "<subquery2>",
+            "access_type": "eq_ref",
+            "possible_keys": [
+              "distinct_key"
+            ],
+            "key": "distinct_key",
+            "key_length": "4",
+            "used_key_parts": [
+              "customer_id"
+            ],
+            "ref": [
+              "func"
+            ],
+            "rows": 1,
+            "filtered": 100,
+            "materialized": {
+              "unique": 1,
+              "query_block": {
+                "select_id": 2,
+                "nested_loop": [
+                  {
+                    "table": {
+                      "table_name": "orders",
+                      "access_type": "ALL",
+                      "loops": 1,
+                      "rows": 3000,
+                      "cost": 0.5092576,
+                      "filtered": 100,
+                      "attached_condition": "orders.total > 990"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}

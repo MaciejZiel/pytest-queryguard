@@ -1,0 +1,155 @@
+{
+  "server": "11.8.9-MariaDB-ubu2404",
+  "sql": "SELECT a.id FROM orders a JOIN orders b ON b.customer_id = a.customer_id WHERE a.reference = %s",
+  "params": [
+    "ref-7"
+  ],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "a",
+      "type": "ref",
+      "possible_keys": "ix_orders_reference",
+      "key": "ix_orders_reference",
+      "key_len": "83",
+      "ref": "const",
+      "rows": "1",
+      "Extra": "Using index condition"
+    },
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "b",
+      "type": "ALL",
+      "possible_keys": null,
+      "key": null,
+      "key_len": null,
+      "ref": null,
+      "rows": "3000",
+      "Extra": "Using where; Using join buffer (flat, BNL join)"
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost": 0.791375026,
+      "nested_loop": [
+        {
+          "table": {
+            "table_name": "a",
+            "access_type": "ref",
+            "possible_keys": [
+              "ix_orders_reference"
+            ],
+            "key": "ix_orders_reference",
+            "key_length": "83",
+            "used_key_parts": [
+              "reference"
+            ],
+            "ref": [
+              "const"
+            ],
+            "loops": 1,
+            "rows": 1,
+            "cost": 0.00345856,
+            "filtered": 100,
+            "index_condition": "a.reference = 'ref-7'"
+          }
+        },
+        {
+          "block-nl-join": {
+            "table": {
+              "table_name": "b",
+              "access_type": "ALL",
+              "loops": 1,
+              "rows": 3000,
+              "cost": 0.787916466,
+              "filtered": 100
+            },
+            "buffer_type": "flat",
+            "buffer_size": "1020",
+            "join_type": "BNL",
+            "attached_condition": "b.customer_id = a.customer_id"
+          }
+        }
+      ]
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}

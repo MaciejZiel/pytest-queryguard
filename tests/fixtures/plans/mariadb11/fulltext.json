@@ -1,0 +1,124 @@
+{
+  "server": "11.8.9-MariaDB-ubu2404",
+  "sql": "SELECT id FROM articles WHERE MATCH(title, body) AGAINST (%s)",
+  "params": [
+    "topic7"
+  ],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "articles",
+      "type": "fulltext",
+      "possible_keys": "ft_articles",
+      "key": "ft_articles",
+      "key_len": "0",
+      "ref": "",
+      "rows": "1",
+      "Extra": "Using where"
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost": 9.287e-05,
+      "nested_loop": [
+        {
+          "table": {
+            "table_name": "articles",
+            "access_type": "fulltext",
+            "possible_keys": [
+              "ft_articles"
+            ],
+            "key": "ft_articles",
+            "key_length": "0",
+            "used_key_parts": [
+              "title"
+            ],
+            "loops": 1,
+            "rows": 1,
+            "cost": 9.287e-05,
+            "filtered": 100,
+            "attached_condition": "(match articles.title,articles.`body` against ('topic7'))"
+          }
+        }
+      ]
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "server": "11.8.9-MariaDB-ubu2404",
+  "sql": "SELECT * FROM orders WHERE status = %s AND created = %s",
+  "params": [
+    "open",
+    "2024-01-01 00:00:08"
+  ],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "orders",
+      "type": "ref",
+      "possible_keys": "ix_orders_status_created",
+      "key": "ix_orders_status_created",
+      "key_len": "89",
+      "ref": "const,const",
+      "rows": "1",
+      "Extra": "Using index condition"
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "cost": 0.00345856,
+      "nested_loop": [
+        {
+          "table": {
+            "table_name": "orders",
+            "access_type": "ref",
+            "possible_keys": [
+              "ix_orders_status_created"
+            ],
+            "key": "ix_orders_status_created",
+            "key_length": "89",
+            "used_key_parts": [
+              "status",
+              "created"
+            ],
+            "ref": [
+              "const",
+              "const"
+            ],
+            "loops": 1,
+            "rows": 1,
+            "cost": 0.00345856,
+            "filtered": 100,
+            "index_condition": "orders.`status` = 'open'"
+          }
+        }
+      ]
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}
