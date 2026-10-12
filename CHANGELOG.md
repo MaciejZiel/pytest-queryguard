@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fail when the statements take longer than the limit in total. The failure
   lists the slowest statements. A `max_queries` failure now shows the total
   database time and its slowest statements as well.
+- Column-load detection, a new finding kind `column-load`. Instances that each
+  load a deferred column, or whose attributes were expired by `commit()`,
+  `expire()` or `expire_all()`, on their own are reported with the right
+  advice: `undefer(Model.column)` (or removing `defer()`, `load_only()` or
+  `deferred()`), or `expire_on_commit=False`; `session.refresh()` in a loop
+  gets its own hint. The ini option `queryguard_column_load_threshold`
+  (default 5 instances) and the `column_load_threshold` argument of
+  `QueryLog.assert_no_nplusone()` set the limit. The kind works with
+  `queryguard_ignore` and `allow_nplusone`.
 - `queryguard_ignore`, an ini option that leaves single findings out of the
   reports. One pattern per line, `KIND LABEL [file=GLOB] [function=GLOB]`,
   matched with `fnmatch`. The kinds are `relationship-load`,
@@ -29,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The hint for a lazy-loaded many-to-one or one-to-one relationship is now
+  `joinedload(...)`; collections still get `selectinload(...)`.
 - The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)
   to time statements. `scripts/bench_overhead.py` puts the added cost at a few
   microseconds per statement.
@@ -46,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Loops over deferred or expired columns were reported as a repeated statement
+  with the wrong advice (`WHERE id IN (...)`). They are now a `column-load`
+  finding and no longer count towards the repeated-statement rule.
 - When a listener raises, the plugin still stops measuring so that it never
   breaks the suite, but it no longer does so silently. The warning names the
   listener or step that failed, and the end of the session prints a
