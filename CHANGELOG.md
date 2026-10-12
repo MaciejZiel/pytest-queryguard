@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+### Fixed
+
+- The index check no longer rolls back a transaction the application opened by
+  hand on an AUTOCOMMIT connection (`exec_driver_sql("BEGIN")`, with pg8000 or
+  asyncpg). The `autocommit` flag is the driver's setting, not the server's
+  state, so the check now tries a savepoint first and starts a transaction of
+  its own only when none is open (SQLSTATE 25P01). Fixes #91.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
