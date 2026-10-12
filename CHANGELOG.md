@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experimental detection of unused eager loads, off by default:
+  `queryguard_unused_eager_load` (`off`, `warn` or `fail`). A relationship a
+  test loads with `selectinload()`, `joinedload()`, `subqueryload()` or
+  `immediateload()` and never reads is reported as the new finding kind
+  `unused-eager-load` (label `Class.relationship`), with a hint to remove the
+  option. While the option is `off` nothing is installed. Opt out with
+  `allow_nplusone(kind="unused-eager-load")` or `queryguard_ignore`. See
+  `docs/unused-eager-load.md` for how it works and its limits.
 - A composite GitHub Action in `action/`: installs the plugin, runs pytest with
   `--queryguard-sarif`, uploads the file with `github/codeql-action/upload-sarif`
   (pinned by commit SHA) and fails the step when pytest fails. Inputs:
