@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+### Fixed
+
+- Documented that PostgreSQL evaluates `IMMUTABLE` functions with constant
+  arguments at plan time, so the index check and the advisor can call such a
+  function again and its non-transactional side effects (for example
+  `nextval()`) are not rolled back with the savepoint. Fixes #92.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added
