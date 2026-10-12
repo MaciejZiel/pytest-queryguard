@@ -45,6 +45,7 @@ dependencies = ["pytest>=8", "sqlalchemy>=2.0"]
 [project.urls]
 Homepage = "https://github.com/MaciejZiel/pytest-queryguard"
 Repository = "https://github.com/MaciejZiel/pytest-queryguard"
+Documentation = "https://maciejziel.github.io/pytest-queryguard/"
 Changelog = "https://github.com/MaciejZiel/pytest-queryguard/blob/main/CHANGELOG.md"
 Issues = "https://github.com/MaciejZiel/pytest-queryguard/issues"
 

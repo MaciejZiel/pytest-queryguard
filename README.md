@@ -4,10 +4,13 @@
 [![PyPI](https://img.shields.io/pypi/v/pytest-queryguard)](https://pypi.org/project/pytest-queryguard/)
 [![Python](https://img.shields.io/pypi/pyversions/pytest-queryguard)](https://pypi.org/project/pytest-queryguard/)
 [![License](https://img.shields.io/pypi/l/pytest-queryguard)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-maciejziel.github.io-blue)](https://maciejziel.github.io/pytest-queryguard/)
 
 A pytest plugin that fails tests with N+1 queries and enforces query budgets
 for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer
 and on SQLite it can also fail tests whose queries have no index to use.
+
+Documentation: <https://maciejziel.github.io/pytest-queryguard/>
 
 ORM code that looks correct can send one query per row instead of one query
 per page. The tests pass, because a test database holds a handful of rows; in
