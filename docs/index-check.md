@@ -1,0 +1,188 @@
+# Missing-index check on PostgreSQL
+
+A test database holds a few rows, so a query that reads the whole table is
+as fast in CI as one that uses an index. The missing index shows up in
+production, once the table has grown. With the index check on, every
+`SELECT` in a test body is planned again by PostgreSQL with sequential scans
+switched off. If the plan still reads a whole table, or a whole index, to
+apply the statement's filter, no index can serve that filter, however small
+the table, and the test fails.
+
+The check is off by default. Turn it on for a run:
+
+```bash
+pytest --queryguard-index-check
+```
+
+or for the project, with `queryguard_index_check = true` (see
+[Configuration](configuration.md)).
+
+The example below uses a real PostgreSQL 17 server through pg8000. All
+output is copied from a run with Python 3.13, SQLAlchemy 2.1 and pytest 9.1.
+
+`app/models.py`:
+
+```python
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"))
+```
+
+`app/orders.py`:
+
+```python
+def orders_of(session: Session, customer_id: int) -> Sequence[Order]:
+    stmt = select(Order).where(Order.customer_id == customer_id)
+    return session.scalars(stmt).all()
+```
+
+`tests/test_orders.py` (the `session` fixture creates the tables in
+PostgreSQL and adds 6 orders):
+
+```python
+def test_orders_of(session):
+    assert len(orders_of(session, 1)) == 3
+```
+
+`pytest --queryguard-index-check`:
+
+```
+tests/test_orders.py F                                                   [100%]
+
+=================================== FAILURES ===================================
+________________________________ test_orders_of ________________________________
+queryguard: missing index
+
+  orders is read in full: Seq Scan with filter (orders.customer_id = $1)
+  first at app/orders.py:11 in orders_of
+  sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = %s::INTEGER
+  fix: CREATE INDEX ON orders (customer_id)
+
+  a sequential scan is fine on a small lookup table:
+  list it in queryguard_index_ignore_tables
+=========================== short test summary info ============================
+FAILED tests/test_orders.py::test_orders_of - Failed: queryguard: missing index
+============================== 1 failed in 0.27s ===============================
+```
+
+With `mapped_column(ForeignKey("customer.id"), index=True)` the same test
+passes:
+
+```
+tests/test_orders.py .                                                   [100%]
+
+============================== 1 passed in 0.19s ===============================
+```
+
+Async engines with asyncpg are checked the same way, on the test's own
+connection and transaction. Rows and tables the test has not committed
+are visible to the check. The same model, with the query in async code:
+
+```python
+async def orders_of(session: AsyncSession, customer_id: int) -> Sequence[Order]:
+    stmt = select(Order).where(Order.customer_id == customer_id)
+    return (await session.scalars(stmt)).all()
+```
+
+With a test that adds 6 orders in an uncommitted `AsyncSession` on
+`postgresql+asyncpg://` and calls `orders_of(session, 1)` through
+`asyncio.run`, `pytest --queryguard-index-check` prints (Python 3.13,
+SQLAlchemy 2.1, asyncpg 0.31, PostgreSQL 17):
+
+```
+________________________________ test_orders_of ________________________________
+queryguard: missing index
+
+  orders is read in full: Seq Scan with filter (orders.customer_id = $1)
+  first at app/orders.py:11 in orders_of
+  sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = $1::INTEGER
+  fix: CREATE INDEX ON orders (customer_id)
+
+  a sequential scan is fine on a small lookup table:
+  list it in queryguard_index_ignore_tables
+```
+
+Other async drivers, such as psycopg's async mode, are not checked; the
+session summary says so.
+
+What is reported:
+
+- a sequential scan with a filter: the `WHERE` condition has no index.
+  Correlated subqueries and `EXISTS` show up here too, through the filter
+  of the subquery's scan;
+- a scan of a whole index with a filter that is an equality (`=` or
+  `IN`) on one column and no index condition. The planner picks it for
+  `WHERE customer_id = ? ORDER BY id LIMIT 10` to avoid the sequential scan.
+  Pagination with a range or `IS NULL` filter (`WHERE total > 0 ORDER BY id
+  LIMIT 20`) walks the primary key on purpose and is not reported. A whole
+  index read as a bitmap, which PostgreSQL may choose before `ANALYZE` for
+  an `INCLUDE` index or a partial index (`... WHERE deleted_at IS NULL`),
+  counts the same way. A bitmap that combines several indexes (`OR`, or
+  `AND` of indexed columns) is not reported;
+- an index condition, an equality on one column, that leaves out the first
+  column of a multicolumn btree index: with only an index on
+  `(tenant_id, status)`, `WHERE status = ?` reads the whole index on
+  PostgreSQL 16 and 17. PostgreSQL 18 can skip-scan such an index, so this
+  case is not checked there. BRIN and GIN indexes serve any of their
+  columns and are not judged this way.
+
+Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
+`SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
+reads the whole table anyway; scans of PostgreSQL's own catalogs. Whether a
+join reads its unindexed side in full depends on table statistics, so join
+conditions on their own are never reported.
+
+The `fix:` line names a column only when the condition compares one plain
+column with `=`, `<`, `<=`, `>` or `>=`. PostgreSQL prints a `::text` cast
+for `varchar` columns compared with text, which an index on the column
+still serves, so the check reads the column types from the catalog and
+accepts that cast for `varchar` columns only. A column inside a function or
+another cast, such as `total::int = ?`, or `id::text = ?` on an integer,
+enum or `char(n)` column, gets
+`add an index that matches this condition (an expression index may be needed)`,
+because an index on the plain column would not help there.
+
+Each distinct statement is explained once per test (again after DDL
+changes the catalog), inside a savepoint on
+the connection that ran it, so the check sees tables and rows the test has
+not committed yet and leaves the test's transaction as it was. Statements
+from fixtures are not checked, like for N+1 detection. Statements that
+start with comments, such as sqlcommenter tags, are checked too.
+
+The check costs a few database round trips per distinct statement per test:
+open the savepoint, set the planner settings, `EXPLAIN` and roll back. The
+first column of the btree indexes a plan uses and the `varchar` columns of
+tables cast to text are read from the catalog once per engine for the whole
+session. Any statement that may change them, such as `CREATE INDEX`,
+`DROP TABLE` or `ALTER TABLE`, clears that cache, in a test or a fixture,
+and so does the end of a transaction that ran one. A suite that runs
+`create_all` and `drop_all` around every test therefore clears the cache
+every test and gets no speed-up from it. With pg8000 against
+PostgreSQL 17 in a local Docker container, a suite of 100 tests that each
+run the same 10 indexed statements on a session-scoped engine
+([scripts/bench_index_check.py](https://github.com/MaciejZiel/pytest-queryguard/blob/main/scripts/bench_index_check.py)) took
+1.2–1.8 s without the check and 2.0–2.9 s with it, over 12 runs: about
+1 ms per statement. Most of that is round-trip time, so it is lower with a
+faster connection to the database.
+
+A sequential scan is the right plan for a small lookup table, also in
+production. Exclude such tables with `queryguard_index_ignore_tables`, one
+test with `@pytest.mark.allow_missing_index`, or only some tables in one
+test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
+Findings follow `queryguard_mode`: `warn` turns them into warnings and
+`off` turns the check off. `allow_nplusone` does not affect the index check.
+
+Statements that cannot be checked do not fail the test. They are summed up
+once at the end of the session, for example with SQLite:
+
+```
+============================ queryguard index check ============================
+sqlite statements were not checked: the index check needs PostgreSQL 16 or newer
+```
+
+The same summary names a PostgreSQL server older than 16, async drivers
+other than asyncpg, and the number of statements PostgreSQL could not
+plan, with the first error and its SQL.
+
