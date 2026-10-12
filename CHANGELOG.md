@@ -192,8 +192,10 @@ every kind fails, as before) and `--queryguard-sarif`.
   parsing is tested on real `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` plans
   captured from PostgreSQL 14 to 18 (`scripts/capture_plans.py`).
 - The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)
-  to time statements. `scripts/bench_overhead.py` puts the added cost at a few
-  microseconds per statement.
+  to time statements. `scripts/bench_overhead.py` puts the added cost of all the
+  measurement, not of this listener alone, at about 20 to 55 microseconds per
+  statement on in-memory SQLite (roughly +30 to +40 %); against a real database
+  round trip it is small. See the FAQ.
 - Internal: detectors now hand their results to a stable `Finding` model
   (`kind`, `label`, `file`, `function`, `message`, `severity`) before the
   report is rendered. The messages and the public API are unchanged.
