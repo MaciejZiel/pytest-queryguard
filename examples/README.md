@@ -7,6 +7,7 @@ test that passes after the fix, so you can see a finding and its cure.
 |---|---|
 | [sync-n-plus-one](sync-n-plus-one) | Sync SQLAlchemy: a lazy-load N+1, a loop of `session.get()` and a query budget |
 | [async-fastapi](async-fastapi) | An async FastAPI endpoint with an N+1, tested through `TestClient` |
+| [fastapi-dependency-override](fastapi-dependency-override) | FastAPI sessions replaced with `dependency_overrides`; `TestClient` and `httpx.AsyncClient` tests |
 | [postgres-missing-index](postgres-missing-index) | The missing-index check on PostgreSQL, with a `compose.yaml` |
 | [sqlite-index-check](sqlite-index-check) | The missing-index check on SQLite, no server needed |
 | [baseline-sarif](baseline-sarif) | A baseline for existing findings, and a SARIF file |

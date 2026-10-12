@@ -95,6 +95,31 @@ def test_async_fastapi_example() -> None:
     assert fixed.returncode == 0, fixed.stdout
 
 
+def test_fastapi_dependency_override_example() -> None:
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    pytest.importorskip("aiosqlite")
+    pytest.importorskip("greenlet")
+    example = EXAMPLES / "fastapi-dependency-override"
+    broken = run(example, "tests/test_orders.py")
+    assert broken.returncode == 1, broken.stdout
+    assert "2 failed" in broken.stdout
+    assert_in_output_and_readme(
+        example,
+        broken,
+        [
+            "first at app/main.py:33 in list_orders",
+            "first at app/main.py:49 in list_async_orders",
+        ],
+    )
+    recipe = (ROOT / "docs" / "recipes-fastapi.md").read_text(encoding="utf-8")
+    assert "first at app/main.py:33 in list_orders" in recipe
+    assert "first at app/main.py:49 in list_async_orders" in recipe
+    fixed = run(example, "tests/test_orders_fixed.py")
+    assert fixed.returncode == 0, fixed.stdout
+    assert "2 passed" in fixed.stdout
+
+
 def test_sqlite_index_example() -> None:
     example = EXAMPLES / "sqlite-index-check"
     broken = run(example, "tests/test_orders.py")

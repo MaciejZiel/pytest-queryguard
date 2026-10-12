@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A "Recipes" section in the documentation: FastAPI (`TestClient` and
+  `httpx.AsyncClient` with dependency-overridden sessions), Flask-SQLAlchemy,
+  SQLModel, Litestar, pytest-asyncio configuration pitfalls, budgets for hot
+  endpoints, adopting the plugin on a legacy codebase and CI. A new example,
+  `examples/fastapi-dependency-override`, is run by the test suite.
 - Missing-index check for MySQL and MariaDB, behind the same switch
   (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
   `SELECT`, `UPDATE` and `DELETE` is explained with `EXPLAIN` and the real bound

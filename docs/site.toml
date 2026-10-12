@@ -24,6 +24,20 @@ pages = [
 ]
 
 [[section]]
+title = "Recipes"
+pages = [
+  { title = "Recipes", file = "recipes.md", description = "Runnable how-tos for FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, budgets, legacy codebases and CI." },
+  { title = "FastAPI", file = "recipes-fastapi.md", description = "Test FastAPI endpoints with TestClient and httpx.AsyncClient on dependency-overridden sessions, and what the findings look like." },
+  { title = "Flask-SQLAlchemy", file = "recipes-flask-sqlalchemy.md", description = "Catch N+1 queries in Flask-SQLAlchemy views with the Flask test client." },
+  { title = "SQLModel", file = "recipes-sqlmodel.md", description = "Catch N+1 queries in SQLModel code that uses Session.exec and relationships." },
+  { title = "Litestar", file = "recipes-litestar.md", description = "Catch N+1 queries in Litestar handlers with an overridden async session dependency." },
+  { title = "pytest-asyncio pitfalls", file = "recipes-pytest-asyncio.md", description = "Configuration mistakes with pytest-asyncio that look like database problems: strict mode, fixtures, event loop scopes." },
+  { title = "Budgets for hot endpoints", file = "recipes-budgets.md", description = "Put a query budget on the endpoints where a regression costs most, and choose the number." },
+  { title = "Adopting on a legacy codebase", file = "recipes-legacy.md", description = "Introduce pytest-queryguard step by step: warn mode, a baseline of existing findings, then fail on anything new." },
+  { title = "CI recipes", file = "recipes-ci.md", description = "Run pytest-queryguard in GitHub Actions and GitLab CI, keep JUnit output, and why pre-commit does not apply." },
+]
+
+[[section]]
 title = "Indexes"
 pages = [
   { title = "Index check (PostgreSQL)", file = "index-check.md" },
