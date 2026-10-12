@@ -67,7 +67,8 @@ EXPECTED_QUERYLOG = {
     "__len__": "(self) -> 'int'",
     "assert_no_nplusone": (
         "(self, *, relationship_threshold: 'int' = 2, repeat_threshold: 'int' = 5, "
-        "column_load_threshold: 'int' = 5) -> 'None'"
+        "column_load_threshold: 'int' = 5, "
+        "small_repeat_threshold: 'int | None' = None) -> 'None'"
     ),
     "count": "property",
     "db_time": "property",
@@ -81,6 +82,8 @@ EXPECTED_INI = {
     "queryguard_repeat_threshold": "5",
     "queryguard_column_load_threshold": "5",
     "queryguard_max_events": "10000",
+    "queryguard_small_repeat_threshold": "0",
+    "queryguard_fail_on": "[]",
     "queryguard_ignore": "[]",
     "queryguard_index_check": "False",
     "queryguard_index_ignore_tables": "[]",
