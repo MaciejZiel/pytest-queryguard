@@ -20,7 +20,7 @@ _______________________________ test_list_orders _______________________________
 queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
-  first at app/orders.py:9 in list_orders
+  first at app/orders.py:10 in list_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -55,7 +55,8 @@ FAILED tests/test_orders.py::test_rename_customers - Failed: queryguard: expe...
 3 failed in 0.08s
 ```
 
-(The timing numbers differ from run to run.) `app/orders_fixed.py` and
+(The timing numbers differ from run to run, and SQLAlchemy 2.0 renders the
+SQL with column aliases, `customer.id AS customer_id`.) `app/orders_fixed.py` and
 `app/customers_fixed.py` load the customers with `joinedload` and one `IN`
 query. `tests/test_orders_fixed.py` runs the same tests against them:
 

@@ -61,6 +61,16 @@ An entry is the identity of a finding: kind, label, file and function.
   missing-index findings).
 - Findings that `queryguard_ignore` or `allow_nplusone` leave out are not
   written to the baseline.
+- Two parts of an entry depend on the environment. The label of a
+  `repeated-statement` finding is the normalized SQL as SQLAlchemy renders it,
+  and SQLAlchemy 2.0 renders column aliases (`customer.id AS customer_id`)
+  where 2.1 does not, so a baseline recorded with one series may not match the
+  other. The function name of a finding in a list comprehension is
+  `<listcomp>` on Python 3.10 and 3.11 and the enclosing function from 3.12 on.
+  Record the baseline with the versions your CI uses, or write code under
+  baseline with plain loops. (Both were seen when the examples in
+  `examples/baseline-sarif` ran in CI on several Python and SQLAlchemy
+  versions.)
 - The entries are sorted and the file ends with a newline, so running the
   update twice gives the same bytes and a diff shows only real changes.
 

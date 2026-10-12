@@ -32,7 +32,11 @@ app = FastAPI(lifespan=lifespan)
 async def list_orders() -> list[str]:
     async with sessions() as session:
         orders = (await session.scalars(select(Order))).all()
-        return [(await order.awaitable_attrs.customer).name for order in orders]
+        names = []
+        for order in orders:
+            customer = await order.awaitable_attrs.customer
+            names.append(customer.name)
+        return names
 
 
 @app.get("/orders-fixed")

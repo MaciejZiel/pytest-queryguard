@@ -1,8 +1,9 @@
 # Baseline and SARIF
 
 A project adopts pytest-queryguard when it already has findings.
-`tests/test_legacy.py` calls two functions with an N+1 each;
-`tests/test_new.py` calls newly written code with another one.
+`tests/test_legacy.py` calls two functions with an N+1 each
+(`Book.author` and `Author.books`); `tests/test_new.py` calls newly written
+code with another one.
 
 ```console
 $ pip install pytest-queryguard
@@ -30,7 +31,7 @@ $ pytest tests --queryguard-sarif=queryguard.sarif
 queryguard: N+1 detected
 
   Book.author was lazy-loaded 7 times
-  first at app/books.py:21 in titles_of
+  first at app/books.py:27 in titles_of
   sql: SELECT author.id, author.name FROM author WHERE author.id = ?
   fix: load it with the parent query, e.g.
        select(Book).options(joinedload(Book.author))

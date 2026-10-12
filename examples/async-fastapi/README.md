@@ -14,7 +14,7 @@ and the finding points to the `await` in the endpoint:
 queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
-  first at app/main.py:35 in list_orders
+  first at app/main.py:37 in list_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

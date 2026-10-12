@@ -59,7 +59,7 @@ def test_sync_example() -> None:
         broken,
         [
             "Order.customer was lazy-loaded 50 times",
-            "first at app/orders.py:9 in list_orders",
+            "first at app/orders.py:10 in list_orders",
             "the same statement ran 50 times",
             "first at app/customers.py:9 in fetch_customers",
             "queryguard: expected at most 2 queries, got 4",
@@ -84,7 +84,7 @@ def test_async_fastapi_example() -> None:
         broken,
         [
             "Order.customer was lazy-loaded 5 times",
-            "first at app/main.py:35 in list_orders",
+            "first at app/main.py:37 in list_orders",
         ],
     )
     fixed = run(example, "tests/test_orders_fixed.py")
@@ -178,7 +178,7 @@ def test_baseline_and_sarif_example(tmp_path: Path) -> None:
         gated,
         [
             "Book.author was lazy-loaded 7 times",
-            "first at app/books.py:21 in titles_of",
+            "first at app/books.py:27 in titles_of",
             "1 failed, 2 passed",
         ],
     )
