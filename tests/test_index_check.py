@@ -1556,8 +1556,10 @@ def test_pg_a_partial_index_that_may_serve_the_statement_is_not_reported(
     result.stdout.fnmatch_lines(
         [
             "*queryguard index check*",
-            "1 statement skipped: a partial index on t1 may serve it; "
-            "the generic plan cannot tell",
+            (
+                "1 statement skipped: a partial index on t1 may serve it; "
+                "the generic plan cannot tell"
+            ),
         ]
     )
     result.stdout.no_fnmatch_line("*missing index*")

@@ -69,9 +69,12 @@ def parameter_columns(condition: str, alias: str) -> set[str] | None:
         return None
     found: set[str] = set()
     for node, _ in predicates.walk(tree):
-        if isinstance(node, predicates.Op) and node.op in _COMPARISONS:
-            if _has_parameter(node):
-                found |= _columns_under(node, alias)
+        if (
+            isinstance(node, predicates.Op)
+            and node.op in _COMPARISONS
+            and _has_parameter(node)
+        ):
+            found |= _columns_under(node, alias)
     return found
 
 
