@@ -71,9 +71,9 @@
   calls to functions marked `IMMUTABLE` that have constant arguments while it
   plans. A function that is marked `IMMUTABLE` and still has a side effect
   therefore runs again for every plan the check asks for: once for the check's
-  `EXPLAIN` and, when the [index advisor](index-advisor.md) verifies a
-  suggestion with hypopg, three more times (before, with the hypothetical
-  index, after). The savepoint rolls back what is transactional, but not a
+  `EXPLAIN` and, when the [index advisor](index-advisor.md) verifies its
+  suggestions with hypopg, once more for the plan without them and twice for
+  each hypothetical index it tries (three more for a single suggestion). The savepoint rolls back what is transactional, but not a
   `nextval()` call, an advisory lock or a write through `dblink` or
   `COPY ... TO PROGRAM`. A test that sees a sequence advance by more than it
   expects can look for such a function.
