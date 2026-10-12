@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   statement. Identical parameters, runs from several lines, writes and
   pagination are left alone. The default threshold of 5 is unchanged, so a batch
   of two to four statements is not flagged unless this is turned on.
+- Write-loop detection, opt in: `queryguard_write_loop_threshold` (off by
+  default) and the `write_loop_threshold` argument of
+  `QueryLog.assert_no_nplusone()`. The same `INSERT`, `UPDATE` or `DELETE`
+  shape run row by row from one source line is reported as the new finding kind
+  `write-loop`, with a hint to use `session.add_all()`, `executemany` or a bulk
+  statement. `executemany` and multi-row `VALUES` statements are not counted.
+  The kind works with `queryguard_ignore`, `allow_nplusone` and
+  `queryguard_fail_on`.
 - `queryguard_fail_on`, an ini option with finding kinds (`fnmatch` patterns,
   one per line). In `fail` mode only these kinds fail a test; the other kinds
   are reported as `QueryGuardWarning`. Empty means every kind fails, as before.
