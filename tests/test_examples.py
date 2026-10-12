@@ -108,13 +108,13 @@ def test_fastapi_dependency_override_example() -> None:
         example,
         broken,
         [
-            "first at app/main.py:31 in list_orders",
-            "first at app/main.py:46 in list_async_orders",
+            "first at app/main.py:33 in list_orders",
+            "first at app/main.py:49 in list_async_orders",
         ],
     )
     recipe = (ROOT / "docs" / "recipes-fastapi.md").read_text(encoding="utf-8")
-    assert "first at app/main.py:31 in list_orders" in recipe
-    assert "first at app/main.py:46 in list_async_orders" in recipe
+    assert "first at app/main.py:33 in list_orders" in recipe
+    assert "first at app/main.py:49 in list_async_orders" in recipe
     fixed = run(example, "tests/test_orders_fixed.py")
     assert fixed.returncode == 0, fixed.stdout
     assert "2 passed" in fixed.stdout

@@ -43,7 +43,10 @@ AsyncSessionDep = Annotated[AsyncSession, Depends(get_async_session)]
 
 @app.get("/orders")
 def list_orders(session: SessionDep) -> list[str]:
-    return [order.customer.name for order in session.scalars(select(Order))]
+    names = []
+    for order in session.scalars(select(Order)):
+        names.append(order.customer.name)
+    return names
 
 
 @app.get("/orders-fixed")
@@ -200,7 +203,7 @@ point at the line in the endpoint, not at the test:
 queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
-  first at app/main.py:31 in list_orders
+  first at app/main.py:33 in list_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -210,7 +213,7 @@ queryguard: N+1 detected
 queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
-  first at app/main.py:46 in list_async_orders
+  first at app/main.py:49 in list_async_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -243,7 +246,7 @@ _________________________ test_every_order_page_loads __________________________
 queryguard: N+1 detected
 
   the same statement ran 6 times across 6 different Sessions or connection checkouts
-  first at app/main.py:60 in order_detail
+  first at app/main.py:63 in order_detail
   SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?
   note: if each belongs to a separate request or unit of work, this is not a
   loop; set queryguard_repeat_scope = session to count each Session on its
@@ -251,7 +254,7 @@ queryguard: N+1 detected
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
   the same statement ran 6 times across 6 different Sessions or connection checkouts
-  first at app/main.py:61 in order_detail
+  first at app/main.py:64 in order_detail
   SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   note: if each belongs to a separate request or unit of work, this is not a
   loop; set queryguard_repeat_scope = session to count each Session on its
@@ -259,7 +262,7 @@ queryguard: N+1 detected
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
   the same statement ran 6 times across 6 different Sessions or connection checkouts
-  first at app/main.py:62 in order_detail
+  first at app/main.py:65 in order_detail
   SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?
   note: if each belongs to a separate request or unit of work, this is not a
   loop; set queryguard_repeat_scope = session to count each Session on its
@@ -267,7 +270,7 @@ queryguard: N+1 detected
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
   the same statement ran 6 times across 6 different Sessions or connection checkouts
-  first at app/main.py:65 in order_detail
+  first at app/main.py:68 in order_detail
   SELECT count(*) AS count_1 FROM orders
   note: if each belongs to a separate request or unit of work, this is not a
   loop; set queryguard_repeat_scope = session to count each Session on its
@@ -275,7 +278,7 @@ queryguard: N+1 detected
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 =========================== short test summary info ============================
 FAILED tests/test_loop_tmp.py::test_every_order_page_loads - Failed: querygua...
-1 failed in 0.07s
+1 failed in 0.09s
 ```
 
 The first call site is the endpoint, which is where the statement is written,
