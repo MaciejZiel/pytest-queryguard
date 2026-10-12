@@ -1,0 +1,32 @@
+{
+ "query": "WITH x AS (SELECT * FROM orders WHERE customer_id = $1) SELECT * FROM x",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.0,
+    "Total Cost": 15.25,
+    "Plan Rows": 10,
+    "Plan Width": 93,
+    "Disabled": true,
+    "Output": [
+     "orders.id",
+     "orders.customer_id",
+     "orders.status",
+     "orders.total",
+     "orders.created_at",
+     "orders.tags",
+     "orders.data",
+     "orders.note",
+     "orders.kind"
+    ],
+    "Filter": "(orders.customer_id = $1)"
+   }
+  }
+ ]
+}

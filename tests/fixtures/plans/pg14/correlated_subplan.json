@@ -1,0 +1,78 @@
+{
+ "query": "SELECT (SELECT count(*) FROM orders o WHERE o.customer_id = c.id) FROM customers c",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Index Only Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Scan Direction": "Forward",
+    "Index Name": "customers_pkey",
+    "Relation Name": "customers",
+    "Schema": "public",
+    "Alias": "c",
+    "Startup Cost": 0.14,
+    "Total Cost": 500000000777.14,
+    "Plan Rows": 50,
+    "Plan Width": 8,
+    "Output": [
+     "(SubPlan 1)"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Aggregate",
+      "Strategy": "Plain",
+      "Partial Mode": "Simple",
+      "Parent Relationship": "SubPlan",
+      "Subplan Name": "SubPlan 1",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000015.27,
+      "Total Cost": 10000000015.28,
+      "Plan Rows": 1,
+      "Plan Width": 8,
+      "Output": [
+       "count(*)"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "o",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 10,
+        "Plan Width": 0,
+        "Output": [
+         "o.id",
+         "o.customer_id",
+         "o.status",
+         "o.total",
+         "o.created_at",
+         "o.tags",
+         "o.data",
+         "o.note",
+         "o.kind"
+        ],
+        "Filter": "(o.customer_id = c.id)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 6,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ]
+}

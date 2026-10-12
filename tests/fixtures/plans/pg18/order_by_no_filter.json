@@ -1,0 +1,57 @@
+{
+ "query": "SELECT * FROM orders ORDER BY id LIMIT 10",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Limit",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 0.27,
+    "Total Cost": 0.98,
+    "Plan Rows": 10,
+    "Plan Width": 93,
+    "Disabled": false,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Index Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Scan Direction": "Forward",
+      "Index Name": "orders_pkey",
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 0.27,
+      "Total Cost": 35.77,
+      "Plan Rows": 500,
+      "Plan Width": 93,
+      "Disabled": false,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

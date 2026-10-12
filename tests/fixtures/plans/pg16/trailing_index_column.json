@@ -1,0 +1,39 @@
+{
+ "query": "SELECT * FROM order_items WHERE product_id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Bitmap Heap Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "order_items",
+    "Schema": "public",
+    "Alias": "order_items",
+    "Startup Cost": 51.29,
+    "Total Cost": 62.92,
+    "Plan Rows": 50,
+    "Plan Width": 12,
+    "Output": [
+     "order_id",
+     "product_id",
+     "qty"
+    ],
+    "Recheck Cond": "(order_items.product_id = $1)",
+    "Plans": [
+     {
+      "Node Type": "Bitmap Index Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Index Name": "order_items_order_product",
+      "Startup Cost": 0.0,
+      "Total Cost": 51.28,
+      "Plan Rows": 50,
+      "Plan Width": 0,
+      "Index Cond": "(order_items.product_id = $1)"
+     }
+    ]
+   }
+  }
+ ]
+}
