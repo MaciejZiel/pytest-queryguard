@@ -40,10 +40,12 @@ CONFIGS: dict[str, tuple[str, frozenset[str]]] = {
     "session-scope": ("queryguard_repeat_scope = session\n", frozenset()),
     # Every opt-in rule at once: what a project that turned them all on sees.
     "all-opt-in": (
-        "queryguard_small_repeat_threshold = 2\n"
-        "queryguard_write_loop_threshold = 2\n"
-        "queryguard_column_load_threshold = 2\n"
-        "queryguard_unused_eager_load = fail\n",
+        (
+            "queryguard_small_repeat_threshold = 2\n"
+            "queryguard_write_loop_threshold = 2\n"
+            "queryguard_column_load_threshold = 2\n"
+            "queryguard_unused_eager_load = fail\n"
+        ),
         frozenset({kit.WRITE, kit.UNUSED}),
     ),
 }
