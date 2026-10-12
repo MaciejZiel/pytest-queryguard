@@ -1,0 +1,51 @@
+name: Nightly compatibility
+
+# Early warning against upstream changes. Every job here is allowed to fail
+# and never gates a merge: a red run means "look at it", not "the plugin is
+# broken". The required checks live in ci.yml.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-dev:
+    name: "allowed to fail: ${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: SQLAlchemy development branch
+            python-version: "3.13"
+            sqlalchemy: git
+            pytest: stable
+          - name: pytest pre-release
+            python-version: "3.13"
+            sqlalchemy: stable
+            pytest: pre
+          - name: Python 3.15 (pre-release interpreter)
+            python-version: "3.15"
+            sqlalchemy: stable
+            pytest: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync
+      # The project pins exclude-newer; the overrides below must see releases
+      # newer than that date, so they pass an explicit cutoff.
+      - name: Install SQLAlchemy from the development branch
+        if: matrix.sqlalchemy == 'git'
+        run: uv pip install "sqlalchemy[asyncio] @ git+https://github.com/sqlalchemy/sqlalchemy.git@main"
+      - name: Install the newest pytest, pre-releases included
+        if: matrix.pytest == 'pre'
+        run: uv pip install --prerelease=allow --exclude-newer 2100-01-01T00:00:00Z --upgrade pytest
+      - name: Show resolved versions
+        run: uv run --no-sync python -c "import sys, sqlalchemy, pytest; print(sys.version); print('sqlalchemy', sqlalchemy.__version__); print('pytest', pytest.__version__)"
+      - run: uv run --no-sync pytest -rs
