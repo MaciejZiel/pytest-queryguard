@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The SQLite index check no longer says a table "is read in full" when the
+  plan walks an existing index that the filter cannot use (`SCAN INDEX ix_...`).
+  It says the table scans the whole index and that the filter does not match
+  the start of any index; the suggested `CREATE INDEX` is unchanged.
 - Added `queryguard_repeat_scope` (`test` or `session`, default `test`) and
   `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
   that make several requests. The repeat, relationship,
