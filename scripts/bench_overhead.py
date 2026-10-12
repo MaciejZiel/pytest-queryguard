@@ -20,7 +20,16 @@ import subprocess
 import sys
 import time
 
-from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine, select
+from sqlalchemy import (
+    Column,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    literal_column,
+    select,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 from sqlalchemy.pool import StaticPool
 
@@ -38,7 +47,7 @@ class Item(Base):
 
 def _child(mode: str, statements: int) -> None:
     from pytest_queryguard.collector import QueryCollector, pop, push
-    from pytest_queryguard.listeners import install
+    from pytest_queryguard.listeners import install, install_index_check
 
     metadata = MetaData()
     table = Table(
@@ -50,9 +59,11 @@ def _child(mode: str, statements: int) -> None:
     with Session(engine) as seed:
         seed.add_all(Item(id=i, name=f"item {i}") for i in range(1, 51))
         seed.commit()
-    collector = QueryCollector()
-    if mode == "on":
+    collector = QueryCollector(index_check=mode == "index")
+    if mode in ("on", "index"):
         install()
+        if mode == "index":
+            install_index_check()
         push(collector)
 
     def core() -> None:
@@ -68,25 +79,46 @@ def _child(mode: str, statements: int) -> None:
                 ).scalars().all()
                 session.expunge_all()
 
+    def distinct() -> None:
+        # A new statement shape each time: every statement is explained.
+        with engine.connect() as conn:
+            for i in range(statements):
+                conn.execute(
+                    select(table).where(
+                        table.c.id == i % 50, literal_column(f"n != 'v{i}'")
+                    )
+                ).all()
+
     results = []
-    for loop in (core, orm):
+    for loop in (core, orm, distinct):
         loop()  # warm up: statement caches, first-call costs
         start = time.perf_counter()
         loop()
         results.append((time.perf_counter() - start) / statements * 1e6)
-    if mode == "on":
+    if mode in ("on", "index"):
         pop(collector)
-    print(f"{results[0]:.3f} {results[1]:.3f} {len(collector.statements)}")
+    print(
+        f"{results[0]:.3f} {results[1]:.3f} {len(collector.statements)} "
+        f"{results[2]:.3f}"
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--statements", type=int, default=5000)
     parser.add_argument("--runs", type=int, default=7)
-    parser.add_argument("--child", choices=("on", "off"))
+    parser.add_argument("--child", choices=("on", "off", "index"))
+    parser.add_argument(
+        "--index-check",
+        action="store_true",
+        help="also time the missing-index check (SQLite EXPLAIN QUERY PLAN)",
+    )
     args = parser.parse_args()
     if args.child:
         _child(args.child, args.statements)
+        return
+    if args.index_check:
+        _report_index_check(args.statements, args.runs)
         return
     results = measure(args.statements, args.runs)
     print(f"{args.statements} statements per loop, median of {args.runs} runs")
@@ -99,11 +131,12 @@ def main() -> None:
         )
 
 
-def measure(statements: int, runs: int) -> dict[str, tuple[float, float]]:
-    """Median microseconds per statement, {loop: (off, on)}, for core and orm."""
-    times: dict[str, list[tuple[float, float]]] = {"off": [], "on": []}
+def _times(
+    statements: int, runs: int, modes: tuple[str, ...]
+) -> dict[str, list[tuple[float, ...]]]:
+    times: dict[str, list[tuple[float, ...]]] = {mode: [] for mode in modes}
     for _ in range(runs):
-        for mode in ("off", "on"):
+        for mode in modes:
             out = subprocess.run(
                 [
                     sys.executable,
@@ -117,7 +150,26 @@ def measure(statements: int, runs: int) -> dict[str, tuple[float, float]]:
                 capture_output=True,
                 text=True,
             ).stdout.split()
-            times[mode].append((float(out[0]), float(out[1])))
+            times[mode].append((float(out[0]), float(out[1]), float(out[3])))
+    return times
+
+
+def _report_index_check(statements: int, runs: int) -> None:
+    times = _times(statements, runs, ("off", "on", "index"))
+    print(f"{statements} statements per loop, median of {runs} runs (us/statement)")
+    print(f"{'loop':<10}{'off':>9}{'on':>9}{'index check':>13}{'index vs on':>13}")
+    for index, name in enumerate(("core", "orm", "distinct")):
+        off, on, check = (
+            statistics.median(t[index] for t in times[mode])
+            for mode in ("off", "on", "index")
+        )
+        print(f"{name:<10}{off:>9.1f}{on:>9.1f}{check:>13.1f}{check - on:>13.1f}")
+    print("distinct: every statement is a new shape, so each is explained")
+
+
+def measure(statements: int, runs: int) -> dict[str, tuple[float, float]]:
+    """Median microseconds per statement, {loop: (off, on)}, for core and orm."""
+    times = _times(statements, runs, ("off", "on"))
     return {
         name: (
             statistics.median(t[index] for t in times["off"]),

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Missing-index check for SQLite, behind the same switch as PostgreSQL
+  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
+  `SELECT`, `WITH`, `UPDATE` and `DELETE` in a test body is explained with
+  `EXPLAIN QUERY PLAN` and its real bound parameters; the statement is not run,
+  so data and transaction are untouched. A scanned table that the statement
+  filters or joins on, or an automatic index, is a `missing-index` finding with
+  a `CREATE INDEX ix_<table>_<columns> ON <table> (<columns>)` hint. `LIKE`,
+  views, `ORDER BY` without a filter, primary keys and unrecognized plan shapes
+  are left alone. Works with `sqlite3`, aiosqlite, SQLAlchemy ORM and Core, and
+  pytest-xdist; findings honor `queryguard_ignore`, `allow_missing_index`,
+  `queryguard_index_ignore_tables`, the baseline and SARIF. See
+  `docs/index-check-sqlite.md`. `scripts/bench_overhead.py --index-check` times it.
 - Index advisor. Each missing-index finding now suggests an index: a
   `CREATE INDEX` built from the equality, range and `ORDER BY` columns of the
   plan node, a partial index when a constant predicate is selective, and the

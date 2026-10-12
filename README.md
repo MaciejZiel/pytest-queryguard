@@ -715,12 +715,35 @@ test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
 Findings follow `queryguard_mode`: `warn` turns them into warnings and
 `off` turns the check off. `allow_nplusone` does not affect the index check.
 
+#### SQLite
+
+The same switch checks SQLite (the `sqlite3` module and aiosqlite). SQLite has
+no PostgreSQL-style cost model to switch off, so queryguard runs
+`EXPLAIN QUERY PLAN` with the statement's real parameters for each distinct
+`SELECT`, `UPDATE` and `DELETE` in a test body and reports a table that is
+scanned although the statement filters or joins on one of its columns, or for
+which SQLite had to build an automatic index:
+
+```
+  orders is read in full: SCAN with filter orders.customer_id = ?
+  first at app/orders.py:11 in orders_of
+  fix: CREATE INDEX ix_orders_customer_id ON orders (customer_id)
+```
+
+`EXPLAIN QUERY PLAN` does not run the statement, so the data and the open
+transaction are untouched. The check is less precise than PostgreSQL's: it reads
+the plan SQLite chose instead of asking whether any index could serve, it
+judges only scans (not an unselective lookup by key), and it leaves `LIKE`,
+views and plans it does not recognize alone. See
+[docs/index-check-sqlite.md](docs/index-check-sqlite.md) for the rules, the
+false-positive traps and the differences.
+
 Statements that cannot be checked do not fail the test. They are summed up
-once at the end of the session, for example with SQLite:
+once at the end of the session, for example with MySQL:
 
 ```
 ============================ queryguard index check ============================
-sqlite statements were not checked: the index check needs PostgreSQL 16 or newer
+mysql statements were not checked: the index check needs PostgreSQL 16 or newer
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers
@@ -768,7 +791,7 @@ when none is suggested and what the verification does.
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
 | `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](#opting-out). |
 | `queryguard_baseline` | path | empty | Baseline file, relative to the rootdir: findings listed in it do not fail or warn, see [Baseline](#baseline-for-existing-findings). |
-| `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer). |
+| `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer, and `SELECT`, `UPDATE` and `DELETE` on SQLite). |
 | `queryguard_index_advisor` | `true`, `false` | `true` | Suggests an index for each missing-index finding, see [Index advisor](#index-advisor). Used with the index check. |
 | `queryguard_hypopg` | `auto`, `on`, `off` | `auto` | Verifies the suggested indexes with the hypopg extension: `auto` when it is installed, `on` also creates it inside the check's savepoint, `off` never uses it. |
 | `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |
