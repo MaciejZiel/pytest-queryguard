@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Per-statement timing. `Query.duration` is the time in seconds the database
+  and the driver took for a statement, measured around the cursor call;
+  `QueryLog.db_time` is the total and `QueryLog.slowest(n)` the slowest
+  statements.
+- `max_db_time(seconds)`, a context manager, and the `max_db_time` marker:
+  fail when the statements take longer than the limit in total. The failure
+  lists the slowest statements. A `max_queries` failure now shows the total
+  database time and its slowest statements as well.
 - `queryguard_ignore`, an ini option that leaves single findings out of the
   reports. One pattern per line, `KIND LABEL [file=GLOB] [function=GLOB]`,
   matched with `fnmatch`. The kinds are `relationship-load`,
@@ -21,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)
+  to time statements. `scripts/bench_overhead.py` puts the added cost at a few
+  microseconds per statement.
 - Internal: detectors now hand their results to a stable `Finding` model
   (`kind`, `label`, `file`, `function`, `message`, `severity`) before the
   report is rendered. The messages and the public API are unchanged.

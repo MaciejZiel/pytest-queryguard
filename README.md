@@ -246,6 +246,31 @@ does not depend on pytest, so it also works in a script or a benchmark. It
 checks the budget only; N+1 detection is done by the plugin around the
 whole test.
 
+### Time budgets with `max_db_time`
+
+```python
+import pytest
+from pytest_queryguard import max_db_time
+
+
+@pytest.mark.max_db_time(0.25)  # seconds
+def test_order_page(client):
+    client.get("/orders/1")
+
+
+def test_checkout(service, cart):
+    with max_db_time(0.1):
+        service.checkout(cart)
+```
+
+The limit is the time the database and the driver took for the statements,
+measured around each cursor call, so slow Python code in the test does not
+count. The failure shows the total and the slowest statements with the line
+that issued them. A `max_queries` failure shows the total database time and
+its three slowest statements too. Like `max_queries`, the budget fails
+whatever `queryguard_mode` is set to. In `record_queries()`, each `Query` has
+a `duration` (seconds), and the log has `db_time` and `slowest(n)`.
+
 ### Reading the queries in a test
 
 `record_queries()` records the SQL statements a block sends and lets the
@@ -339,12 +364,12 @@ point and `assert_no_nplusone()` still refuses it.
 
 What is public API in 0.x:
 
-- the functions and classes `max_queries()` (and its `ValueError` for a bad
-  limit), `QueryBudgetExceeded`, `record_queries()`, `QueryLog` (its
+- the functions and classes `max_queries()` and `max_db_time()` (and their
+  `ValueError` for a bad limit), `QueryBudgetExceeded`, `record_queries()`, `QueryLog` (its
   properties and methods, not its constructor), `Query` and `CallSite` (their
   fields, not their constructors, which are keyword-only and may change),
   `NPlusOneDetected`, `QueryGuardWarning` and `QueryGuardInternalWarning`;
-- the markers `max_queries(n)`, `allow_nplusone` and
+- the markers `max_queries(n)`, `max_db_time(seconds)`, `allow_nplusone` and
   `allow_missing_index(*tables)`;
 - the ini options `queryguard_mode`, `queryguard_relationship_threshold`,
   `queryguard_repeat_threshold`, `queryguard_index_check` and

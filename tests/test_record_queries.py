@@ -599,6 +599,7 @@ def test_public_names() -> None:
         "QueryGuardWarning",
         "QueryLog",
         "__version__",
+        "max_db_time",
         "max_queries",
         "record_queries",
     ]

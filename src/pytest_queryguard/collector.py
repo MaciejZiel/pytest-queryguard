@@ -20,6 +20,8 @@ class QueryCollector:
     max_events: int | None = None
     statement_count: int = 0
     relationship_load_count: int = 0
+    # Seconds the statements took, all of them, stored or only counted.
+    db_time: float = 0.0
 
     @property
     def truncated(self) -> bool:

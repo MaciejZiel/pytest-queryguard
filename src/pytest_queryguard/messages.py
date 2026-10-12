@@ -127,14 +127,45 @@ def format_truncation(max_events: int) -> str:
     )
 
 
+def format_duration(seconds: float) -> str:
+    """A duration for a report: ``0.4 ms`` below a second, ``1.25 s`` above."""
+    if seconds >= 1:
+        return f"{seconds:.2f} s"
+    return f"{seconds * 1000:.1f} ms"
+
+
+def _timing_lines(
+    statements: list[StatementEvent],
+    db_time: float | None,
+    cwd: Path | None,
+    top: int,
+) -> list[str]:
+    """Total database time and the slowest statements; empty without timings."""
+    timed = [s for s in statements if s.duration is not None]
+    if not timed:
+        return []
+    total = db_time if db_time is not None else sum(s.duration or 0.0 for s in timed)
+    lines = [f"  database time: {format_duration(total)}", "  slowest:"]
+    for stmt in sorted(timed, key=lambda s: s.duration or 0.0, reverse=True)[:top]:
+        line = f"    {format_duration(stmt.duration or 0.0):>9}  {_truncate(stmt.sql)}"
+        if stmt.callsite is not None:
+            line += f"  ({_location(stmt.callsite, cwd)})"
+        lines.append(line)
+    return lines
+
+
 def format_budget(
     limit: int,
     statements: list[StatementEvent],
     *,
     cwd: Path | None = None,
     total: int | None = None,
+    db_time: float | None = None,
 ) -> str:
-    """The budget failure; ``total`` is the real count when not all are stored."""
+    """The budget failure; ``total`` is the real count when not all are stored.
+
+    ``db_time`` is the real database time when not all statements are stored.
+    """
     shown = len(statements)
     got = shown if total is None else total
     lines = [f"queryguard: expected at most {limit} queries, got {got}", ""]
@@ -146,6 +177,40 @@ def format_budget(
     if total is not None and total > shown:
         lines.append(
             f"  ... and {total - shown} more, not stored (queryguard_max_events)"
+        )
+    timing = _timing_lines(statements, db_time, cwd, top=3)
+    if timing:
+        lines.append("")
+        lines.extend(timing)
+    return "\n".join(lines)
+
+
+def format_time_budget(
+    limit: float,
+    statements: list[StatementEvent],
+    *,
+    cwd: Path | None = None,
+    total: int | None = None,
+    db_time: float | None = None,
+) -> str:
+    """The database-time budget failure, with the slowest statements."""
+    got = len(statements) if total is None else total
+    spent = (
+        db_time if db_time is not None else sum(s.duration or 0.0 for s in statements)
+    )
+    noun = "statement" if got == 1 else "statements"
+    lines = [
+        (
+            f"queryguard: database time {format_duration(spent)} exceeded the "
+            f"budget of {format_duration(limit)} ({got} {noun})"
+        ),
+        "",
+    ]
+    lines.extend(_timing_lines(statements, spent, cwd, top=5))
+    if total is not None and total > len(statements):
+        lines.append(
+            f"  ... {total - len(statements)} more statements were not stored "
+            "(queryguard_max_events), so the slowest list may be incomplete"
         )
     return "\n".join(lines)
 
