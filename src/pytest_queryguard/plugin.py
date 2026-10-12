@@ -10,11 +10,11 @@ from typing import Any, cast
 import pytest
 
 from . import baseline as baselines
-from . import catalog, hypopg, indexes, sarif
+from . import catalog, eager, hypopg, indexes, sarif
 from .baseline import BaselineError, Identity, sorted_identities
 from .collector import QueryCollector, pop, push
 from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, detect
-from .findings import KIND_MISSING_INDEX, Finding
+from .findings import KIND_MISSING_INDEX, KIND_UNUSED_EAGER_LOAD, Finding
 from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
 from .indexes import select_findings
 from .listeners import (
@@ -42,6 +42,8 @@ from .messages import (
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
 _MODES = ("fail", "warn", "off")
+_EAGER_MODES = ("off", "warn", "fail")
+_eager_enabled = pytest.StashKey[bool]()
 _internal_reported = pytest.StashKey[bool]()
 _failure_summarised = pytest.StashKey[bool]()
 _outer_error = pytest.StashKey[BaseException | None]()
@@ -72,6 +74,7 @@ class _Settings:
         small_repeat: int | None = None,
         fail_on: tuple[str, ...] = (),
         write_loop: int | None = None,
+        unused_eager: str = "off",
         baseline_path: Path | None = None,
         update_baseline: bool = False,
         baseline: frozenset[Identity] | None = None,
@@ -90,6 +93,7 @@ class _Settings:
         self.small_repeat = small_repeat
         self.fail_on = fail_on
         self.write_loop = write_loop
+        self.unused_eager = unused_eager
         self.index_advisor = index_advisor
         self.hypopg = hypopg
         self.baseline_path = baseline_path
@@ -254,6 +258,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=[],
     )
     parser.addini(
+        "queryguard_unused_eager_load",
+        "EXPERIMENTAL: report relationships a test loads with selectinload, "
+        "joinedload, subqueryload or immediateload and never reads: off "
+        "(default), warn or fail",
+        default="off",
+    )
+    parser.addini(
         "queryguard_baseline",
         "Baseline file (relative to the rootdir): findings listed in it do not "
         "fail or warn",
@@ -385,6 +396,19 @@ def _ignore_rules(config: pytest.Config) -> tuple[IgnoreRule, ...]:
         return parse_rules(raw)
     except ValueError as exc:
         raise pytest.UsageError(f"{name}: {exc}") from None
+
+
+def _unused_eager(config: pytest.Config) -> str:
+    name = "queryguard_unused_eager_load"
+    try:
+        value = str(config.getini(name)).strip().lower()
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be off, warn or fail: {exc}") from None
+    if value not in _EAGER_MODES:
+        raise pytest.UsageError(
+            f"{name} must be one of {', '.join(_EAGER_MODES)}, got {value!r}"
+        )
+    return value
 
 
 def _index_check(config: pytest.Config) -> bool:
@@ -519,6 +543,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         _small_repeat(config, repeat),
         _fail_on(config),
         _write_loop(config),
+        _unused_eager(config),
         baseline_path,
         update,
         baseline,
@@ -566,9 +591,15 @@ def pytest_configure(config: pytest.Config) -> None:
         install()
         if settings.index_check:
             install_index_check()
+        if settings.unused_eager != "off":
+            eager.enable()
+            config.stash[_eager_enabled] = True
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
+    if config.stash.get(_eager_enabled, False):
+        config.stash[_eager_enabled] = False
+        eager.disable()
     swap_error(config.stash.get(_outer_error, None))
     indexes.swap_stopped(config.stash.get(_outer_stopped, None))
     indexes.swap_catalog_error(config.stash.get(_outer_catalog_error, None))
@@ -640,8 +671,18 @@ def _nplusone_ignores(item: pytest.Item) -> tuple[bool, tuple[IgnoreRule, ...]]:
     return ignore_all, tuple(rules)
 
 
+def _fails(settings: _Settings, finding: Finding) -> bool:
+    """True when the finding fails the test; else it is only a warning."""
+    if finding.kind == KIND_UNUSED_EAGER_LOAD and settings.unused_eager != "fail":
+        return False
+    return settings.fails(finding.kind)
+
+
 def _analyse(
-    item: pytest.Item, collector: QueryCollector, settings: _Settings
+    item: pytest.Item,
+    collector: QueryCollector,
+    settings: _Settings,
+    tracker: eager.Tracker | None = None,
 ) -> tuple[str | None, str | None]:
     """(report of the failing kinds, report of the others) for the finished test.
 
@@ -665,11 +706,13 @@ def _analyse(
             ),
             cwd=root,
         )
+        if tracker is not None:
+            findings.extend(eager.findings(tracker, cwd=root))
         if settings.ignore or marker_rules:
             findings = _drop_ignored(item, settings, findings, marker_rules)
         findings = _apply_baseline(settings, findings)
-        failing = [f for f in findings if settings.fails(f.kind)]
-        warning = [f for f in findings if not settings.fails(f.kind)]
+        failing = [f for f in findings if _fails(settings, f)]
+        warning = [f for f in findings if not _fails(settings, f)]
         note = ""
         if collector.truncated and settings.max_events is not None:
             note = "\n\n" + format_truncation(settings.max_events)
@@ -1132,9 +1175,12 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     collector.index_advisor = settings.index_advisor
     collector.hypopg = settings.hypopg
     push(collector)
+    tracker = eager.start() if settings.mode != "off" and eager.is_enabled() else None
     try:
         result = yield
     finally:
+        if tracker is not None:
+            eager.stop(tracker)
         pop(collector)
         _report_internal_error(item.config)
         _record(item, collector, settings)  # failing tests are reported too
@@ -1151,7 +1197,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     fail_texts: list[str] = []
     warn_texts: list[str] = []
     if settings.mode != "off":
-        failing, warning = _analyse(item, collector, settings)
+        failing, warning = _analyse(item, collector, settings, tracker)
         index = _analyse_indexes(item, collector, settings, exempt)
         if index is not None:
             (fail_texts if settings.fails(KIND_MISSING_INDEX) else warn_texts).append(

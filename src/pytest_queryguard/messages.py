@@ -24,6 +24,7 @@ from .findings import (
     KIND_MISSING_INDEX,
     KIND_RELATIONSHIP,
     KIND_REPEAT,
+    KIND_UNUSED_EAGER_LOAD,
     KIND_WRITE_LOOP,
     Finding,
     IndexAdvice,
@@ -200,10 +201,12 @@ def format_findings(
     findings: Sequence[Finding | Detection], *, cwd: Path | None = None
 ) -> str:
     """The N+1 report; detector results are turned into findings first."""
-    lines = ["queryguard: N+1 detected"]
-    for finding in findings:
-        if not isinstance(finding, Finding):
-            finding = make_finding(finding, cwd=cwd)
+    made = [f if isinstance(f, Finding) else make_finding(f, cwd=cwd) for f in findings]
+    if made and all(f.kind == KIND_UNUSED_EAGER_LOAD for f in made):
+        lines = ["queryguard: unused eager load detected (experimental)"]
+    else:
+        lines = ["queryguard: N+1 detected"]
+    for finding in made:
         lines.append("")
         lines.append(finding.message)
     return "\n".join(lines)
