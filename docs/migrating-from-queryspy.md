@@ -16,9 +16,9 @@ marker of their own, so the names do not clash).
 
 ## The main difference in defaults
 
-queryspy reports findings and fails nothing unless you pass
-`--queryspy-strict` or set `queryspy_fail_on`. pytest-queryguard fails a test
-on any finding with no configuration. To keep the queryspy behaviour while you
+queryspy reports N+1 findings and fails no test on them unless you pass
+`--queryspy-strict` or set `queryspy_fail_on` (its budgets fail either way).
+pytest-queryguard fails a test on any finding with no configuration. To keep the queryspy behaviour while you
 migrate, start in warn mode and switch to `fail` once the suite is clean or
 baselined:
 
