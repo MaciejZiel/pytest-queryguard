@@ -171,7 +171,8 @@ def test_is_checked_statement_is_linear_in_the_prefix(
     start = time.perf_counter()
     for _ in range(10):
         assert is_checked_statement(sql) is expected
-    assert time.perf_counter() - start < 0.05
+    # The regression this guards took 20 s; a loaded runner is far from 1 s.
+    assert time.perf_counter() - start < 1.0
 
 
 # ------------------------------------------------------------------ find_scans
