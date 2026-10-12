@@ -7,6 +7,7 @@ from .detectors import Detection, RelationshipFinding
 from .events import CallSite, ScanEvent, StatementEvent
 from .findings import KIND_MISSING_INDEX, KIND_RELATIONSHIP, KIND_REPEAT, Finding
 from .indexes import table_label
+from .listeners import Failure
 
 _SQL_LIMIT = 200
 _REPEAT_FIX = (
@@ -207,4 +208,22 @@ def format_index_notes(
             f"{errors} {noun} could not be explained; the first: {_truncate(message)}"
         )
         lines.append(f"  {_truncate(sql)}")
+    return lines
+
+
+def format_failure(failure: Failure) -> list[str]:
+    """The session summary for a plugin error that stopped the measurement."""
+    lines = [
+        f"pytest-queryguard stopped measuring after an error in the {failure.source}:",
+        f"  {failure.summary}",
+    ]
+    if failure.raised_at is not None:
+        lines.append(f"  raised at {failure.raised_at}")
+    lines.extend(
+        [
+            "Your tests were not affected. Tests that ran after the error were not",
+            "checked for N+1 queries, budgets or missing indexes. Please report it at",
+            "https://github.com/MaciejZiel/pytest-queryguard/issues",
+        ]
+    )
     return lines
