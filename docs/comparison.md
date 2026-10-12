@@ -95,7 +95,7 @@ not work.
 
 ### N+1 and budgets on SQLite
 
-A larger run, with 133 scenarios and precision and recall per finding kind, is on the
+A larger run, with 138 scenarios and precision and recall per finding kind, is on the
 [accuracy page](accuracy.md).
 
 I ran 45 scenarios in `tests/scenarios` (SQLAlchemy ORM and Core, sync and
@@ -178,8 +178,11 @@ agreement with my labels, not how useful a tool is. What the table shows:
 - By default pytest-queryguard does not report a few runs of one statement
   (`03b`, `05a` to `05c`): a deliberate choice. It is also why it passes the
   pagination scenario `14a` that the other two fail: three pages are below its
-  repeat threshold of 5, not a special rule for pagination. With the small-repeat rule on it reports
-  them too, and `03b` becomes correct.
+  repeat threshold of 5. (This table predates the rule that recognises
+  pagination and chunked `IN` loads from their parameters, added on
+  2026-10-13; `14a` passes with or without it, and `14e`, whose `IN` lists
+  overlap, is still reported.) With the small-repeat rule on it reports
+  `03b` and `05a` to `05c` too, and `03b` becomes correct.
 - queryspy missed the Core `select()` loop (`13a`) and the loop with literal
   values (`14f`); the other two reported them.
 - `11d` (a few objects refreshed after a `commit()`) is reported by queryspy
