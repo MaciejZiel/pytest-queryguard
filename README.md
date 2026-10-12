@@ -231,6 +231,14 @@ source line is reported as `write-loop` with a hint to write the rows together
 never counted. The kind works with `queryguard_ignore`, `allow_nplusone` and
 `queryguard_fail_on`.
 
+Experimental: `queryguard_unused_eager_load = warn` (or `fail`) reports a
+relationship that a test loads with `selectinload()`, `joinedload()`,
+`subqueryload()` or `immediateload()` and never reads, as `unused-eager-load`.
+It is off by default and adds nothing to the run while off. It can miss
+cases and rarely misjudge one; read
+[docs/unused-eager-load.md](docs/unused-eager-load.md) for how it decides and
+what it cannot see.
+
 ### Query budgets with the `max_queries` marker
 
 ```python
@@ -446,7 +454,8 @@ The kinds are `relationship-load` (the label is the relationship, as in
 `Order.customer`), `repeated-statement` (the normalized statement),
 `column-load` (the class and its deferred columns, as in `Book.summary`, or
 the class and the cause for expired attributes, as in `Book (expired)`),
-`write-loop` (the normalized `INSERT`, `UPDATE` or `DELETE`) and
+`write-loop` (the normalized `INSERT`, `UPDATE` or `DELETE`),
+`unused-eager-load` (the relationship, as in `Order.customer`) and
 `missing-index` (the table, with its schema as in the report). `file` is
 relative to pytest's rootdir, with forward slashes. Findings that no longer
 exist are easy to forget, so a pattern that matched nothing in the run is
@@ -694,6 +703,7 @@ plan, with the first error and its SQL.
 | `queryguard_repeat_threshold` | integer ≥ 2 | `5` | Number of times one normalized `SELECT` must run to count as N+1. |
 | `queryguard_small_repeat_threshold` | `0` or integer ≥ 2, below the repeat threshold | `0` (off) | Number of runs of one statement from one source line, each with different parameters, that count as N+1 although they are below `queryguard_repeat_threshold`. Pagination and writes are not counted. |
 | `queryguard_write_loop_threshold` | `0` or integer ≥ 2 | `0` (off) | Number of single-row `INSERT`, `UPDATE` or `DELETE` statements of one shape from one source line that count as a write loop (kind `write-loop`). |
+| `queryguard_unused_eager_load` | `off`, `warn`, `fail` | `off` | Experimental. Reports relationships a test eager-loads and never reads (kind `unused-eager-load`); `warn` only warns, `fail` fails the test in `fail` mode. See [docs/unused-eager-load.md](docs/unused-eager-load.md). |
 | `queryguard_fail_on` | kinds or `fnmatch` patterns, one per line | empty (all kinds) | The finding kinds that fail a test in `fail` mode; the other kinds are reported as `QueryGuardWarning` and the test passes. For example `relationship-load` alone. Budgets always fail. |
 | `queryguard_column_load_threshold` | integer ≥ 2 | `5` | Number of different instances of one class that must load deferred or expired columns on their own to count as N+1. |
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
@@ -841,8 +851,9 @@ Command-line options:
 earlier and also covers Django and Peewee. Its last release, 1.0.0, came
 out in 2018, and it does not support SQLAlchemy 2. pytest-queryguard targets
 SQLAlchemy 2 only, including async sessions, and adds query budgets and a
-fix hint in the failure message. It does not detect unused eager loads,
-which nplusone does.
+fix hint in the failure message. nplusone also detects unused eager loads;
+here that check is experimental and off by default, see
+[docs/unused-eager-load.md](docs/unused-eager-load.md).
 
 ## Roadmap
 
