@@ -1,4 +1,4 @@
-# Missing-index check on PostgreSQL
+# Missing-index check (PostgreSQL and SQLite)
 
 A test database holds a few rows, so a query that reads the whole table is
 as fast in CI as one that uses an index. The missing index shows up in
@@ -174,12 +174,35 @@ test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
 Findings follow `queryguard_mode`: `warn` turns them into warnings and
 `off` turns the check off. `allow_nplusone` does not affect the index check.
 
+## SQLite
+
+The same switch checks SQLite (the `sqlite3` module and aiosqlite). SQLite has
+no PostgreSQL-style cost model to switch off, so queryguard runs
+`EXPLAIN QUERY PLAN` with the statement's real parameters for each distinct
+`SELECT`, `UPDATE` and `DELETE` in a test body and reports a table that is
+scanned although the statement filters or joins on one of its columns, or for
+which SQLite had to build an automatic index:
+
+```
+  orders is read in full: SCAN with filter orders.customer_id = ?
+  first at app/orders.py:11 in orders_of
+  fix: CREATE INDEX ix_orders_customer_id ON orders (customer_id)
+```
+
+`EXPLAIN QUERY PLAN` does not run the statement, so the data and the open
+transaction are untouched. The check is less precise than PostgreSQL's: it reads
+the plan SQLite chose instead of asking whether any index could serve, it
+judges only scans (not an unselective lookup by key), and it leaves `LIKE`,
+views and plans it does not recognize alone. See
+[the SQLite page](index-check-sqlite.md) for the rules, the
+false-positive traps and the differences.
+
 Statements that cannot be checked do not fail the test. They are summed up
-once at the end of the session, for example with SQLite:
+once at the end of the session, for example with MySQL:
 
 ```
 ============================ queryguard index check ============================
-sqlite statements were not checked: the index check needs PostgreSQL 16 or newer
+mysql statements were not checked: the index check needs PostgreSQL 16 or newer
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers

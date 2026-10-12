@@ -2,7 +2,7 @@
 
 A pytest plugin that fails tests with N+1 queries and enforces query budgets
 for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer
-it can also fail tests whose queries have no index to use.
+and on SQLite it can also fail tests whose queries have no index to use.
 
 ORM code that looks correct can send one query per row instead of one query
 per page. The tests pass, because a test database holds a handful of rows. In
@@ -34,8 +34,8 @@ It is on by default: there is nothing to import or configure.
   [Budgets and timing](budgets.md), [Ignoring findings](ignoring.md).
 - Adopting it on an existing project: [Baseline](baseline.md) and
   [CI and SARIF](ci.md).
-- Missing indexes: [PostgreSQL](index-check.md) and the
-  [index advisor](index-advisor.md).
+- Missing indexes: [PostgreSQL](index-check.md), [SQLite](index-check-sqlite.md)
+  and the [index advisor](index-advisor.md).
 - Questions: [FAQ](faq.md), [Limitations](limitations.md),
   [Stability and versioning](stability.md).
 
