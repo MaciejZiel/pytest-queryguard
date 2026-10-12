@@ -12,7 +12,7 @@ from .api import (
 from .events import CallSite
 from .warnings import QueryGuardInternalWarning, QueryGuardWarning
 
-__version__ = "0.4.0rc1"
+__version__ = "0.4.0rc2"
 
 __all__ = [
     "CallSite",
