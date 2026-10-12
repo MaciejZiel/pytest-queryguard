@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+- PostgreSQL index check: a statement on a partitioned table is now one
+  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
+  creates the index on every partition) and its hypopg verification, instead of
+  one finding and one `CREATE INDEX` per partition
+  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
+  ignore or baseline entry that named a partition no longer matches; use the
+  partitioned table's name. Each partition is looked up once per session
+  (`pg_partition_root()`), only for statements with findings.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added

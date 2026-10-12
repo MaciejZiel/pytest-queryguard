@@ -143,6 +143,15 @@ summary counts those statements: `N statements skipped: a partial index on
 statement fixes with a literal (`deleted_at IS NULL`) is decided by the
 generic plan and is judged as before.
 
+A partitioned table is reported once, under its own name, although the plan
+reads its partitions: `CREATE INDEX ON events (kind)` creates the index on
+every partition, also on those attached later, while an index on one
+partition leaves the others without it. The condition keeps the alias the
+plan gives the partition (`events_1.kind = $1`). `queryguard_index_ignore_tables`
+matches the partitioned table's name. Table inheritance (`INHERITS`) is
+different: an index on the parent does not cover its children, so the parent
+and each child read in full are separate findings.
+
 Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
 `SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
 reads the whole table anyway; scans of PostgreSQL's own catalogs. Whether a
