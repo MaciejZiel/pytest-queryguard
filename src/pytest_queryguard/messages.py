@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from .detectors import ColumnLoadFinding, Detection, RelationshipFinding
+from .detectors import (
+    ColumnLoadFinding,
+    Detection,
+    RelationshipFinding,
+    WriteLoopFinding,
+)
 from .events import (
     CAUSE_DEFERRED,
     CAUSE_REFRESH,
@@ -16,6 +21,7 @@ from .findings import (
     KIND_MISSING_INDEX,
     KIND_RELATIONSHIP,
     KIND_REPEAT,
+    KIND_WRITE_LOOP,
     Finding,
 )
 from .indexes import table_label
@@ -81,12 +87,39 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
         ]
     if isinstance(finding, ColumnLoadFinding):
         return _column_block(finding, cwd)
+    if isinstance(finding, WriteLoopFinding):
+        return _write_block(finding, cwd)
     how = " with different parameters" if finding.varying else ""
     return [
         f"  the same statement ran {finding.count} times{how}",
         _first_at(finding.first, cwd),
         f"  {_truncate(finding.sql)}",
         f"  {_REPEAT_FIX}",
+    ]
+
+
+_WRITE_FIX = {
+    "INSERT": [
+        "  fix: write the rows together: session.add_all(rows) and one flush, or",
+        "       session.execute(insert(Model), [{...}, {...}]) for a bulk insert",
+    ],
+    "UPDATE": [
+        "  fix: update the rows together, as a bulk UPDATE by primary key:",
+        "       session.execute(update(Model), [{'id': 1, ...}, {'id': 2, ...}])",
+        "       or with one UPDATE ... WHERE id IN (...)",
+    ],
+    "DELETE": [
+        "  fix: delete the rows together: one DELETE ... WHERE id IN (...)",
+    ],
+}
+
+
+def _write_block(finding: WriteLoopFinding, cwd: Path | None) -> list[str]:
+    return [
+        f"  the same {finding.verb} ran {finding.count} times, one row at a time",
+        _first_at(finding.first, cwd),
+        f"  {_truncate(finding.sql)}",
+        *_WRITE_FIX.get(finding.verb, _WRITE_FIX["INSERT"]),
     ]
 
 
@@ -138,6 +171,8 @@ def make_finding(detection: Detection, *, cwd: Path | None = None) -> Finding:
         kind, label = KIND_RELATIONSHIP, detection.relationship
     elif isinstance(detection, ColumnLoadFinding):
         kind, label = KIND_COLUMN_LOAD, detection.label
+    elif isinstance(detection, WriteLoopFinding):
+        kind, label = KIND_WRITE_LOOP, detection.sql
     else:
         kind, label = KIND_REPEAT, detection.sql
     return Finding(
