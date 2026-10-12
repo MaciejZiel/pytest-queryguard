@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -335,6 +336,77 @@ def test_a_write_error_is_reported_not_raised(
     )
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*could not write *qg.json: read-only*"])
+
+
+def test_an_unexpected_write_error_is_reported_not_raised(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(path: Path, identities: object) -> None:
+        raise UnicodeEncodeError("utf-8", "\udce9", 0, 1, "surrogates not allowed")
+
+    monkeypatch.setattr(baseline, "write", fail)
+    project.makepyfile(test_a=ONE_LOOP)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*INTERNALERROR*")
+    result.stdout.fnmatch_lines(["*could not write *qg.json: 'utf-8' codec*"])
+
+
+def _make_non_utf8_dir(root: Path) -> None:
+    try:
+        os.makedirs(os.fsencode(root) + b"/caf\xe9")
+    except (OSError, ValueError):  # pragma: no cover - the filesystem refuses it
+        pytest.skip("cannot create a non-UTF-8 directory name here")
+
+
+def test_update_with_a_non_utf8_directory_name_writes_a_matching_baseline(
+    project: pytest.Pytester,
+) -> None:
+    _make_non_utf8_dir(project.path)
+    project.syspathinsert()
+    sub = Path(os.fsdecode(os.fsencode(project.path) + b"/caf\xe9"))
+    (sub / "test_a.py").write_text(ONE_LOOP)
+    args = ["--queryguard-baseline=qg.json", "-p", "no:cacheprovider"]
+    update = project.runpytest(*args, "--queryguard-update-baseline")
+    update.assert_outcomes(passed=1)
+    update.stdout.no_fnmatch_line("*INTERNALERROR*")
+    update.stdout.fnmatch_lines(["*queryguard: baseline updated*", "*1 entries*"])
+    # the entry reads back to the same identity, so the next run is clean
+    assert baseline.load(project.path / "qg.json")
+    project.runpytest(*args).assert_outcomes(passed=1)
+
+
+def test_a_lone_surrogate_in_an_identity_survives_a_round_trip(tmp_path: Path) -> None:
+    identity = ("relationship-load", "Order.customer", "caf\udce9/test_a.py", "test_a")
+    path = tmp_path / "qg.json"
+    baseline.write(path, [identity])
+    assert baseline.load(path) == {identity}
+
+
+def test_non_ascii_text_stays_readable_in_the_file(tmp_path: Path) -> None:
+    identity = ("relationship-load", "Order.zam\u00f3wienie", "a.py", "test_a")
+    path = tmp_path / "qg.json"
+    baseline.write(path, [identity])
+    assert "zam\u00f3wienie" in path.read_text(encoding="utf-8")
+    assert baseline.load(path) == {identity}
+
+
+def test_deeply_nested_json_is_an_invalid_baseline_not_a_recursion_error() -> None:
+    text = "[" * 100000 + "]" * 100000
+    with pytest.raises(BaselineError, match="nested too deeply"):
+        baseline.parse(text, Path("b.json"))
+
+
+def test_a_deeply_nested_baseline_file_is_a_usage_error(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=CLEAN)
+    (project.path / "qg.json").write_text("[" * 100000 + "]" * 100000)
+    result = project.runpytest("--queryguard-baseline=qg.json")
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*queryguard baseline:*nested too deeply*"])
 
 
 def test_stale_entries_are_not_reported_with_measurement_off(
