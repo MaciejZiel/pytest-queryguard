@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Internal: detectors now hand their results to a stable `Finding` model
   (`kind`, `label`, `file`, `function`, `message`, `severity`) before the
   report is rendered. The messages and the public API are unchanged.
+- The check that decides whether a stack frame belongs to SQLAlchemy, pytest or
+  the standard library is now cached per file name. Measured with
+  `scripts/bench_overhead.py`, this cuts the per-statement overhead of the
+  measurement by about half.
+- A test stores at most 10000 statements and 10000 relationship loads for its
+  reports (`queryguard_max_events`, `0` for no limit). Past the limit they are
+  only counted: budgets and the session report still use the real count, and
+  the budget failure and the N+1 report say that details are missing.
 
 ## [0.3.0] - 2026-10-11
 
