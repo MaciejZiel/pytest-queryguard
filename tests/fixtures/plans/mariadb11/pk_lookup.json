@@ -1,0 +1,123 @@
+{
+  "server": "11.8.9-MariaDB-ubu2404",
+  "sql": "SELECT * FROM orders WHERE id = %s",
+  "params": [
+    7
+  ],
+  "explain": [
+    {
+      "id": 1,
+      "select_type": "SIMPLE",
+      "table": "orders",
+      "type": "const",
+      "possible_keys": "PRIMARY",
+      "key": "PRIMARY",
+      "key_len": "4",
+      "ref": "const",
+      "rows": "1",
+      "Extra": ""
+    }
+  ],
+  "explain_json": {
+    "query_block": {
+      "select_id": 1,
+      "nested_loop": [
+        {
+          "table": {
+            "table_name": "orders",
+            "access_type": "const",
+            "possible_keys": [
+              "PRIMARY"
+            ],
+            "key": "PRIMARY",
+            "key_length": "4",
+            "used_key_parts": [
+              "id"
+            ],
+            "ref": [
+              "const"
+            ],
+            "rows": 1,
+            "filtered": 100
+          }
+        }
+      ]
+    }
+  },
+  "catalog": {
+    "customers": {
+      "table": "customers",
+      "columns": [
+        "id",
+        "email",
+        "name",
+        "country"
+      ],
+      "leading": [
+        "email",
+        "id"
+      ]
+    },
+    "orders": {
+      "table": "orders",
+      "columns": [
+        "id",
+        "customer_id",
+        "reference",
+        "status",
+        "total",
+        "created"
+      ],
+      "leading": [
+        "id",
+        "reference",
+        "status"
+      ]
+    },
+    "order_items": {
+      "table": "order_items",
+      "columns": [
+        "order_id",
+        "product_id",
+        "qty"
+      ],
+      "leading": [
+        "order_id"
+      ]
+    },
+    "articles": {
+      "table": "articles",
+      "columns": [
+        "id",
+        "title",
+        "body"
+      ],
+      "leading": [
+        "id"
+      ]
+    },
+    "tiny": {
+      "table": "tiny",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": [
+        "code"
+      ]
+    },
+    "tiny_plain": {
+      "table": "tiny_plain",
+      "columns": [
+        "code",
+        "label"
+      ],
+      "leading": []
+    },
+    "v_open_orders": {
+      "table": null,
+      "columns": [],
+      "leading": []
+    }
+  }
+}

@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   SQLModel, Litestar, pytest-asyncio configuration pitfalls, budgets for hot
   endpoints, adopting the plugin on a legacy codebase and CI. A new example,
   `examples/fastapi-dependency-override`, is run by the test suite.
+- Missing-index check for MySQL and MariaDB, behind the same switch
+  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
+  `SELECT`, `UPDATE` and `DELETE` is explained with `EXPLAIN` and the real bound
+  parameters (never `ANALYZE`); a table read in full (`type: ALL`, or an index
+  read in full on a column that leads no index) although the statement filters
+  or joins on its columns is a `missing-index` finding with a `CREATE INDEX`
+  hint and an Alembic call. The suggestion is not verified: neither server has
+  hypothetical indexes. Tested with PyMySQL and aiomysql on MySQL 8.4 and
+  MariaDB 11.8 on a developer machine; CI does not run a MySQL or MariaDB
+  server. See `docs/index-check-mysql.md`.
 
 ### Changed
 
@@ -26,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Documentation: the limitations page, the FAQ and the README now say that a
+  raw `sqlite3` or other DB-API connection and non-SQLAlchemy ORMs (Django ORM,
+  Peewee, Tortoise ORM) are not seen, and that nothing reports it; the
+  limitations page also points to the repeat-scope limits.
 - The SQLite index check no longer says a table "is read in full" when the
   plan walks an existing index that the filter cannot use (`SCAN INDEX ix_...`).
   It says the table scans the whole index and that the filter does not match

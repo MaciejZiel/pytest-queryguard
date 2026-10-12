@@ -34,7 +34,7 @@ It is on by default: there is nothing to import or configure.
   [Budgets and timing](budgets.md), [Ignoring findings](ignoring.md).
 - Adopting it on an existing project: [Baseline](baseline.md) and
   [CI and SARIF](ci.md).
-- Missing indexes: [PostgreSQL](index-check.md), [SQLite](index-check-sqlite.md)
+- Missing indexes: [PostgreSQL](index-check.md), [SQLite](index-check-sqlite.md), [MySQL and MariaDB](index-check-mysql.md)
   and the [index advisor](index-advisor.md).
 - Questions: [FAQ](faq.md), [Limitations](limitations.md),
   [Stability and versioning](stability.md).

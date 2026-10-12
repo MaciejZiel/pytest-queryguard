@@ -29,12 +29,12 @@ from qgmodels import Order, make_sync_session
 
 def test_sqlite():
     session = make_sync_session()
-    session.get_bind().dialect.name = "mysql"
+    session.get_bind().dialect.name = "oracle"
     assert session.query(Order).filter(Order.customer_id == 1).count() == 2
 """
 
 SQLITE_NOTICE = (
-    "mysql statements were not checked: the index check needs PostgreSQL 16 or newer"
+    "oracle statements were not checked: the index check needs PostgreSQL 16 or newer"
 )
 
 
