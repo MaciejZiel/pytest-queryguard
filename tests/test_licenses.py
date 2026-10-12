@@ -9,6 +9,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
+pytestmark = pytest.mark.skipif(
+    not (ROOT / "uv.lock").is_file(), reason="uv.lock is not in the source distribution"
+)
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover

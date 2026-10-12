@@ -50,6 +50,8 @@ def test_every_marker_is_in_the_reference(pytester: pytest.Pytester) -> None:
 
 
 def test_site_builds_in_strict_mode(tmp_path: Path) -> None:
+    if not (ROOT / "scripts" / "build_docs.py").is_file():
+        pytest.skip("scripts/ is not in the source distribution")
     pytest.importorskip("markdown")
     pytest.importorskip("pygments")
     if sys.version_info < (3, 11):
