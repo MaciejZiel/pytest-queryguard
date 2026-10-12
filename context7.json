@@ -7,7 +7,7 @@
   "excludeFiles": ["CHANGELOG.md", "3rdparty_licenses.md"],
   "rules": [
     "Install with pip install pytest-queryguard; the plugin registers itself, nothing to import or configure.",
-    "Fix a reported relationship N+1 by loading the relationship with the parent query, e.g. select(Order).options(selectinload(Order.customer)).",
+    "Fix a reported relationship N+1 by loading the relationship with the parent query, e.g. select(Order).options(joinedload(Order.customer)).",
     "Use @pytest.mark.max_queries(n) or the pytest_queryguard.max_queries(n) context manager to set a query budget; budgets also catch write loops.",
     "Exclude small lookup tables from the missing-index check with queryguard_index_ignore_tables or @pytest.mark.allow_missing_index instead of turning the check off.",
     "The missing-index check needs PostgreSQL 16 or newer and a sync engine."

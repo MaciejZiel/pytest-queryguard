@@ -107,7 +107,7 @@ queryguard: N+1 detected
   first at app/orders.py:9 in list_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
-       select(Order).options(selectinload(Order.customer))
+       select(Order).options(joinedload(Order.customer))
 _____________________________ test_fetch_customers _____________________________
 queryguard: N+1 detected
 
@@ -140,13 +140,13 @@ rows with one `IN` query.
 
 ```python
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload
 
 from app.models import Order
 
 
 def list_orders(session: Session) -> list[dict[str, object]]:
-    orders = session.scalars(select(Order).options(selectinload(Order.customer))).all()
+    orders = session.scalars(select(Order).options(joinedload(Order.customer))).all()
     return [{"id": order.id, "customer": order.customer.name} for order in orders]
 ```
 
@@ -203,9 +203,16 @@ Every test is checked. A test fails when, inside the test function:
 - one relationship (for example `Order.customer`) is lazy-loaded for 2 or
   more different parent objects, or
 - one `SELECT`, with its parameters and literals removed, runs 5 or more
-  times.
+  times, or
+- 5 or more instances of one class each go back to the database for columns
+  they already have a row for: a deferred column (`deferred()`, `defer()`,
+  `load_only()`), or attributes expired by `commit()`, `expire()` or
+  `expire_all()`. The report tells the two apart: `undefer(Model.column)` for
+  the first, `expire_on_commit=False` for the second.
 
-Both thresholds can be changed (see [Configuration](#configuration)).
+The thresholds can be changed (see [Configuration](#configuration)). The hint
+for a relationship is `joinedload` for a many-to-one or one-to-one
+relationship and `selectinload` for a collection.
 
 ### Query budgets with the `max_queries` marker
 
@@ -286,9 +293,9 @@ from app.orders import list_orders
 def test_list_orders_loads_customers_with_the_orders(session):
     with record_queries() as log:
         list_orders(session)
-    assert log.count == 2
-    assert log.queries[1].sql.startswith("SELECT customer.id")
-    assert log.queries[1].relationship == "Order.customer"
+    assert log.count == 1
+    assert "JOIN customer" in log.queries[0].sql
+    assert all(query.relationship is None for query in log)
 
 
 def test_fetch_customers(session):
@@ -419,7 +426,9 @@ queryguard_ignore = [
 ```
 
 The kinds are `relationship-load` (the label is the relationship, as in
-`Order.customer`), `repeated-statement` (the normalized statement) and
+`Order.customer`), `repeated-statement` (the normalized statement),
+`column-load` (the class and its deferred columns, as in `Book.summary`, or
+the class and the cause for expired attributes, as in `Book (expired)`) and
 `missing-index` (the table, with its schema as in the report). `file` is
 relative to pytest's rootdir, with forward slashes. Findings that no longer
 exist are easy to forget, so a pattern that matched nothing in the run is
@@ -665,6 +674,7 @@ plan, with the first error and its SQL.
 | `queryguard_mode` | `fail`, `warn`, `off` | `fail` | `fail` fails a test with N+1. `warn` reports it as a `QueryGuardWarning` and lets the test pass. `off` turns detection off; tests without a budget are not measured. |
 | `queryguard_relationship_threshold` | integer ≥ 2 | `2` | Number of different parent objects for which one relationship must be lazy-loaded to count as N+1. |
 | `queryguard_repeat_threshold` | integer ≥ 2 | `5` | Number of times one normalized `SELECT` must run to count as N+1. |
+| `queryguard_column_load_threshold` | integer ≥ 2 | `5` | Number of different instances of one class that must load deferred or expired columns on their own to count as N+1. |
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
 | `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](#opting-out). |
 | `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer). |
