@@ -14,6 +14,7 @@ from fnmatch import fnmatchcase
 from typing import Any
 
 from . import catalog as catalogs
+from . import predicates
 from .callsite import find_callsite
 from .collector import QueryCollector
 from .detectors import collapse_lists
@@ -254,7 +255,7 @@ def _issue(
     first = ctx.leading.get((rel.schema or "", index or ""))
     if first is None:
         return None
-    columns = {_unquote(ref["col"]) for ref in _column_refs(index_cond, rel.alias)}
+    columns = condition_columns(index_cond, rel.alias)
     if first in columns or equality_column(index_cond, rel.alias, varchar) is None:
         return None
     return _make(rel, label, "index condition", index_cond, ctx)
@@ -308,6 +309,26 @@ def _column_refs(text: str, alias: str) -> list[re.Match[str]]:
     return list(re.finditer(pattern, _strip_literals(text)))
 
 
+def condition_columns(condition: str, alias: str) -> set[str]:
+    """The unquoted names of the columns of ``alias`` the condition mentions."""
+    tree = predicates.parse(condition)
+    if tree is not None:
+        return {predicates.unquote(ref.name) for ref, _ in _tree_refs(tree, alias)}
+    return {_unquote(ref["col"]) for ref in _column_refs(condition, alias)}
+
+
+def _casts_to_text(condition: object) -> bool:
+    if not isinstance(condition, str):
+        return False
+    tree = predicates.parse(condition)
+    if tree is None:
+        return ")::text" in condition
+    return any(
+        isinstance(node, predicates.Cast) and node.type_name == "text"
+        for node, _ in predicates.walk(tree)
+    )
+
+
 def _inside_function(text: str, start: int) -> bool:
     depth = 0
     for i in range(start - 1, -1, -1):
@@ -340,10 +361,77 @@ def _operator(text: str, start: int, end: int, cast_ok: bool) -> str | None:
     return op
 
 
+_COMPARISON_OPS = frozenset({"=", "<", "<=", ">", ">="})
+# Calls that wrap a column without hiding it from an index (a column inside
+# them is still no plain comparison, but needs no expression index either).
+_NOT_FUNCTIONS = frozenset({"any", "all", "some", "array"})
+
+
+def _in_function(parents: Sequence[predicates.Expr]) -> bool:
+    return any(
+        isinstance(p, predicates.Call) and p.name not in _NOT_FUNCTIONS for p in parents
+    )
+
+
+def _tree_refs(
+    tree: predicates.Expr, alias: str
+) -> list[tuple[predicates.Col, tuple[predicates.Expr, ...]]]:
+    return [
+        (node, parents)
+        for node, parents in predicates.walk(tree)
+        if isinstance(node, predicates.Col)
+        and predicates.unquote(node.qualifier) == alias
+    ]
+
+
+def _tree_comparisons(
+    tree: predicates.Expr, alias: str, varchar: Collection[str]
+) -> tuple[str, set[str]] | None:
+    refs = _tree_refs(tree, alias)
+    columns = {ref.name for ref, _ in refs}
+    if len(columns) != 1:
+        return None
+    column = columns.pop()
+    cast_ok = _unquote(column) in varchar
+    ops: set[str] = set()
+    for ref, parents in refs:
+        if _in_function(parents):
+            return None
+        operand: predicates.Expr = ref
+        above = list(parents)
+        if above and isinstance(above[-1], predicates.Cast):
+            cast = above.pop()
+            if not (cast.type_name == "text" and cast_ok):  # type: ignore[union-attr]
+                return None
+            operand = cast
+        parent = above[-1] if above else None
+        if (
+            not isinstance(parent, predicates.Op)
+            or parent.op not in _COMPARISON_OPS
+            or not (parent.left is operand or parent.right is operand)
+        ):
+            return None
+        ops.add(parent.op)
+    return column, ops
+
+
 def _comparisons(
     condition: str, alias: str, varchar: Collection[str]
 ) -> tuple[str, set[str]] | None:
-    """(column, operators) when the condition compares exactly one plain column."""
+    """(column, operators) when the condition compares exactly one plain column.
+
+    The parsed condition decides; text matching is the fallback for syntax
+    the parser does not know.
+    """
+    tree = predicates.parse(condition)
+    if tree is not None:
+        return _tree_comparisons(tree, alias, varchar)
+    return _regex_comparisons(condition, alias, varchar)
+
+
+def _regex_comparisons(
+    condition: str, alias: str, varchar: Collection[str]
+) -> tuple[str, set[str]] | None:
     text = _strip_literals(condition)
     refs = _column_refs(text, alias)
     columns = {ref["col"] for ref in refs}
@@ -384,6 +472,23 @@ def equality_column(
 
 def _needs_expression(condition: str, alias: str, varchar: Collection[str]) -> bool:
     """True when a column is wrapped in a function or cast an index cannot see."""
+    tree = predicates.parse(condition)
+    if tree is None:
+        return _regex_needs_expression(condition, alias, varchar)
+    for ref, parents in _tree_refs(tree, alias):
+        if _in_function(parents):
+            return True
+        parent = parents[-1] if parents else None
+        if isinstance(parent, predicates.Cast) and not (
+            parent.type_name == "text" and _unquote(ref.name) in varchar
+        ):
+            return True
+    return False
+
+
+def _regex_needs_expression(
+    condition: str, alias: str, varchar: Collection[str]
+) -> bool:
     text = _strip_literals(condition)
     for ref in _column_refs(text, alias):
         if _inside_function(text, ref.start()):
@@ -619,7 +724,7 @@ def _text_cast_tables(plan: Mapping[str, Any]) -> set[tuple[str, str]]:
         if (
             rel is not None
             and rel.schema
-            and any(isinstance(c, str) and ")::text" in c for c in conditions)
+            and any(_casts_to_text(c) for c in conditions)
         ):
             tables.add((rel.schema, rel.table))
         below = _relation(node) if node.get("Node Type") == "Bitmap Heap Scan" else heap

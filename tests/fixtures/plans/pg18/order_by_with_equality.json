@@ -1,0 +1,59 @@
+{
+ "query": "SELECT * FROM orders WHERE customer_id = $1 ORDER BY created_at DESC",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Sort",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 15.42,
+    "Total Cost": 15.44,
+    "Plan Rows": 10,
+    "Plan Width": 93,
+    "Disabled": false,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Sort Key": [
+     "orders.created_at DESC"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 0.0,
+      "Total Cost": 15.25,
+      "Plan Rows": 10,
+      "Plan Width": 93,
+      "Disabled": true,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ],
+      "Filter": "(orders.customer_id = $1)"
+     }
+    ]
+   }
+  }
+ ]
+}

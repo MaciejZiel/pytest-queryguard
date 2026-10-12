@@ -75,6 +75,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The missing-index check reads the conditions of a plan node with a tokenizer
+  and parser (`pytest_queryguard.predicates`) instead of regular expressions
+  over the text. PostgreSQL's JSON plan has no structured form of a predicate,
+  so the relation, alias, schema and index still come from the plan's fields and
+  the condition text is parsed into a tree; the old text matching stays as the
+  fallback for syntax the parser does not know. Findings do not change. The
+  parsing is tested on real `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` plans
+  captured from PostgreSQL 14 to 18 (`scripts/capture_plans.py`).
 - The hint for a lazy-loaded many-to-one or one-to-one relationship is now
   `joinedload(...)`; collections still get `selectinload(...)`.
 - The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)

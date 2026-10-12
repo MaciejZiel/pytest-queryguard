@@ -1,0 +1,26 @@
+{
+ "query": "SELECT * FROM archive WHERE owner_id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "archive",
+    "Schema": "public",
+    "Alias": "archive",
+    "Startup Cost": 0.0,
+    "Total Cost": 2.25,
+    "Plan Rows": 5,
+    "Plan Width": 16,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "deleted_at",
+     "owner_id"
+    ],
+    "Filter": "(archive.owner_id = $1)"
+   }
+  }
+ ]
+}
