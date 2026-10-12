@@ -67,16 +67,19 @@ jobs:
       - run: uv sync
       - run: uv run --no-sync pytest -rs
 
-  # The missing-index check needs a real server. 15 covers the "too old"
-  # notice; 16 and 17 run the check itself. One more run on 16 uses the
-  # oldest supported SQLAlchemy, which the asyncpg path depends on
-  # (run_async() on adapted connections).
+  # The missing-index check needs a real server. 14 and 15 cover the "too old"
+  # notice; 16, 17 and 18 run the check itself. Each run exercises two
+  # drivers: pg8000 (sync) and asyncpg (tests/test_index_check_async.py).
+  # psycopg and psycopg2 are LGPL and not allowed as dependencies here, so
+  # they are not part of the matrix. One more run on 16 uses the oldest
+  # supported SQLAlchemy, which the asyncpg path depends on (run_async() on
+  # adapted connections).
   postgres:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        postgres: ["15", "16", "17"]
+        postgres: ["14", "15", "16", "17", "18"]
         sqlalchemy: ["latest"]
         include:
           - postgres: "16"
