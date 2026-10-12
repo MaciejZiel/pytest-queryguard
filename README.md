@@ -104,7 +104,7 @@ rule and why the thresholds are what they are.
 A test database holds a few rows, so a query that reads the whole table is as
 fast in CI as one that uses an index. With the index check on, every `SELECT`
 in a test body is planned again with sequential scans switched off (PostgreSQL
-16 and newer), or explained with `EXPLAIN QUERY PLAN` (SQLite). If the plan
+16 and newer), explained with `EXPLAIN QUERY PLAN` (SQLite), or explained with `EXPLAIN` (MySQL and MariaDB). If the plan
 still reads a whole table to apply a filter, no index can serve it, however
 small the table:
 
@@ -129,7 +129,7 @@ The index advisor suggests the `CREATE INDEX` and the Alembic call; with the
 hypopg extension in the test database it also says whether the planner would
 use the index and what the estimated cost would be before and after. The
 check is off by default. See [PostgreSQL](docs/index-check.md),
-[SQLite](docs/index-check-sqlite.md) and the
+[SQLite](docs/index-check-sqlite.md), [MySQL and MariaDB](docs/index-check-mysql.md) (tested on live servers by hand, not in CI) and the
 [index advisor](docs/index-advisor.md); runnable projects are in
 [examples/postgres-missing-index](examples/postgres-missing-index) and
 [examples/sqlite-index-check](examples/sqlite-index-check).
@@ -212,7 +212,7 @@ opt-in checks are in the [FAQ](docs/faq.md#does-it-slow-my-tests-down).
 - Only the test function body is measured, not fixtures. One measurement is
   active per process; under pytest-xdist each worker measures its own tests.
 - The PostgreSQL index check needs PostgreSQL 16 or newer and a sync engine or
-  asyncpg; the SQLite check judges less precisely. It says that no index can
+  asyncpg; the SQLite, MySQL and MariaDB checks judge less precisely. It says that no index can
   serve a filter, not that an existing index is a good one.
 - Writes never count towards the repeated-statement rule; the opt-in
   `write-loop` kind and budgets cover them.

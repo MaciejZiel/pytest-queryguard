@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Missing-index check for MySQL and MariaDB, behind the same switch
+  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
+  `SELECT`, `UPDATE` and `DELETE` is explained with `EXPLAIN` and the real bound
+  parameters (never `ANALYZE`); a table read in full (`type: ALL`, or an index
+  read in full on a column that leads no index) although the statement filters
+  or joins on its columns is a `missing-index` finding with a `CREATE INDEX`
+  hint and an Alembic call. The suggestion is not verified: neither server has
+  hypothetical indexes. Tested with PyMySQL and aiomysql on MySQL 8.4 and
+  MariaDB 11.8 on a developer machine; CI does not run a MySQL or MariaDB
+  server. See `docs/index-check-mysql.md`.
 ### Fixed
 
 - SARIF locations are now relative to the repository root when
