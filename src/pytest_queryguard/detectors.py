@@ -198,7 +198,8 @@ def _write_loop_findings(
     """The same write, one row per statement, from one line.
 
     ``executemany`` and multi-row ``VALUES`` statements are already batched,
-    so they are never counted.
+    so they are never counted, and the statements of one ORM flush count as
+    one: SQLAlchemy sent them as it had to.
     """
     groups: dict[tuple[str, object], list[StatementEvent]] = {}
     for stmt in collector.statements:
@@ -209,16 +210,16 @@ def _write_loop_findings(
         site = stmt.callsite
         where = None if site is None else (site.filename, site.lineno)
         groups.setdefault((normalize(stmt.sql), where), []).append(stmt)
-    found = [
-        WriteLoopFinding(
-            sql,
-            stmts[0].sql.lstrip().split(None, 1)[0].upper(),
-            len(stmts),
-            stmts[0].callsite,
-        )
-        for (sql, _), stmts in groups.items()
-        if len(stmts) >= threshold
-    ]
+    found = []
+    for (sql, _), stmts in groups.items():
+        # All statements of one ORM flush count as one write: the unit of work
+        # sends them one by one on a dialect without insertmanyvalues, and the
+        # code can only call flush() less often, not batch them further.
+        flushes = {s.flush for s in stmts if s.flush is not None}
+        count = len(flushes) + sum(1 for s in stmts if s.flush is None)
+        if count >= threshold:
+            verb = stmts[0].sql.lstrip().split(None, 1)[0].upper()
+            found.append(WriteLoopFinding(sql, verb, count, stmts[0].callsite))
     return sorted(found, key=lambda f: -f.count)
 
 
