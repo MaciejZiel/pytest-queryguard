@@ -140,3 +140,67 @@ jobs:
         run: uv pip install "sqlalchemy==2.0.*"
       - run: uv run --no-sync coverage run -m pytest -rs
       - run: uv run --no-sync coverage report
+
+  # The GitHub Action in action/ on a tiny sample project (examples/action-sample)
+  # with one N+1 query: one run that reports it and does not fail, one that
+  # fails, one with the finding in a baseline that uploads to code scanning.
+  # The upload step is skipped by the action on pull requests from forks.
+  action:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report the finding, do not fail
+        id: report
+        uses: ./action
+        with:
+          python-version: "3.12"
+          package: ${{ github.workspace }}
+          working-directory: examples/action-sample
+          sarif-file: report.sarif
+          fail: "false"
+          upload: "false"
+      - name: Check the SARIF file and the outputs
+        env:
+          EXIT_CODE: ${{ steps.report.outputs.exit-code }}
+        run: |
+          python - <<'PY'
+          import json, os
+
+          assert os.environ["EXIT_CODE"] == "1", os.environ["EXIT_CODE"]
+          with open("examples/action-sample/report.sarif") as handle:
+              document = json.load(handle)
+          (result,) = document["runs"][0]["results"]
+          assert result["ruleId"] == "queryguard/relationship-load", result
+          location = result["locations"][0]["physicalLocation"]
+          assert location["artifactLocation"]["uri"] == "test_books.py", location
+          print("SARIF ok:", result["message"]["text"].splitlines()[0])
+          PY
+      - name: Fail on the finding
+        id: strict
+        continue-on-error: true
+        uses: ./action
+        with:
+          package: ${{ github.workspace }}
+          working-directory: examples/action-sample
+          sarif-file: strict.sarif
+          upload: "false"
+      - name: The step must have failed
+        env:
+          OUTCOME: ${{ steps.strict.outcome }}
+        run: test "$OUTCOME" = "failure"
+      - name: Accept the finding with the baseline and upload
+        id: baseline
+        uses: ./action
+        with:
+          package: ${{ github.workspace }}
+          working-directory: examples/action-sample
+          baseline: queryguard-baseline.json
+          pytest-args: -v -k "n_plus_one"
+          category: pytest-queryguard-sample
+      - name: The baselined run must be clean
+        env:
+          EXIT_CODE: ${{ steps.baseline.outputs.exit-code }}
+        run: test "$EXIT_CODE" = "0"
