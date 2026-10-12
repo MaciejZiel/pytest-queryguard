@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+### Fixed
+
+- With `-W error` or `filterwarnings = error`, an internal error no longer
+  fails the user's test: `QueryGuardInternalWarning` was raised as an
+  exception from the test call, from the terminal summary (which aborted the
+  summary), from a `record_queries()` block and, for the unused eager-load
+  check, from inside SQLAlchemy's `do_orm_execute`. It is now always shown and
+  recorded, never raised; an "ignore" filter still hides it.
+
 ## [0.4.0rc2] - 2026-10-12
 
 ### Added

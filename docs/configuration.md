@@ -57,6 +57,12 @@ queryguard_mode = "warn"
 filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]
 ```
 
+An "error" filter never applies to `QueryGuardInternalWarning`: a bug in the
+plugin must not fail a test, so with `-W error` or `filterwarnings = error`
+that warning is still shown in the warnings summary, not raised. An "ignore"
+filter hides it as usual; the "queryguard: measurement stopped" section of the
+summary is printed either way.
+
 Command-line options:
 
 | Option | Meaning |

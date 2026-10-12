@@ -91,7 +91,8 @@ exported from `pytest_queryguard`), and `log.assert_no_nplusone()` raises
 outside pytest and with `--queryguard-mode=off`. The warning is issued when
 the block ends normally; a block left by an exception does not warn, so the
 warning never replaces the exception, but its log is still fixed at that
-point and `assert_no_nplusone()` still refuses it.
+point and `assert_no_nplusone()` still refuses it. An "error" warnings filter does not
+turn this warning into an exception either.
 
 What is public API, and what is not, is defined on the
 [Stability and versioning](stability.md) page. In short: the names in
