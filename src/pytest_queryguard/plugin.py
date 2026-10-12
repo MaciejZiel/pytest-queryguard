@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import warnings as std_warnings
 from collections.abc import Generator
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ import pytest
 from . import catalog, indexes
 from .collector import QueryCollector, pop, push
 from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, detect
-from .findings import Finding
+from .findings import KIND_MISSING_INDEX, Finding
 from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
 from .indexes import select_findings
 from .listeners import (
@@ -64,6 +65,8 @@ class _Settings:
         max_events: int | None = DEFAULT_MAX_EVENTS,
         ignore: tuple[IgnoreRule, ...] = (),
         column_load: int = DEFAULT_COLUMN_LOAD_THRESHOLD,
+        small_repeat: int | None = None,
+        fail_on: tuple[str, ...] = (),
     ) -> None:
         self.mode = mode
         self.relationship = relationship
@@ -73,9 +76,17 @@ class _Settings:
         self.max_events = max_events
         self.ignore = ignore
         self.column_load = column_load
+        self.small_repeat = small_repeat
+        self.fail_on = fail_on
         # what the ignores did, for the stale-ignore warning in the summary
         self.ignore_used: set[IgnoreRule] = set()
         self.stale_markers: list[tuple[str, IgnoreRule]] = []
+
+    def fails(self, kind: str) -> bool:
+        """True when a finding of this kind fails the test; else it only warns."""
+        if self.mode != "fail":
+            return False
+        return not self.fail_on or any(fnmatchcase(kind, p) for p in self.fail_on)
 
 
 class _IndexNotes:
@@ -138,6 +149,21 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         **_INT_TYPE,
     )
     parser.addini(
+        "queryguard_small_repeat_threshold",
+        "Executions (below queryguard_repeat_threshold) of one statement from one "
+        "source line, each with different parameters, treated as N+1; 0 turns "
+        "this off (integer >= 2, or 0)",
+        default=0 if _NATIVE_INT else "0",
+        **_INT_TYPE,
+    )
+    parser.addini(
+        "queryguard_fail_on",
+        "Finding kinds that fail a test in fail mode, one per line (fnmatch "
+        "patterns); the other kinds only warn. Empty: all kinds fail",
+        type="linelist",
+        default=[],
+    )
+    parser.addini(
         "queryguard_column_load_threshold",
         "Instances of one class that must load deferred or expired columns on "
         "their own to count as N+1 (integer >= 2)",
@@ -188,6 +214,45 @@ def _threshold(config: pytest.Config, name: str) -> int:
         shown = detail or f", got {raw!r}"
         raise pytest.UsageError(f"{name} must be an integer >= 2{shown}")
     return value
+
+
+def _small_repeat(config: pytest.Config, repeat: int) -> int | None:
+    name = "queryguard_small_repeat_threshold"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be 0 or an integer >= 2: {exc}") from None
+    try:
+        value = -1 if isinstance(raw, bool) else int(raw)
+    except (TypeError, ValueError):
+        value = -1
+    if value == 0:
+        return None
+    if value < 2:
+        raise pytest.UsageError(f"{name} must be 0 or an integer >= 2, got {raw!r}")
+    if value >= repeat:
+        raise pytest.UsageError(
+            f"{name} must be lower than queryguard_repeat_threshold ({repeat}), "
+            f"got {value}"
+        )
+    return value
+
+
+def _fail_on(config: pytest.Config) -> tuple[str, ...]:
+    name = "queryguard_fail_on"
+    try:
+        raw: Any = config.getini(name)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{name} must be a list of kinds: {exc}") from None
+    if not isinstance(raw, list) or not all(isinstance(k, str) for k in raw):
+        raise pytest.UsageError(f"{name} must be a list of kinds, got {raw!r}")
+    kinds = tuple(k.strip() for k in raw if k.strip() and not k.strip().startswith("#"))
+    for kind in kinds:
+        try:
+            check_kind(kind)
+        except ValueError as exc:
+            raise pytest.UsageError(f"{name}: {exc}") from None
+    return kinds
 
 
 def _max_events(config: pytest.Config) -> int | None:
@@ -261,15 +326,18 @@ def _read_settings(config: pytest.Config) -> _Settings:
         raise pytest.UsageError(
             f"{source} must be one of {', '.join(_MODES)}, got {mode!r}"
         )
+    repeat = _threshold(config, "queryguard_repeat_threshold")
     return _Settings(
         mode,
         _threshold(config, "queryguard_relationship_threshold"),
-        _threshold(config, "queryguard_repeat_threshold"),
+        repeat,
         _index_check(config),
         _ignore_tables(config),
         _max_events(config),
         _ignore_rules(config),
         _threshold(config, "queryguard_column_load_threshold"),
+        _small_repeat(config, repeat),
+        _fail_on(config),
     )
 
 
@@ -385,13 +453,16 @@ def _nplusone_ignores(item: pytest.Item) -> tuple[bool, tuple[IgnoreRule, ...]]:
 
 def _analyse(
     item: pytest.Item, collector: QueryCollector, settings: _Settings
-) -> str | None:
-    """The report for the finished test, or None; never raises."""
+) -> tuple[str | None, str | None]:
+    """(report of the failing kinds, report of the others) for the finished test.
+
+    Either is None when empty; never raises.
+    """
     if internal_error() is not None:
-        return None
+        return None, None
     ignore_all, marker_rules = _nplusone_ignores(item)
     if ignore_all:
-        return None
+        return None, None
     try:
         root = item.config.rootpath
         findings = make_findings(
@@ -400,20 +471,24 @@ def _analyse(
                 relationship_threshold=settings.relationship,
                 repeat_threshold=settings.repeat,
                 column_load_threshold=settings.column_load,
+                small_repeat_threshold=settings.small_repeat,
             ),
             cwd=root,
         )
         if settings.ignore or marker_rules:
             findings = _drop_ignored(item, settings, findings, marker_rules)
-        if not findings:
-            return None
-        report = format_findings(findings, cwd=root)
+        failing = [f for f in findings if settings.fails(f.kind)]
+        warning = [f for f in findings if not settings.fails(f.kind)]
+        note = ""
         if collector.truncated and settings.max_events is not None:
-            report += "\n\n" + format_truncation(settings.max_events)
-        return report
+            note = "\n\n" + format_truncation(settings.max_events)
+        return (
+            format_findings(failing, cwd=root) + note if failing else None,
+            format_findings(warning, cwd=root) + note if warning else None,
+        )
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "N+1 analysis")
-        return None
+        return None, None
 
 
 def _drop_ignored(
@@ -711,24 +786,34 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         time_budget = _time_budget_report(item, collector, time_limit)
         if time_budget is not None:
             parts.append(time_budget)
-    message = None
+    fail_texts: list[str] = []
+    warn_texts: list[str] = []
     if settings.mode != "off":
-        found = [
-            _analyse(item, collector, settings),
-            _analyse_indexes(item, collector, settings, exempt),
-        ]
-        message = "\n\n".join(m for m in found if m is not None) or None
+        failing, warning = _analyse(item, collector, settings)
+        index = _analyse_indexes(item, collector, settings, exempt)
+        if index is not None:
+            (fail_texts if settings.fails(KIND_MISSING_INDEX) else warn_texts).append(
+                index
+            )
+        if failing is not None:
+            fail_texts.insert(0, failing)
+        if warning is not None:
+            warn_texts.insert(0, warning)
     _report_internal_error(item.config)
-    if message is not None and (parts or settings.mode == "fail"):
-        parts.append(message)  # one failure: budget first, N+1 after it
-    elif message is not None:
+    if parts or fail_texts:
+        # one failure: budgets first, then N+1 and index findings, then the
+        # findings of kinds that would only have warned
+        parts.extend(fail_texts)
+        parts.extend(warn_texts)
+    else:
         path, line, _ = item.reportinfo()
-        std_warnings.warn_explicit(
-            QueryGuardWarning(message),
-            QueryGuardWarning,
-            str(path),
-            (line or 0) + 1,
-        )
+        for text in warn_texts:
+            std_warnings.warn_explicit(
+                QueryGuardWarning(text),
+                QueryGuardWarning,
+                str(path),
+                (line or 0) + 1,
+            )
     if parts:
         pytest.fail("\n\n".join(parts), pytrace=False)
     return result

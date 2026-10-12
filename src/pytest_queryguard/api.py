@@ -210,6 +210,7 @@ class QueryLog:
         relationship_threshold: int = 2,
         repeat_threshold: int = 5,
         column_load_threshold: int = 5,
+        small_repeat_threshold: int | None = None,
     ) -> None:
         """Raise ``NPlusOneDetected`` when the recorded block has N+1 queries.
 
@@ -218,13 +219,17 @@ class QueryLog:
         parent objects, or one ``SELECT``, without its literals and
         parameters, run ``repeat_threshold`` times, or ``column_load_threshold``
         instances of one class each loading deferred or expired columns on
-        their own.
+        their own. With ``small_repeat_threshold`` (an integer, at least 2 and
+        below ``repeat_threshold``), a statement that ran that many times or
+        more from one line, each time with other parameters, counts too,
+        unless it paginates.
 
-        The thresholds are these three arguments only. The ``queryguard_*`` ini
+        The thresholds are these four arguments only. The ``queryguard_*`` ini
         options, ``queryguard_mode`` and the ``allow_nplusone`` marker are not
         read, so a project that changes ``queryguard_repeat_threshold``,
         ``queryguard_relationship_threshold`` or
-        ``queryguard_column_load_threshold`` must pass the same values here.
+        ``queryguard_column_load_threshold`` or ``queryguard_small_repeat_threshold``
+        must pass the same values here.
 
         Raises ``RuntimeError`` instead of checking when pytest-queryguard hit
         an internal error and stopped recording, because the log may then be
@@ -245,6 +250,16 @@ class QueryLog:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 2:
                 raise ValueError(f"{name} must be an integer >= 2, got {value!r}")
+        small = small_repeat_threshold
+        if small is not None and (
+            isinstance(small, bool)
+            or not isinstance(small, int)
+            or not 2 <= small < repeat_threshold
+        ):
+            raise ValueError(
+                "small_repeat_threshold must be None or an integer >= 2 and "
+                f"below repeat_threshold ({repeat_threshold}), got {small!r}"
+            )
         root = display_root()
         findings = make_findings(
             detect(
@@ -252,6 +267,7 @@ class QueryLog:
                 relationship_threshold=relationship_threshold,
                 repeat_threshold=repeat_threshold,
                 column_load_threshold=column_load_threshold,
+                small_repeat_threshold=small_repeat_threshold,
             ),
             cwd=root,
         )

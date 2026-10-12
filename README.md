@@ -210,7 +210,15 @@ Every test is checked. A test fails when, inside the test function:
   `expire_all()`. The report tells the two apart: `undefer(Model.column)` for
   the first, `expire_on_commit=False` for the second.
 
-The thresholds can be changed (see [Configuration](#configuration)). The hint
+The thresholds can be changed (see [Configuration](#configuration)).
+
+A few runs of one statement are usually a batch, so the default threshold
+stays at 5. To catch a loop earlier, set `queryguard_small_repeat_threshold`
+(for example `2`): a statement that ran that many times or more from one
+source line, each time with different parameters, is then reported too.
+Identical parameters, runs from different lines, writes and pagination
+(`OFFSET`, or `LIMIT` with a `>` or `<` condition) are left alone. It is off
+by default. The hint
 for a relationship is `joinedload` for a many-to-one or one-to-one
 relationship and `selectinload` for a collection.
 
@@ -674,6 +682,8 @@ plan, with the first error and its SQL.
 | `queryguard_mode` | `fail`, `warn`, `off` | `fail` | `fail` fails a test with N+1. `warn` reports it as a `QueryGuardWarning` and lets the test pass. `off` turns detection off; tests without a budget are not measured. |
 | `queryguard_relationship_threshold` | integer ≥ 2 | `2` | Number of different parent objects for which one relationship must be lazy-loaded to count as N+1. |
 | `queryguard_repeat_threshold` | integer ≥ 2 | `5` | Number of times one normalized `SELECT` must run to count as N+1. |
+| `queryguard_small_repeat_threshold` | `0` or integer ≥ 2, below the repeat threshold | `0` (off) | Number of runs of one statement from one source line, each with different parameters, that count as N+1 although they are below `queryguard_repeat_threshold`. Pagination and writes are not counted. |
+| `queryguard_fail_on` | kinds or `fnmatch` patterns, one per line | empty (all kinds) | The finding kinds that fail a test in `fail` mode; the other kinds are reported as `QueryGuardWarning` and the test passes. For example `relationship-load` alone. Budgets always fail. |
 | `queryguard_column_load_threshold` | integer ≥ 2 | `5` | Number of different instances of one class that must load deferred or expired columns on their own to count as N+1. |
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
 | `queryguard_ignore` | patterns, one per line | empty | Findings to leave out of reports: `KIND LABEL [file=GLOB] [function=GLOB]`, see [Opting out](#opting-out). |
