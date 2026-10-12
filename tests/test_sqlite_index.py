@@ -571,12 +571,11 @@ def test_analyze_statistics_can_make_a_scan_the_plan() -> None:
         "ANALYZE;"
     )
     sql = "SELECT * FROM s WHERE k = ?"
-    plan = [r[3] for r in conn.execute("EXPLAIN QUERY PLAN " + sql, (1,))]
-    found = issues(conn, sql, 1)
-    if plan == ["SCAN s"]:
-        assert found == []  # k leads an index: not reported as missing
-    else:
-        assert found == []
+    # Whatever the plan, k leads an index, so it is not reported as missing.
+    assert issues(conn, sql, 1) == []
+    # A column without an index is still reported after ANALYZE.
+    conn.execute("ALTER TABLE s ADD COLUMN v INT")
+    assert [i.column for i in issues(conn, "SELECT * FROM s WHERE v = ?", 1)] == ["v"]
     conn.close()
 
 
