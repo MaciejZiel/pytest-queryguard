@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A lazy load or column load that autoflushed pending changes first was
+  attributed to the flush's write: the UPDATE or DELETE carried the relationship
+  name and the load's SELECT carried none, so one loop was also reported as a
+  repeated statement. Writes no longer take the pending attribution (#59).
 - A SARIF result merged from several tests no longer shows one test's count in
   `message.text` next to the total in `properties.count`. The message now
   starts with `Seen in N tests: T times in total, up to M times in one test`,

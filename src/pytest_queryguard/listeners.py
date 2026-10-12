@@ -225,7 +225,13 @@ def _on_cursor_execute(
         targets = collector.active()
         if not targets:
             return
-        relationship, column_load = _take_pending()
+        # The ORM runs do_orm_execute before it autoflushes, so the first
+        # statement after a lazy load may be the flush's write, not the load's
+        # SELECT. Loads are reads: leave the pending attribution for the SELECT.
+        if _is_write(statement):
+            relationship, column_load = None, None
+        else:
+            relationship, column_load = _take_pending()
         if column_load is not None:
             column_load.sql = statement
         stmt = StatementEvent(
