@@ -319,6 +319,10 @@ class Tracker:
         self._started = time.perf_counter()
         self._token = current.set(self.active)
 
+    @property
+    def finished(self) -> bool:
+        return self._done
+
     def detach(self) -> None:
         """Leave the context (the request's own code has finished)."""
         token, self._token = self._token, None

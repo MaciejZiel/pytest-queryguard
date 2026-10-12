@@ -81,6 +81,8 @@ class QueryGuardWSGI:
         return _Body(result, tracker, self)
 
     def _finish(self, tracker: Tracker) -> None:
+        if tracker.finished:
+            return
         report = tracker.finish()
         if self.history is not None:
             self.history.add(report)
@@ -147,9 +149,18 @@ class _Body:
             self._iter = iter(self._result)
         token = _core.current.set(self._tracker.active)
         try:
-            return next(self._iter)
-        finally:
+            chunk = next(self._iter)
+        except StopIteration:
+            # The body is complete. Servers close it next; a test client may
+            # not, so the request ends here already.
             _core.current.reset(token)
+            self._owner._finish(self._tracker)
+            raise
+        except BaseException:
+            _core.current.reset(token)
+            raise
+        _core.current.reset(token)
+        return chunk
 
     def close(self) -> None:
         try:
