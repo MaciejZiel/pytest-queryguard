@@ -76,6 +76,16 @@ class RepeatFinding:
 
 
 @dataclass(frozen=True, slots=True)
+class WriteLoopFinding:
+    """One INSERT, UPDATE or DELETE shape run row by row from one line."""
+
+    sql: str
+    verb: str  # "INSERT", "UPDATE" or "DELETE"
+    count: int
+    first: CallSite | None
+
+
+@dataclass(frozen=True, slots=True)
 class ColumnLoadFinding:
     """Instances of one class that each loaded columns in their own statement."""
 
@@ -94,7 +104,7 @@ class ColumnLoadFinding:
         return f"{self.owner} ({self.cause})"
 
 
-Detection = RelationshipFinding | RepeatFinding | ColumnLoadFinding
+Detection = RelationshipFinding | RepeatFinding | ColumnLoadFinding | WriteLoopFinding
 # The name this union had before findings.Finding existed.
 Finding = Detection
 
@@ -149,6 +159,66 @@ def _column_load_findings(
         found.append(
             ColumnLoadFinding(owner, attrs, cause, len(loads), len(keys), site, sample)
         )
+    return sorted(found, key=lambda f: -f.count)
+
+
+def _value_rows(sql: str) -> int:
+    """The number of row tuples in the VALUES list of a statement (1 without one)."""
+    match = re.search(r"\bVALUES\b", sql, re.IGNORECASE)
+    if match is None:
+        return 1
+    rows, depth, i, n = 0, 0, match.end(), len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "'":  # a string literal; '' inside it is an escaped quote
+            end = i + 1
+            while end < n:
+                if sql[end] == "'" and sql[end + 1 : end + 2] == "'":
+                    end += 2
+                elif sql[end] == "'":
+                    break
+                else:
+                    end += 1
+            i = end
+        elif ch == "(":
+            if depth == 0:
+                rows += 1
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and ch not in " ,\n\t":
+            break  # RETURNING, ON CONFLICT ...: the list is over
+        i += 1
+    return max(rows, 1)
+
+
+def _write_loop_findings(
+    collector: QueryCollector, threshold: int
+) -> list[WriteLoopFinding]:
+    """The same write, one row per statement, from one line.
+
+    ``executemany`` and multi-row ``VALUES`` statements are already batched,
+    so they are never counted.
+    """
+    groups: dict[tuple[str, object], list[StatementEvent]] = {}
+    for stmt in collector.statements:
+        if stmt.executemany or not stmt.sql.lstrip().upper().startswith(_WRITES):
+            continue
+        if _value_rows(_WS.sub(" ", stmt.sql)) > 1:
+            continue
+        site = stmt.callsite
+        where = None if site is None else (site.filename, site.lineno)
+        groups.setdefault((normalize(stmt.sql), where), []).append(stmt)
+    found = [
+        WriteLoopFinding(
+            sql,
+            stmts[0].sql.lstrip().split(None, 1)[0].upper(),
+            len(stmts),
+            stmts[0].callsite,
+        )
+        for (sql, _), stmts in groups.items()
+        if len(stmts) >= threshold
+    ]
     return sorted(found, key=lambda f: -f.count)
 
 
@@ -216,6 +286,7 @@ def detect(
     repeat_threshold: int,
     column_load_threshold: int = DEFAULT_COLUMN_LOAD_THRESHOLD,
     small_repeat_threshold: int | None = None,
+    write_loop_threshold: int | None = None,
 ) -> list[Detection]:
     findings: list[Detection] = []
     findings.extend(_relationship_findings(collector, relationship_threshold))
@@ -225,4 +296,6 @@ def detect(
         findings.extend(
             _small_repeat_findings(collector, small_repeat_threshold, repeat_threshold)
         )
+    if write_loop_threshold is not None:
+        findings.extend(_write_loop_findings(collector, write_loop_threshold))
     return findings
