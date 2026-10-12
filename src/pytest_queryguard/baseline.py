@@ -10,12 +10,11 @@ more rows does not invalidate an entry.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from .fileio import atomic_write_text
 from .findings import Finding
 
 SCHEMA_VERSION = 1
@@ -49,16 +48,7 @@ def dumps(identities: Iterable[Identity]) -> str:
 
 def write(path: Path, identities: Iterable[Identity]) -> None:
     """Write the baseline atomically, with ``\\n`` line ends on every platform."""
-    text = dumps(identities)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    atomic_write_text(path, dumps(identities))
 
 
 def _entry_identity(entry: Any, index: int, path: Path) -> Identity:

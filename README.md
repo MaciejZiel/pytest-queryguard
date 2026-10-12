@@ -470,6 +470,24 @@ listed as stale so the file can be pruned. An entry is the kind, label, file
 and function of a finding, so line numbers and counts do not matter. Details
 in [docs/baseline.md](docs/baseline.md).
 
+### SARIF for GitHub code scanning
+
+`pytest --queryguard-sarif=queryguard.sarif` writes the findings as SARIF
+2.1.0: one rule per finding kind with a fix hint, one result per finding with
+a rootdir-relative location, and fingerprints from the finding identity so
+GitHub keeps one alert per finding across runs. Baselined and ignored findings
+are left out. Details in [docs/sarif.md](docs/sarif.md).
+
+### GitHub Action
+
+`MaciejZiel/pytest-queryguard/action` installs the plugin, runs pytest with
+SARIF output and uploads it to GitHub code scanning, so findings show up as
+alerts with a line and a fix hint. It needs `security-events: write`, and
+cannot upload for pull requests from forks (GitHub gives them a read-only
+token); the tests still run there. Inputs for pytest arguments, Python
+version, baseline and failure behaviour, and a copy-paste workflow, are in
+[docs/ci.md](docs/ci.md).
+
 ### Async and FastAPI
 
 Nothing changes for async code. `AsyncSession` and `create_async_engine` run
@@ -762,6 +780,7 @@ Command-line options:
 | `--queryguard-mode=fail\|warn\|off` | Overrides `queryguard_mode` for this run. |
 | `--queryguard-report` | Prints the 10 tests with the most queries at the end of the session. |
 | `--queryguard-baseline=PATH` | Baseline file for this run; overrides `queryguard_baseline`. |
+| `--queryguard-sarif=PATH` | Writes the findings of this run to `PATH` as SARIF 2.1.0. |
 | `--queryguard-update-baseline` | Writes the findings of this run to the baseline file instead of reporting them. |
 | `--queryguard-index-check` | Turns the missing-index check on for this run. |
 | `--no-queryguard-index-check` | Turns the missing-index check off for this run, whatever `queryguard_index_check` says. |

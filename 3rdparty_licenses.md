@@ -1,6 +1,6 @@
 # Third-party licenses
 
-Direct dependencies of this repository.
+Direct dependencies of this repository, including the GitHub Actions used by its workflows and by `action/action.yml`.
 
 | source | name | license type | license link |
 |---|---|---|---|
@@ -24,3 +24,7 @@ Direct dependencies of this repository.
 | https://github.com/pytest-dev/pytest-xdist | pytest-xdist | MIT | https://github.com/pytest-dev/pytest-xdist/blob/master/LICENSE |
 | https://github.com/pytest-dev/execnet | execnet | MIT | https://github.com/pytest-dev/execnet/blob/main/LICENSE |
 | https://github.com/HypoPG/hypopg | hypopg (PostgreSQL extension, used optionally at runtime through SQL and installed in the CI image; not a Python dependency) | PostgreSQL | https://github.com/HypoPG/hypopg/blob/REL1_STABLE/LICENSE |
+| https://github.com/github/codeql-action | github/codeql-action/upload-sarif (GitHub Action, pinned v4.38.2) | MIT | https://github.com/github/codeql-action/blob/main/LICENSE |
+| https://github.com/actions/setup-python | actions/setup-python (GitHub Action, pinned v7.0.0) | MIT | https://github.com/actions/setup-python/blob/main/LICENSE |
+| https://github.com/actions/checkout | actions/checkout (GitHub Action, pinned v7.0.1) | MIT | https://github.com/actions/checkout/blob/main/LICENSE |
+| https://github.com/astral-sh/setup-uv | astral-sh/setup-uv (GitHub Action, pinned v10.2.0) | MIT | https://github.com/astral-sh/setup-uv/blob/main/LICENSE |

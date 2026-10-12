@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pytest_queryguard import baseline
+from pytest_queryguard import baseline, fileio
 from pytest_queryguard.baseline import BaselineError
 
 # pytester runs sessions in-process, so the outer plugin sees their queries too.
@@ -401,7 +401,7 @@ def test_a_failed_write_removes_its_temp_file(
     def fail(src: object, dst: object) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(baseline.os, "replace", fail)
+    monkeypatch.setattr(fileio.os, "replace", fail)
     with pytest.raises(OSError, match="disk full"):
         baseline.write(tmp_path / "qg.json", [LAZY_ID])
     assert list(tmp_path.iterdir()) == []

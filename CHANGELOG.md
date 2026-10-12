@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A composite GitHub Action in `action/`: installs the plugin, runs pytest with
+  `--queryguard-sarif`, uploads the file with `github/codeql-action/upload-sarif`
+  (pinned by commit SHA) and fails the step when pytest fails. Inputs:
+  `pytest-args`, `python-version`, `package`, `baseline`, `fail`,
+  `working-directory`, `sarif-file`, `upload`, `category`. The upload is skipped
+  for pull requests from forks. A CI job runs the action on
+  `examples/action-sample`. See `docs/ci.md`.
+- SARIF output: `--queryguard-sarif=PATH` writes the findings of the run as
+  SARIF 2.1.0 for GitHub code scanning (the `--queryguard-report` flag is
+  unchanged). One rule per finding kind with a fix hint, one result per
+  finding identity with a rootdir-relative location, `partialFingerprints`
+  derived from the identity, and `error` or `warning` level following
+  `queryguard_fail_on`. Ignored and baselined findings are left out. Works with
+  pytest-xdist: workers send their findings to the controller, which writes the
+  file once. See `docs/sarif.md`.
 - Baseline file for existing findings: `queryguard_baseline` (ini) or
   `--queryguard-baseline=PATH`, and `--queryguard-update-baseline` to write it.
   A finding whose identity (kind, label, file and function; rootdir-relative

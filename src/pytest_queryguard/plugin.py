@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 import warnings as std_warnings
 from collections.abc import Generator
 from fnmatch import fnmatchcase
@@ -9,7 +10,7 @@ from typing import Any, cast
 import pytest
 
 from . import baseline as baselines
-from . import catalog, hypopg, indexes
+from . import catalog, hypopg, indexes, sarif
 from .baseline import BaselineError, Identity, sorted_identities
 from .collector import QueryCollector, pop, push
 from .detectors import DEFAULT_COLUMN_LOAD_THRESHOLD, detect
@@ -74,6 +75,7 @@ class _Settings:
         baseline_path: Path | None = None,
         update_baseline: bool = False,
         baseline: frozenset[Identity] | None = None,
+        sarif_path: Path | None = None,
         index_advisor: bool = True,
         hypopg: str = "auto",
     ) -> None:
@@ -91,6 +93,11 @@ class _Settings:
         self.index_advisor = index_advisor
         self.hypopg = hypopg
         self.baseline_path = baseline_path
+        self.sarif_path = sarif_path
+        # findings that count (not ignored, not baselined), for the SARIF file
+        self.reported: sarif.Collected = {}
+        self.sarif_result: str | None = None
+        self.sarif_failed: str | None = None
         self.update_baseline = update_baseline
         # None: no baseline in use (or one that is about to be rewritten, which
         # then starts empty and is compared with what the run finds)
@@ -178,6 +185,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Write the findings of this run to the baseline file instead of "
         "reporting them. Run the whole suite to avoid dropping entries.",
+    )
+    group.addoption(
+        "--queryguard-sarif",
+        dest="queryguard_sarif",
+        default=None,
+        metavar="PATH",
+        help="Write the findings of this run to PATH as SARIF 2.1.0 (GitHub "
+        "code scanning). Findings in the baseline are left out.",
     )
     parser.addini("queryguard_mode", "fail, warn or off", default="fail")
     parser.addini(
@@ -437,6 +452,17 @@ def _baseline_path(config: pytest.Config) -> Path | None:
     return Path(config.rootpath, raw.strip()) if raw.strip() else None
 
 
+def _sarif_path(config: pytest.Config) -> Path | None:
+    raw: str | None = config.getoption("queryguard_sarif")
+    if raw is None:
+        return None
+    if not raw.strip():
+        raise pytest.UsageError("--queryguard-sarif needs a path")
+    path = Path(config.invocation_params.dir, raw.strip())
+    config.option.queryguard_sarif = str(path)  # workers get the resolved path
+    return path
+
+
 def _read_settings(config: pytest.Config) -> _Settings:
     cli_mode = config.getoption("queryguard_mode")
     if cli_mode is not None:
@@ -496,6 +522,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
         baseline_path,
         update,
         baseline,
+        _sarif_path(config),
         _index_advisor(config),
         _hypopg(config),
     )
@@ -660,12 +687,21 @@ def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Findin
 
     Records every finding it gets, for the stale-entry report and for an update.
     """
-    if not settings.baselining:
-        return findings
-    settings.seen.update(f.identity for f in findings)
-    if settings.update_baseline:
-        return []
-    return baselines.split(findings, settings.baseline or frozenset())[0]
+    if settings.baselining:
+        settings.seen.update(f.identity for f in findings)
+        if settings.update_baseline:
+            findings = []
+        else:
+            findings = baselines.split(findings, settings.baseline or frozenset())[0]
+    if settings.sarif_path is not None:
+        for finding in findings:
+            level = (
+                sarif.LEVEL_ERROR
+                if settings.fails(finding.kind)
+                else sarif.LEVEL_WARNING
+            )
+            sarif.add(settings.reported, finding, level)
+    return findings
 
 
 def _drop_ignored(
@@ -712,7 +748,7 @@ def _analyse_indexes(
     try:
         root = item.config.rootpath
         scans = select_findings(collector.scans, (*settings.ignore_tables, *exempt))
-        if (settings.ignore or settings.baselining) and scans:
+        if (settings.ignore or settings.baselining or settings.sarif_path) and scans:
             findings = [make_index_finding(scan, cwd=root) for scan in scans]
             kept, used = apply_rules(findings, settings.ignore)
             settings.ignore_used.update(used)
@@ -913,13 +949,14 @@ def _is_worker(config: pytest.Config) -> bool:
 def pytest_testnodedown(node: Any, error: object) -> None:
     """pytest-xdist, on the controller: collect what a worker found."""
     settings = node.config.stash.get(_settings, None)
-    if settings is None or not settings.baselining:
+    if settings is None or not (settings.baselining or settings.sarif_path):
         return
     output = getattr(node, "workeroutput", None) or {}
     if error is not None or output.get("queryguard_incomplete", True):
         settings.baseline_incomplete = True
     for identity in output.get("queryguard_seen", []):
         settings.seen.add(_identity(identity))
+    sarif.merge_wire(settings.reported, output.get("queryguard_reported", []))
 
 
 def _identity(raw: Any) -> Identity:
@@ -930,7 +967,7 @@ def _identity(raw: Any) -> Identity:
 def pytest_sessionfinish(session: pytest.Session) -> None:
     config = session.config
     settings = config.stash.get(_settings, None)
-    if settings is None or not settings.baselining:
+    if settings is None or not (settings.baselining or settings.sarif_path):
         return
     if _is_worker(config):
         # sent to the controller when the worker finishes
@@ -938,12 +975,36 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         output["queryguard_seen"] = [
             list(identity) for identity in sorted_identities(settings.seen)
         ]
+        output["queryguard_reported"] = sarif.to_wire(settings.reported)
         output["queryguard_incomplete"] = internal_error() is not None
         return
     if internal_error() is not None:
         settings.baseline_incomplete = True
     if settings.update_baseline:
         _update_baseline(session, settings)
+    if settings.sarif_path is not None:
+        _write_sarif(settings)
+
+
+def _write_sarif(settings: _Settings) -> None:
+    path = settings.sarif_path
+    if path is None:
+        return
+    try:
+        version = importlib.metadata.version("pytest-queryguard")
+    except importlib.metadata.PackageNotFoundError:
+        version = "unknown"
+    try:
+        document, omitted = sarif.build(settings.reported, version)
+        sarif.write(path, document)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        settings.sarif_failed = f"could not write {path}: {exc}"
+        return
+    count = len(document["runs"][0]["results"])
+    text = f"{path}: {count} results"
+    if omitted:
+        text += f" ({omitted} left out: no location inside the rootdir)"
+    settings.sarif_result = text
 
 
 def _update_baseline(session: pytest.Session, settings: _Settings) -> None:
@@ -1006,6 +1067,17 @@ def _write_baseline_summary(
             terminalreporter.write_line(line)
 
 
+def _write_sarif_summary(
+    terminalreporter: pytest.TerminalReporter, settings: _Settings
+) -> None:
+    if settings.sarif_failed is not None:
+        terminalreporter.write_sep("=", "queryguard: SARIF", red=True)
+        terminalreporter.write_line(f"queryguard SARIF {settings.sarif_failed}")
+    elif settings.sarif_result is not None:
+        terminalreporter.write_sep("=", "queryguard: SARIF written")
+        terminalreporter.write_line(settings.sarif_result)
+
+
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     config = terminalreporter.config
     settings = config.stash.get(_settings, None)
@@ -1028,6 +1100,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         _write_baseline_summary(terminalreporter, settings)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "baseline summary")
+    try:
+        _write_sarif_summary(terminalreporter, settings)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "SARIF summary")
     _report_internal_error(config)
     try:
         _write_internal_failure(terminalreporter)
