@@ -23,3 +23,4 @@ Direct dependencies of this repository.
 | https://github.com/pypa/hatch | hatchling | MIT | https://github.com/pypa/hatch/blob/master/LICENSE.txt |
 | https://github.com/pytest-dev/pytest-xdist | pytest-xdist | MIT | https://github.com/pytest-dev/pytest-xdist/blob/master/LICENSE |
 | https://github.com/pytest-dev/execnet | execnet | MIT | https://github.com/pytest-dev/execnet/blob/main/LICENSE |
+| https://github.com/HypoPG/hypopg | hypopg (PostgreSQL extension, used optionally at runtime through SQL and installed in the CI image; not a Python dependency) | PostgreSQL | https://github.com/HypoPG/hypopg/blob/REL1_STABLE/LICENSE |

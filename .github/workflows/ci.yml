@@ -105,6 +105,13 @@ jobs:
   # they are not part of the matrix. One more run on 16 uses the oldest
   # supported SQLAlchemy, which the asyncpg path depends on (run_async() on
   # adapted connections).
+  #
+  # The index advisor verifies its suggestions with the hypopg extension. The
+  # official postgres image is Debian-based with the PGDG repository, which has
+  # postgresql-<major>-hypopg for 14 to 18, so the server is that image plus
+  # the package, started with docker run (a service container cannot install
+  # packages). Where the package does not exist the plain image is used, the
+  # extension is not created and the tests that need it are skipped.
   postgres:
     runs-on: ubuntu-latest
     strategy:
@@ -115,21 +122,28 @@ jobs:
         include:
           - postgres: "16"
             sqlalchemy: "2.0"
-    services:
-      postgres:
-        image: postgres:${{ matrix.postgres }}
-        env:
-          POSTGRES_PASSWORD: pg
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       QUERYGUARD_PG_URL: postgresql+pg8000://postgres:pg@localhost:5432/postgres
     steps:
+      - name: Start PostgreSQL ${{ matrix.postgres }} with hypopg
+        env:
+          MAJOR: ${{ matrix.postgres }}
+        run: |
+          image="postgres:${MAJOR}"
+          if printf 'FROM postgres:%s\nRUN apt-get update && apt-get install -y --no-install-recommends postgresql-%s-hypopg && rm -rf /var/lib/apt/lists/*\n' "$MAJOR" "$MAJOR" | docker build -t qg-postgres -; then
+            image=qg-postgres
+          else
+            echo "::warning::no hypopg package for PostgreSQL ${MAJOR}; its tests will be skipped"
+          fi
+          docker run -d --name qg-postgres-server -p 5432:5432 -e POSTGRES_PASSWORD=pg "$image"
+          for _ in $(seq 1 60); do
+            docker exec qg-postgres-server pg_isready -h localhost -U postgres && break
+            sleep 1
+          done
+          docker exec qg-postgres-server pg_isready -h localhost -U postgres
+          # created in the test database, so the whole suite runs the advisor with hypopg
+          docker exec qg-postgres-server psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS hypopg" || true
+          docker exec qg-postgres-server psql -U postgres -Atc "SELECT version(); SELECT coalesce((SELECT extversion FROM pg_extension WHERE extname = 'hypopg'), 'hypopg not installed')"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
