@@ -18,6 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Stability: with `-W error` or `filterwarnings = error`, an internal error
+  no longer fails the user's test. `QueryGuardInternalWarning` was raised as
+  an exception from the test call, from the terminal summary (which aborted
+  it), from a `record_queries()` block and, for the unused eager-load check,
+  from inside SQLAlchemy's `do_orm_execute`. Now it is always shown and
+  recorded, never raised, and an "ignore" filter still hides it (#124).
+- Stability: an error inside the `after_begin` listener no longer reaches the
+  user's `Session.begin()`. Like every other listener, it now stops the
+  measurement with a `QueryGuardInternalWarning` (#123).
+- Stability: a baseline file nested too deep for the JSON parser is a usage
+  error instead of an `INTERNALERROR`, and any error while writing the
+  baseline is reported instead of crashing the end of the session (#125).
+- PostgreSQL index check: an internal error after the check opened its
+  savepoint (or, on an autocommit connection, its own transaction) left that
+  savepoint or transaction open on the user's connection. In autocommit mode
+  the user's later writes were then never committed, and inside a transaction
+  `enable_seqscan` stayed `off`. The check now rolls them back before the
+  error stops the plugin (#126).
+
 - PostgreSQL index check: a finding for an index the plan walks end to end (a
   filter on the trailing column of a composite key, a whole index with a filter,
   a whole-index bitmap) now says `t scans the whole index ix: the ... does not
