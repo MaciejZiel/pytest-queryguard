@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `QueryGuardDeprecationWarning`, a `DeprecationWarning` subclass exported from
+  `pytest_queryguard`, is the class the deprecation policy uses. It is not a
+  `QueryGuardWarning`, so `filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]`
+  (and `ignore::` for findings) neither turns a deprecation into a failure nor
+  hides it. `docs/stability.md` names it in step 1 of the policy. Nothing is
+  deprecated yet.
+
 ### Fixed
 
 - The repeated-statement and small-repeat rules no longer count schema
@@ -16,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version-table check). `max_queries` budgets still count them. See
   `docs/how-detection-works.md` for the exact rule
   ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
+- A lazy load keeps its relationship when another statement runs between the
+  load and its `SELECT`: statements of other `AsyncSession`s running
+  concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
+  or any statement of a `begin` or `after_begin` listener. The attribution is
+  now parked on the `Session` that issued the load instead of on the thread, so
+  these loops are no longer reported a second time as a repeated statement.
+  Fixes #97 and #99.
+
 - The SARIF level of an unused-eager-load finding now follows the test outcome:
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
   Fixes #98.
@@ -58,6 +75,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `docs/stability.md` has an "Experimental" section: the
+  `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
+  and the missing-index check on MySQL and MariaDB are exempt from the
+  deprecation policy and may change or go in a minor release with a changelog
+  entry. The policy had no such tier although the option was labelled
+  experimental.
+
 - `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
   object `record_queries()` yields) instead of the internal `QueryCollector`,
   and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
@@ -80,6 +104,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per statement and a cache for `normalize()`. Behaviour is unchanged. New
   `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
   for file-based SQLite or PostgreSQL).
+
+- `allow_nplusone` with patterns now also applies to missing-index findings.
+  `kind="missing-index"` was accepted but never matched anything and was then
+  reported as a stale ignore; it now works like the same pattern in
+  `queryguard_ignore`. The marker without arguments still leaves the index
+  check alone (`allow_missing_index` skips it).
 
 - The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
   resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
