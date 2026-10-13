@@ -3,12 +3,20 @@ from __future__ import annotations
 import subprocess
 import sys
 import textwrap
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import create_engine, text
 
-from pytest_queryguard import QueryBudgetExceeded, max_queries
+from pytest_queryguard import (
+    NPlusOneDetected,
+    QueryBudgetExceeded,
+    QueryLog,
+    max_db_time,
+    max_queries,
+)
 
 pytestmark = pytest.mark.allow_nplusone
 
@@ -84,10 +92,52 @@ def test_context_manager_counts_only_inside_block() -> None:
     engine = create_engine("sqlite://")
     with engine.connect() as conn:
         conn.execute(text("select 1"))
-        with max_queries(1) as collector:
+        with max_queries(1) as log:
             conn.execute(text("select 2"))
         conn.execute(text("select 3"))
-    assert len(collector.statements) == 1
+    assert log.count == 1
+
+
+@pytest.mark.parametrize(
+    "make_budget", [lambda: max_queries(5), lambda: max_db_time(60)]
+)
+def test_budget_managers_yield_the_public_query_log(
+    make_budget: Callable[[], Any],
+) -> None:
+    engine = create_engine("sqlite://")
+    with engine.connect() as conn, make_budget() as log:
+        conn.execute(text("select 1"))
+        conn.execute(text("select 2"))
+        assert isinstance(log, QueryLog)
+        assert log.count == 2  # live inside the block
+    assert type(log) is QueryLog
+    assert [q.sql for q in log.queries] == ["select 1", "select 2"]
+    assert log.db_time > 0
+    assert len(log.slowest(1)) == 1
+    log.assert_no_nplusone()  # the whole QueryLog API works
+
+
+def test_the_log_of_an_exceeded_budget_is_still_there() -> None:
+    engine = create_engine("sqlite://")
+    holder: list[QueryLog] = []
+    with (
+        pytest.raises(QueryBudgetExceeded),
+        engine.connect() as conn,
+        max_queries(1) as log,
+    ):
+        holder.append(log)
+        conn.execute(text("select 1"))
+        conn.execute(text("select 2"))
+    assert holder[0].count == 2
+
+
+def test_the_yielded_log_checks_for_nplusone() -> None:
+    engine = create_engine("sqlite://")
+    with engine.connect() as conn, max_queries(10) as log:
+        for value in range(3):
+            conn.execute(text("select 1 where :v = :v"), {"v": value})
+    with pytest.raises(NPlusOneDetected):
+        log.assert_no_nplusone(repeat_threshold=3)
 
 
 def test_context_manager_raises_when_exceeded() -> None:
