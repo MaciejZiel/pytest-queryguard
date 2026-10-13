@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The SARIF level of an unused-eager-load finding now follows the test outcome:
+  with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
+  Fixes #98.
+
 - A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
   `text()`) is now classified like the statement after the comment. A loop of
   commented single-row `INSERT`s was reported as a repeated statement with the
