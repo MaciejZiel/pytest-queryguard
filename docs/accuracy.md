@@ -56,15 +56,8 @@ FastAPI 0.141.1, pytest-queryguard 0.4.0rc2 at the head of `main`, with
 `uv run python scripts/accuracy_report.py --compare <python>`. SQLModel was not
 installed (it needs SQLAlchemy below 2.1 and is only installed in the SQLAlchemy
 2.0 CI job), so 141 of the 143 scenarios ran: 67 BUG and 74 CLEAN. All numbers on
-this page are for those 141 and SQLite. The corpus was also run once on
-PostgreSQL 17.11 (docker, pg8000 and asyncpg) to check that the rule for
-pagination and chunks reads those drivers' parameters: every pagination and chunk
-scenario agreed with its verdict there too. That run was before the keyset step
-and the 50-value chunk minimum were added, and before `bug_64` to `bug_68`; it
-was not repeated since. Two other scenarios fail on
-PostgreSQL for an unrelated reason in the corpus seed
-([#120](https://github.com/MaciejZiel/pytest-queryguard/issues/120)), so no
-PostgreSQL numbers are published.
+this page are for those 141 and SQLite. The same corpus on PostgreSQL 17 is in
+[On PostgreSQL](#on-postgresql).
 
 ## Results, default configuration
 
@@ -254,6 +247,47 @@ pytest 9.1.1, the corpus's other dependencies at the versions above) and passed 
   favours it. Each of the other tools has
   options I did not tune (budgets, thresholds, ignore blocks).
 
+## On PostgreSQL
+
+The same 141 scenarios, every configuration, with the database on PostgreSQL
+instead of an SQLite file.
+
+- Method: `QUERYGUARD_CORPUS_PG_URL=postgresql+pg8000://.../qg_corpus uv run
+  python scripts/accuracy_report.py`. Each scenario starts from an empty
+  `public` schema; sync scenarios use pg8000 and async ones asyncpg (the same
+  URL with `+asyncpg`). The index check is off, as in the SQLite run: this
+  page covers the N+1, repeat, column-load, write-loop and unused-eager-load
+  rules. The run uses one database, so it cannot be split over several
+  `pytest-xdist` workers; the regular `tests/corpus` tests also ran there
+  (`pytest -n 0 tests/corpus`: 1096 passed, 34 xfailed as documented limits).
+- Server: one PostgreSQL 17.11 in the official `postgres:17` Docker image on
+  the machine of the SQLite run (Linux 7.0.0, x86_64, 13th Gen Intel Core
+  i5-13500H, 16 threads). Other PostgreSQL versions were not run.
+- Software: Python 3.13.13, SQLAlchemy 2.1.1, pytest 9.1.1,
+  pg8000 1.31.5, asyncpg 0.31.0, Flask-SQLAlchemy 3.1.1, FastAPI 0.141.1,
+  SQLModel not installed (141 of 143 scenarios ran), pytest-queryguard
+  0.4.0rc2 at `main` a694bba plus the corpus changes of this page's pull
+  request, run on 2026-10-13.
+
+**Result: the output of `scripts/accuracy_report.py` on PostgreSQL 17 is
+identical to the output on SQLite** (same commit, Python and packages): the same TP, FP and FN in every table and the same disagreements,
+scenario by scenario. With the default configuration, 59 of 62 BUG scenarios
+that its rules can report are flagged and 1 of 79 CLEAN scenarios are; with
+all opt-in rules, 67 of 67 and 5 of 74. The report took 3 minutes 36 seconds on
+PostgreSQL.
+
+**What the first PostgreSQL run found.** Before the fix, two BUG scenarios
+(`bug_23_get_or_create_loop`, `bug_30_flush_per_insert`) were listed as
+`UNEXPLAINED` without a finding: their first `INSERT` raised `duplicate key
+value violates unique constraint "tag_pkey"`. The seed data inserts explicit
+primary keys; SQLite numbers the next row after the largest one, but a
+PostgreSQL sequence still starts at 1. That was a bug of the corpus
+([#120](https://github.com/MaciejZiel/pytest-queryguard/issues/120)), not of
+the plugin: the scenario never reached its loop. The corpus now moves every
+serial and identity sequence past the seeded rows after a scenario's setup
+(`Ctx.sync_sequences()`). The run showed no difference between PostgreSQL and
+SQLite that comes from the plugin.
+
 ## Known limits
 
 See also [Limitations](limitations.md).
@@ -270,7 +304,7 @@ See also [Limitations](limitations.md).
   lower them report legitimate code too (a cache, two objects after a commit).
 - The write-loop rule cannot tell seeding or per-row inserts with error handling
   from a write loop.
-- The corpus is small, written by one person, and SQLite only; precision and recall
-  from 143 scenarios have wide error bars. PostgreSQL, MySQL and other drivers were
-  not run.
+- The corpus is small and written by one person; precision and recall from 143
+  scenarios have wide error bars. It ran on SQLite and on PostgreSQL 17 (pg8000
+  and asyncpg); other PostgreSQL versions, MySQL and other drivers were not run.
 - The SQLModel scenarios run only where SQLModel is installed.

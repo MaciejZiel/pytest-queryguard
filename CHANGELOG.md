@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `enable_seqscan` stayed `off`. The check now rolls them back before the
   error stops the plugin (#126).
 
+- Tests: the accuracy corpus now runs on PostgreSQL
+  (`QUERYGUARD_CORPUS_PG_URL`). Two scenarios (`bug_23_get_or_create_loop`,
+  `bug_30_flush_per_insert`) failed there because seeded rows with explicit ids
+  did not advance the sequences; the corpus moves them after each setup. The
+  results on PostgreSQL 17 match SQLite; see `docs/accuracy.md`. Fixes #120.
+
 - SARIF: a finding whose call site is unknown (for example `session.execute`
   handed straight to a worker thread) is located at the test instead of being
   left out of the file, so code scanning shows it. The terminal text, the
@@ -70,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now parked on the `Session` that issued the load instead of on the thread, so
   these loops are no longer reported a second time as a repeated statement.
   Fixes #97 and #99.
+
+- The relationship-load finding shows a lazy load as its sample SQL. It used the
+  first statement with the relationship's label, which was the `selectinload`
+  query when that ran first; that query is now used only when no lazy load was
+  recorded ([#131](https://github.com/MaciejZiel/pytest-queryguard/issues/131)).
 
 - The SARIF level of an unused-eager-load finding now follows the test outcome:
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.

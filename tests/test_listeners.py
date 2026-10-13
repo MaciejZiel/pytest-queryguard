@@ -175,7 +175,7 @@ def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
         collector.pop(target)
     assert listeners.internal_error() is None
     assert target.column_loads == []
-    assert listeners._take_pending(object()) == (None, None)
+    assert listeners._take_pending(object()) == (None, None, False)
 
 
 @pytest.mark.filterwarnings(
@@ -238,6 +238,32 @@ def test_is_write_matches_the_plain_definition(statement: str) -> None:
 
     expected = statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
     assert _is_write(statement) is expected
+
+
+def test_sample_sql_of_a_relationship_finding_is_the_lazy_load(
+    session: Session, rec: collector.QueryCollector
+) -> None:
+    from sqlalchemy.orm import selectinload
+
+    from pytest_queryguard.detectors import RelationshipFinding, detect
+
+    # eager: one IN query for the first order, labelled "Order.customer" too
+    session.scalars(
+        select(Order).options(selectinload(Order.customer)).order_by(Order.id).limit(1)
+    ).all()
+    # lazy: one query per customer not loaded yet (the N+1)
+    for order in session.scalars(select(Order).order_by(Order.id).offset(2)).all():
+        _ = order.customer
+    tagged = [s for s in rec.statements if s.relationship == "Order.customer"]
+    assert [s.lazy_load for s in tagged] == [False, True, True]
+    found = [
+        f
+        for f in detect(rec, relationship_threshold=2, repeat_threshold=50)
+        if isinstance(f, RelationshipFinding)
+    ]
+    assert len(found) == 1
+    sample = found[0].sample_sql
+    assert sample is not None and " IN (" not in sample.upper()
 
 
 @pytest.mark.filterwarnings(
