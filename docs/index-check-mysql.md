@@ -5,8 +5,9 @@ also works on MySQL and MariaDB. One switch covers every database; the dialect
 of the connection decides how a statement is checked. PostgreSQL and SQLite
 behave as described on their own pages.
 
-**Status: this check is tested against MySQL 8.4 and MariaDB 11.8 on a
-developer machine, not in CI.** The project's CI runs no MySQL or MariaDB
+**Status: experimental (see [Stability](stability.md#experimental)). This
+check is tested against MySQL 8.4 and MariaDB 11.8 on a developer machine, not
+in CI.** The project's CI runs no MySQL or MariaDB
 server: both servers are GPL-licensed software, and adding one to the CI
 workflow needs a written approval that has not been given. The unit tests on
 recorded `EXPLAIN` output run everywhere; the tests that need a live server
