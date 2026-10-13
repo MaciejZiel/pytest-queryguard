@@ -238,3 +238,43 @@ def test_is_write_matches_the_plain_definition(statement: str) -> None:
 
     expected = statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
     assert _is_write(statement) is expected
+
+
+def test_a_from_statement_column_load_is_recognised_before_sqlalchemy_2_0_30(
+    session: Session, rec: collector.QueryCollector
+) -> None:
+    """Joined-inheritance subclass columns load through ``from_statement()``.
+
+    Before SQLAlchemy 2.0.30 such an execution reports ``is_select`` and
+    ``is_column_load`` as False and ``load_options`` raises; the refresh state
+    is still in the execution options and the compile options.
+    """
+    from types import SimpleNamespace
+
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import InvalidRequestError
+
+    customer = session.scalars(select(Customer)).first()
+    assert customer is not None
+
+    class OldFromStatementState(SimpleNamespace):
+        @property
+        def load_options(self) -> None:
+            raise InvalidRequestError("not against a SELECT statement")
+
+    state = OldFromStatementState(
+        session=session,
+        is_column_load=False,
+        is_select=False,
+        execution_options={
+            "_sa_orm_load_options": SimpleNamespace(_refresh_state=inspect(customer))
+        },
+        statement=SimpleNamespace(
+            _compile_options=SimpleNamespace(
+                _for_refresh_state=True, _only_load_props=frozenset({"name"})
+            )
+        ),
+    )
+    listeners._on_orm_execute(state)  # type: ignore[arg-type]
+    assert listeners.internal_error() is None
+    assert [load.owner for load in rec.column_loads] == ["Customer"]
