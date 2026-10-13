@@ -169,6 +169,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/orders.py:10 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -177,7 +178,7 @@ queryguard: N+1 detected
 
   the same statement ran 50 times
   first at app/customers.py:9 in fetch_customers
-  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+  kind: repeated-statement  label: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 ____________________________ test_rename_customers _____________________________
 queryguard: expected at most 2 queries, got 4
@@ -291,6 +292,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/main.py:37 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

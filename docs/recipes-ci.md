@@ -65,6 +65,7 @@ hostname are replaced):
 
   Order.customer was lazy-loaded 50 times
   first at app/orders.py:10 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))</failure></testcase></testsuite></testsuites>
