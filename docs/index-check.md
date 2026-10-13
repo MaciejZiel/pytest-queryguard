@@ -132,6 +132,14 @@ What is reported:
   case is not checked there. BRIN and GIN indexes serve any of their
   columns and are not judged this way.
 
+The last two cases walk an index that exists, so the finding does not say the
+table is read in full. It reads `rw_link scans the whole index rw_link_pkey:
+the index condition (rw_link.hero_id = $1) does not match the start of any
+index` (or `the filter`), as the SQLite check words it, and the fix is still
+the `CREATE INDEX` for the filtered column. When every finding of a test is of
+this kind, the closing note speaks of a whole-index scan instead of a
+sequential scan.
+
 A table with a partial index is judged with one exception. The check
 plans with a generic plan, where bound values are parameters, so it cannot
 tell whether `... (x) WHERE status = 'open'` serves `status = $1 AND x = $2`
