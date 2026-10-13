@@ -9,13 +9,14 @@ import time
 import traceback
 import weakref
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import ORMExecuteState, Session, strategies
+from sqlalchemy.orm.attributes import instance_state
 from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import Pool
 
@@ -46,6 +47,9 @@ _SCOPE_ATTR = "_queryguard_scope"
 # execution and its SELECT.
 _PENDING_ATTR = "_queryguard_pending"
 _SESSION_ATTR = "_queryguard_session"
+# The objects the latest flush of a Session wrote, for the refresh that a
+# repository runs after each create or update (see _on_after_flush).
+_WRITTEN_ATTR = "_queryguard_written"
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +270,58 @@ def _is_refresh_eager_load() -> bool:
     return False
 
 
+@dataclass(slots=True)
+class _Written:
+    """The objects one flush of a Session inserted or updated."""
+
+    # InstanceState objects: they hold their object by a weak reference only,
+    # so the set keeps no user object alive (and is replaced by the next flush).
+    states: set[Any]
+    # The classes whose refresh after this flush was not counted already.
+    refreshed: set[type] = field(default_factory=set)
+
+
+def _on_after_flush(session: Session, flush_context: Any) -> None:
+    """Remember which objects this flush wrote, for ``_is_refresh_after_write``.
+
+    Only the latest flush counts: a newer one replaces the set.
+    """
+    if _error is not None:
+        return
+    try:
+        if not collector.active():
+            session.__dict__.pop(_WRITTEN_ATTR, None)
+            return
+        # Still the state before the flush here: new and dirty are what it wrote.
+        states = {
+            instance_state(obj) for obj in itertools.chain(session.new, session.dirty)
+        }
+        session.__dict__[_WRITTEN_ATTR] = _Written(states)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "after_flush listener (refresh after write)")
+
+
+def _is_refresh_after_write(session: Any, instance: Any) -> bool:
+    """Whether this refresh reads back an object the latest flush wrote.
+
+    A repository's ``create()`` or ``update()`` flushes one object and
+    refreshes it to read server defaults and onupdate values: a statement the
+    caller asked for, once per write, and not a loop of reads. One refresh per
+    class and flush is let through, so refreshing every object of a bulk
+    ``add_all()`` one by one is still counted, as is a refresh of an object
+    that was only read.
+    """
+    written = session.__dict__.get(_WRITTEN_ATTR)
+    if written is None or instance not in written.states:
+        return False
+    cls = instance.class_
+    if cls in written.refreshed:
+        return False
+    written.refreshed.add(cls)
+    written.states.discard(instance)
+    return True
+
+
 def _has_pending(conn: Any) -> bool:
     try:
         entry = _latest(conn)[1]
@@ -347,6 +403,10 @@ def _record_column_load(
         scope=scope_of_session(state.session),
     )
     _set_pending(state.session, None, column_load=load)
+    if cause == CAUSE_REFRESH and _is_refresh_after_write(state.session, instance):
+        # The statement keeps its column-load label (so it is not a repeated
+        # statement either) but is not counted.
+        return
     for target in targets:
         target.add_column_load(load)
 
@@ -644,6 +704,7 @@ def install() -> None:
     if _leaks_load_options():
         event.listen(Session, "do_orm_execute", _on_orm_execute_heal)
     event.listen(Session, "after_begin", _on_after_begin)
+    event.listen(Session, "after_flush", _on_after_flush)
     event.listen(Engine, "before_cursor_execute", _on_cursor_execute)
     event.listen(Engine, "after_cursor_execute", _on_timing_after)
     _installed = True

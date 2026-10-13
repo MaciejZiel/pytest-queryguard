@@ -143,12 +143,13 @@ def test_two_creates_with_refresh_are_clean(engine: Any) -> None:
     assert _report(log) == ""
 
 
-def test_many_creates_with_refresh_report_no_relationship_load(engine: Any) -> None:
+def test_many_creates_with_refresh_are_clean(engine: Any) -> None:
+    # neither a relationship-load nor (each refresh reads back its own
+    # write) a column-load finding
     with Session(engine) as session, record_queries() as log:
         for i in range(100, 108):
             _create(session, i)
-    assert "lazy-loaded" not in _report(log)
-    assert "selectinload" not in _report(log)
+    assert _report(log) == ""
 
 
 def test_refresh_with_attribute_names_is_clean(engine: Any) -> None:

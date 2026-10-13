@@ -12,10 +12,6 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-KNOWN = {
-    "column-load-2": "two refreshes are the column-load threshold of 2",
-    "all-opt-in": "two refreshes are the column-load threshold of 2",
-}
 
 
 class Base(DeclarativeBase):
