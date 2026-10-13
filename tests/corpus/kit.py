@@ -36,6 +36,26 @@ UNUSED = "unused-eager-load"
 PG_URL_ENV = "QUERYGUARD_CORPUS_PG_URL"
 
 
+_SYNC_SEQUENCES = """
+DO $$
+DECLARE r record;
+BEGIN
+    FOR r IN
+        SELECT d.objid::regclass AS seq, d.refobjid::regclass AS tab, a.attname
+        FROM pg_depend d
+        JOIN pg_class s ON s.oid = d.objid AND s.relkind = 'S'
+        JOIN pg_attribute a ON a.attrelid = d.refobjid AND a.attnum = d.refobjsubid
+        JOIN pg_namespace n ON n.oid = s.relnamespace AND n.nspname = 'public'
+        WHERE d.classid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
+    LOOP
+        EXECUTE format(
+            'SELECT setval(%L, coalesce((SELECT max(%I) FROM %s), 0) + 1, false)',
+            r.seq, r.attname, r.tab);
+    END LOOP;
+END $$
+"""
+
+
 def _fast_sqlite(engine: Engine) -> None:
     """No fsync: the corpus databases are throw-away. Not seen by the plugin,
     which listens to statements SQLAlchemy executes, not to the DBAPI cursor here."""
@@ -90,6 +110,17 @@ class Ctx:
             with self.engine().begin() as conn:
                 conn.execute(text("DROP SCHEMA public CASCADE"))
                 conn.execute(text("CREATE SCHEMA public"))
+
+    def sync_sequences(self) -> None:
+        """Move every serial and identity sequence past the seeded rows.
+
+        The seeds insert explicit primary keys. SQLite then numbers new rows
+        after the largest one, but a PostgreSQL sequence still starts at 1, so
+        the first INSERT of a scenario would fail with a duplicate key.
+        """
+        if self.pg_url:
+            with self.engine().begin() as conn:
+                conn.execute(text(_SYNC_SEQUENCES))
 
     def warm_up(self) -> None:
         """Connect once, so the first connection is not part of the measurement."""
