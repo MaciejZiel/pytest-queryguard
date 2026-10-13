@@ -40,6 +40,21 @@ one-to-one relationship and `selectinload` for a collection. The rule counts
 distinct parent objects, not statements, so it is independent of how
 SQLAlchemy batches the loads.
 
+#### How a lazy load's statement is attributed
+
+SQLAlchemy announces an ORM execution (`do_orm_execute`) before it autoflushes
+and before it takes a connection, so the `SELECT` of a lazy load comes later,
+with other statements possibly in between. The relationship is parked on the
+`Session` that issued the load, not on the thread, and the `SELECT` takes it
+only if it runs on a connection that `Session` opened (`after_begin` links the
+two), is a `SELECT` or `WITH`, and does not run inside the `Session`'s own
+begin step (the engine's `begin` event and `after_begin` listeners, such as
+SQLAlchemy's pysqlite `BEGIN` recipe). Statements of another `Session`
+(asyncio tasks share a thread), autoflush writes and transaction control
+statements therefore neither take the attribution nor clear it. A
+`contextvars` slot would not be enough: the autoflush and the pool checkout
+await inside one task, and a second task's statements run in that gap.
+
 ### repeated-statement
 
 One `SELECT` runs at least `queryguard_repeat_threshold` (default 5) times in

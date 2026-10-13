@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A lazy load keeps its relationship when another statement runs between the
+  load and its `SELECT`: statements of other `AsyncSession`s running
+  concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
+  or any statement of a `begin` or `after_begin` listener. The attribution is
+  now parked on the `Session` that issued the load instead of on the thread, so
+  these loops are no longer reported a second time as a repeated statement.
+  Fixes #97 and #99.
+
 - A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
   `text()`) is now classified like the statement after the comment. A loop of
   commented single-row `INSERT`s was reported as a repeated statement with the
