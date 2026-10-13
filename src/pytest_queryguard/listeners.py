@@ -377,7 +377,7 @@ def _on_timing_after(
         stmt, targets, started = timing
         stmt.duration = now - started
         for target in targets:
-            target.db_time += stmt.duration
+            target.add_db_time(stmt.duration)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "after_cursor_execute listener (statement timing)")
 
