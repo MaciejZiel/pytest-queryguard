@@ -83,9 +83,19 @@ and the location has not been verified here.
   not say what it does with suppressed results, and leaving them out cannot
   produce an alert. A baselined finding that GitHub already knows then closes
   as fixed, and opens again if it leaves the baseline.
-- Findings without a location inside the rootdir (an unknown call site, or a
-  file outside the project). GitHub shows a result only when it has a
-  location. The terminal summary says how many were left out.
+- Findings without a location inside the rootdir (a call site in a file
+  outside the project). GitHub shows a result only when it has a location. The
+  terminal summary says how many were left out.
+
+A finding whose call site is unknown is not left out: its result is located at
+the test (the test's file and the line of its `def`, with the test's name as
+the function), and its message says `reported at the test`. The call site is
+unknown when no application frame is on the stack, for example when
+`session.execute` itself is handed to a worker thread (see
+[Limitations](limitations.md)). Only the SARIF result moves: the terminal text
+still says `<unknown location>`, and the baseline and the ignore rules see the
+finding as before. One result per test then, because the test is part of the
+result's identity.
 
 The file is written at the end of every run, also when no finding was made,
 so an upload step always has something to upload. With pytest-xdist, the

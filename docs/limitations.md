@@ -18,6 +18,17 @@
   is installed non-editable (for example `pip install .` in a Docker CI
   image), its frames are skipped too, and call sites point to the test file
   instead of the application line.
+- A call site is the first stack frame that is not SQLAlchemy, pytest, the
+  standard library or `site-packages`. When a SQLAlchemy callable is handed to
+  a worker thread directly, as in `await asyncio.to_thread(session.execute,
+  stmt)`, `anyio.to_thread.run_sync(session.execute, stmt)` or
+  `loop.run_in_executor(None, session.execute, stmt)`, the worker thread's
+  stack holds only the executor, SQLAlchemy and the driver, so the finding says
+  `first at <unknown location>`. In the SARIF file such a result is located at
+  the test instead of being left out, but the line that issues the statement is
+  not known. To get the call site, wrap the call in a function of your own, so
+  that an application frame runs in the worker thread:
+  `await asyncio.to_thread(lambda: session.execute(stmt))` or a named helper.
 - One measurement is active per process at a time, so tests in one process
   must run sequentially. Under pytest-xdist each worker measures its own
   tests, so detection and budgets work. The report needs a single process,
