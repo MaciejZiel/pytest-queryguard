@@ -37,6 +37,7 @@
   }
  ],
  "catalog": {
+  "roots": [],
   "leading": [
    [
     "public",

@@ -81,6 +81,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/orders.py:11 in customer_names
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -183,6 +184,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/orders.py:11 in customer_names
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = $1::INTEGER
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

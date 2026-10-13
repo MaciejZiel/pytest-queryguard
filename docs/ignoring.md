@@ -17,7 +17,9 @@ still enforced.
 
 To leave out one finding instead of the whole test, give the marker patterns
 (`fnmatch`, case-sensitive) for the finding's label, and optionally `kind`,
-`file` and `function`:
+`file` and `function`. A label written out exactly as the report prints it
+matches too, even when it holds `[` or `]`, which `fnmatch` would read as a
+character class:
 
 ```python
 @pytest.mark.allow_nplusone("Order.customer", function="list_orders")
@@ -42,7 +44,9 @@ queryguard_ignore = [
 ]
 ```
 
-The kinds are `relationship-load` (the label is the relationship, as in
+Every finding in the report has a line such as
+`kind: relationship-load  label: Order.customer`; write the kind, a space and
+the label as the pattern. The kinds are `relationship-load` (the label is the relationship, as in
 `Order.customer`), `repeated-statement` (the normalized statement),
 `column-load` (the class and its deferred columns, as in `Book.summary`, or
 the class and the cause for expired attributes, as in `Book (expired)`),

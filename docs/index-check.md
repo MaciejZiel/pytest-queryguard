@@ -59,6 +59,7 @@ queryguard: missing index
 
   orders is read in full: Seq Scan with filter (orders.customer_id = $1)
   first at app/orders.py:11 in orders_of
+  kind: missing-index  label: orders
   sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = %s::INTEGER
   fix: CREATE INDEX ON orders (customer_id)
   alembic: op.create_index("ix_orders_customer_id", "orders", ["customer_id"])
@@ -100,6 +101,7 @@ queryguard: missing index
 
   orders is read in full: Seq Scan with filter (orders.customer_id = $1)
   first at app/orders.py:11 in orders_of
+  kind: missing-index  label: orders
   sql: SELECT orders.id, orders.customer_id FROM orders WHERE orders.customer_id = $1::INTEGER
   fix: CREATE INDEX ON orders (customer_id)
   alembic: op.create_index("ix_orders_customer_id", "orders", ["customer_id"])
@@ -151,6 +153,35 @@ summary counts those statements:
 A predicate that the
 statement fixes with a literal (`deleted_at IS NULL`) is decided by the
 generic plan and is judged as before.
+
+A partitioned table is reported once, under its own name, although the plan
+reads its partitions: `CREATE INDEX ON events (kind)` creates the index on
+every partition, also on those attached later, while an index on one
+partition leaves the others without it. The condition keeps the alias the
+plan gives the partition (`events_1.kind = $1`). A statement that names a
+partition itself (`SELECT * FROM events_2025 WHERE ...`) is reported under the
+partitioned table too, with the partition as the alias in the condition
+(`events_2025.kind = $1`). Partitions at every level of a multi-level
+partitioned table, and the default partition, are reported under the table at
+the top. `queryguard_index_ignore_tables` matches the partitioned table's name.
+PostgreSQL cannot run `CREATE INDEX CONCURRENTLY` on a partitioned table; on a
+large production table, create the index `ON ONLY` the partitioned table,
+create it `CONCURRENTLY` on each partition and attach those with
+`ALTER INDEX ... ATTACH PARTITION`.
+
+This changed in the release after 0.4.0rc2: earlier versions reported each
+partition under its own name. An entry that names a partition stops matching,
+and the finding appears under the partitioned table: in
+`queryguard_index_ignore_tables`, in `allow_missing_index`, in an
+`allow_nplusone` or `queryguard_ignore` pattern with the `missing-index` kind,
+and in a baseline file. Replace the partition's name with the partitioned
+table's, for example `allow_missing_index("events_2025", "events_2026")` with
+`allow_missing_index("events")`, and record the baseline again with
+`--queryguard-update-baseline` (see [Baseline](baseline.md)). A partition that
+the plan reads for another condition is still its own finding, named after
+the partitioned table. Table inheritance (`INHERITS`) is
+different: an index on the parent does not cover its children, so the parent
+and each child read in full are separate findings.
 
 Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
 `SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
@@ -257,6 +288,7 @@ which SQLite had to build an automatic index:
 ```
   orders is read in full: SCAN with filter orders.customer_id = ?
   first at app/orders.py:11 in orders_of
+  kind: missing-index  label: orders
   fix: CREATE INDEX ix_orders_customer_id ON orders (customer_id)
 ```
 

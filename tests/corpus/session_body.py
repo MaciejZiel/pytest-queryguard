@@ -25,6 +25,7 @@ def prepared(request, tmp_path):
     ctx = kit.Ctx(tmp_path)
     ctx.reset()
     module.setup(ctx)
+    ctx.sync_sequences()
     ctx.warm_up()
     yield module, ctx
     ctx.dispose()

@@ -86,6 +86,7 @@
   }
  ],
  "catalog": {
+  "roots": [],
   "leading": [],
   "varchar": [],
   "partial": [],

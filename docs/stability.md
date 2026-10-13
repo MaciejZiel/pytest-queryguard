@@ -116,6 +116,38 @@ Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini option and its
 default, so a change to it is deliberate and visible in review.
 
+## Failing open
+
+A bug inside pytest-queryguard must never change the outcome of a test
+whose result the plugin does not decide, error a test, or end the session
+with an `INTERNALERROR`:
+
+- An exception (any `Exception`, including `MemoryError` and
+  `RecursionError`) in a listener, a detector, a report writer, the index
+  check or a pytest hook stops the measurement for the rest of the session.
+  It is reported once: one `QueryGuardInternalWarning` in the warnings
+  summary and a "queryguard: measurement stopped" section that names the
+  step and the line that raised. Errors while writing the baseline or SARIF
+  file are reported in their own section instead. A warnings "error" filter
+  does not turn the warning into a failure. Tests that the plugin would have
+  failed (N+1, missing index, budgets) may pass after that point.
+- The unused eager-load check turns only itself off, with its own warning.
+- `KeyboardInterrupt`, `SystemExit` and `asyncio.CancelledError` are signals,
+  not plugin bugs: they are never swallowed. The plugin still takes its
+  collector off the stack, and an interrupted run does not rewrite the
+  baseline.
+- With pytest-xdist, an error while a worker hands its findings to the
+  controller marks the run as incomplete: the baseline is not rewritten and
+  the SARIF summary says that findings may be missing.
+- With pytest-xdist, each worker stops and reports on its own. An error in
+  a worker reaches the controller as its `QueryGuardInternalWarning` (pytest
+  lists the same message once, under every test that raised it) and marks
+  the run as incomplete; the "queryguard: measurement stopped" section is
+  written only for an error in the controller process.
+
+`tests/test_fault_injection.py` makes each of these steps raise in turn and
+checks the outcome of every test of a small suite.
+
 ## How this is enforced
 
 - `tests/test_public_api.py` snapshots `__all__`, signatures, dataclass
