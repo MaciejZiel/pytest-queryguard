@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `session.refresh()` of an object whose collection is mapped `lazy="selectin"`
+  or `lazy="subquery"` (also reached through a `lazy="joined"` relationship)
+  was reported as a relationship-load N+1 with a `selectinload` hint for the
+  strategy that is already mapped; two creates followed by a refresh each were
+  enough to fail a test, on sync and async sessions. The loads SQLAlchemy runs
+  for a refresh or an expired reload are no longer counted as lazy loads. A
+  `lazy="select"` collection read per parent and an `immediateload()` option
+  are reported as before.
+- The refresh a repository runs after each create or update (advanced-alchemy's
+  `auto_refresh`) was a column-load finding as soon as a test created five
+  rows. A `session.refresh()` of an object that the latest flush of its
+  Session inserted or changed is no longer counted (one object per class and
+  flush); a write loop itself stays the opt-in write-loop rule's finding. A
+  loop of refreshes of objects that were only read or flushed without a net
+  change, a refresh of every row of one bulk insert and a second refresh of
+  the same write are reported as before.
+  On litestar-fullstack this removes the column-load finding of two tests that
+  create ten tokens each; their repeated-statement findings remain.
+- `session.refresh(obj, ["name"])` in a loop was labelled as an expired load
+  with an `expire_on_commit=False` hint; it is now a refresh (`Book (refresh)`)
+  with the refresh hint.
 - In `warn` mode, a finding turned into an error by `filterwarnings`
   (`error::pytest_queryguard.QueryGuardWarning` or a blanket `error`) no longer
   prints about 50 lines of the plugin's hook wrapper source before the finding;
@@ -41,7 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `actions/checkout@v7` and `actions/setup-python@v7` (Node 24) and run
   on `push` to `main` plus `pull_request`, so a pull request does not run
   twice.
-
 - A table name in a missing-index finding is now matched the same way in
   `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
   and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`
@@ -59,7 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before.
 - `docs/sarif.md` and `docs/baseline.md` listed five finding kinds; the SARIF
   file lists six rules, `unused-eager-load` included.
-
 - The budget failure says `expected at most 1 query` (it said `1 queries`);
   other limits are unchanged.
 - Documentation found in a walk of the 0.4.0rc3 docs, each snippet run in a
