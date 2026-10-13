@@ -154,9 +154,17 @@ generic plan and is judged as before.
 
 Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
 `SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
-reads the whole table anyway; scans of PostgreSQL's own catalogs. Whether a
-join reads its unindexed side in full depends on table statistics, so join
-conditions on their own are never reported.
+reads the whole table anyway; a sequential scan whose filter is only
+not-equal comparisons against parameters or other columns (`<> $1`,
+`NOT IN ($1, $2)`), because no index serves them, whether the column is
+indexed or not; scans of PostgreSQL's own catalogs. One more condition an
+index could serve, as in `a = $1 AND b <> $2`, makes the scan reportable
+again. A not-equal against a constant written into the SQL, such as
+`status <> 'done'`, stays reported: a partial index such as
+`CREATE INDEX ON orders (id) WHERE status <> 'done'` serves it, and pays off
+when the excluded value is the common one. Whether a join reads
+its unindexed side in full depends on table statistics, so join conditions on
+their own are never reported.
 
 The `fix:` line names a column only when the condition compares one plain
 column with `=`, `<`, `<=`, `>` or `>=`. PostgreSQL prints a `::text` cast

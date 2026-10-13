@@ -254,7 +254,7 @@ def _issue(
     if node_type == "Seq Scan":
         # Rule 1: the table is read in full to apply its filter.
         condition = _text(node, "Filter")
-        if condition is None:
+        if condition is None or _only_not_equal(condition):
             return None
         return _make(rel, "Seq Scan", "filter", condition, ctx, node, above)
     if node_type == "Bitmap Heap Scan":
@@ -318,6 +318,60 @@ def _issue(
         above,
         walked=f"index {index}" if index else None,
     )
+
+
+_CONSTANT = re.compile(r"'.*'|[-+]?\d+(\.\d+)?|true|false", re.IGNORECASE | re.DOTALL)
+
+
+def _constant(expr: predicates.Expr) -> bool:
+    """A value written into the SQL: a literal, a cast of one, an array of them."""
+    if isinstance(expr, predicates.Lit):
+        return _CONSTANT.fullmatch(expr.text) is not None
+    if isinstance(expr, predicates.Cast):
+        return _constant(expr.operand)
+    if isinstance(expr, predicates.Call) and expr.name.lower() in (
+        "array",
+        "any",
+        "all",
+    ):
+        return bool(expr.args) and all(_constant(arg) for arg in expr.args)
+    return False
+
+
+def _not_equal(expr: predicates.Expr) -> bool:
+    """``<>``, ``<> ALL (...)`` or ``NOT (x = ANY (...))`` against a parameter.
+
+    No btree index serves it. Against a constant written into the SQL
+    (``status <> 'done'``) a partial index ``WHERE status <> 'done'`` does,
+    and is worth it when the excluded value is the common one, so that stays
+    reportable.
+    """
+    if isinstance(expr, predicates.Not):
+        expr = expr.operand
+        if not (isinstance(expr, predicates.Op) and expr.op == "="):
+            return False
+    elif not (isinstance(expr, predicates.Op) and expr.op in ("<>", "!=")):
+        return False
+    return not (_constant(expr.left) or _constant(expr.right))
+
+
+def _only_not_equal(condition: str) -> bool:
+    """True when every condition ANDed together is a not-equal comparison.
+
+    A sequential scan is what the planner must do then, indexed column or not,
+    so there is no index to add (see ``_not_equal`` for constants). One condition an index could serve (``a = $1
+    AND b <> $2``) makes the scan reportable as before; text the parser does
+    not know is reportable too.
+    """
+    tree = predicates.parse(condition)
+    if tree is None:
+        return False
+    items = (
+        tree.items
+        if isinstance(tree, predicates.Bool) and tree.op == "AND"
+        else (tree,)
+    )
+    return all(_not_equal(item) for item in items)
 
 
 def _make(

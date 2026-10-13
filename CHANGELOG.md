@@ -118,6 +118,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version-table check). `max_queries` budgets still count them. See
   `docs/how-detection-works.md` for the exact rule
   ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
+- PostgreSQL index check: a sequential scan whose filter is only not-equal
+  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
+  longer reported as a missing index. No index serves them, so the advice
+  could not be followed, even on an indexed column; the SQLite check never
+  reported them. A filter with one more servable condition, or a not-equal
+  against a constant in the SQL (which a partial index serves), is still
+  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 
 ### Changed
 
