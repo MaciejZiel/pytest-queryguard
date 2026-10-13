@@ -1,0 +1,52 @@
+{
+ "query": "SELECT * FROM billing.invoices WHERE customer_id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "invoices",
+    "Schema": "billing",
+    "Alias": "invoices",
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 10000000004.5,
+    "Plan Rows": 4,
+    "Plan Width": 13,
+    "Output": [
+     "id",
+     "customer_id",
+     "amount"
+    ],
+    "Filter": "(invoices.customer_id = $1)"
+   },
+   "JIT": {
+    "Functions": 2,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "billing",
+    "invoices",
+    "invoices_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
+}

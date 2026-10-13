@@ -1,0 +1,57 @@
+{
+ "query": "SELECT * FROM \"Sales\".\"Order Lines\" WHERE \"orderId\" = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "Order Lines",
+    "Schema": "Sales",
+    "Alias": "Order Lines",
+    "Startup Cost": 0.0,
+    "Total Cost": 2.25,
+    "Plan Rows": 3,
+    "Plan Width": 12,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "\"orderId\"",
+     "\"Qty\""
+    ],
+    "Filter": "(\"Order Lines\".\"orderId\" = $1)"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "Sales",
+    "Order Lines",
+    "Order Lines_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "Sales",
+   "table": "Order Lines",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "\"orderId\"",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON \"Sales\".\"Order Lines\" (\"orderId\")",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
