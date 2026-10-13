@@ -11,7 +11,6 @@ import re
 import weakref
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from fnmatch import fnmatchcase
 from typing import Any
 
 from . import advisor, hypopg, partial, predicates
@@ -21,6 +20,7 @@ from .collector import QueryCollector
 from .detectors import collapse_lists
 from .events import Advice, Catalog, ScanEvent, ScanIssue, Verification
 from .sqltext import QUOTED, skip_prefix
+from .tablenames import table_matches
 
 MIN_SERVER_VERSION = 16
 # The newest PostgreSQL release the check is tested on (CI and the plan
@@ -663,10 +663,7 @@ def table_label(issue: ScanIssue) -> str:
 
 
 def is_ignored(issue: ScanIssue, patterns: Iterable[str]) -> bool:
-    names = [issue.table]
-    if issue.schema is not None:
-        names.append(f"{issue.schema}.{issue.table}")
-    return any(fnmatchcase(name, p) for p in patterns for name in names)
+    return any(table_matches(p, issue.schema, issue.table) for p in patterns)
 
 
 def select_findings(
