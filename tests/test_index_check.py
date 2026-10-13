@@ -563,8 +563,8 @@ def test_pg_primary_key_order_scan_is_reported(
     result.stdout.fnmatch_lines(
         [
             (
-                "  orders is read in full: Index Scan using orders_pkey with filter "
-                "(orders.customer_id = $1)"
+                "  orders scans the whole index orders_pkey: the filter "
+                "(orders.customer_id = $1) does not match the start of any index"
             ),
         ]
     )
@@ -857,8 +857,8 @@ def test_pg_equality_behind_order_by_limit_is_reported(
     result.assert_outcomes(failed=2)
     lines = [
         (
-            "  items is read in full: Index Scan using items_pkey with filter "
-            "(items.owner_id = $1)"
+            "  items scans the whole index items_pkey: the filter "
+            "(items.owner_id = $1) does not match the start of any index"
         ),
         "*",
         "*",
@@ -886,8 +886,8 @@ def test_pg_trailing_column_of_a_multicolumn_index_is_reported(
     result.stdout.fnmatch_lines(
         [
             (
-                "  items is read in full: *Index Scan using items_tenant_status "
-                "with index condition (items.status = $1)"
+                "  items scans the whole index items_tenant_status: the index "
+                "condition (items.status = $1) does not match the start of any index"
             ),
             "*",
             "*",
@@ -1131,7 +1131,7 @@ def test_pg_temporary_table_reports_the_trailing_column(
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "  pg_temp.tmp_items is read in full: *Index Scan using *",
+            "  pg_temp.tmp_items scans the whole index *",
             "*",
             "*",
             "  fix: CREATE INDEX ON pg_temp.tmp_items (status)",
@@ -1245,13 +1245,13 @@ def test_pg_whole_include_index_is_reported_with_and_without_statistics(
         [
             "*test_note?no-stats?*",
             (
-                "  notes is read in full: Bitmap Heap Scan using notes_inc with filter "
-                "(notes.note = $1)"
+                "  notes scans the whole index notes_inc: the filter "
+                "(notes.note = $1) does not match the start of any index"
             ),
             "*test_note?analyzed?*",
             (
-                "  notes is read in full: Index Only Scan using notes_inc with filter "
-                "(notes.note = $1)"
+                "  notes scans the whole index notes_inc: the filter "
+                "(notes.note = $1) does not match the start of any index"
             ),
         ]
     )
@@ -1311,16 +1311,16 @@ def test_pg_whole_partial_index_is_reported_with_and_without_statistics(
         [
             "*test_live_user?no-stats?*",
             (
-                "  users is read in full: Bitmap Heap Scan using users_live "
-                "with filter (users.email = $1)"
+                "  users scans the whole index users_live: the filter "
+                "(users.email = $1) does not match the start of any index"
             ),
             "*",
             "*",
             "  fix: CREATE INDEX ON users (email)",
             "*test_live_user?analyzed?*",
             (
-                "  users is read in full: Index Scan using users_live "
-                "with filter (users.email = $1)"
+                "  users scans the whole index users_live: the filter "
+                "(users.email = $1) does not match the start of any index"
             ),
             "*",
             "*",
@@ -1471,19 +1471,19 @@ def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
         [
             "*_ test_redefined_in_a_fixture _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
             "*_ test_redefinition_rolled_back _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
             f"  first at test_a.py:{_line(path)} in test_redefinition_rolled_back",
             "*_ test_same_statement_after_rollback _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
         ]
     )
