@@ -70,7 +70,7 @@ to run; the statements and their lines do not.
   should have to decide that on purpose.
 - Budgets count every statement, writes included, and they fail in every
   `queryguard_mode`. Fixtures are not counted, so seed data costs nothing.
-- Use `with max_queries(n):` around the one call when a test does more than
+- Use `with max_queries(limit):` around the one call when a test does more than
   call the endpoint. Only the block counts.
 
 ## Time budgets

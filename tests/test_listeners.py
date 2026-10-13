@@ -102,7 +102,7 @@ def test_stale_pending_tag_does_not_cross_measurements(
 ) -> None:
     first = collector.QueryCollector()
     collector.push(first)
-    listeners._set_pending("Order.customer")
+    listeners._set_pending(session, "Order.customer")
     collector.pop(first)
 
     second = collector.QueryCollector()
@@ -164,6 +164,7 @@ def test_listener_error_is_swallowed_and_disables(
 def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
     class State:
         is_column_load = True
+        session = object()
         load_options = object()  # no _refresh_state: an unknown SQLAlchemy shape
 
     target = collector.QueryCollector()
@@ -174,7 +175,7 @@ def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
         collector.pop(target)
     assert listeners.internal_error() is None
     assert target.column_loads == []
-    assert listeners._take_pending() == (None, None)
+    assert listeners._take_pending(object()) == (None, None)
 
 
 @pytest.mark.filterwarnings(
