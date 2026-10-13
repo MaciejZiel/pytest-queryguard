@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GitHub Action: the `package` input now defaults to the plugin in the action's
+  own checkout instead of the name `pytest-queryguard`, so the installed plugin
+  matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
+  stable 0.3.0 while 0.4 was a release candidate)
+  ([#106](https://github.com/MaciejZiel/pytest-queryguard/issues/106)).
+
 - The index check notice for a database it cannot check (SQL Server, Oracle)
   said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
   supported. It now lists every supported database, and the help texts of
@@ -64,6 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
 
+- `--queryguard-update-baseline` writes a usable baseline when a test lives in
+  a directory whose name is not valid UTF-8: such characters are written as
+  `\udcXX` escapes (other text stays readable), so the entry matches on the
+  next run instead of the write failing. Fixes #89.
+
 - PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
   longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
   wrong even for a primary key
@@ -88,6 +99,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments at plan time, so the index check and the advisor can call such a
   function again and its non-transactional side effects (for example
   `nextval()`) are not rolled back with the savepoint. Fixes #92.
+- The repeated-statement and small-repeat rules no longer count schema
+  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
+  their temp variants, and reads of `pg_catalog` or `information_schema`
+  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
+  version-table check). `max_queries` budgets still count them. See
+  `docs/how-detection-works.md` for the exact rule
+  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
 - PostgreSQL index check: a sequential scan whose filter is only not-equal
   comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
   longer reported as a missing index. No index serves them, so the advice
@@ -97,6 +115,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 
 ### Changed
+
+- The repeated-statement rules no longer report pagination and chunked `IN`
+  loads when the bound parameters show them: only the `OFFSET` or an integer
+  keyset bound changes, in one direction, by at least a page of more than one
+  row (the walk may be repeated once); or one `IN` list of at least 50 values
+  changes, the lists share no value and all but one have the same length.
+  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
+  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
+  loop and identical repeats are still reported. Closes #60.
+  The accuracy corpus has five more CLEAN scenarios for these shapes and five
+  more BUG scenarios that imitate them; on its 141 scenarios the default
+  repeated-statement precision goes from 80% to 97% (90% to 97% without the
+  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
+  configuration, and the release gate's minimum precision for the kind is now
+  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
 
 - `docs/stability.md` has an "Experimental" section: the
   `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
@@ -146,6 +179,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimums, the documentation examples, clean installs, the upgrade from the
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
+
+- The classes and functions in `pytest_queryguard.__all__` now report
+  `pytest_queryguard` as their `__module__`. Tracebacks and logs show
+  `pytest_queryguard.NPlusOneDetected` instead of
+  `pytest_queryguard.api.NPlusOneDetected`, so the printed name matches the
+  documented import path and the submodules can move without changing it. A
+  `filterwarnings` entry that names the submodule
+  (`error::pytest_queryguard.warnings.QueryGuardWarning`) keeps working.
 
 - The keyword of the `max_queries` marker is now `limit`, as in the
   `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The

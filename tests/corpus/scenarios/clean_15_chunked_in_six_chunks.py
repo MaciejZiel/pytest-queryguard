@@ -1,8 +1,8 @@
 """CLEAN: loading 3000 products in ``IN`` chunks of 500, six statements.
 
-The batching is the fix for N+1, but the six statements have one shape (the
-``IN`` list is collapsed), so the repeat rule at its default threshold of 5
-reports them.
+The batching is the fix for N+1. The six statements have one shape (the ``IN``
+list is collapsed), but their lists have the same size and share no value: the
+repeat rule recognises the slices of one list and does not report them.
 """
 
 from sqlalchemy import select
@@ -13,9 +13,6 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-KNOWN = {
-    "*": "chunked IN statements share one shape; raise queryguard_repeat_threshold or mark the test allow_nplusone",
-}
 CHUNK = 500
 
 
