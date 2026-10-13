@@ -20,9 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The refresh a repository runs after each create or update (advanced-alchemy's
   `auto_refresh`) was a column-load finding as soon as a test created five
   rows. A `session.refresh()` of an object that the latest flush of its
-  Session wrote is no longer counted (one object per class and flush). A loop
-  of refreshes of objects that were only read, a refresh of every row of one
-  bulk insert and a second refresh of the same write are reported as before.
+  Session inserted or changed is no longer counted (one object per class and
+  flush); a write loop itself stays the opt-in write-loop rule's finding. A
+  loop of refreshes of objects that were only read or flushed without a net
+  change, a refresh of every row of one bulk insert and a second refresh of
+  the same write are reported as before.
   On litestar-fullstack this removes the column-load finding of two tests that
   create ten tokens each; their repeated-statement findings remain.
 - `session.refresh(obj, ["name"])` in a loop was labelled as an expired load

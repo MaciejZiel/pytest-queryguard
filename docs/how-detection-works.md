@@ -49,8 +49,12 @@ object through its immediate loader, with the parent attached, which is also
 how a lazy load looks. The plugin tells the two apart: while the loader runs
 for a refresh (the outer load has a refresh state), the statement keeps the
 relationship label but is not counted as a lazy load, because
-`selectinload` is already the mapped strategy. An `immediateload()` option on a
-plain query, and every `lazy="select"` access, are still lazy loads.
+`selectinload` is already the mapped strategy. Only the loader's own query is
+exempt: its parent must be the refreshed object and its relationship the one
+the loader loads. An `immediateload()` option on a plain query, every
+`lazy="select"` access, and a lazy load that user code runs while the loader
+builds the children (a `@reconstructor` or a `load` event reading a
+`lazy="select"` relationship) are still lazy loads.
 
 A loop of refreshes is its own finding, a column-load (see below), not a
 relationship-load: `for obj in objs: session.refresh(obj)` is reported once the
@@ -205,15 +209,21 @@ server defaults and `onupdate` values (advanced-alchemy's `auto_refresh`, on
 by default, does it after each `add()` and `update()`). Each of those
 refreshes is asked for once per write, so a test that creates ten rows through
 such a repository is not a loop of reads. A `session.refresh()` of an object
-that the latest flush of its Session inserted or updated is therefore not
-counted, for one object per class and flush; its statement still carries the
-column-load label, so it is not a repeated statement either. Still counted:
+that the latest flush of its Session inserted, or changed (a column or a
+collection, after a net change), is therefore not counted, for one object per
+class and flush; its statement still carries the column-load label, so it is
+not a repeated statement either. A loop that writes one object, flushes and
+refreshes it in each iteration is therefore not a column-load finding; its
+INSERT or UPDATE statements are what the opt-in [write-loop](#write-loop)
+rule reports. Still counted:
 
 - a refresh of an object that was only read (`for obj in query: session.refresh(obj)`);
 - refreshing every row of one bulk insert (`add_all()`, one flush, a refresh
   per row): the first refresh is let through, the others count;
 - a second refresh of the same write, and a refresh of an object an older
   flush wrote;
+- a refresh of an object that was in `session.dirty` but had no net change
+  (an attribute set to its own value), since the flush wrote nothing for it;
 - attributes reloaded after `commit()` or `expire()` without a refresh (the
   `expired` cause).
 
