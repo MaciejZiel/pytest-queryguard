@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   advice to fetch the rows in one query, and the write-loop rule never saw it.
   Fixes #96.
 
+- The MySQL and MariaDB index check no longer fails on a literal `%` in a
+  statement that was run with the `no_parameters` execution option: the
+  `EXPLAIN` was formatted by PyMySQL (`query % args`) although the statement
+  itself was not, so it was reported as "could not be explained" (a literal
+  `%%` was sent as `%`). Fixes #116.
+
 - `--queryguard-update-baseline` no longer rewrites the baseline, and
   `--queryguard-sarif` no longer writes the file, after an interrupted run (a
   collection error, Ctrl-C, a usage error or an internal pytest error). The
