@@ -61,6 +61,10 @@ queryguard_mode = "warn"
 filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]
 ```
 
+A blanket `filterwarnings = error` has the same effect: in `warn` mode it makes
+every finding fail its test, like `fail` mode. The failure shows the finding
+without the plugin's own source.
+
 An "error" filter never applies to `QueryGuardInternalWarning`: a bug in the
 plugin must not fail a test, so with `-W error` or `filterwarnings = error`
 that warning is still shown in the warnings summary, not raised. An "ignore"
