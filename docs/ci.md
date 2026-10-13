@@ -9,7 +9,10 @@ this repository or upload the [SARIF file](sarif.md) yourself.
 
 ```yaml
 name: Tests
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -21,16 +24,27 @@ jobs:
       contents: read
       security-events: write   # needed to upload to code scanning
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install -e ".[test]"        # your project and its test dependencies
       - uses: MaciejZiel/pytest-queryguard/action@COMMIT_SHA   # pin a release tag or a commit SHA
         with:
           pytest-args: -x tests/
-          baseline: queryguard-baseline.json
+          # baseline: queryguard-baseline.json   # add once the file exists, see below
 ```
+
+The `push` trigger is limited to `main` so that a pull request does not run
+the workflow twice, once for the push and once for the pull request.
+
+The example has no `baseline` input on purpose. A `baseline` path that does
+not exist makes pytest stop with `baseline file ... does not exist; create it
+with --queryguard-update-baseline`, and the action never creates the file. To
+use a baseline, create it locally with
+`pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline`
+(see [baseline.md](baseline.md)), commit it, and then uncomment the
+`baseline` line.
 
 You do not need to set `package`. Left empty, the action installs the plugin
 from its own checkout, so the plugin version is the one that ref ships: pin the

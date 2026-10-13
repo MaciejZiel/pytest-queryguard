@@ -122,6 +122,8 @@ class _Settings:
         self.deselected = False
         # the run is incomplete: a worker crashed or stopped measuring
         self.baseline_incomplete = False
+        # a collection error was reported (by this process or an xdist worker)
+        self.collection_failed = False
         self.baseline_previous_error: str | None = None
         self.baseline_written: str | None = None
         self.baseline_failed: str | None = None
@@ -624,6 +626,10 @@ def _configure(config: pytest.Config) -> None:
     catalog.reset()
     settings = _read_settings(config)
     config.stash[_settings] = settings
+    if settings.baselining or settings.sarif_path:
+        config.pluginmanager.register(
+            _CollectionErrors(settings), "queryguard-collection-errors"
+        )
     if config.getoption("queryguard_report"):
         config.stash[_report] = []
     if settings.mode != "off":
@@ -633,6 +639,17 @@ def _configure(config: pytest.Config) -> None:
         if settings.unused_eager != "off":
             config.stash[_eager_enabled] = True  # set first: undone even if it fails
             eager.enable()
+
+
+class _CollectionErrors:
+    """Notes a collection error, also one that a pytest-xdist worker reports."""
+
+    def __init__(self, settings: _Settings) -> None:
+        self._settings = settings
+
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        if report.failed:
+            self._settings.collection_failed = True
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
@@ -1262,7 +1279,9 @@ def pytest_sessionfinish(
     try:
         if internal_error() is not None:
             settings.baseline_incomplete = True
-        interrupted = exitstatus in _ABNORMAL_EXIT
+        interrupted = exitstatus in _ABNORMAL_EXIT and not _xdist_maxfail_stop(
+            session, settings, exitstatus
+        )
         if settings.update_baseline:
             _update_baseline(session, settings, interrupted)
         if settings.sarif_path is not None:
@@ -1277,6 +1296,23 @@ def pytest_sessionfinish(
                 _write_sarif(settings)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "writing the baseline or SARIF file")
+
+
+def _xdist_maxfail_stop(
+    session: pytest.Session, settings: _Settings, exitstatus: int | pytest.ExitCode
+) -> bool:
+    """A pytest-xdist run that -x or --maxfail stopped, not a real interruption.
+
+    pytest-xdist ends such a run with the "interrupted" exit status where a
+    serial run ends with "tests failed"; it is then treated as the serial run.
+    A collection error under -x sets the same flags and stays an interruption.
+    """
+    return (
+        exitstatus == pytest.ExitCode.INTERRUPTED
+        and bool(session.shouldstop or session.shouldfail)
+        and not settings.collection_failed
+        and session.config.pluginmanager.has_plugin("dsession")
+    )
 
 
 def _write_sarif(settings: _Settings) -> None:

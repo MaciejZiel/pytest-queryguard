@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Under pytest-xdist, a run stopped by `-x` or `--maxfail` is handled as in a
+  serial run instead of as an interrupted one: the baseline is not updated
+  because the run stopped early (it no longer blames a collection error,
+  Ctrl-C or an internal error), and the `--queryguard-sarif` file is written.
+  A collection error under `-x`, serial or with pytest-xdist, is still
+  reported as an interrupted run. Closes #187.
+- The GitHub Action example in `docs/ci.md` no longer fails on a first run:
+  the `baseline` input is commented out until the file exists. The examples
+  use `actions/checkout@v7` and `actions/setup-python@v7` (Node 24) and run
+  on `push` to `main` plus `pull_request`, so a pull request does not run
+  twice.
+
 - A table name in a missing-index finding is now matched the same way in
   `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
   and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`
