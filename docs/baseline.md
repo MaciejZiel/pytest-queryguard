@@ -97,8 +97,9 @@ off, or after an internal error or a crashed worker.
 A missing file, invalid JSON, an unknown `version` or an entry with the wrong
 shape stops pytest with a usage error that names the file and the problem.
 `--queryguard-update-baseline` replaces a missing or unreadable file. It does
-not write after `-x`/`--maxfail` stopped the run, after an internal error, or
-after a worker crashed, and says so in the summary.
+not write after `-x`/`--maxfail` stopped the run, after an internal error, after
+a worker crashed, or after an interrupted run (a collection error, Ctrl-C, a
+usage error or an internal pytest error), and says so in the summary.
 
 ## pytest-xdist
 
