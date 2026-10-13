@@ -62,6 +62,10 @@ An entry is the identity of a finding: kind, label, file and function.
   finding and is reported.
 - `file` and `function` are `null` when the call site is unknown (some
   missing-index findings).
+- A missing-index finding on a partitioned table names the partitioned table,
+  not its partitions. A baseline recorded before that change, with a partition's
+  name in the label, no longer matches: the finding is reported once under the
+  table's name until the baseline is updated.
 - Findings that `queryguard_ignore` or `allow_nplusone` leave out are not
   written to the baseline.
 - Two parts of an entry depend on the environment. The label of a

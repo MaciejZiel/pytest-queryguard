@@ -149,7 +149,15 @@ reads its partitions: `CREATE INDEX ON events (kind)` creates the index on
 every partition, also on those attached later, while an index on one
 partition leaves the others without it. The condition keeps the alias the
 plan gives the partition (`events_1.kind = $1`). `queryguard_index_ignore_tables`
-matches the partitioned table's name. Table inheritance (`INHERITS`) is
+matches the partitioned table's name.
+
+This changed in the release after 0.4.0rc2: earlier versions reported each
+partition under its own name. An entry that names a partition in
+`queryguard_index_ignore_tables`, in `allow_missing_index` or in a baseline file
+stops matching, and the finding appears under the partitioned table; replace the
+partition's name with the partitioned table's. A partition that the plan reads
+for another condition is still its own finding, named after the partitioned
+table. Table inheritance (`INHERITS`) is
 different: an index on the parent does not cover its children, so the parent
 and each child read in full are separate findings.
 
