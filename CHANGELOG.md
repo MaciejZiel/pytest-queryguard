@@ -64,6 +64,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
 
+- `--queryguard-update-baseline` writes a usable baseline when a test lives in
+  a directory whose name is not valid UTF-8: such characters are written as
+  `\udcXX` escapes (other text stays readable), so the entry matches on the
+  next run instead of the write failing. Fixes #89.
+
 - PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
   longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
   wrong even for a primary key
