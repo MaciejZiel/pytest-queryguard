@@ -865,6 +865,22 @@ _PARTIAL_LOOKUP = (
 )
 
 
+# The partitioned table at the top of each partition. An index created on it
+# is created on every partition, also on those attached later, so a finding
+# on a partition names it instead (see _to_roots()). Inheritance children are
+# not partitions: an index on their parent does not cover them.
+_ROOT_LOOKUP = (
+    f"SELECT {_SCHEMA_NAME}, c.relname, "
+    f"CASE WHEN rn.oid = pg_my_temp_schema() THEN '{TEMP_SCHEMA}' "
+    "ELSE rn.nspname END, r.relname "
+    "FROM pg_class c "
+    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "JOIN pg_class r ON r.oid = pg_partition_root(c.oid) "
+    "JOIN pg_namespace rn ON rn.oid = r.relnamespace "
+    "WHERE {names} AND c.relispartition"
+)
+
+
 def _lookup(
     template: str, names: Iterable[tuple[str, str]], asyncpg: bool
 ) -> _Lookup | None:
@@ -921,6 +937,72 @@ def _partial_indexes(
         if table[0] != TEMP_SCHEMA:
             cache[table] = known[table]
     return known
+
+
+def partition_roots(
+    cursor: Any, tables: set[tuple[str, str]], catalog: Catalog | None, asyncpg: bool
+) -> dict[tuple[str, str], tuple[str, str]]:
+    """The partitioned root of each of ``tables`` that is a partition.
+
+    Read once per session, like _read_catalog(): the cache dict is taken once.
+    """
+    cache = catalog.roots if catalog is not None else {}
+    known = {t: cache[t] for t in tables if t in cache}
+    missing = tables - known.keys()
+    found: dict[tuple[str, str], tuple[str, str] | None] = dict.fromkeys(missing)
+    for r in _rows(cursor, _lookup(_ROOT_LOOKUP, missing, asyncpg)):
+        found[(str(r[0]), str(r[1]))] = (str(r[2]), str(r[3]))
+    for table, root in found.items():
+        known[table] = root
+        if table[0] != TEMP_SCHEMA:
+            cache[table] = root
+    return {table: root for table, root in known.items() if root is not None}
+
+
+def _same_condition(issue: ScanIssue) -> str:
+    """The condition with the scan's alias left out: partitions are scanned as
+    events_1, events_2, ... with otherwise the same condition."""
+    stripped = predicates.without_qualifier(issue.condition, issue.alias)
+    return issue.condition if stripped is None else stripped
+
+
+def to_roots(
+    issues: Sequence[ScanIssue],
+    roots: Mapping[tuple[str, str], tuple[str, str]],
+    current_schema: str | None,
+    varchar: VarcharColumns,
+) -> tuple[tuple[ScanIssue, ...], dict[tuple[str, str], frozenset[str]]]:
+    """Issues on partitions named after their partitioned root, one per root.
+
+    Two partitions read in full for the same condition are one missing index
+    on the root. ``varchar`` gains the roots, with the columns of their
+    partitions.
+    """
+    current = current_schema or "public"
+    widened = dict(varchar)
+    out: list[ScanIssue] = []
+    seen: set[tuple[object, ...]] = set()
+    for issue in issues:
+        root = roots.get((issue.schema or "", issue.table))
+        if root is None:
+            out.append(issue)
+            continue
+        widened.setdefault(
+            root, varchar.get((issue.schema or "", issue.table), frozenset())
+        )
+        key = (root, issue.kind, issue.column, issue.expression, _same_condition(issue))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            replace(
+                issue,
+                schema=root[0],
+                table=root[1],
+                show_schema=root[0] != current,
+            )
+        )
+    return tuple(out), widened
 
 
 def _split_partial(
@@ -1161,26 +1243,34 @@ def run_explain(
                 and catalog_error is None
             ):
                 schema = settings[-1] if settings else None
-                issues = tuple(
-                    find_scans(
-                        plan,
-                        schema if isinstance(schema, str) else None,
-                        columns,
-                        varchar,
-                    )
-                )
-                if issues and skip_partial:
+                current = schema if isinstance(schema, str) else None
+                issues = tuple(find_scans(plan, current, columns, varchar))
+                tables = {(i.schema, i.table) for i in issues if i.schema}
+                lookups_ok = True
+                if tables:
+                    try:
+                        roots = partition_roots(cursor, tables, catalog, asyncpg)
+                        issues, varchar = to_roots(issues, roots, current, varchar)
+                    except Exception as exc:  # noqa: BLE001  # fail open: name the partitions
+                        # the savepoint is aborted now: no more lookups in it
+                        lookups_ok = False
+                        advisor_notice = (
+                            "partition lookup failed, findings name the partitions "
+                            f"and get no advice: {_error_message(exc)}"
+                        )
+                if issues and skip_partial and lookups_ok:
                     try:
                         issues, skipped = _split_partial(
                             cursor, issues, catalog, asyncpg
                         )
                     except Exception as exc:  # noqa: BLE001  # fail open: keep the findings
                         advisor_notice = f"partial index lookup failed, findings kept: {_error_message(exc)}"
-                if issues and advise is not None:
+                if issues and advise is not None and lookups_ok:
                     try:
-                        issues, advisor_notice = _advise(
+                        issues, notice = _advise(
                             cursor, sql, issues, varchar, catalog, advise, asyncpg
                         )
+                        advisor_notice = advisor_notice or notice
                     except Exception as exc:  # noqa: BLE001  # fail open: no advice
                         advisor_notice = f"index advisor: no suggestions this time: {_error_message(exc)}"
         except Exception:

@@ -106,6 +106,7 @@ def clear() -> None:
         entry.leading = {}
         entry.varchar = {}
         entry.partial = {}
+        entry.roots = {}
     for target in collector.active():
         target.explained.clear()
 

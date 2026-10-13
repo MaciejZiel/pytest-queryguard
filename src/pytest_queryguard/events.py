@@ -152,5 +152,8 @@ class Catalog:
     partial: dict[tuple[str, str], tuple[PartialIndex, ...]] = field(
         default_factory=dict
     )
+    # (schema, table) of a partition -> (schema, table) of its partitioned
+    # root; None for a table that is not a partition
+    roots: dict[tuple[str, str], tuple[str, str] | None] = field(default_factory=dict)
     # (installed, available) versions of the hypopg extension; None until read
     hypopg: tuple[str | None, str | None] | None = None
