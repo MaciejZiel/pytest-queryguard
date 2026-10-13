@@ -252,6 +252,8 @@ pytest-queryguard only.
 - You also want N+1 findings in a running FastAPI, Starlette, Flask or WSGI
   app: look at queryspy. I did not test running
   it together with pytest-queryguard.
+- You use queryspy in tests and want to move: see
+  [Migrating from queryspy](migrating-from-queryspy.md).
 - You want budgets written for you or one global ratchet: pytest-querycount
   (it and pytest-queryguard both register a `max_queries` marker; I did not
   test installing both).

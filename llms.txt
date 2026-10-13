@@ -1,16 +1,16 @@
 # pytest-queryguard
 
-> A pytest plugin that fails tests with N+1 queries and enforces query budgets for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer and on SQLite it can also fail tests whose queries have no index to use. MIT license. This file describes the repository; `CHANGELOG.md` says what is in which release (the latest release is on PyPI).
+> A pytest plugin that fails tests with N+1 queries and enforces query budgets for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer, SQLite, MySQL and MariaDB it can also fail tests whose queries have no index to use. MIT license. This file describes the repository; `CHANGELOG.md` says what is in which release (the latest release is on PyPI).
 
 It watches the SQL each test function body sends (fixture setup and teardown are not measured) and points to the application line that caused a finding, even when the test database has only a few rows.
 
 ## Install
 
 ```bash
-pip install pytest-queryguard
+pip install "pytest-queryguard>=0.4.0rc2"
 ```
 
-Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
+This file describes 0.4.0rc2, a release candidate; a plain `pip install pytest-queryguard` installs the stable 0.3.0, which has no baseline, SARIF, ignore patterns, timing, column-load or write-loop rules and no SQLite or MySQL index check. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
 
 ## Quick start
 
@@ -79,7 +79,7 @@ def test_lookup(session): ...
 - `max_queries` marker: fails the test when its body runs more SQL statements than the limit, writes included, whatever `queryguard_mode` is. The failure lists every statement with its call site.
 - `max_db_time(seconds)` (marker and context manager): fails when the database and driver time of the statements exceeds the limit; the failure lists the slowest statements. `Query.duration`, `QueryLog.db_time` and `QueryLog.slowest(n)` expose the timing.
 - `max_queries(limit)` context manager: raises `QueryBudgetExceeded` (a subclass of `AssertionError`) above the limit. It does not depend on pytest. It checks the budget only, not N+1.
-- Public API (see docs/stability.md): `max_queries()`, `max_db_time()`, `QueryBudgetExceeded`, `record_queries()`, `QueryLog`, `Query`, `CallSite`, `NPlusOneDetected`, `QueryGuardWarning` (N+1 and missing indexes in `warn` mode), `QueryGuardInternalWarning` (internal error; the plugin disables itself instead of failing tests), the four markers (`max_queries`, `max_db_time`, `allow_nplusone`, `allow_missing_index`), the `queryguard_*` ini options and the `--queryguard-*` flags. `QueryLog`, `Query` and `CallSite` are not constructible by users. The object that `with max_queries(n) as c` yields is internal.
+- Public API (see docs/stability.md): `max_queries()`, `max_db_time()`, `QueryBudgetExceeded`, `record_queries()`, `QueryLog`, `Query`, `CallSite`, `NPlusOneDetected`, `QueryGuardWarning` (N+1 and missing indexes in `warn` mode), `QueryGuardInternalWarning` (internal error; the plugin disables itself instead of failing tests), the four markers (`max_queries`, `max_db_time`, `allow_nplusone`, `allow_missing_index`), the `queryguard_*` ini options and the `--queryguard-*` flags. `QueryLog`, `Query` and `CallSite` are not constructible by users. `max_queries()` and `max_db_time()` yield the same `QueryLog` as `record_queries()`.
 - Async: `AsyncSession` and `create_async_engine` work unchanged; failures point to the `await` in your code. FastAPI `TestClient`: queries from any thread are counted.
 
 ## Reading the queries of a block
