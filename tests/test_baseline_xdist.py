@@ -189,3 +189,22 @@ def test_a_collection_error_under_x_keeps_the_interrupted_reason(
     result.stdout.fnmatch_lines(
         ["*queryguard baseline not updated: the run was interrupted*"]
     )
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+def test_a_collection_error_leaves_the_baseline_alone_without_x(
+    project: pytest.Pytester, workers: str | None
+) -> None:
+    project.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = project.path / "qg.json"
+    path.write_text('{"version": 1, "findings": [["x"]]}\n')
+    result = _run(
+        project,
+        *(("-n", workers) if workers else ()),
+        "--queryguard-baseline=qg.json",
+        "--queryguard-update-baseline",
+    )
+    assert path.read_text() == '{"version": 1, "findings": [["x"]]}\n'
+    result.stdout.fnmatch_lines(
+        ["*queryguard baseline not updated: the run was interrupted*"]
+    )

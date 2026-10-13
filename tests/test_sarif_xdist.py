@@ -136,3 +136,17 @@ def test_a_collection_error_under_x_leaves_the_file_alone(
     assert result.ret == pytest.ExitCode.INTERRUPTED
     assert path.read_text() == "previous"
     result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])
+
+
+@pytest.mark.parametrize("workers", [None, "2"])
+def test_a_collection_error_leaves_the_file_alone_without_x(
+    project: pytest.Pytester, workers: str | None
+) -> None:
+    project.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = project.path / "out.sarif"
+    path.write_text("previous")
+    result = _run(
+        project, *(("-n", workers) if workers else ()), "--queryguard-sarif=out.sarif"
+    )
+    assert path.read_text() == "previous"
+    result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])

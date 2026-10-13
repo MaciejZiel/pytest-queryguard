@@ -1279,8 +1279,11 @@ def pytest_sessionfinish(
     try:
         if internal_error() is not None:
             settings.baseline_incomplete = True
-        interrupted = exitstatus in _ABNORMAL_EXIT and not _xdist_maxfail_stop(
-            session, settings, exitstatus
+        # A collection error also counts when the run went on: pytest-xdist
+        # without -x ends it with "tests failed", a serial run is interrupted.
+        interrupted = settings.collection_failed or (
+            exitstatus in _ABNORMAL_EXIT
+            and not _xdist_maxfail_stop(session, settings, exitstatus)
         )
         if settings.update_baseline:
             _update_baseline(session, settings, interrupted)
