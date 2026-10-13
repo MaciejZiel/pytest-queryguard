@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the cause and the workaround
   ([#132](https://github.com/MaciejZiel/pytest-queryguard/issues/132)).
 
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
+
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
   concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
@@ -72,6 +79,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
   now fails the build for any page left like that.
+- Documented that PostgreSQL evaluates `IMMUTABLE` functions with constant
+  arguments at plan time, so the index check and the advisor can call such a
+  function again and its non-transactional side effects (for example
+  `nextval()`) are not rolled back with the savepoint. Fixes #92.
 
 ### Changed
 
@@ -123,6 +134,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimums, the documentation examples, clean installs, the upgrade from the
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
+
+- The keyword of the `max_queries` marker is now `limit`, as in the
+  `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The
+  keyword `n=` of earlier releases is still accepted, without a warning. It
+  may be removed in a future minor release, but only after a deprecation
+  period with a warning, as described in `docs/stability.md`. The positional
+  form is unchanged.
+
+### Fixed
+
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
 
 ## [0.4.0rc2] - 2026-10-12
 
