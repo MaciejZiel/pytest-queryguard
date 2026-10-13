@@ -404,7 +404,12 @@ def _on_after_cursor_execute(
         if targets and conn.dialect.name == sqlite_index.DIALECT:
             sqlite_index.check(conn, statement, parameters, executemany, targets)
         elif targets and conn.dialect.name in mysql_index.DIALECTS:
-            mysql_index.check(conn, cursor, statement, parameters, executemany, targets)
+            no_parameters = bool(
+                getattr(context, "execution_options", {}).get("no_parameters")
+            )
+            mysql_index.check(
+                conn, cursor, statement, parameters, executemany, targets, no_parameters
+            )
         elif targets:
             indexes.check(conn, statement, executemany, targets)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite

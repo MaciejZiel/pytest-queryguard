@@ -1383,13 +1383,23 @@ def swap_no_plpgsql(new: EngineSet) -> EngineSet:
     return old
 
 
+# One wording for the notice and the help texts (plugin.py repeats it).
+SUPPORTED_DATABASES = (
+    "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)"
+)
+
+
 def unsupported_reason(dialect: Any) -> str | None:
-    """Why statements from this dialect cannot be checked, or None."""
+    """Why statements from this dialect cannot be checked, or None.
+
+    SQLite, MySQL and MariaDB never get here: the listener hands them to their
+    own checks, so the notice for another name lists every supported database.
+    """
     name = getattr(dialect, "name", "?")
     if name != "postgresql":
         return (
             f"{name} statements were not checked: "
-            f"the index check needs PostgreSQL {MIN_SERVER_VERSION} or newer"
+            f"the index check supports {SUPPORTED_DATABASES}"
         )
     driver = getattr(dialect, "driver", "?")
     if getattr(dialect, "is_async", False) and driver != ASYNCPG:

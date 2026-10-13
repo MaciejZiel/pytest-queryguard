@@ -1,4 +1,8 @@
-"""CLEAN: keyset pagination, ``WHERE id > :last ORDER BY id LIMIT 4``, until empty."""
+"""CLEAN: keyset pagination, ``WHERE id > :last ORDER BY id LIMIT 4``, until empty.
+
+Only the keyset bound changes from page to page, and it only grows: the repeat
+rule recognises the walk from the parameters.
+"""
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,9 +12,6 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-KNOWN = {
-    "*": "five or more pages are the same statement five times; only the small-repeat rule leaves pagination alone (issue #60)"
-}
 setup = shop.setup
 
 
