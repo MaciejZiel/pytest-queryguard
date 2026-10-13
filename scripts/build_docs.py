@@ -298,7 +298,7 @@ def search_index(pages: list[Page]) -> list[dict[str, str]]:
                     "title": page.title if first else f"{page.title}: {heading}",
                     "url": page.url
                     + (f"#{found.group(1)}" if found and not first else ""),
-                    "text": body[:2000],
+                    "text": body[:8000],
                 }
             )
     return entries

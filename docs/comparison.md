@@ -12,9 +12,9 @@ measurements are ones I ran myself, on scenarios I wrote.
   and pytest-capquery list none on PyPI), and the cells below that changed say
   so.
 - pytest-queryguard: the measurements were made on the `next` branch at commit
-  `b64d19c`, before 0.4.0rc1. The releases on PyPI are now 0.4.0rc2 (a release
+  `b64d19c`, before 0.4.0rc1. The releases on PyPI are now 0.4.0rc3 (a release
   candidate, 2026-10-12) and the stable 0.3.0 (2026-10-11); the matrix
-  describes 0.4.0rc2. 0.3.0 has no baseline, SARIF, ignore patterns, timing,
+  describes 0.4.0rc3. 0.3.0 has no baseline, SARIF, ignore patterns, timing,
   column-load or write-loop rules and no SQLite or MySQL index check.
 - Marks in the matrix: **(v)** verified by running the package or reading its
   installed source on that date; **(r)** read in the package's PyPI
@@ -24,7 +24,7 @@ measurements are ones I ran myself, on scenarios I wrote.
 
 | Tool | Version (release date) | First release on PyPI | Targets | License |
 |---|---|---|---|---|
-| pytest-queryguard | 0.4.0rc2 (2026-10-12); stable 0.3.0 (2026-10-11) | 2026-10-10 | SQLAlchemy 2 | MIT |
+| pytest-queryguard | 0.4.0rc3 (2026-10-13); stable 0.3.0 (2026-10-11) | 2026-10-10 | SQLAlchemy 2 | MIT |
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.5.0 (2026-10-04) | 2026-08-04 | SQLAlchemy 2.0+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |

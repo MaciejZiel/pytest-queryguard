@@ -31,10 +31,10 @@ queryguard: N+1 detected
 ```
 
 ```bash
-pip install "pytest-queryguard>=0.4.0rc2"
+pip install "pytest-queryguard>=0.4.0rc3"
 ```
 
-The documentation describes 0.4.0rc2, a release candidate. A plain
+The documentation describes 0.4.0rc3, a release candidate. A plain
 `pip install pytest-queryguard` gets the stable 0.3.0: the same N+1 detection
 and `max_queries` budgets, but no baseline, SARIF, ignore patterns, timing,
 column-load or write-loop rules and no SQLite or MySQL index check.
