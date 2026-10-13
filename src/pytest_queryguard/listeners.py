@@ -235,6 +235,13 @@ _IMMEDIATE_CODE = getattr(
 )
 
 
+# How many frames up from the listener the immediate loader may be. It is five
+# or six frames away (listener, event dispatch, Session.execute, the lazy
+# loader); the bound keeps a lazy load outside a refresh from walking the
+# whole pytest stack.
+_MAX_LOADER_DEPTH = 40
+
+
 def _is_refresh_eager_load() -> bool:
     """Whether the load running now is a mapped eager loader run by a refresh.
 
@@ -249,7 +256,9 @@ def _is_refresh_eager_load() -> bool:
     if _IMMEDIATE_CODE is None:
         return False
     frame: Any = sys._getframe(1)
-    while frame is not None:
+    for _ in range(_MAX_LOADER_DEPTH):
+        if frame is None:
+            return False
         if frame.f_code is _IMMEDIATE_CODE:
             context = frame.f_locals.get("context")
             return getattr(context, "refresh_state", None) is not None

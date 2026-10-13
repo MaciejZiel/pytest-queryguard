@@ -30,7 +30,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.pool import StaticPool
 
-from pytest_queryguard import NPlusOneDetected, record_queries
+from pytest_queryguard import NPlusOneDetected, listeners, record_queries
 
 # pytester-free, but the outer plugin watches these tests too.
 pytestmark = pytest.mark.allow_nplusone
@@ -318,3 +318,26 @@ def test_async_refresh_next_to_a_real_lazy_load_is_still_reported() -> None:
     report = _report(_run(work))
     assert f"Author.notes was lazy-loaded {ROWS} times" in report
     assert "Author.books" not in report
+
+
+# ---------------------------------------------------------------- fallback
+
+
+@pytest.mark.parametrize(
+    "name, value", [("_IMMEDIATE_CODE", None), ("_MAX_LOADER_DEPTH", 0)]
+)
+def test_without_the_immediate_loader_refreshes_count_as_before(
+    engine: Any, monkeypatch: pytest.MonkeyPatch, name: str, value: Any
+) -> None:
+    # A SQLAlchemy that renames the loader (or moves it out of reach) gets the
+    # old behaviour: the refresh loads count as lazy loads, nothing breaks.
+    monkeypatch.setattr(listeners, name, value)
+    with Session(engine) as session, record_queries() as log:
+        _create(session, 100)
+        _create(session, 101)
+    assert "Author.books was lazy-loaded 2 times" in _report(log)
+    assert listeners._error is None
+
+
+def test_the_immediate_loader_is_found_on_this_sqlalchemy() -> None:
+    assert listeners._IMMEDIATE_CODE is not None
