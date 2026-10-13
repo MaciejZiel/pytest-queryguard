@@ -30,5 +30,36 @@
     }
    }
   }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "Mixed Case",
+    "Mixed Case_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "Mixed Case",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "\"customerId\"",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON \"Mixed Case\" (\"customerId\")",
+   "skipped": null,
+   "partial_skipped": false
+  }
  ]
 }

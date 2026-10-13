@@ -232,6 +232,230 @@ def test_backslash_paths_become_posix() -> None:
     assert sarif.repo_path("app\\models.py") == "app/models.py"
 
 
+# --- what the document says exactly ---
+
+RULE_NAMES = {
+    "relationship-load": "RelationshipLoad",
+    "repeated-statement": "RepeatedStatement",
+    "column-load": "ColumnLoad",
+    "write-loop": "WriteLoop",
+    "unused-eager-load": "UnusedEagerLoad",
+    "missing-index": "MissingIndex",
+}
+
+
+def test_every_rule_is_fully_described() -> None:
+    rules = _doc()["runs"][0]["tool"]["driver"]["rules"]
+    assert [rule["properties"]["kind"] for rule in rules] == list(RULE_NAMES)
+    for rule in rules:
+        kind = rule["properties"]["kind"]
+        assert set(rule) == {
+            "id",
+            "name",
+            "shortDescription",
+            "fullDescription",
+            "help",
+            "helpUri",
+            "defaultConfiguration",
+            "properties",
+        }
+        assert rule["id"] == f"queryguard/{kind}"
+        assert rule["name"] == RULE_NAMES[kind]
+        full = rule["fullDescription"]["text"]
+        assert set(rule["fullDescription"]) == {"text"} and full
+        assert rule["help"]["text"].startswith(f"{full}\n\nFix: ")
+        assert rule["help"]["markdown"].startswith(f"{full}\n\n**Fix:** ")
+        assert rule["helpUri"] == f"{sarif.INFORMATION_URI}#readme"
+        assert rule["defaultConfiguration"] == {"level": "error"}
+        assert rule["properties"] == {
+            "tags": ["performance", "database"],
+            "kind": kind,
+        }
+
+
+def test_the_tool_driver_and_the_run_are_described() -> None:
+    document = _doc(_finding())
+    assert document["$schema"] == "https://json.schemastore.org/sarif-2.1.0.json"
+    (run,) = document["runs"]
+    assert run["columnKind"] == "utf16CodeUnits"
+    driver = run["tool"]["driver"]
+    assert driver["name"] == "pytest-queryguard"
+    assert driver["version"] == "1.2.3"
+    assert driver["informationUri"] == "https://github.com/MaciejZiel/pytest-queryguard"
+
+
+def test_the_text_is_indented_by_two_and_keeps_non_ascii_characters() -> None:
+    assert sarif.dumps({"a": ["ż"]}) == '{\n  "a": [\n    "ż"\n  ]\n}\n'
+
+
+@pytest.mark.parametrize(
+    ("identity", "digest"),
+    [
+        (
+            ("relationship-load", "Order.customer", "app/orders.py", "list_orders"),
+            "a318aaa9df6e8b71f8fccf9fda916d7992fa43fcb6230fc38d6f0f6b5e2c9af2",
+        ),
+        (
+            ("missing-index", "public.orders", None, None),
+            "2f078e04f4fa3ca9023ddb3062c2ed3121ff004fd5c0fb8bf15ead7d96013137",
+        ),
+        (
+            ("repeated-statement", "SELECT * FROM t WHERE a = ?", "a.py", None),
+            "89aa611fd67efb334b2f7be3f2a2925549685bb225363867c0344b9675203056",
+        ),
+    ],
+)
+def test_fingerprints_do_not_change_between_releases(
+    identity: sarif.Identity, digest: str
+) -> None:
+    # GitHub keeps alerts by these values, so a change would reopen every alert.
+    assert sarif.fingerprint(identity) == digest
+
+
+def test_the_fingerprint_depends_on_every_part_of_the_identity() -> None:
+    base = ("k", "l", "a.py", "f")
+    digests = {
+        sarif.fingerprint(base),
+        sarif.fingerprint(("k2", "l", "a.py", "f")),
+        sarif.fingerprint(("k", "l2", "a.py", "f")),
+        sarif.fingerprint(("k", "l", "b.py", "f")),
+        sarif.fingerprint(("k", "l", "a.py", "g")),
+    }
+    assert len(digests) == 5
+    # The parts are separated, so moving text between them changes the hash.
+    assert sarif.fingerprint(("ab", "c", None, None)) != sarif.fingerprint(
+        ("a", "bc", None, None)
+    )
+
+
+def test_the_line_hash_is_the_first_32_digits_of_the_fingerprint() -> None:
+    (result,) = _doc(_finding())["runs"][0]["results"]
+    digest = result["partialFingerprints"][sarif.FINGERPRINT_KEY]
+    assert (
+        result["partialFingerprints"]["primaryLocationLineHash"] == f"{digest[:32]}:1"
+    )
+    assert result["partialFingerprints"]["primaryLocationLineHash"].index(":") == 32
+
+
+def test_results_are_ordered_by_file_then_function() -> None:
+    findings = [
+        _finding(file="b.py", function="f"),
+        _finding(file="a.py", function="g"),
+        _finding(file="a.py", function="Alpha"),
+        _finding(file="a.py", function=None),
+    ]
+    results = _doc(*findings)["runs"][0]["results"]
+    uris = [
+        r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        for r in results
+    ]
+    functions = [
+        r["locations"][0].get("logicalLocations", [{"name": None}])[0]["name"]
+        for r in results
+    ]
+    assert list(zip(uris, functions, strict=True)) == [
+        ("a.py", None),
+        ("a.py", "Alpha"),
+        ("a.py", "g"),
+        ("b.py", "f"),
+    ]
+
+
+def test_the_ordering_of_findings_without_a_location_does_not_fail() -> None:
+    store: sarif.Collected = {}
+    sarif.add(store, _finding(file=None), "error")
+    sarif.add(store, _finding(file="a.py"), "error")
+    sarif.add(store, _finding(file="a.py", function=None), "error")
+    document, omitted = sarif.build(store, "1")
+    assert omitted == 1
+    assert len(document["runs"][0]["results"]) == 2
+
+
+def test_every_left_out_finding_is_counted() -> None:
+    store: sarif.Collected = {}
+    sarif.add(store, _finding(kind="nope", label="a"), "error")
+    sarif.add(store, _finding(kind="nope", label="b"), "error")
+    sarif.add(store, _finding(file=None, label="c"), "error")
+    sarif.add(store, _finding(file=None, label="d"), "error")
+    sarif.add(store, _finding(label="kept"), "error")
+    document, omitted = sarif.build(store, "1")
+    assert omitted == 4
+    assert [r["properties"]["label"] for r in document["runs"][0]["results"]] == [
+        "kept"
+    ]
+
+
+def test_an_unknown_kind_does_not_hide_the_findings_after_it() -> None:
+    store: sarif.Collected = {}
+    sarif.add(store, _finding(kind="aaa", label="first"), "error")
+    sarif.add(store, _finding(label="second"), "error")
+    document, omitted = sarif.build(store, "1")
+    assert omitted == 1
+    assert len(document["runs"][0]["results"]) == 1
+
+
+# --- merging the same finding over several tests ---
+
+
+def test_merging_a_finding_without_a_line_keeps_the_one_with_a_line() -> None:
+    for first, second in (
+        (_finding(line=None), _finding(line=40)),
+        (_finding(line=40), _finding(line=None)),
+    ):
+        (result,) = _doc(first, second)["runs"][0]["results"]
+        assert result["locations"][0]["physicalLocation"]["region"]["startLine"] == 40
+
+
+def test_the_merged_finding_takes_its_severity_from_the_earliest_line() -> None:
+    store: sarif.Collected = {}
+    sarif.add(store, _finding(line=30, severity="late"), "error")
+    sarif.add(store, _finding(line=10, severity="early"), "error")
+    (merged, _) = store[_finding().identity]
+    assert (merged.severity, merged.line) == ("early", 10)
+
+
+def test_warning_level_stays_a_warning_when_every_test_warned() -> None:
+    store: sarif.Collected = {}
+    sarif.add(store, _finding(), "warning")
+    sarif.add(store, _finding(), "warning")
+    assert next(iter(store.values()))[1] == "warning"
+
+
+def test_two_tests_are_reported_in_the_properties_and_the_message() -> None:
+    (result,) = _doc(_finding(count=2, line=5), _finding(count=6, line=9))["runs"][0][
+        "results"
+    ]
+    assert result["properties"]["tests"] == 2
+    assert result["properties"]["peakCount"] == 6
+    assert result["message"]["text"].startswith("Seen in 2 tests: 8 times in total")
+
+
+def test_wire_entries_from_an_older_worker_default_to_one_test() -> None:
+    entry = {
+        "kind": KIND_RELATIONSHIP,
+        "label": "Order.customer",
+        "file": "app/orders.py",
+        "function": "list_orders",
+        "message": "m",
+        "severity": "custom",
+        "line": 3,
+        "count": 4,
+        "level": "error",
+    }
+    store: sarif.Collected = {}
+    sarif.merge_wire(store, [entry])
+    (finding, level) = next(iter(store.values()))
+    assert (finding.tests, finding.peak, finding.severity, level) == (
+        1,
+        None,
+        "custom",
+        "error",
+    )
+    sarif.merge_wire(store, [{**entry, "count": 9}])
+    (finding, _) = next(iter(store.values()))
+    assert (finding.count, finding.tests, finding.peak) == (13, 2, 9)
+
+
 # --- the plugin ---
 
 
@@ -482,3 +706,43 @@ def test_a_run_outside_the_workspace_falls_back_to_the_rootdir(
     project.runpytest("--queryguard-sarif=qg.sarif")
     (first, *_) = _results(project.path / "qg.sarif")
     assert _uri({"runs": [{"results": [first]}]}) == "test_a.py"
+
+
+EAGER_UNUSED = """
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from qgmodels import Customer, make_sync_session
+
+
+def test_eager_unused():
+    session = make_sync_session()
+    for customer in session.scalars(select(Customer).options(selectinload(Customer.orders))):
+        _ = customer.name
+"""
+
+
+@pytest.mark.parametrize(("mode", "level"), [("warn", "warning"), ("fail", "error")])
+def test_the_level_follows_the_unused_eager_load_mode(
+    pytester: pytest.Pytester, mode: str, level: str
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS, test_eager=EAGER_UNUSED)
+    pytester.makeini(f"[pytest]\nqueryguard_unused_eager_load = {mode}\n")
+    result = pytester.runpytest("--queryguard-sarif=out.sarif", "-W", "default")
+    assert result.ret == (0 if mode == "warn" else 1)
+    document = json.loads((pytester.path / "out.sarif").read_text())
+    results = document["runs"][0]["results"]
+    assert [r["ruleId"] for r in results] == ["queryguard/unused-eager-load"]
+    assert results[0]["level"] == level
+
+
+def test_no_sarif_is_written_after_an_interrupted_run(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS, test_loops=LOOP)
+    pytester.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = pytester.path / "out.sarif"
+    path.write_text("previous")
+    result = pytester.runpytest("--queryguard-sarif=out.sarif")
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == "previous"
+    result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])
