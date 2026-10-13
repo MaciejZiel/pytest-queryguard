@@ -667,9 +667,9 @@ def _batching(stmts: Sequence[StatementEvent]) -> bool:
 def _repeat_groups(collector: QueryCollector) -> dict[str, list[StatementEvent]]:
     """The statements the repeat rules count, by normalized text.
 
-    Writes and transaction control (BEGIN, COMMIT, SAVEPOINT, ...) are left
-    out: a loop that commits each pass runs one BEGIN and one COMMIT per pass.
-    Budgets still count them.
+    Writes, transaction control (BEGIN, COMMIT, SAVEPOINT, ...) and schema
+    reflection are left out: a loop that commits each pass runs one BEGIN and
+    one COMMIT per pass. Budgets still count them.
     """
     groups: dict[str, list[StatementEvent]] = {}
     for stmt in collector.statements:
