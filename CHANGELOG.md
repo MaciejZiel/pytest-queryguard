@@ -99,6 +99,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments at plan time, so the index check and the advisor can call such a
   function again and its non-transactional side effects (for example
   `nextval()`) are not rolled back with the savepoint. Fixes #92.
+- The repeated-statement and small-repeat rules no longer count schema
+  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
+  their temp variants, and reads of `pg_catalog` or `information_schema`
+  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
+  version-table check). `max_queries` budgets still count them. See
+  `docs/how-detection-works.md` for the exact rule
+  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
 
 ### Changed
 
