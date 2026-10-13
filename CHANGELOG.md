@@ -29,6 +29,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--queryguard-update-baseline` with `--collect-only` emptied the baseline file.
   It now leaves the file alone and says why.
 
+- Stability: with `-W error` or `filterwarnings = error`, an internal error
+  no longer fails the user's test. `QueryGuardInternalWarning` was raised as
+  an exception from the test call, from the terminal summary (which aborted
+  it), from a `record_queries()` block and, for the unused eager-load check,
+  from inside SQLAlchemy's `do_orm_execute`. Now it is always shown and
+  recorded, never raised, and an "ignore" filter still hides it (#124).
+- Stability: an error inside the `after_begin` listener no longer reaches the
+  user's `Session.begin()`. Like every other listener, it now stops the
+  measurement with a `QueryGuardInternalWarning` (#123).
+- Stability: a baseline file nested too deep for the JSON parser is a usage
+  error instead of an `INTERNALERROR`, and any error while writing the
+  baseline is reported instead of crashing the end of the session (#125).
+- PostgreSQL index check: an internal error after the check opened its
+  savepoint (or, on an autocommit connection, its own transaction) left that
+  savepoint or transaction open on the user's connection. In autocommit mode
+  the user's later writes were then never committed, and inside a transaction
+  `enable_seqscan` stayed `off`. The check now rolls them back before the
+  error stops the plugin (#126).
+- Stability: an error inside `pytest_configure`, the per-test start or end
+  of the measurement, the pytest-xdist hand-over of the findings,
+  `pytest_unconfigure` or the attribute-read hook of the unused eager-load
+  check no longer ends the session with an `INTERNALERROR` or fails every
+  test. It stops the measurement and is reported once, like an error in a
+  listener; an error in the xdist hand-over marks the run incomplete, so the
+  baseline is not rewritten and the SARIF summary says findings may be
+  missing. `KeyboardInterrupt`, `SystemExit` and `asyncio.CancelledError` are
+  still never swallowed. `docs/stability.md` describes the contract under
+  "Failing open" (#127).
+
 - Tests: the accuracy corpus now runs on PostgreSQL
   (`QUERYGUARD_CORPUS_PG_URL`). Two scenarios (`bug_23_get_or_create_loop`,
   `bug_30_flush_per_insert`) failed there because seeded rows with explicit ids
@@ -254,6 +283,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   may be removed in a future minor release, but only after a deprecation
   period with a warning, as described in `docs/stability.md`. The positional
   form is unchanged.
+
 - Every finding in a report now has a `kind: ...  label: ...` line, the pair that
   `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
   `kind: relationship-load  label: Order.customer`. For a repeated statement or
