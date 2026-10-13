@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import InvalidRequestError
-from sqlalchemy.orm import ORMExecuteState, Session
+from sqlalchemy.orm import ORMExecuteState, Session, strategies
 from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import Pool
 
@@ -221,6 +221,42 @@ def _inside_begin() -> bool:
     return False
 
 
+# Code of the post-load step that runs an "immediate" load. SQLAlchemy swaps a
+# selectin or subquery relationship for it when it refreshes an object (the
+# mapped eager loader needs a result of several parents, a refresh has one), and
+# an explicit immediateload() or lazy="immediate" runs it too. None when this
+# SQLAlchemy has no such method (then every load with a parent counts as lazy).
+# The class is named ImmediateLoader in older releases and _ImmediateLoader later.
+_IMMEDIATE_LOADER = getattr(
+    strategies, "_ImmediateLoader", getattr(strategies, "ImmediateLoader", None)
+)
+_IMMEDIATE_CODE = getattr(
+    getattr(_IMMEDIATE_LOADER, "_load_for_path", None), "__code__", None
+)
+
+
+def _is_refresh_eager_load() -> bool:
+    """Whether the load running now is a mapped eager loader run by a refresh.
+
+    ``session.refresh(obj)`` (and the reload of expired attributes) of an
+    object with a ``lazy="selectin"`` or ``lazy="subquery"`` relationship loads
+    the collection through the immediate loader, one parent per statement: the
+    statement carries a parent state, like a lazy load, but it is the mapped
+    eager strategy at work and ``selectinload`` would change nothing. The
+    outer query of that step is a refresh (``refresh_state`` is set); an
+    ``immediateload()`` of a plain query has none and stays a lazy load.
+    """
+    if _IMMEDIATE_CODE is None:
+        return False
+    frame: Any = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code is _IMMEDIATE_CODE:
+            context = frame.f_locals.get("context")
+            return getattr(context, "refresh_state", None) is not None
+        frame = frame.f_back
+    return False
+
+
 def _has_pending(conn: Any) -> bool:
     try:
         entry = _latest(conn)[1]
@@ -320,6 +356,10 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         name = str(prop)
         scalar = getattr(prop, "uselist", None) is False
         parent = state.lazy_loaded_from
+        if parent is not None and _is_refresh_eager_load():
+            # An eager loader's query: label the statement, count no lazy load.
+            _set_pending(state.session, name, lazy=False)
+            return
         key: object = None
         if parent is not None:
             key = parent.identity_key
