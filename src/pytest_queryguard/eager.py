@@ -29,7 +29,6 @@ instances through attribute access, which rules out code that reads
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,7 +39,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from .callsite import find_callsite
 from .events import CallSite
 from .findings import KIND_UNUSED_EAGER_LOAD, Finding
-from .warnings import QueryGuardInternalWarning
+from .warnings import QueryGuardInternalWarning, warn_internal
 
 LOADERS = {
     "joined": "joinedload",
@@ -100,12 +99,11 @@ def _broke(exc: Exception, where: str) -> None:
     _broken = True
     if not _warned:
         _warned = True
-        warnings.warn(
+        warn_internal(
             QueryGuardInternalWarning(
                 "pytest-queryguard disabled the unused eager-load check after an "
                 f"internal error in {where}: {exc!r}"
-            ),
-            stacklevel=1,
+            )
         )
 
 

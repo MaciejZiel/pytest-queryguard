@@ -18,6 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SARIF: a finding whose call site is unknown (for example `session.execute`
+  handed straight to a worker thread) is located at the test instead of being
+  left out of the file, so code scanning shows it. The terminal text, the
+  baseline and the ignore rules are unchanged. `docs/limitations.md` explains
+  the cause and the workaround
+  ([#132](https://github.com/MaciejZiel/pytest-queryguard/issues/132)).
+
+- GitHub Action: the `package` input now defaults to the plugin in the action's
+  own checkout instead of the name `pytest-queryguard`, so the installed plugin
+  matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
+  stable 0.3.0 while 0.4 was a release candidate)
+  ([#106](https://github.com/MaciejZiel/pytest-queryguard/issues/106)).
+
+- The index check notice for a database it cannot check (SQL Server, Oracle)
+  said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
+  supported. It now lists every supported database, and the help texts of
+  `--queryguard-index-check` and `queryguard_index_check` name MySQL and
+  MariaDB too. Fixes #154.
+
 - PostgreSQL index check: a finding for an index the plan walks end to end (a
   filter on the trailing column of a composite key, a whole index with a filter,
   a whole-index bitmap) now says `t scans the whole index ix: the ... does not
@@ -43,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   advice to fetch the rows in one query, and the write-loop rule never saw it.
   Fixes #96.
 
+- The MySQL and MariaDB index check no longer fails on a literal `%` in a
+  statement that was run with the `no_parameters` execution option: the
+  `EXPLAIN` was formatted by PyMySQL (`query % args`) although the statement
+  itself was not, so it was reported as "could not be explained" (a literal
+  `%%` was sent as `%`). Fixes #116.
+
 - `--queryguard-update-baseline` no longer rewrites the baseline, and
   `--queryguard-sarif` no longer writes the file, after an interrupted run (a
   collection error, Ctrl-C, a usage error or an internal pytest error). The
@@ -51,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
+- `--queryguard-update-baseline` writes a usable baseline when a test lives in
+  a directory whose name is not valid UTF-8: such characters are written as
+  `\udcXX` escapes (other text stays readable), so the entry matches on the
+  next run instead of the write failing. Fixes #89.
 
 - PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
   longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
@@ -68,6 +98,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is still checked and now gets one notice in the session summary that its
   version is untested. Older servers keep their one "not checked" notice. The
   tested versions are listed in `docs/index-check.md`.
+- The index check no longer rolls back a transaction the application opened by
+  hand on an AUTOCOMMIT connection (`exec_driver_sql("BEGIN")`, with pg8000 or
+  asyncpg). The `autocommit` flag is the driver's setting, not the server's
+  state, so the check now tries a savepoint first and starts a transaction of
+  its own only when none is open (SQLSTATE 25P01). Fixes #91.
 - Documentation: the index check page was published as raw Markdown from the
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
@@ -76,18 +111,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments at plan time, so the index check and the advisor can call such a
   function again and its non-transactional side effects (for example
   `nextval()`) are not rolled back with the savepoint. Fixes #92.
+- The repeated-statement and small-repeat rules no longer count schema
+  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
+  their temp variants, and reads of `pg_catalog` or `information_schema`
+  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
+  version-table check). `max_queries` budgets still count them. See
+  `docs/how-detection-works.md` for the exact rule
+  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
+- PostgreSQL index check: a sequential scan whose filter is only not-equal
+  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
+  longer reported as a missing index. No index serves them, so the advice
+  could not be followed, even on an indexed column; the SQLite check never
+  reported them. A filter with one more servable condition, or a not-equal
+  against a constant in the SQL (which a partial index serves), is still
+  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 
 ### Changed
 
-- Every finding in a report now has a `kind: ...  label: ...` line, the pair that
-  `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
-  `kind: relationship-load  label: Order.customer`. For a repeated statement or
-  a write loop the line replaces the separate line with the normalized
-  statement (a statement longer than 200 characters is cut and ends with `*`,
-  so the printed label still works as a pattern). An ignore pattern that is
-  the exact label now matches even when the label holds `[` or `]`. The
-  line is in the SARIF message too
-  ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
+- The repeated-statement rules no longer report pagination and chunked `IN`
+  loads when the bound parameters show them: only the `OFFSET` or an integer
+  keyset bound changes, in one direction, by at least a page of more than one
+  row (the walk may be repeated once); or one `IN` list of at least 50 values
+  changes, the lists share no value and all but one have the same length.
+  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
+  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
+  loop and identical repeats are still reported. Closes #60.
+  The accuracy corpus has five more CLEAN scenarios for these shapes and five
+  more BUG scenarios that imitate them; on its 141 scenarios the default
+  repeated-statement precision goes from 80% to 97% (90% to 97% without the
+  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
+  configuration, and the release gate's minimum precision for the kind is now
+  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
+
 - `docs/stability.md` has an "Experimental" section: the
   `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
   and the missing-index check on MySQL and MariaDB are exempt from the
@@ -137,12 +192,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+- The classes and functions in `pytest_queryguard.__all__` now report
+  `pytest_queryguard` as their `__module__`. Tracebacks and logs show
+  `pytest_queryguard.NPlusOneDetected` instead of
+  `pytest_queryguard.api.NPlusOneDetected`, so the printed name matches the
+  documented import path and the submodules can move without changing it. A
+  `filterwarnings` entry that names the submodule
+  (`error::pytest_queryguard.warnings.QueryGuardWarning`) keeps working.
+
 - The keyword of the `max_queries` marker is now `limit`, as in the
   `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The
   keyword `n=` of earlier releases is still accepted, without a warning. It
   may be removed in a future minor release, but only after a deprecation
   period with a warning, as described in `docs/stability.md`. The positional
   form is unchanged.
+- Every finding in a report now has a `kind: ...  label: ...` line, the pair that
+  `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
+  `kind: relationship-load  label: Order.customer`. For a repeated statement or
+  a write loop the line replaces the separate line with the normalized
+  statement (a statement longer than 200 characters is cut and ends with `*`,
+  so the printed label still works as a pattern). An ignore pattern that is
+  the exact label now matches even when the label holds `[` or `]`. The
+  line is in the SARIF message too
+  ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
 
 ### Fixed
 

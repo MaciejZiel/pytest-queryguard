@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import inspect
+import pickle
 import re
 import warnings
 from typing import Any
@@ -225,3 +226,42 @@ def test_entry_point_name() -> None:
     assert [(p.name, p.value) for p in ours] == [
         ("queryguard", "pytest_queryguard.plugin")
     ]
+
+
+def test_exported_names_report_the_package_as_their_module() -> None:
+    """Tracebacks and pickles show ``pytest_queryguard.X``, not a submodule."""
+    for name in pytest_queryguard.__all__:
+        if name == "__version__":
+            continue
+        obj = getattr(pytest_queryguard, name)
+        assert obj.__module__ == "pytest_queryguard", name
+
+
+def test_exceptions_are_named_by_the_package_in_tracebacks() -> None:
+    import traceback
+
+    error = pytest_queryguard.NPlusOneDetected("x")
+    text = "".join(traceback.format_exception(error))
+    assert "pytest_queryguard.NPlusOneDetected: x" in text
+    assert "pytest_queryguard.api" not in text
+
+
+def test_exported_classes_still_pickle() -> None:
+    site = pytest_queryguard.CallSite(filename="a.py", lineno=3, function="f")
+    assert pickle.loads(pickle.dumps(site)) == site
+    error = pickle.loads(pickle.dumps(pytest_queryguard.QueryBudgetExceeded("x")))
+    assert type(error) is pytest_queryguard.QueryBudgetExceeded
+
+
+def test_type_hints_of_exported_names_still_resolve() -> None:
+    """``get_type_hints`` looks names up in ``sys.modules[obj.__module__]``.
+
+    With ``__module__`` set to the package, an annotation that names a type
+    the package does not export would stop resolving for classes.
+    """
+    import typing
+
+    for name in pytest_queryguard.__all__:
+        if name == "__version__":
+            continue
+        typing.get_type_hints(getattr(pytest_queryguard, name))

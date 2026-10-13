@@ -18,6 +18,17 @@
   is installed non-editable (for example `pip install .` in a Docker CI
   image), its frames are skipped too, and call sites point to the test file
   instead of the application line.
+- A call site is the first stack frame that is not SQLAlchemy, pytest, the
+  standard library or `site-packages`. When a SQLAlchemy callable is handed to
+  a worker thread directly, as in `await asyncio.to_thread(session.execute,
+  stmt)`, `anyio.to_thread.run_sync(session.execute, stmt)` or
+  `loop.run_in_executor(None, session.execute, stmt)`, the worker thread's
+  stack holds only the executor, SQLAlchemy and the driver, so the finding says
+  `first at <unknown location>`. In the SARIF file such a result is located at
+  the test instead of being left out, but the line that issues the statement is
+  not known. To get the call site, wrap the call in a function of your own, so
+  that an application frame runs in the worker thread:
+  `await asyncio.to_thread(lambda: session.execute(stmt))` or a named helper.
 - One measurement is active per process at a time, so tests in one process
   must run sequentially. Under pytest-xdist each worker measures its own
   tests, so detection and budgets work. The report needs a single process,
@@ -38,14 +49,19 @@
   flush count as one write, so `add_all()` plus one `flush()` is not reported
   even when the dialect sends one `INSERT` per row. That relies on finding
   `Session._flush` on the call stack, a SQLAlchemy internal.
-- The repeat rule at its default threshold counts every run of one `SELECT`
-  shape, including the pages of a pagination loop (`LIMIT` and `OFFSET`, or a
-  keyset `WHERE id > :last`) and the chunks of a batched `IN (...)` load. Five
-  or more pages or chunks are reported as a repeated statement. Only the
-  opt-in small-repeat rule leaves pagination alone, and neither rule can tell
-  a polling loop that repeats a statement on purpose from an N+1. Raise
-  `queryguard_repeat_threshold` or mark the test with `allow_nplusone` for such
-  code. The [accuracy page](accuracy.md) lists the scenarios.
+- The repeat rules leave pagination and chunked `IN` loads alone only when the
+  bound parameters show them (see "Pagination and chunks" in
+  [How detection works](how-detection-works.md)). Composite keyset conditions,
+  keyset walks on a string or date column, MySQL's `LIMIT offset, count`,
+  literal `IN` lists, `IN` lists shorter than 50 values and the same keys
+  loaded twice in one test are still reported. A loop that sends 50 or more
+  keys per item, each item's own and the same number for every item, looks
+  like chunks and is not reported. Neither
+  rule can tell a polling loop that repeats a statement on purpose from a
+  loop-invariant query inside a loop: both repeat one statement with the same
+  parameters, so both are reported. Raise `queryguard_repeat_threshold` or mark
+  the test with `allow_nplusone` for such code. The
+  [accuracy page](accuracy.md) lists the scenarios.
 - A few statements below the thresholds are not reported by default: fewer than
   five runs of one statement (`queryguard_small_repeat_threshold` reports them)
   and fewer than five instances that reload columns after a commit

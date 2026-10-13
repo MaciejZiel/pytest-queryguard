@@ -79,7 +79,7 @@ EXPECTED: dict[str, list[str | None]] = {
     "cast_date": [None],
     "coalesce": [None],
     "like": [None],
-    "not_equal": [None],
+    "not_equal": [],  # no btree index serves <>: nothing is reported
     "array_any": [None],
     "json_arrow": [None],
     "or_two_columns": [None],

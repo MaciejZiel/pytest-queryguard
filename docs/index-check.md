@@ -156,9 +156,17 @@ generic plan and is judged as before.
 
 Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
 `SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
-reads the whole table anyway; scans of PostgreSQL's own catalogs. Whether a
-join reads its unindexed side in full depends on table statistics, so join
-conditions on their own are never reported.
+reads the whole table anyway; a sequential scan whose filter is only
+not-equal comparisons against parameters or other columns (`<> $1`,
+`NOT IN ($1, $2)`), because no index serves them, whether the column is
+indexed or not; scans of PostgreSQL's own catalogs. One more condition an
+index could serve, as in `a = $1 AND b <> $2`, makes the scan reportable
+again. A not-equal against a constant written into the SQL, such as
+`status <> 'done'`, stays reported: a partial index such as
+`CREATE INDEX ON orders (id) WHERE status <> 'done'` serves it, and pays off
+when the excluded value is the common one. Whether a join reads
+its unindexed side in full depends on table statistics, so join conditions on
+their own are never reported.
 
 The `fix:` line names a column only when the condition compares one plain
 column with `=`, `<`, `<=`, `>` or `>=`. PostgreSQL prints a `::text` cast
@@ -173,7 +181,13 @@ because an index on the plain column would not help there.
 Each distinct statement is explained once per test (again after DDL
 changes the catalog), inside a savepoint on
 the connection that ran it, so the check sees tables and rows the test has
-not committed yet and leaves the test's transaction as it was. Statements
+not committed yet and leaves the test's transaction as it was. On an
+AUTOCOMMIT connection the check also tries the savepoint first, so a
+transaction the test opened with its own `BEGIN` is left open; only a
+connection with no transaction open gets a `BEGIN` ... `ROLLBACK` of the
+check's own. That first savepoint fails on such a connection, so the server
+log shows `SAVEPOINT can only be used in transaction blocks` once per
+explained statement; it is expected and changes nothing. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 
@@ -266,7 +280,7 @@ does not support:
 
 ```
 ============================ queryguard index check ============================
-mssql statements were not checked: the index check needs PostgreSQL 16 or newer
+mssql statements were not checked: the index check supports PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers
