@@ -60,11 +60,11 @@ tests:
 The text of a finding is in the failure message of the test case in that
 file, so it appears in the merge request's test report. This is what the
 file holds for the N+1 test of the sync example (generated with
-`pytest --junitxml=report.xml -k list_orders`; the time, timestamp and
+`pytest --junitxml=report.xml tests/test_orders.py -k list_orders`; the time, timestamp and
 hostname are replaced):
 
 ```xml
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.043" timestamp="..." hostname="..."><testcase classname="tests.test_orders" name="test_list_orders" time="0.043"><failure message="Failed: queryguard: N+1 detected&#10;&#10;  Order.customer was lazy-loaded 50 times&#10;  first at app/orders.py:10 in list_orders&#10;  sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?&#10;  fix: load it with the parent query, e.g.&#10;       select(Order).options(joinedload(Order.customer))">queryguard: N+1 detected
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.043" timestamp="..." hostname="..."><testcase classname="tests.test_orders" name="test_list_orders" time="0.043"><failure message="Failed: queryguard: N+1 detected&#10;&#10;  Order.customer was lazy-loaded 50 times&#10;  first at app/orders.py:10 in list_orders&#10;  kind: relationship-load  label: Order.customer&#10;  sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?&#10;  fix: load it with the parent query, e.g.&#10;       select(Order).options(joinedload(Order.customer))">queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/orders.py:10 in list_orders

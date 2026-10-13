@@ -18,10 +18,20 @@ fix such a test or raise its budget first.
 
 ## 1. Warn, and read
 
-```toml
-[tool.pytest.ini_options]
-queryguard_mode = "warn"
+The settings below go wherever the project's pytest configuration lives. For
+this project that is its `pytest.ini`, which pytest reads instead of a
+`pyproject.toml` next to it (pytest uses the first configuration file it
+finds, and `pytest.ini` comes first), so add the line there:
+
+```ini
+[pytest]
+pythonpath = .
+addopts = -p no:cacheprovider
+queryguard_mode = warn
 ```
+
+In a project that configures pytest in `pyproject.toml`, the same option is
+`queryguard_mode = "warn"` under `[tool.pytest.ini_options]`.
 
 Nothing fails because of a finding. Each one is a `QueryGuardWarning` in
 pytest's warning summary:
@@ -62,7 +72,10 @@ only that kind fails, the rest warn.
 
 ## 2. Baseline
 
-Record what exists today, over the whole suite:
+Record what exists today. In your own suite, run the whole suite for this, so
+that the file lists every test's findings. The command below deselects
+`test_rename_customers`, which makes it a partial run (see
+[Baseline](baseline.md#partial-runs)), and it says so:
 
 ```console
 $ pytest -q --deselect tests/test_orders.py::test_rename_customers \
@@ -73,6 +86,7 @@ $ pytest -q --deselect tests/test_orders.py::test_rename_customers \
 ..                                                                       [100%]
 ========================= queryguard: baseline updated =========================
 queryguard-baseline.json: 2 entries (2 added, 0 removed)
+this run did not cover the whole suite: 0 entries kept because their tests did not run
 2 passed, 1 deselected in 0.05s
 ```
 
@@ -99,12 +113,17 @@ moving code does not invalidate it:
 }
 ```
 
-Commit it and turn it on, and go back to the default mode:
+Commit it and turn it on, and go back to the default mode: in `pytest.ini`,
+remove the `queryguard_mode` line and add the baseline:
 
-```toml
-[tool.pytest.ini_options]
-queryguard_baseline = "queryguard-baseline.json"
+```ini
+[pytest]
+pythonpath = .
+addopts = -p no:cacheprovider
+queryguard_baseline = queryguard-baseline.json
 ```
+
+(In `pyproject.toml`: `queryguard_baseline = "queryguard-baseline.json"`.)
 
 ## 3. Fail on anything new
 

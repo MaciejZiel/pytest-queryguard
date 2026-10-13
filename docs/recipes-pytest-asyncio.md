@@ -8,12 +8,45 @@ look like problems of the database layer. Run with pytest-asyncio 1.4.0, pytest
 
 ## A working setup
 
-`pytest.ini`:
+The layout is `app/__init__.py` (an empty file), `app/models.py`,
+`app/orders.py`, `tests/conftest.py` and `tests/test_orders.py`.
+
+`pytest.ini`. `pythonpath = .` puts the project directory on `sys.path`, so
+that the tests can `import app` (see [getting started](getting-started.md)):
 
 ```ini
 [pytest]
+pythonpath = .
 asyncio_mode = auto
 asyncio_default_fixture_loop_scope = function
+```
+
+`app/models.py` uses SQLAlchemy's `AsyncAttrs` mixin, which gives
+`awaitable_attrs` for the lazy load below:
+
+```python
+from sqlalchemy import ForeignKey
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(AsyncAttrs, DeclarativeBase):
+    pass
+
+
+class Customer(Base):
+    __tablename__ = "customer"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"))
+    customer: Mapped[Customer] = relationship()
 ```
 
 `tests/conftest.py` has an async fixture for the session:
@@ -38,8 +71,7 @@ async def session():
     await engine.dispose()
 ```
 
-and `app/orders.py` has an async function with an N+1 (`awaitable_attrs`
-is SQLAlchemy's `AsyncAttrs` mixin) and a fixed one:
+`app/orders.py` has an async function with an N+1 and a fixed one:
 
 ```python
 from sqlalchemy import select
@@ -60,6 +92,8 @@ async def customer_names_fixed(session: AsyncSession) -> list[str]:
     stmt = select(Order).options(selectinload(Order.customer))
     return [order.customer.name for order in (await session.scalars(stmt)).all()]
 ```
+
+`tests/test_orders.py`:
 
 ```python
 from app.orders import customer_names, customer_names_fixed
@@ -169,6 +203,7 @@ Run the tests on the same loop as the fixture:
 
 ```ini
 [pytest]
+pythonpath = .
 asyncio_mode = auto
 asyncio_default_fixture_loop_scope = session
 asyncio_default_test_loop_scope = session

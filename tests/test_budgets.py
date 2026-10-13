@@ -58,7 +58,7 @@ def test_budget_fails_even_in_off_mode(project: pytest.Pytester) -> None:
     project.makepyfile(test_a=BODY.format(limit=1))
     result = project.runpytest("--queryguard-mode=off")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*expected at most 1 queries, got 3*"])
+    result.stdout.fnmatch_lines(["*expected at most 1 query, got 3*"])
 
 
 def test_marker_rejects_invalid_limit(project: pytest.Pytester) -> None:
@@ -85,7 +85,7 @@ def test_budget_failure_comes_before_nplusone(project: pytest.Pytester) -> None:
     result = project.runpytest()
     result.assert_outcomes(failed=1)
     out = result.stdout.str()
-    assert out.index("expected at most 1 queries") < out.index("N+1 detected")
+    assert out.index("expected at most 1 query") < out.index("N+1 detected")
 
 
 def test_context_manager_counts_only_inside_block() -> None:
@@ -143,7 +143,7 @@ def test_the_yielded_log_checks_for_nplusone() -> None:
 def test_context_manager_raises_when_exceeded() -> None:
     engine = create_engine("sqlite://")
     with (
-        pytest.raises(QueryBudgetExceeded, match="at most 1 queries, got 2"),
+        pytest.raises(QueryBudgetExceeded, match="at most 1 query, got 2"),
         max_queries(1),
         engine.connect() as conn,
     ):
@@ -178,7 +178,7 @@ def test_context_manager_works_without_pytest() -> None:
         check=False,
     )
     assert proc.returncode == 1
-    assert "expected at most 1 queries" in proc.stderr
+    assert "expected at most 1 query" in proc.stderr
 
 
 def test_negative_limit_rejected() -> None:
@@ -206,7 +206,7 @@ def test_warn_mode_budget_and_nplusone_in_one_failure(
     result = project.runpytest("--queryguard-mode=warn")
     result.assert_outcomes(failed=1)
     out = result.stdout.str()
-    assert out.index("expected at most 1 queries") < out.index("N+1 detected")
+    assert out.index("expected at most 1 query") < out.index("N+1 detected")
     assert "QueryGuardWarning" not in out
 
 

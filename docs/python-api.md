@@ -7,7 +7,7 @@ test read them back:
 from pytest_queryguard import record_queries
 
 from app.customers import fetch_customers
-from app.orders import list_orders
+from app.orders_fixed import list_orders
 
 
 def test_list_orders_loads_customers_with_the_orders(session):
@@ -23,6 +23,13 @@ def test_fetch_customers(session):
         fetch_customers(session, [1, 2, 3])
     log.assert_no_nplusone(repeat_threshold=2)
 ```
+
+The two tests import from different modules of
+[the first test](getting-started.md#a-first-test) project: `list_orders` from
+`app/orders_fixed.py`, which loads the customers with the orders, and
+`fetch_customers` from `app/customers.py`, the version with the loop, which is
+the one that fails the second test. Against the N+1 `app.orders` the first test
+fails on `log.count == 1`.
 
 `log.queries` is a tuple of `Query` objects, in the order the statements
 ran. The log is also sized, iterable and indexable (`len(log)`,
@@ -44,12 +51,23 @@ stay fixed after it. Statements from other threads are recorded too.
 to get one, and its constructor may change in any release. Use the class for
 type hints only.
 
-`log.assert_no_nplusone()` applies the plugin's two N+1 rules to the
-block. It raises `NPlusOneDetected`, a subclass of `AssertionError`, with
-the plugin's message, with paths relative to pytest's rootdir (outside
-pytest, to the working directory). The thresholds are keyword arguments,
-`relationship_threshold=2` and `repeat_threshold=5` by default, the same
-defaults as the ini options.
+`log.assert_no_nplusone()` applies the plugin's N+1 rules to the block:
+relationship loads, repeated statements and column loads, plus small repeats
+and write loops when asked for. It raises `NPlusOneDetected`, a subclass of
+`AssertionError`, with the plugin's message, with paths relative to pytest's
+rootdir (outside pytest, to the working directory). The thresholds are
+keyword-only arguments, with the same defaults as the ini options:
+
+| Argument | Default | Ini option | Rule |
+|---|---|---|---|
+| `relationship_threshold` | `2` | `queryguard_relationship_threshold` | One relationship lazy-loaded for this many different parent objects. |
+| `repeat_threshold` | `5` | `queryguard_repeat_threshold` | One `SELECT` that ran this many times. |
+| `column_load_threshold` | `5` | `queryguard_column_load_threshold` | This many instances of one class each loading deferred or expired columns on their own (kind `column-load`). |
+| `small_repeat_threshold` | `None` (off) | `queryguard_small_repeat_threshold` | An integer of at least 2 and below `repeat_threshold`: a statement that ran this many times from one line, each time with other parameters, counts too. |
+| `write_loop_threshold` | `None` (off) | `queryguard_write_loop_threshold` | An integer of at least 2: this many single-row `INSERT`, `UPDATE` or `DELETE` statements of one shape from one line (kind `write-loop`). |
+| `repeat_scope` | `"test"` | `queryguard_repeat_scope` | See below. |
+
+An ini option set to `0` for "off" is `None` here.
 
 `repeat_scope="session"` counts each `Session` on its own, like
 `queryguard_repeat_scope = session` (see [Tests with several sessions or

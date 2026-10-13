@@ -336,7 +336,8 @@ def format_budget(
     """
     shown = len(statements)
     got = shown if total is None else total
-    lines = [f"queryguard: expected at most {limit} queries, got {got}", ""]
+    noun = "query" if limit == 1 else "queries"
+    lines = [f"queryguard: expected at most {limit} {noun}, got {got}", ""]
     for number, stmt in enumerate(statements, start=1):
         line = f"  {number}. {_truncate(stmt.sql)}"
         if stmt.callsite is not None:

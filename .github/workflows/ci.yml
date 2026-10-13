@@ -108,7 +108,9 @@ jobs:
 
   # Third-party plugins that change how every test runs (the "plugins"
   # dependency group: pytest-randomly, pytest-asyncio). Only the tests written
-  # for them run here; installed, they would reorder the whole suite.
+  # for them run here; installed, they would reorder the whole suite. The
+  # documentation projects run here too, so that the pytest-asyncio recipe,
+  # which the other jobs skip, is run in CI.
   plugins:
     runs-on: ubuntu-latest
     steps:
@@ -121,6 +123,7 @@ jobs:
           uv run --no-sync pytest -v -p no:randomly
           -o asyncio_default_fixture_loop_scope=function
           tests/test_plugin_interplay.py tests/test_concurrency.py
+          tests/test_doc_examples.py
 
   # Per-statement overhead of the measurement against the stored baseline in
   # scripts/bench_baseline.json (relative overhead, generous margin). Linux

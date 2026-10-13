@@ -187,7 +187,7 @@ def test_max_queries_failure_shows_the_database_time(engine: Engine) -> None:
         _run(engine, "select 1")
         _run(engine, f"select nap({SLEEP})")
     message = str(caught.value)
-    assert "expected at most 1 queries, got 2" in message
+    assert "expected at most 1 query, got 2" in message
     assert "  database time: " in message
     assert "  slowest:" in message
     assert "select nap" in message.split("slowest:")[1].splitlines()[1]
@@ -301,7 +301,7 @@ def test_both_budgets_are_reported_in_one_failure(project: pytest.Pytester) -> N
     result = project.runpytest()
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
-        ["*expected at most 1 queries, got 2*", "*database time * exceeded*"]
+        ["*expected at most 1 query, got 2*", "*database time * exceeded*"]
     )
 
 

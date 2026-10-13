@@ -719,7 +719,7 @@ def test_pg_budget_nplusone_and_index_findings_share_one_failure(
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "*queryguard: expected at most 1 queries, got 6",
+            "*queryguard: expected at most 1 query, got 6",
             "*queryguard: N+1 detected",
             "*queryguard: missing index",
         ]

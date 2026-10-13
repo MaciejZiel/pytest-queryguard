@@ -279,7 +279,7 @@ def test_a_breakpoint_inside_a_measured_test_counts_the_debugger_queries(
         timeout=120,
     )
     _clean(result)
-    result.stdout.fnmatch_lines(["*expected at most 1 queries, got 3*"])
+    result.stdout.fnmatch_lines(["*expected at most 1 query, got 3*"])
 
 
 # ------------------------------------------------- reruns (rerunfailures-like)
