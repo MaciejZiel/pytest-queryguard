@@ -43,7 +43,17 @@ def dumps(identities: Iterable[Identity]) -> str:
         for kind, label, file, function in sorted_identities(identities)
     ]
     document = {"version": SCHEMA_VERSION, "findings": entries}
-    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    text = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        pass
+    else:
+        return text
+    # A path that is not valid UTF-8 reaches an identity as a lone surrogate
+    # (surrogateescape), which UTF-8 cannot encode. \udcXX escapes are plain
+    # ASCII and read back as the same string.
+    return json.dumps(document, indent=2, ensure_ascii=True) + "\n"
 
 
 def write(path: Path, identities: Iterable[Identity]) -> None:

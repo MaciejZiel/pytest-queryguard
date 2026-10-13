@@ -79,6 +79,22 @@ chunked `IN` loads are not counted either, when their parameters show it (see
 below). The label is the normalized statement. This rule sees Core and
 `text()` statements as well as ORM ones.
 
+Schema reflection is not counted either, by this rule or by the small-repeat
+rule: SQLAlchemy's `MetaData.reflect()`, `Inspector.has_table()` and
+`metadata.create_all()` run one catalog query per table, and Alembic's
+autogenerate and version-table checks do the same, so a loop over them is no
+N+1 the application could batch. A statement is skipped when it starts with
+`PRAGMA`, reads `sqlite_master`, `sqlite_schema`, `sqlite_temp_master` or
+`sqlite_temp_schema` (also as `main.` or `temp.`), or reads anything in the
+`pg_catalog` or `information_schema` schema. It is matched on the normalized
+text, so a string value such as `'sqlite_master'` does not count, nor does a
+name in an SQL comment, or a CTE or table alias the statement itself names
+`sqlite_master`, `pg_catalog` or `information_schema`. A statement that joins
+an application table with a real catalog is skipped too.
+Not skipped: MySQL's `SHOW` and `DESCRIBE`, and PostgreSQL catalog tables read
+without the schema name (`pg_class` found through the search path). These
+statements still count for `max_queries` and appear in the report.
+
 With `queryguard_small_repeat_threshold` set (off by default, for example
 `2`), a statement that ran at least that many times but fewer than the repeat
 threshold is reported too, if all of these hold: every run came from the same
