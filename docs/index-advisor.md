@@ -112,7 +112,7 @@ with the suggested columns, the plan did not use it for another reason, and a
 new index would not help. The finding then says why instead of a `CREATE INDEX`:
 
 ```
-  fix: no new index: index orders_customer on (customer_id) exists but is marked invalid (a CREATE INDEX CONCURRENTLY that failed?): drop it and create it again
+  fix: no new index: index orders_customer on (customer_id) exists but is marked invalid (a CREATE INDEX CONCURRENTLY that failed, or CREATE INDEX ON ONLY a partitioned table with partitions not attached?): drop it and create it again
 ```
 
 The reasons the advisor can read from the catalog:
