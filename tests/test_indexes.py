@@ -1959,3 +1959,22 @@ def test_rows_read_before_a_clear_are_not_written_after_it(text_cast: bool) -> N
     assert varchar == ({("public", "t"): frozenset({"s"})} if text_cast else {})
     assert entry.leading == {}
     assert entry.varchar == {}
+
+
+def test_a_walked_index_is_named_by_every_rule_that_reports_one() -> None:
+    # rule 2, an index scan with a filter and no index condition
+    [whole] = find_scans(_pkey_scan("(orders.customer_id = $1)"))
+    assert whole.index == "index orders_pkey"
+    # rule 2 again, a whole index read as a bitmap
+    [bitmap] = find_scans(_bitmap_whole_index("(orders.note = $1)"))
+    assert bitmap.index == "index o_inc"
+    # rule 3, an index condition on a trailing column
+    [trailing] = find_scans(
+        _composite("Bitmap Index Scan", "(orders.status = $1)"), None, LEADING
+    )
+    assert trailing.index == "index orders_tenant_id_status_idx"
+
+
+def test_a_sequential_scan_names_no_index() -> None:
+    [issue] = find_scans(_seq(Filter="(orders.customer_id = $1)"))
+    assert issue.index is None
