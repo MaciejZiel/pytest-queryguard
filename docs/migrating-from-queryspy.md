@@ -4,7 +4,7 @@
 both find N+1 queries and enforce query budgets for SQLAlchemy 2 in pytest.
 This page maps each queryspy setting to its pytest-queryguard equivalent, as
 of queryspy 0.5.0 (read in its installed package on 2026-10-13) and
-pytest-queryguard 0.4.0rc4. It is written by the author of pytest-queryguard;
+pytest-queryguard 0.4.0. It is written by the author of pytest-queryguard;
 [Comparison](comparison.md) has the measured differences, including the ones
 where queryspy is ahead.
 
@@ -138,7 +138,7 @@ record the baseline with the SQLAlchemy version your CI uses.
 ## Steps
 
 1. `pip uninstall queryspy` (unless you keep its middleware), then
-   `pip install "pytest-queryguard>=0.4.0rc4"`.
+   `pip install pytest-queryguard`.
 2. Translate the configuration with the tables above; start with
    `queryguard_mode = "warn"` if you ran queryspy without `--queryspy-strict`.
 3. Replace `@pytest.mark.queryspy(...)` markers and the `queryspy` helpers.
