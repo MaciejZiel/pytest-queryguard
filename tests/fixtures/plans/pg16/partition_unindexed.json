@@ -68,6 +68,20 @@
   }
  ],
  "catalog": {
+  "roots": [
+   [
+    "public",
+    "events_2025",
+    "public",
+    "events"
+   ],
+   [
+    "public",
+    "events_2026",
+    "public",
+    "events"
+   ]
+  ],
   "leading": [],
   "varchar": [],
   "partial": [],
@@ -99,23 +113,12 @@
  "live": [
   {
    "schema": "public",
-   "table": "events_2025",
+   "table": "events",
    "node": "Seq Scan",
    "kind": "filter",
    "column": "kind",
    "expression": false,
-   "create_sql": "CREATE INDEX ON events_2025 (kind)",
-   "skipped": null,
-   "partial_skipped": false
-  },
-  {
-   "schema": "public",
-   "table": "events_2026",
-   "node": "Seq Scan",
-   "kind": "filter",
-   "column": "kind",
-   "expression": false,
-   "create_sql": "CREATE INDEX ON events_2026 (kind)",
+   "create_sql": "CREATE INDEX ON events (kind)",
    "skipped": null,
    "partial_skipped": false
   }

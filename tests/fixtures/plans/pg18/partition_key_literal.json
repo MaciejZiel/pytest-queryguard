@@ -26,6 +26,14 @@
   }
  ],
  "catalog": {
+  "roots": [
+   [
+    "public",
+    "events_2026",
+    "public",
+    "events"
+   ]
+  ],
   "leading": [],
   "varchar": [],
   "partial": [],
@@ -46,12 +54,12 @@
  "live": [
   {
    "schema": "public",
-   "table": "events_2026",
+   "table": "events",
    "node": "Seq Scan",
    "kind": "filter",
    "column": null,
    "expression": false,
-   "create_sql": "CREATE INDEX ON events_2026 (kind, created_at)",
+   "create_sql": "CREATE INDEX ON events (kind, created_at)",
    "skipped": null,
    "partial_skipped": false
   }

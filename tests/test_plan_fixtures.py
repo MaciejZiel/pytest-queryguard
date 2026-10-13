@@ -45,9 +45,11 @@ CONDITION_KEYS = (
 SEQ = "Seq Scan"
 
 # name -> [(table, node, kind, column, expression)], the same on every version
-# unless EXPECTED_BY_VERSION says otherwise. A partitioned table is reported
-# once per partition (#86); an inherited table once per child, which is right:
-# an index on the parent does not cover them.
+# unless EXPECTED_BY_VERSION says otherwise. The plan walk reports each
+# partition; run_explain() then names the partitioned table, once (see
+# test_partitions_are_reported_on_their_partitioned_table). An inherited table
+# is reported once per child, which is right: an index on the parent does not
+# cover them.
 EXPECTED: dict[str, list[tuple[str, str, str, str | None, bool]]] = {
     "aggregate_filter": [("orders", SEQ, "filter", "customer_id", False)],
     "any_array_literal": [("orders", SEQ, "filter", "customer_id", False)],
@@ -319,8 +321,10 @@ def _offline(version: int, name: str) -> list[dict[str, Any]]:
             advisor.ExistingIndex(index, method, valid, tuple(columns), predicate)
         )
     _, varchar = catalog(version, name)
+    roots = {(s, t): (rs, rt) for s, t, rs, rt in found["roots"]}
+    issues, varchar = indexes.to_roots(replay(version, name), roots, "public", varchar)
     kept, skipped = [], []
-    for issue in replay(version, name):
+    for issue in issues:
         indexes_ = by_table.get((issue.schema or "", issue.table))
         if indexes_ and partial.may_serve(indexes_, issue.conditions, issue.alias):
             skipped.append(issue)
@@ -450,6 +454,42 @@ def test_partitions_are_scanned_under_their_own_alias(version: int) -> None:
     assert {n["Relation Name"] for n in scans} == {"events_2025", "events_2026"}
     assert all(n["Alias"].startswith("events_") for n in scans)
     assert all(f"{n['Alias']}.kind" in n["Filter"] for n in scans)
+
+
+PARTITIONED = {
+    # 14 and 15 prune the 2025 partition of partition_key_param at plan time
+    "partition_unindexed": [
+        ("events", "filter", "kind", "CREATE INDEX ON events (kind)")
+    ],
+    "partition_order_limit": [
+        ("events", "filter", "kind", "CREATE INDEX ON events (kind)")
+    ],
+    "partition_key_param": [
+        ("events", "filter", None, "CREATE INDEX ON events (kind, created_at)")
+    ],
+    "partition_key_literal": [
+        ("events", "filter", None, "CREATE INDEX ON events (kind, created_at)")
+    ],
+    "inheritance_parent": [
+        ("vehicles", "filter", "owner_id", "CREATE INDEX ON vehicles (owner_id)"),
+        ("cars", "filter", "owner_id", "CREATE INDEX ON cars (owner_id)"),
+        ("trucks", "filter", "owner_id", "CREATE INDEX ON trucks (owner_id)"),
+    ],
+}
+
+
+@pytest.mark.parametrize("version", VERSIONS)
+@pytest.mark.parametrize("name", sorted(PARTITIONED))
+def test_partitions_are_reported_on_their_partitioned_table(
+    version: int, name: str
+) -> None:
+    # #86: one finding and one CREATE INDEX on the partitioned table, which
+    # creates the index on every partition; inheritance children stay apart.
+    found = [
+        (row["table"], row["kind"], row["column"], row["create_sql"])
+        for row in _offline(version, name)
+    ]
+    assert found == PARTITIONED[name]
 
 
 @pytest.mark.parametrize("version", VERSIONS)
