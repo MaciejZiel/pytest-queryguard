@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import re
+import sys
 import threading
 import tracemalloc
 from collections.abc import Iterator
@@ -52,22 +53,42 @@ def _cycle(statements: int) -> None:
     assert len(rec.statements) == 100
 
 
+FREE_THREADED = not getattr(sys, "_is_gil_enabled", lambda: True)()
+PLUGIN_ONLY = [tracemalloc.Filter(True, "*/pytest_queryguard/*", all_frames=True)]
+
+
+def _snapshot() -> tracemalloc.Snapshot:
+    gc.collect()
+    return tracemalloc.take_snapshot()
+
+
 def test_state_does_not_grow_across_many_measurements(measured: None) -> None:
     for _ in range(5):  # warm up: caches, interned strings, first-call costs
         _cycle(200)
-    gc.collect()
-    tracemalloc.start()
+    tracemalloc.start(12)
     try:
-        before = tracemalloc.get_traced_memory()[0]
+        before = _snapshot()
         for _ in range(150):
             _cycle(200)  # 30000 statements over 150 collectors and engines
-        gc.collect()
-        growth = tracemalloc.get_traced_memory()[0] - before
+        after = _snapshot()
     finally:
         tracemalloc.stop()
-    # Nothing per-statement or per-test may be kept. The margin covers allocator
-    # noise; a leak of even one event per measurement is far above it.
-    assert growth < 150_000, f"{growth} bytes kept after 30000 statements"
+    total = sum(d.size_diff for d in after.compare_to(before, "filename"))
+    owned = sum(
+        d.size_diff
+        for d in after.filter_traces(PLUGIN_ONLY).compare_to(
+            before.filter_traces(PLUGIN_ONLY), "filename"
+        )
+    )
+    # What the plugin allocated (any frame of the allocation in its package)
+    # must not grow: a leak of even one event per measurement is above this.
+    assert owned < 4_096, f"{owned} bytes of plugin-owned memory kept"
+    # The free-threaded build frees SQLAlchemy's compiled-statement caches late
+    # and out of step with the cycles (1 MB to 7 MB after 150 cycles, none of it
+    # allocated by this package), so the whole-process figure says nothing about
+    # the plugin there; the plugin-owned figure above is the check on that build.
+    if not FREE_THREADED:
+        assert total < 150_000, f"{total} bytes kept after 30000 statements"
     assert collector.active() == ()
 
 
@@ -227,3 +248,45 @@ def test_nested_collectors_each_see_every_thread_statement(measured: None) -> No
         collector.pop(outer)
     assert errors == []
     assert outer.statement_count == inner.statement_count == THREADS * PER_THREAD
+
+
+@pytest.mark.parametrize("locked", [True, False])
+def test_collector_counters_under_threads_on_both_code_paths(
+    monkeypatch: pytest.MonkeyPatch, locked: bool
+) -> None:
+    """The lock path (free-threaded builds) and the plain path count alike."""
+    if not locked and FREE_THREADED:
+        pytest.skip("the unlocked path is the race itself without the GIL")
+    from pytest_queryguard.events import (
+        ColumnLoadEvent,
+        RelationshipLoadEvent,
+        StatementEvent,
+    )
+
+    monkeypatch.setattr(collector, "_FREE_THREADED", locked)
+    rec = QueryCollector()
+    rec.max_events = 50
+    threads, per_thread = 8, 500
+
+    def work() -> None:
+        for _ in range(per_thread):
+            rec.add_statement(StatementEvent("select 1", None, None))
+            rec.add_relationship_load(RelationshipLoadEvent("A.b", 1, None))
+            rec.add_column_load(ColumnLoadEvent("A", ("x",), "deferred", 1, None))
+            rec.add_db_time(0.5)
+
+    pool = [threading.Thread(target=work) for _ in range(threads)]
+    for t in pool:
+        t.start()
+    for t in pool:
+        t.join()
+    total = threads * per_thread
+    assert rec.statement_count == total
+    assert rec.relationship_load_count == total
+    assert rec.column_load_count == total
+    assert rec.db_time == total * 0.5
+    # the lock path also keeps the cap exact
+    if locked:
+        assert len(rec.statements) == 50
+        assert len(rec.relationship_loads) == 50
+        assert len(rec.column_loads) == 50
