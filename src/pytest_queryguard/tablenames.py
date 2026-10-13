@@ -7,8 +7,8 @@ and ``allow_nplusone(..., kind="missing-index")`` all go through
 A pattern is a table name or ``schema.table``. Each part is an identifier
 written the way SQL writes it:
 
-- unquoted (``UserAccount``, ``audit_*``): compared without regard to case, and
-  ``*``, ``?`` and ``[...]`` are ``fnmatch`` wildcards;
+- unquoted (``UserAccount``, ``audit_*``): compared as written, case-sensitive,
+  and ``*``, ``?`` and ``[...]`` are ``fnmatch`` wildcards;
 - double-quoted (``"UserAccount"``, ``"my ""odd"" name"``): compared exactly,
   with no wildcards, and may hold dots.
 
@@ -32,7 +32,7 @@ class _Part:
     def matches(self, name: str) -> bool:
         if self.quoted:
             return self.text == name
-        return fnmatchcase(name.lower(), self.text.lower())
+        return fnmatchcase(name, self.text)
 
 
 def _split(pattern: str) -> list[_Part] | None:
@@ -74,16 +74,18 @@ def table_matches(pattern: str, schema: str | None, table: str) -> bool:
     """Whether ``pattern`` names the table ``schema.table`` (``schema`` may be None)."""
     parts = _split(pattern.strip())
     if parts is not None:
-        if len(parts) == 1:
-            return parts[0].matches(table)
-        if len(parts) == 2:
-            return (
-                schema is not None
-                and parts[0].matches(schema)
-                and parts[1].matches(table)
-            )
-    # What every place accepted before: the raw pattern as an fnmatch pattern
-    # (case-sensitive) on the bare and on the qualified name.
+        if len(parts) == 1 and parts[0].matches(table):
+            return True
+        if (
+            len(parts) == 2
+            and schema is not None
+            and parts[0].matches(schema)
+            and parts[1].matches(table)
+        ):
+            return True
+    # What every place accepted before, always tried so that no spelling stops
+    # matching: the raw pattern as an fnmatch pattern on the bare and on the
+    # qualified name (``audit*`` for ``audit.log``, ``public[.]log``).
     if fnmatchcase(table, pattern):
         return True
     return schema is not None and fnmatchcase(f"{schema}.{table}", pattern)

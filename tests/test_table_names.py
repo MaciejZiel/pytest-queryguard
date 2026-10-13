@@ -26,17 +26,17 @@ pytestmark = pytest.mark.allow_nplusone
     [
         ("audit_log", None, "audit_log", True),
         ("audit_log", "public", "audit_log", True),
-        ("AUDIT_LOG", "public", "audit_log", True),
+        ("AUDIT_LOG", "public", "audit_log", False),
         ("audit_*", None, "audit_log", True),
         ("audit_log", None, "audit_logs", False),
         ('"audit_log"', None, "audit_log", True),
         ('"AUDIT_LOG"', None, "audit_log", False),
-        ("useraccount", None, "UserAccount", True),
+        ("useraccount", None, "UserAccount", False),
         ("UserAccount", None, "UserAccount", True),
         ('"UserAccount"', None, "UserAccount", True),
         ('"useraccount"', None, "UserAccount", False),
         ("public.audit_log", "public", "audit_log", True),
-        ("PUBLIC.Audit_Log", "public", "audit_log", True),
+        ("PUBLIC.Audit_Log", "public", "audit_log", False),
         ('"public"."audit_log"', "public", "audit_log", True),
         ('public."UserAccount"', "public", "UserAccount", True),
         ('"Public".audit_log', "public", "audit_log", False),
@@ -79,12 +79,27 @@ def _index_finding(label: str, schema: str | None, table: str) -> Finding:
 
 
 @pytest.mark.parametrize(
-    "label", ["audit_log", "public.audit_log", '"public"."audit_log"', "AUDIT_LOG"]
+    "label", ["audit_log", "public.audit_log", '"public"."audit_log"', "audit_*"]
 )
 def test_ignore_rule_matches_every_spelling_of_the_table(label: str) -> None:
     finding = _index_finding("audit_log", "public", "audit_log")
     kept, used = apply_rules([finding], [parse_rule(f"missing-index {label}")])
     assert kept == [] and len(used) == 1
+
+
+@pytest.mark.parametrize("label", ["AUDIT_LOG", "public.AUDIT_LOG", '"AUDIT_LOG"'])
+def test_ignore_rule_compares_table_names_case_sensitively(label: str) -> None:
+    finding = _index_finding("audit_log", "public", "audit_log")
+    kept, used = apply_rules([finding], [parse_rule(f"missing-index {label}")])
+    assert kept == [finding] and not used
+
+
+def test_a_pattern_with_a_dot_inside_a_wildcard_still_matches_as_before() -> None:
+    # Before the identifier parser these matched the qualified name; they
+    # must keep matching (audit* for every table in the schema audit).
+    assert table_matches("audit*", "audit", "log")
+    assert table_matches("pub*log", "public", "audit_log")
+    assert table_matches("public[.]audit_log", "public", "audit_log")
 
 
 def test_ignore_rule_still_matches_the_printed_label() -> None:
@@ -114,19 +129,19 @@ TABLES = ("audit_log", "UserAccount")
 # of the table, known on PostgreSQL only.
 BARE = [
     ("audit_log", "audit_log", True),
-    ("AUDIT_LOG", "audit_log", True),
+    ("AUDIT_LOG", "audit_log", False),
     ('"audit_log"', "audit_log", True),
     ('"AUDIT_LOG"', "audit_log", False),
     ("audit_*", "audit_log", True),
     ("UserAccount", "UserAccount", True),
-    ("useraccount", "UserAccount", True),
+    ("useraccount", "UserAccount", False),
     ('"UserAccount"', "UserAccount", True),
     ('"useraccount"', "UserAccount", False),
     ("audit_log", "UserAccount", False),
 ]
 QUALIFIED = [
     ("{schema}.audit_log", "audit_log", True),
-    ("{schema}.AUDIT_LOG", "audit_log", True),
+    ("{schema}.AUDIT_LOG", "audit_log", False),
     ('"{schema}"."audit_log"', "audit_log", True),
     ('"{schema}".audit_log', "audit_log", True),
     ("{schema}.*", "audit_log", True),
