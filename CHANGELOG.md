@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `--queryguard-update-baseline` no longer rewrites the baseline, and
+  `--queryguard-sarif` no longer writes the file, after an interrupted run (a
+  collection error, Ctrl-C, a usage error or an internal pytest error). The
+  summary says why. Fixes #95.
+
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
