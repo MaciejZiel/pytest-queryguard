@@ -372,6 +372,36 @@ def test_an_exception_never_changes_a_user_test(
         # the error, so nothing reaches it.
         collector._reset_for_tests()
     assert collector.active() == ()
+    assert eager._current is None
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["max_queries('x')", "max_db_time(-1)", "allow_missing_index(3)"],
+)
+def test_a_marker_error_still_fails_the_test_and_is_no_internal_error(
+    pytester: pytest.Pytester, marker: str
+) -> None:
+    # pytest.fail raises a BaseException, which the fail-open guards around
+    # the marker checks must let through.
+    pytester.makepyfile(
+        test_a=f"""
+        import pytest
+
+
+        @pytest.mark.{marker}
+        def test_x():
+            pass
+        """
+    )
+    result = pytester.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    output = result.stdout.str()
+    assert marker.partition("(")[0] + " on test_a.py::test_x" in output
+    assert STOPPED not in output
+    assert "QueryGuardInternalWarning" not in output
+    assert listeners.internal_error() is None
+    assert collector.active() == ()
 
 
 @pytest.mark.parametrize("error", [RuntimeError, MemoryError])
@@ -442,6 +472,10 @@ SIGNAL_TARGETS = [
     "plugin:detect",
     "plugin:_record",
     "eager:stop",
+    "plugin:_budget",
+    "plugin:_time_budget",
+    "plugin:_index_exemption",
+    "plugin:_stop_measuring",
 ]
 
 
