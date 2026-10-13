@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stable 0.3.0 while 0.4 was a release candidate)
   ([#106](https://github.com/MaciejZiel/pytest-queryguard/issues/106)).
 
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
+
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
   concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
@@ -71,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
   now fails the build for any page left like that.
+- Documented that PostgreSQL evaluates `IMMUTABLE` functions with constant
+  arguments at plan time, so the index check and the advisor can call such a
+  function again and its non-transactional side effects (for example
+  `nextval()`) are not rolled back with the savepoint. Fixes #92.
 
 ### Changed
 
