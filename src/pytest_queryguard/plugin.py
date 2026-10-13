@@ -1544,6 +1544,11 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             record_error(exc, "end of the measurement")
             _discard(collector, tracker)
+        except BaseException:
+            # a signal (KeyboardInterrupt, SystemExit) goes on, but leaves
+            # no collector on the stack and no tracker behind
+            _discard(collector, tracker)
+            raise
     try:
         parts, warn_texts = _results(
             item, collector, settings, tracker, limit, time_limit, exempt
