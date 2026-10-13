@@ -8,6 +8,9 @@ planner would use that index and what it would save.
 
 The advisor runs only for statements that already have a finding, inside the
 same savepoint as the check, and never changes the test's data or settings.
+One exception is a function marked `IMMUTABLE` that has non-transactional side
+effects: PostgreSQL evaluates it at plan time, so each plan the check and the
+advisor ask for runs it again (see [Limitations](limitations.md)).
 
 ## Example
 

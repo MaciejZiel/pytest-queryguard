@@ -578,7 +578,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "max_queries(n): fail the test if it runs more than n SQL statements.",
+        "max_queries(limit): fail the test if it runs more than limit SQL statements.",
     )
     config.addinivalue_line(
         "markers",
@@ -865,17 +865,23 @@ def _budget(item: pytest.Item) -> int | None:
     marker = item.get_closest_marker("max_queries")
     if marker is None:
         return None
-    if len(marker.args) > 1 or set(marker.kwargs) - {"n"}:
+    # ``n`` is the spelling of 0.1 to 0.3; it stays accepted, without a warning,
+    # until a deprecation period (docs/stability.md) says otherwise.
+    if len(marker.args) > 1 or set(marker.kwargs) - {"limit", "n"}:
         pytest.fail(
             f"max_queries on {item.nodeid} takes a single argument, the limit",
             pytrace=False,
         )
-    if marker.args and "n" in marker.kwargs:
+    keywords = [name for name in ("limit", "n") if name in marker.kwargs]
+    if len(marker.args) + len(keywords) > 1:
         pytest.fail(
-            f"max_queries on {item.nodeid} got the limit twice, positionally and as n=",
+            f"max_queries on {item.nodeid} got the limit more than once "
+            "(positionally, as limit= or as n=)",
             pytrace=False,
         )
-    limit = marker.args[0] if marker.args else marker.kwargs.get("n")
+    limit = marker.kwargs[keywords[0]] if keywords else None
+    if marker.args:
+        limit = marker.args[0]
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         pytest.fail(
             f"max_queries on {item.nodeid} needs a non-negative integer "
@@ -1135,7 +1141,7 @@ def _update_baseline(
     after = frozenset(settings.seen)
     try:
         baselines.write(path, after)
-    except OSError as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.baseline_failed = f"could not write {path}: {exc}"
         return
     settings.baseline_written = (
