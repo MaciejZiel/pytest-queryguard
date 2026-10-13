@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--queryguard-index-check` and `queryguard_index_check` name MySQL and
   MariaDB too. Fixes #154.
 
+- A lazy load keeps its relationship when another statement runs between the
+  load and its `SELECT`: statements of other `AsyncSession`s running
+  concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
+  or any statement of a `begin` or `after_begin` listener. The attribution is
+  now parked on the `Session` that issued the load instead of on the thread, so
+  these loops are no longer reported a second time as a repeated statement.
+  Fixes #97 and #99.
+
 - The SARIF level of an unused-eager-load finding now follows the test outcome:
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
   Fixes #98.
@@ -65,6 +73,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now fails the build for any page left like that.
 
 ### Changed
+
+- `docs/stability.md` has an "Experimental" section: the
+  `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
+  and the missing-index check on MySQL and MariaDB are exempt from the
+  deprecation policy and may change or go in a minor release with a changelog
+  entry. The policy had no such tier although the option was labelled
+  experimental.
 
 - `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
   object `record_queries()` yields) instead of the internal `QueryCollector`,
