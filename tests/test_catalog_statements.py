@@ -58,6 +58,22 @@ def test_catalog_statements_are_recognised(sql: str) -> None:
         "SELECT * FROM users WHERE name = ?",  # 'sqlite_master' was a literal
         "SELECT pragma FROM users",
         "SHOW CREATE TABLE users",
+        # a CTE or an alias named like a catalog is the application's own data
+        (
+            "WITH sqlite_master AS (SELECT * FROM orders WHERE customer_id = ?) "
+            "SELECT * FROM sqlite_master"
+        ),
+        (
+            'WITH RECURSIVE "pg_catalog"(id) AS (SELECT id FROM orders WHERE id = ?) '
+            "SELECT pg_catalog.id FROM pg_catalog"
+        ),
+        (
+            "SELECT information_schema.id FROM orders AS information_schema "
+            "WHERE information_schema.customer_id = ?"
+        ),
+        # a comment names anything
+        "SELECT * FROM orders /* pg_catalog.pg_class */ WHERE id = ?",
+        "SELECT * FROM orders WHERE id = ? -- see information_schema.columns",
     ],
 )
 def test_other_statements_are_not_catalog_statements(sql: str) -> None:
