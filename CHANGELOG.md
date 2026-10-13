@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Under pytest-xdist, a run stopped by `-x` or `--maxfail` no longer reports
+  that the baseline was not updated because of a collection error, Ctrl-C or
+  an internal error. It gives the same reason as a serial run: the run
+  stopped early. Closes #187.
+- The GitHub Action example in `docs/ci.md` no longer fails on a first run:
+  the `baseline` input is commented out until the file exists. The examples
+  use `actions/checkout@v7` and `actions/setup-python@v7` (Node 24) and run
+  on `push` to `main` plus `pull_request`, so a pull request does not run
+  twice.
+
 ## [0.4.0rc3] - 2026-10-13
 
 ### Added
