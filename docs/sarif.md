@@ -13,8 +13,10 @@ was started from.
 
 - One rule per finding kind (`queryguard/relationship-load`,
   `queryguard/repeated-statement`, `queryguard/column-load`,
-  `queryguard/write-loop`, `queryguard/missing-index`), each with a
-  description and a fix hint. All five rules are always listed.
+  `queryguard/write-loop`, `queryguard/unused-eager-load`,
+  `queryguard/missing-index`), each with a description and a fix hint. All six
+  rules are always listed, `queryguard/unused-eager-load` too when
+  `queryguard_unused_eager_load` is `off`.
 - One result per finding identity (kind, label, file, function), so the same
   finding from several tests is one result, with its counts added up and the
   earliest line.
