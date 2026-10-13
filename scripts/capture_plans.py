@@ -623,7 +623,9 @@ def read_catalog(cursor: Any, major: int, plan: dict[str, Any]) -> dict[str, Any
         [str(r[0]), str(r[1]), str(r[2]), str(r[3]), bool(r[4]), list(r[5]), r[6]]
         for r in indexes._rows(cursor, lookup)
     ]
+    roots = indexes.partition_roots(cursor, tables, None, False)
     return {
+        "roots": sorted([s, t, *root] for (s, t), root in roots.items()),
         "leading": sorted([s, i, c] for (s, i), c in leading.items()),
         "varchar": sorted([s, t, sorted(c)] for (s, t), c in varchar.items()),
         "partial": sorted(

@@ -266,7 +266,8 @@ def blocking_index(
         if not index.valid:
             invalid = invalid or (
                 f"index {where} exists but is marked invalid (a CREATE INDEX "
-                "CONCURRENTLY that failed?): drop it and create it again"
+                "CONCURRENTLY that failed, or CREATE INDEX ON ONLY a partitioned "
+                "table with partitions not attached?): drop it and create it again"
             )
         elif index.predicate is not None:
             partial = partial or (

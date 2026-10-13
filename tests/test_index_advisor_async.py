@@ -146,3 +146,58 @@ def test_pg_async_on_creates_the_extension_in_the_savepoint(
     finally:
         engine.dispose()
     assert found is None
+
+
+ASYNC_EVENTS = """
+import asyncio
+
+from sqlalchemy import text
+
+
+async def main(engine):
+    async with engine.begin() as conn:
+        for statement in [
+            "CREATE TABLE events (id int, kind text, region text NOT NULL) "
+            "PARTITION BY LIST (region)",
+            "CREATE TABLE events_eu PARTITION OF events FOR VALUES IN ('eu')",
+            "CREATE TABLE events_rest PARTITION OF events DEFAULT",
+            "INSERT INTO events SELECT g, 'k' || g % 7, "
+            "(ARRAY['eu', 'us'])[1 + g % 2] FROM generate_series(1, 9000) g",
+            "ANALYZE events",
+        ]:
+            await conn.execute(text(statement))
+    try:
+        async with engine.connect() as conn:
+            rows = await conn.execute(
+                text("SELECT * FROM events WHERE kind = :k"), {"k": "k1"}
+            )
+            assert rows.all()
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("DROP TABLE events"))
+
+
+def test_events(engine):
+    asyncio.run(main(engine))
+"""
+
+
+def test_pg_async_a_partitioned_table_is_one_verified_finding_on_the_table(
+    project: pytest.Pytester, hypopg_async: Postgres
+) -> None:
+    # #86 on asyncpg: the partition lookup runs through the asyncpg cursor too.
+    _async_project(project, hypopg_async).makepyfile(test_a=ASYNC_EVENTS)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    out = result.stdout.str()
+    # On CI pytest repeats the whole message in the short summary; count once.
+    assert out.split("short test summary info")[0].count("is read in full") == 1
+    result.stdout.fnmatch_lines(
+        [
+            "  events is read in full: Seq Scan with filter (events_*.kind = $1)",
+            "  fix: CREATE INDEX ON events (kind)",
+            '  alembic: op.create_index("ix_events_kind", "events", ["kind"])',
+            "  hypopg: the planner uses it (*Scan); estimated cost*",
+        ]
+    )
+    assert "events_eu" not in out and "events_rest" not in out

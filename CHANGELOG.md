@@ -137,6 +137,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   against a constant in the SQL (which a partial index serves), is still
   reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
+
 ### Changed
 
 - The repeated-statement rules no longer report pagination and chunked `IN`
@@ -203,6 +212,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
 
+- PostgreSQL index check: a statement on a partitioned table is now one
+  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
+  creates the index on every partition) and its hypopg verification, instead of
+  one finding and one `CREATE INDEX` per partition
+  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
+  ignore or baseline entry that named a partition no longer matches: replace
+  the partition's name with the partitioned table's in
+  `queryguard_index_ignore_tables`, `allow_missing_index` and `missing-index`
+  patterns, and record the baseline again with `--queryguard-update-baseline`
+  (see `docs/index-check.md`). A statement that names a partition itself is
+  reported under the partitioned table too; inheritance children
+  (`INHERITS`) are still reported one by one. Each partition is looked up once
+  per session (`pg_partition_root()`), only for statements with findings. The
+  advisor's reason for an invalid existing index now also names
+  `CREATE INDEX ON ONLY` a partitioned table whose partitions are not all
+  attached.
+
 - The classes and functions in `pytest_queryguard.__all__` now report
   `pytest_queryguard` as their `__module__`. Tracebacks and logs show
   `pytest_queryguard.NPlusOneDetected` instead of
@@ -226,17 +252,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the exact label now matches even when the label holds `[` or `]`. The
   line is in the SARIF message too
   ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
-
-### Fixed
-
-- PostgreSQL index check: a server newer than the tested releases (16 to 18)
-  is still checked and now gets one notice in the session summary that its
-  version is untested. Older servers keep their one "not checked" notice. The
-  tested versions are listed in `docs/index-check.md`.
-- Documentation: the index check page was published as raw Markdown from the
-  partial-index paragraph on, including its SQLite section
-  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
-  now fails the build for any page left like that.
 
 ## [0.4.0rc2] - 2026-10-12
 
