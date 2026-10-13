@@ -14,13 +14,17 @@ below by section; the entries of the candidates follow unchanged.
 
 This release adds baselines, SARIF output and a GitHub Action, per-finding
 ignores, new finding kinds (column loads, write loops, unused eager loads), query
-timing and `max_db_time`, an index advisor, and a missing-index check for SQLite.
-It also adds a documentation site and runnable examples. Three things can change the
-result or the output of an existing test run without any new option: the `column-load`
-kind is on by default, the index advisor is on by default with the index check, and
-the index check now also runs on SQLite. They are listed first under "Changed" as
-behavior changes, with how to turn them off, as the pre-1.0 clause of the
-[stability policy](docs/stability.md) requires.
+timing and `max_db_time`, an index advisor, and a missing-index check for SQLite,
+MySQL and MariaDB. It also adds a documentation site and runnable examples. Four
+things can change the result or the output of an existing test run without any new
+option: the `column-load` kind is on by default, the index advisor is on by default
+with the index check, and the index check now also runs on SQLite, and on MySQL and
+MariaDB. They are listed first under "Changed" as behavior changes, with how to turn
+them off, as the pre-1.0 clause of the [stability policy](docs/stability.md)
+requires. A few other changes can break code that worked on 0.3.0 (the object
+`max_queries()` yields, the minimum SQLAlchemy, the labels of partitioned-table
+findings, `--continue-on-collection-errors`); they are listed under "Breaking
+changes" after the behavior changes.
 
 ### Added
 
@@ -51,6 +55,17 @@ behavior changes, with how to turn them off, as the pre-1.0 clause of the
   New options `queryguard_index_advisor` (default `true`, used with the index
   check) and `queryguard_hypopg` (`auto`, `on` or `off`). Findings carry the
   suggestion in an additive `advice` field. See `docs/index-advisor.md`.
+
+- Missing-index check for MySQL and MariaDB, behind the same switch
+  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
+  `SELECT`, `UPDATE` and `DELETE` is explained with `EXPLAIN` and the real bound
+  parameters (never `ANALYZE`); a table read in full (`type: ALL`, or an index
+  read in full on a column that leads no index) although the statement filters
+  or joins on its columns is a `missing-index` finding with a `CREATE INDEX`
+  hint and an Alembic call. The suggestion is not verified: neither server has
+  hypothetical indexes. Tested with PyMySQL and aiomysql on MySQL 8.4 and
+  MariaDB 11.8 on a developer machine; CI does not run a MySQL or MariaDB
+  server. See `docs/index-check-mysql.md`.
 
 **New findings and rules**
 
@@ -136,6 +151,17 @@ behavior changes, with how to turn them off, as the pre-1.0 clause of the
   are reported as `QueryGuardWarning`. Empty means every kind fails, as before.
   Budgets are not affected.
 
+- `queryguard_repeat_scope` (`test` or `session`, default `test`) and
+  `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
+  that make several requests. The repeat, relationship,
+  column-load and write-loop rules counted over the whole test, so a test that
+  made several independent requests (a test client, for example, with one
+  `Session` per request) reported the same authentication or organisation
+  lookup as a loop. With `session`, each `Session`, or each connection checkout
+  for statements no `Session` ran, is counted on its own. The default is
+  unchanged, but a finding whose count spans several Sessions or checkouts now
+  says so and names the option. See `docs/several-sessions.md`.
+
 **Timing and budgets**
 
 - Per-statement timing. `Query.duration` is the time in seconds the database
@@ -168,16 +194,6 @@ behavior changes, with how to turn them off, as the pre-1.0 clause of the
   SQLModel, Litestar, pytest-asyncio configuration pitfalls, budgets for hot
   endpoints, adopting the plugin on a legacy codebase and CI. A new example,
   `examples/fastapi-dependency-override`, is run by the test suite.
-- Missing-index check for MySQL and MariaDB, behind the same switch
-  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
-  `SELECT`, `UPDATE` and `DELETE` is explained with `EXPLAIN` and the real bound
-  parameters (never `ANALYZE`); a table read in full (`type: ALL`, or an index
-  read in full on a column that leads no index) although the statement filters
-  or joins on its columns is a `missing-index` finding with a `CREATE INDEX`
-  hint and an Alembic call. The suggestion is not verified: neither server has
-  hypothetical indexes. Tested with PyMySQL and aiomysql on MySQL 8.4 and
-  MariaDB 11.8 on a developer machine; CI does not run a MySQL or MariaDB
-  server. See `docs/index-check-mysql.md`.
 - `QueryGuardDeprecationWarning`, a `DeprecationWarning` subclass exported from
   `pytest_queryguard`, is the class the deprecation policy uses. It is not a
   `QueryGuardWarning`, so `filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]`
@@ -206,6 +222,11 @@ behavior changes, with how to turn them off, as the pre-1.0 clause of the
 - `queryguard_index_check` now also checks SQLite. A project that turned the check
   on and ran its tests on SQLite used to get a "not checked" notice and now gets
   findings, which fail tests in `fail` mode.
+- `queryguard_index_check` now also checks MySQL and MariaDB. A project that
+  turned the check on and ran its tests on MySQL or MariaDB used to get a "not
+  checked" notice and now gets findings, which fail tests in `fail` mode. Turn the
+  check off again with `queryguard_index_check = false`, skip tables with
+  `queryguard_index_ignore_tables`, or record the findings in a baseline.
 - Durations below one millisecond are printed in microseconds (`37 us`) instead of
   `0.0 ms` in the report and in budget failures.
 - The hint for a lazy-loaded many-to-one or one-to-one relationship is now
@@ -217,10 +238,49 @@ behavior changes, with how to turn them off, as the pre-1.0 clause of the
   the suite, but it warns and prints a "queryguard: measurement stopped" section
   instead of staying silent (see Fixed).
 
-Everything else is off by default and changes nothing until you turn it on:
+The other new options are off by default and change nothing until you turn them on:
 `queryguard_small_repeat_threshold`, `queryguard_write_loop_threshold`,
 `queryguard_unused_eager_load`, `queryguard_baseline`, `queryguard_fail_on` (empty:
 every kind fails, as before) and `--queryguard-sarif`.
+
+**Breaking changes**
+
+These can break code or configuration that worked on 0.3.0.
+
+- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
+  object `record_queries()` yields) instead of the internal `QueryCollector`,
+  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
+  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
+  Code that read `.statements` of the yielded object, an undocumented
+  attribute, must use `log.queries` or `log.count`.
+
+- The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
+  suite and the async helpers need `AsyncAttrs`, which does not exist in
+  earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
+- PostgreSQL index check: a statement on a partitioned table is now one
+  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
+  creates the index on every partition) and its hypopg verification, instead of
+  one finding and one `CREATE INDEX` per partition
+  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
+  ignore or baseline entry that named a partition no longer matches: replace
+  the partition's name with the partitioned table's in
+  `queryguard_index_ignore_tables`, `allow_missing_index` and `missing-index`
+  patterns, and record the baseline again with `--queryguard-update-baseline`
+  (see `docs/index-check.md`). A statement that names a partition itself is
+  reported under the partitioned table too; inheritance children
+  (`INHERITS`) are still reported one by one. Each partition is looked up once
+  per session (`pg_partition_root()`), only for statements with findings. The
+  advisor's reason for an invalid existing index now also names
+  `CREATE INDEX ON ONLY` a partitioned table whose partitions are not all
+  attached.
+
+- A serial run with `--continue-on-collection-errors` and a collection error
+  no longer rewrites the baseline or writes the `--queryguard-sarif` file, as it
+  did before (under pytest-xdist, and in a run with `-x`, this was already so). The tests of the module that
+  did not collect never ran: a rewritten baseline would drop their entries and
+  an uploaded report would close their alerts. The summary gives the
+  interrupted-run reason; the GitHub Action skips the upload with a warning.
 
 **Internals**
 
@@ -272,17 +332,6 @@ every kind fails, as before) and `--queryguard-sarif`.
   entry. The policy had no such tier although the option was labelled
   experimental.
 
-- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
-  object `record_queries()` yields) instead of the internal `QueryCollector`,
-  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
-  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
-  Code that read `.statements` of the yielded object, an undocumented
-  attribute, must use `log.queries` or `log.count`.
-
-- The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
-  suite and the async helpers need `AsyncAttrs`, which does not exist in
-  earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
-
 - The options with a fixed set of values now agree on case. `queryguard_mode`,
   `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
   `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
@@ -313,23 +362,6 @@ every kind fails, as before) and `--queryguard-sarif`.
   minimums, the documentation examples, clean installs, the upgrade from the
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
-
-- PostgreSQL index check: a statement on a partitioned table is now one
-  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
-  creates the index on every partition) and its hypopg verification, instead of
-  one finding and one `CREATE INDEX` per partition
-  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
-  ignore or baseline entry that named a partition no longer matches: replace
-  the partition's name with the partitioned table's in
-  `queryguard_index_ignore_tables`, `allow_missing_index` and `missing-index`
-  patterns, and record the baseline again with `--queryguard-update-baseline`
-  (see `docs/index-check.md`). A statement that names a partition itself is
-  reported under the partitioned table too; inheritance children
-  (`INHERITS`) are still reported one by one. Each partition is looked up once
-  per session (`pg_partition_root()`), only for statements with findings. The
-  advisor's reason for an invalid existing index now also names
-  `CREATE INDEX ON ONLY` a partitioned table whose partitions are not all
-  attached.
 
 - The classes and functions in `pytest_queryguard.__all__` now report
   `pytest_queryguard` as their `__module__`. Tracebacks and logs show
@@ -395,16 +427,6 @@ every kind fails, as before) and `--queryguard-sarif`.
   `WHERE id IN (...)` when the statement already uses `IN (...)`. It says the
   batched query ran several times and should be called once, or the calls
   combined.
-- Added `queryguard_repeat_scope` (`test` or `session`, default `test`) and
-  `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
-  that make several requests. The repeat, relationship,
-  column-load and write-loop rules counted over the whole test, so a test that
-  made several independent requests (a test client, for example, with one
-  `Session` per request) reported the same authentication or organisation
-  lookup as a loop. With `session`, each `Session`, or each connection checkout
-  for statements no `Session` ran, is counted on its own. The default is
-  unchanged, but a finding whose count spans several Sessions or checkouts now
-  says so and names the option. See `docs/several-sessions.md`.
 - SARIF locations are now relative to the repository root when
   `GITHUB_WORKSPACE` is set and the pytest rootdir is inside it. Before, they
   were relative to the rootdir, so with the action's `working-directory` set to
@@ -610,14 +632,6 @@ every kind fails, as before) and `--queryguard-sarif`.
   against a constant in the SQL (which a partial index serves), is still
   reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 
-- PostgreSQL index check: a server newer than the tested releases (16 to 18)
-  is still checked and now gets one notice in the session summary that its
-  version is untested. Older servers keep their one "not checked" notice. The
-  tested versions are listed in `docs/index-check.md`.
-- Documentation: the index check page was published as raw Markdown from the
-  partial-index paragraph on, including its SQLite section
-  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
-  now fails the build for any page left like that.
 - Baseline: a file nested more than 100 levels deep is now rejected by a
   depth check before parsing, so the "nested too deep" usage error no longer
   depends on the interpreter hitting its recursion limit (which on Python 3.10
@@ -661,12 +675,6 @@ every kind fails, as before) and `--queryguard-sarif`.
 - Under pytest-xdist, a collection error without `-x` no longer rewrites the
   baseline or writes the `--queryguard-sarif` file: the run is handled as the
   interrupted run a serial run is, with the same reason. Closes #194.
-- **Behavior change:** a serial run with `--continue-on-collection-errors`
-  and a collection error also no longer rewrites the baseline or writes the
-  `--queryguard-sarif` file, where it did before. The tests of the module that
-  did not collect never ran: a rewritten baseline would drop their entries and
-  an uploaded report would close their alerts. The summary gives the
-  interrupted-run reason; the GitHub Action skips the upload with a warning.
 - An internal error in the budget markers, the `allow_missing_index` check or
   the end of a measurement in the `pytest_runtest_call` hook no longer fails
   the user's test: it ends measurement with a `QueryGuardInternalWarning` and
@@ -705,21 +713,9 @@ every kind fails, as before) and `--queryguard-sarif`.
   file lists six rules, `unused-eager-load` included.
 - The budget failure says `expected at most 1 query` (it said `1 queries`);
   other limits are unchanged.
-- Documentation found in a walk of the 0.4.0rc3 docs, each snippet run in a
-  fresh environment: the Flask-SQLAlchemy, SQLModel, Litestar and
-  pytest-asyncio recipes show `pytest.ini` with `pythonpath = .` (copied
-  literally, they failed with `No module named 'app'`) and the models and test
-  files they were missing; `python-api.md` and `migrating-from-queryspy.md`
-  import the fixed modules where they expect the fixed behaviour;
-  `python-api.md` documents `column_load_threshold`, `small_repeat_threshold`
-  and `write_loop_threshold` of `assert_no_nplusone()`; the legacy recipe puts
-  its settings in the example's `pytest.ini`, which pytest reads instead of a
-  `pyproject.toml`; the JUnit XML of the CI recipe, a line number in the
-  budgets recipe, a test file name in the FastAPI recipe, a missing file on the
-  getting-started page and the stale `0.4.0rc2` install lines are corrected.
-  `tests/test_doc_examples.py` now runs the SQLModel, Litestar and
-  pytest-asyncio pages as projects too (skipped where the package is not
-  installed).
+- Documentation: the recipes, `python-api.md` and the migration guide now run as
+  written (found in a walk of the 0.4.0rc3 docs); `tests/test_doc_examples.py`
+  runs more of the recipe pages as projects.
 
 ## [0.4.0rc4] - 2026-10-13
 
