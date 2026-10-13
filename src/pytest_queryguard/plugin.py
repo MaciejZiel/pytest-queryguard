@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import glob
 import importlib.metadata
 import os
@@ -1611,15 +1612,12 @@ def _stop_measuring(
 
 def _discard(collector: QueryCollector, tracker: eager.Tracker | None) -> None:
     """Best effort: take the collector and the tracker off after a failed stop."""
+    # the error is already recorded; nothing here may add another
     if tracker is not None:
-        try:
+        with contextlib.suppress(Exception):
             eager.stop(tracker)
-        except Exception:  # noqa: BLE001  # the error is already recorded
-            pass
-    try:
+    with contextlib.suppress(Exception):
         pop(collector)
-    except Exception:  # noqa: BLE001  # the error is already recorded
-        pass
 
 
 def _results(
