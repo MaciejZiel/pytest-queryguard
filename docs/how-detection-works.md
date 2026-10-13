@@ -71,7 +71,10 @@ statements: `BEGIN`, `COMMIT`, `ROLLBACK` (also `ROLLBACK TO SAVEPOINT`),
 commits on each pass runs one `BEGIN` and one `COMMIT` per pass, for example
 with SQLAlchemy's pysqlite `BEGIN` recipe, and that is not a query to batch.
 Budgets (`max_queries`) still count these statements. Other `SET` statements
-(`SET search_path`, `SET LOCAL ...`) are counted like any statement. The label
+(`SET search_path`, `SET LOCAL ...`) are counted like any statement, and so is
+a `BEGIN` that opens a block rather than a transaction (`BEGIN
+load_order(:id); END;`). A loop that opens a `SAVEPOINT` for each row still
+shows its `INSERT`s to the [write-loop](#write-loop) rule. The label
 is the normalized statement. This rule sees Core and `text()` statements as well as ORM ones.
 
 With `queryguard_small_repeat_threshold` set (off by default, for example
