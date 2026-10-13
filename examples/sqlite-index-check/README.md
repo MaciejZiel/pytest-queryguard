@@ -1,7 +1,7 @@
 # Missing index on SQLite
 
 ```console
-$ pip install "pytest-queryguard>=0.4.0rc4"
+$ pip install pytest-queryguard
 $ pytest tests/test_orders.py
 ```
 
