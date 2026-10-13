@@ -28,5 +28,32 @@
     "Filter": "((orders.status)::text <> $1)"
    }
   }
- ]
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
 }

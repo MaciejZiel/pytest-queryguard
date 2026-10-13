@@ -1,0 +1,51 @@
+{
+ "query": "SELECT * FROM tenant_rows WHERE id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "tenant_rows",
+    "Schema": "public",
+    "Alias": "tenant_rows",
+    "Startup Cost": 0.0,
+    "Total Cost": 3.25,
+    "Plan Rows": 1,
+    "Plan Width": 10,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "tenant_id",
+     "secret"
+    ],
+    "Filter": "((tenant_rows.id = $1) AND (tenant_rows.tenant_id = (current_setting('app.tenant'::text, true))::integer))"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "tenant_rows",
+    []
+   ]
+  ],
+  "partial": [],
+  "indexes": []
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "tenant_rows",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": "CREATE INDEX ON tenant_rows (id, tenant_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

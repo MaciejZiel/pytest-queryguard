@@ -1,0 +1,161 @@
+{
+ "query": "WITH RECURSIVE t AS (SELECT * FROM categories WHERE id = $1 UNION ALL SELECT c.* FROM categories c JOIN t ON c.parent_id = t.id) SELECT * FROM t",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "CTE Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "CTE Name": "t",
+    "Alias": "t",
+    "Startup Cost": 100000000041.17,
+    "Total Cost": 100000000047.19,
+    "Plan Rows": 301,
+    "Plan Width": 40,
+    "Output": [
+     "t.id",
+     "t.parent_id",
+     "t.name"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Recursive Union",
+      "Parent Relationship": "InitPlan",
+      "Subplan Name": "CTE t",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 0.14,
+      "Total Cost": 100000000041.17,
+      "Plan Rows": 301,
+      "Plan Width": 11,
+      "Plans": [
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "categories_pkey",
+        "Relation Name": "categories",
+        "Schema": "public",
+        "Alias": "categories",
+        "Startup Cost": 0.14,
+        "Total Cost": 8.16,
+        "Plan Rows": 1,
+        "Plan Width": 11,
+        "Output": [
+         "categories.id",
+         "categories.parent_id",
+         "categories.name"
+        ],
+        "Index Cond": "(categories.id = $1)"
+       },
+       {
+        "Node Type": "Hash Join",
+        "Parent Relationship": "Inner",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Join Type": "Inner",
+        "Startup Cost": 10000000000.33,
+        "Total Cost": 10000000003.0,
+        "Plan Rows": 30,
+        "Plan Width": 11,
+        "Output": [
+         "c.id",
+         "c.parent_id",
+         "c.name"
+        ],
+        "Inner Unique": false,
+        "Hash Cond": "(c.parent_id = t_1.id)",
+        "Plans": [
+         {
+          "Node Type": "Seq Scan",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "categories",
+          "Schema": "public",
+          "Alias": "c",
+          "Startup Cost": 10000000000.0,
+          "Total Cost": 10000000002.0,
+          "Plan Rows": 100,
+          "Plan Width": 11,
+          "Output": [
+           "c.id",
+           "c.parent_id",
+           "c.name"
+          ]
+         },
+         {
+          "Node Type": "Hash",
+          "Parent Relationship": "Inner",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Startup Cost": 0.2,
+          "Total Cost": 0.2,
+          "Plan Rows": 10,
+          "Plan Width": 4,
+          "Output": [
+           "t_1.id"
+          ],
+          "Plans": [
+           {
+            "Node Type": "WorkTable Scan",
+            "Parent Relationship": "Outer",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "CTE Name": "t",
+            "Alias": "t_1",
+            "Startup Cost": 0.0,
+            "Total Cost": 0.2,
+            "Plan Rows": 10,
+            "Plan Width": 4,
+            "Output": [
+             "t_1.id"
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 10,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [
+   [
+    "public",
+    "categories_pkey",
+    "id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "categories",
+    "categories_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}

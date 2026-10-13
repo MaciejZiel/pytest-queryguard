@@ -1,0 +1,52 @@
+{
+ "query": "SELECT * FROM ONLY vehicles WHERE plate = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "vehicles",
+    "Schema": "public",
+    "Alias": "vehicles",
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 10000000000.0,
+    "Plan Rows": 1,
+    "Plan Width": 40,
+    "Output": [
+     "id",
+     "owner_id",
+     "plate"
+    ],
+    "Filter": "(vehicles.plate = $1)"
+   },
+   "JIT": {
+    "Functions": 2,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "vehicles",
+    "vehicles_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
+}

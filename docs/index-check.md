@@ -1,4 +1,4 @@
-# Missing-index check (PostgreSQL and SQLite)
+# Missing-index check (PostgreSQL)
 
 A test database holds a few rows, so a query that reads the whole table is
 as fast in CI as one that uses an index. The missing index shows up in
@@ -138,8 +138,9 @@ tell whether `... (x) WHERE status = 'open'` serves `status = $1 AND x = $2`
 for the value your test binds. When every column of such an index's
 predicate is filtered by the statement and one of them is compared with a
 parameter, the statement is not reported and gets no advice. The session
-summary counts those statements: `N statements skipped: a partial index on
-<table> may serve them; the generic plan cannot tell`. A predicate that the
+summary counts those statements:
+`N statements skipped: a partial index on <table> may serve them; the generic plan cannot tell`.
+A predicate that the
 statement fixes with a literal (`deleted_at IS NULL`) is decided by the
 generic plan and is judged as before.
 
@@ -193,6 +194,28 @@ test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
 Findings follow `queryguard_mode`: `warn` turns them into warnings and
 `off` turns the check off. `allow_nplusone` does not affect the index check.
 
+## PostgreSQL versions
+
+| PostgreSQL | index check | trailing-column rule | notice in the session summary |
+|---|---|---|---|
+| 13 and older | not run | - | `PostgreSQL 13.x statements were not checked: the index check needs PostgreSQL 16 or newer` |
+| 14, 15 | not run: `EXPLAIN (GENERIC_PLAN)` is new in 16 | - | the same, with the version |
+| 16, 17 | run | on | none |
+| 18 | run | off: 18 can skip-scan the leading column | none |
+| 19 and newer | run | off | `PostgreSQL 19.0 is newer than the versions the index check is tested on (16 to 18): its statements are checked, but a finding may be wrong or missing; please report one that is` |
+
+Each notice is printed once per session, not per statement, and never fails a
+test. N+1 detection, budgets and the other rules do not depend on the server
+version.
+
+What was tested, on 2026-10-13, in local Docker containers from the official
+`postgres` images with the PGDG package `postgresql-<major>-hypopg` (hypopg
+1.4.3): PostgreSQL 14.24, 15.19, 16.15, 17.11 and 18.6, with pg8000 (sync) and
+asyncpg (async). CI runs the test suite on the latest release of 14, 15, 16, 17
+and 18 with pg8000 and asyncpg. A server newer than 18 was not tested; the
+test suite simulates one by changing the version SQLAlchemy read from the
+server.
+
 ## SQLite
 
 The same switch checks SQLite (the `sqlite3` module and aiosqlite). SQLite has
@@ -216,12 +239,16 @@ views and plans it does not recognize alone. See
 [the SQLite page](index-check-sqlite.md) for the rules, the
 false-positive traps and the differences.
 
+MySQL and MariaDB are checked as well, from their `EXPLAIN` output; see
+[the MySQL and MariaDB page](index-check-mysql.md).
+
 Statements that cannot be checked do not fail the test. They are summed up
-once at the end of the session, for example with MySQL:
+once at the end of the session, for example with SQL Server, which the check
+does not support:
 
 ```
 ============================ queryguard index check ============================
-mysql statements were not checked: the index check needs PostgreSQL 16 or newer
+mssql statements were not checked: the index check needs PostgreSQL 16 or newer
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers
