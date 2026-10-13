@@ -10,11 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - PostgreSQL index check: a sequential scan whose filter is only not-equal
-  comparisons (`<>`, `!=`, `NOT IN` with values) is no longer reported as a
-  missing index. No btree index serves them, so the advice could not be
-  followed, even on an indexed column; the SQLite check never reported them. A
-  filter with one more servable condition is still reported
-  ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
+  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
+  longer reported as a missing index. No index serves them, so the advice
+  could not be followed, even on an indexed column; the SQLite check never
+  reported them. A filter with one more servable condition, or a not-equal
+  against a constant in the SQL (which a partial index serves), is still
+  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 - The SARIF level of an unused-eager-load finding now follows the test outcome:
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
   Fixes #98.
