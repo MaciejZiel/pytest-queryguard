@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The SARIF level of an unused-eager-load finding now follows the test outcome:
+  with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
+  Fixes #98.
+
 - A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
   `text()`) is now classified like the statement after the comment. A loop of
   commented single-row `INSERT`s was reported as a repeated statement with the
@@ -36,7 +40,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparison such as `(a, b) > ($1, $2)` no longer asks for an expression index
   ([#85](https://github.com/MaciejZiel/pytest-queryguard/issues/85)).
 
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
+- `--queryguard-update-baseline` no longer ends the run with an
+  `INTERNALERROR` when a test lives in a directory whose name is not valid
+  UTF-8. The baseline is written with `\udcXX` escapes for such characters
+  (other text stays readable), so the entry matches on the next run, and any
+  other error while writing is reported as `could not write ...` like the
+  SARIF writer does. A baseline file with deeply nested JSON is now the usual
+  "invalid baseline" error instead of a `RecursionError`. Fixes #89.
+
 ### Changed
+
+- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
+  object `record_queries()` yields) instead of the internal `QueryCollector`,
+  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
+  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
+  Code that read `.statements` of the yielded object, an undocumented
+  attribute, must use `log.queries` or `log.count`.
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
   suite and the async helpers need `AsyncAttrs`, which does not exist in
@@ -66,24 +93,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimums, the documentation examples, clean installs, the upgrade from the
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
-
-### Fixed
-
-- `--queryguard-update-baseline` no longer ends the run with an
-  `INTERNALERROR` when a test lives in a directory whose name is not valid
-  UTF-8. The baseline is written with `\udcXX` escapes for such characters
-  (other text stays readable), so the entry matches on the next run, and any
-  other error while writing is reported as `could not write ...` like the
-  SARIF writer does. A baseline file with deeply nested JSON is now the usual
-  "invalid baseline" error instead of a `RecursionError`. Fixes #89.
-- PostgreSQL index check: a server newer than the tested releases (16 to 18)
-  is still checked and now gets one notice in the session summary that its
-  version is untested. Older servers keep their one "not checked" notice. The
-  tested versions are listed in `docs/index-check.md`.
-- Documentation: the index check page was published as raw Markdown from the
-  partial-index paragraph on, including its SQLite section
-  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
-  now fails the build for any page left like that.
 
 ## [0.4.0rc2] - 2026-10-12
 

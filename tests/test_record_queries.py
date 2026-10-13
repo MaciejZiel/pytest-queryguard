@@ -115,13 +115,13 @@ def test_records_inside_max_queries_and_both_count() -> None:
     engine = create_engine("sqlite://")
     with (
         engine.connect() as conn,
-        max_queries(2) as collector,
+        max_queries(2) as budget_log,
         record_queries() as log,
     ):
         conn.execute(text("select 1"))
         conn.execute(text("select 2"))
     assert log.count == 2
-    assert len(collector.statements) == 2  # the 0.2 behaviour, unchanged
+    assert [q.sql for q in budget_log.queries] == [q.sql for q in log.queries]
 
 
 def test_nested_logs_see_only_their_own_block() -> None:
