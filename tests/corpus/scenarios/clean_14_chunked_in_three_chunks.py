@@ -1,6 +1,7 @@
 """CLEAN: loading 1500 products in ``IN`` chunks of 500, three statements.
 
-Batching is the fix for N+1, and three statements are below the repeat threshold."""
+Batching is the fix for N+1, and three statements are below the repeat threshold.
+The small-repeat rule leaves them alone too: the ``IN`` lists partition one list."""
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,9 +11,6 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-KNOWN = {
-    "small-repeat": "three statements of one shape from one line are what the small-repeat rule reports"
-}
 CHUNK = 500
 
 
