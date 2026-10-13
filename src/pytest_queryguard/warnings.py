@@ -12,3 +12,12 @@ class QueryGuardInternalWarning(UserWarning):
     its ``QueryLog`` may then be incomplete, and ``assert_no_nplusone()``
     raises ``RuntimeError`` instead of checking it.
     """
+
+
+class QueryGuardDeprecationWarning(DeprecationWarning):
+    """A pytest-queryguard option, name or behaviour that a later release removes.
+
+    Not a ``QueryGuardWarning``: a ``filterwarnings`` entry that turns findings
+    into errors (or ignores them) does not catch a deprecation, and the other
+    way round.
+    """
