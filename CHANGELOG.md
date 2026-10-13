@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The index check notice for a database it cannot check (SQL Server, Oracle)
+  said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
+  supported. It now lists every supported database, and the help texts of
+  `--queryguard-index-check` and `queryguard_index_check` name MySQL and
+  MariaDB too. Fixes #154.
+
 - A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
   `text()`) is now classified like the statement after the comment. A loop of
   commented single-row `INSERT`s was reported as a repeated statement with the
