@@ -194,6 +194,84 @@ def test_allow_missing_index_for_another_table_does_not_help(
     project.runpytest(*ARGS).assert_outcomes(failed=1)
 
 
+def _marked(*markers: str) -> str:
+    """SCAN_TEST with the given marker lines on the test."""
+    return SCAN_TEST.replace(
+        "def test_orders",
+        "\n".join(markers) + "\ndef test_orders",
+    ).replace("from qgmodels", "import pytest\nfrom qgmodels", 1)
+
+
+def test_allow_nplusone_with_the_missing_index_kind_silences_the_finding(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a=_marked(
+            '@pytest.mark.allow_nplusone("orders", kind="missing-index")',
+        )
+    )
+    result = project.runpytest(*ARGS)
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*stale ignores*")
+
+
+def test_allow_nplusone_missing_index_kind_without_a_label(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a=_marked('@pytest.mark.allow_nplusone(kind="missing-index")')
+    )
+    result = project.runpytest(*ARGS)
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*stale ignores*")
+
+
+def test_allow_nplusone_for_another_table_does_not_help_and_is_stale(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a=_marked('@pytest.mark.allow_nplusone("customers", kind="missing-index")')
+    )
+    result = project.runpytest(*ARGS)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*stale ignores*",
+            "*test_a.py::test_orders_of_customer: missing-index customers*",
+        ]
+    )
+
+
+def test_a_bare_allow_nplusone_still_leaves_the_index_check_alone(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=_marked("@pytest.mark.allow_nplusone"))
+    project.runpytest(*ARGS).assert_outcomes(failed=1)
+
+
+def test_marker_patterns_for_both_kinds_are_not_stale(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a="""
+        import pytest
+        from qgmodels import Order, make_sync_session
+
+
+        @pytest.mark.allow_nplusone("Order.customer")
+        @pytest.mark.allow_nplusone("orders", kind="missing-index")
+        def test_both():
+            session = make_sync_session()
+            for order in session.query(Order).all():
+                _ = order.customer.name
+            assert session.query(Order).filter(Order.customer_id == 1).count() == 2
+        """
+    )
+    result = project.runpytest(*ARGS)
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*stale ignores*")
+
+
 def test_ignore_tables_option(project: pytest.Pytester) -> None:
     project.makeini("[pytest]\nqueryguard_index_ignore_tables = ord*\n")
     project.makepyfile(test_a=SCAN_TEST)
