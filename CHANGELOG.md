@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
+  `text()`) is now classified like the statement after the comment. A loop of
+  commented single-row `INSERT`s was reported as a repeated statement with the
+  advice to fetch the rows in one query, and the write-loop rule never saw it.
+  Fixes #96.
+
 - `--queryguard-update-baseline` no longer rewrites the baseline, and
   `--queryguard-sarif` no longer writes the file, after an interrupted run (a
   collection error, Ctrl-C, a usage error or an internal pytest error). The
