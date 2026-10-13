@@ -228,6 +228,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   depends on the interpreter hitting its recursion limit (which on Python 3.10
   could surface as a second, unraisable `RecursionError`).
 
+- `--queryguard-update-baseline` on a partial run (`-k`, `-m`, `--deselect`,
+  `--lf`, `--sw`, `--ignore`, a node id or a path narrower than `testpaths`, with
+  or without pytest-xdist) no longer drops the entries of tests that did not
+  run. Only the entries of tests that ran are replaced, the others are kept, and
+  the summary says how many were kept. A deleted test's entries are removed on
+  the next full run. `docs/baseline.md` describes which runs are full
+  and which are partial. Fixes #148.
+
+- `--queryguard-update-baseline` with `--collect-only` emptied the baseline file.
+  It now leaves the file alone and says why.
+
 ### Changed
 
 - The repeated-statement rules no longer report pagination and chunked `IN`

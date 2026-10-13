@@ -21,9 +21,56 @@ pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseli
 The run writes the file and does not fail on findings. Budgets
 (`max_queries`, `max_db_time`) are not findings: a test over its budget still
 fails on this run and is never recorded, so fix the code or raise the budget.
-Run the whole suite:
-the file holds what this run found, so a partial run drops the entries of the
-tests it did not run. Commit the file.
+Run the whole suite to create the file, and again to prune it. Commit the file.
+
+### Partial runs
+
+An update run is either full or partial, and only a full run removes every
+entry nothing produced any more.
+
+A run is **full** when it collects the whole suite and keeps every test: no
+arguments, or path arguments that cover every `testpaths` entry (`pytest`,
+`pytest tests`, `pytest tests/`, `pytest .`), or the rootdir when `testpaths`
+is not set. An `--ignore` in the ini `addopts` is part of how the suite is
+defined, like `collect_ignore`, so a run with it is still full.
+
+A run is **partial** when any of these applies:
+
+- `-k`, `-m` or `--deselect` left a test out, including a `-m` in `addopts`;
+- a plugin or a `conftest.py` hook removed tests from the collected items;
+- `--lf`, `--sw` or `--pyargs` is given;
+- `--ignore` or `--ignore-glob` is on the command line or in `PYTEST_ADDOPTS`;
+- the arguments are node ids, or paths that leave out part of `testpaths`
+  (`pytest tests/api` with `testpaths = tests`, or `pytest tests` with
+  `testpaths = tests other`), or pytest runs from a subdirectory that does
+  not hold the whole suite.
+
+A partial run only replaces the entries of the tests that ran:
+
+- a test that ran and produced a finding adds its entry;
+- a test that ran and no longer produces a finding loses its entry;
+- an entry whose test did not run is kept as it was.
+
+The summary says how many entries were kept:
+
+```
+queryguard-baseline.json: 3 entries (0 added, 0 removed)
+this run did not cover the whole suite: 2 entries kept because their tests did not run
+```
+
+A test is identified by the file and function of the entry, so the rule
+applies to an entry whose call site is inside a test function that ran. An
+entry for code outside a test (a helper or application module, or an entry
+with no file) is kept on a partial run unless a finding of the same identity
+shows up again; a full run prunes it. The same holds for a deleted or renamed
+test: a partial run cannot tell it from one that did not run, so its entry is
+removed on the next full run. Tests skipped before their call phase count as
+not run. If the summary of your usual full run says it did not cover the whole
+suite (a `-m` in `addopts`, for example), run once without that option to
+prune the file.
+
+Runs that stop early (`-x`, `--maxfail`, Ctrl-C, a crashed xdist worker, a
+collection error) and `--collect-only` do not write the file at all.
 
 Then turn it on for everyone, in `pyproject.toml`:
 

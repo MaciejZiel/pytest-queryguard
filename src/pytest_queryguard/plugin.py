@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import glob
 import importlib.metadata
 import os
+import shlex
 import warnings as std_warnings
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from dataclasses import replace
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -113,6 +115,11 @@ class _Settings:
         self.baseline = baseline
         # identities of the findings the run made (after ignores), baselined or not
         self.seen: set[Identity] = set()
+        # (rootdir-relative file, function) of every test that ran its call
+        # phase, and whether this session deselected any test (-k, -m, --lf,
+        # --deselect); both feed a partial baseline update
+        self.executed: set[tuple[str | None, str]] = set()
+        self.deselected = False
         # the run is incomplete: a worker crashed or stopped measuring
         self.baseline_incomplete = False
         self.baseline_previous_error: str | None = None
@@ -194,7 +201,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Write the findings of this run to the baseline file instead of "
-        "reporting them. Run the whole suite to avoid dropping entries.",
+        "reporting them. On a partial run (-k, -m, --lf, a path) only the "
+        "entries of tests that ran are replaced.",
     )
     group.addoption(
         "--queryguard-sarif",
@@ -1109,10 +1117,106 @@ def pytest_testnodedown(node: Any, error: object) -> None:
             settings.baseline_incomplete = True
         for identity in output.get("queryguard_seen", []):
             settings.seen.add(_identity(identity))
+        for file, function in output.get("queryguard_executed", []):
+            settings.executed.add((file, function))
+        if output.get("queryguard_deselected", False):
+            settings.deselected = True
         sarif.merge_wire(settings.reported, output.get("queryguard_reported", []))
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.baseline_incomplete = True
         record_error(exc, "merging the results of a pytest-xdist worker")
+
+
+def pytest_deselected(items: Sequence[pytest.Item]) -> None:
+    """Remember that a filter (-k, -m, --lf, --deselect) left tests out."""
+    if not items:
+        return
+    try:
+        settings = items[0].config.stash.get(_settings, None)
+        if settings is not None and settings.update_baseline:
+            settings.deselected = True
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "baseline update")
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> Generator[None, Any, Any]:
+    """Notice a hook that drops tests without calling ``pytest_deselected``."""
+    before = len(items)
+    result = yield
+    try:
+        settings = config.stash.get(_settings, None)
+        if settings is not None and settings.update_baseline and len(items) < before:
+            settings.deselected = True
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "baseline update")
+    return result
+
+
+def _test_key(item: pytest.Item) -> tuple[str | None, str]:
+    """(rootdir-relative file, function) of a test, as a finding names a call site."""
+    path = Path(str(item.path))
+    try:
+        file: str | None = path.relative_to(item.config.rootpath).as_posix()
+    except ValueError:
+        file = str(path)
+    return file, getattr(item, "originalname", None) or item.name
+
+
+def _run_is_narrowed(config: pytest.Config, deselected: bool) -> bool:
+    """True when the session did not aim at the whole suite.
+
+    That is a deselecting filter, ``--lf``, ``--sw``, ``--pyargs``, an ``--ignore``
+    given on the command line, or file and node arguments that do not cover every
+    ``testpaths`` entry (or the rootdir without it).
+    """
+    if deselected:
+        return True
+    # --lf skips whole files at collection without calling pytest_deselected
+    for option in ("lf", "stepwise", "pyargs"):
+        if config.getoption(option, None):
+            return True
+    if _ignores_on_command_line(config):
+        return True
+    suite = _suite_paths(config)
+    invocation = config.invocation_params.dir
+    given = [
+        Path(os.path.abspath(Path(invocation, str(arg))))
+        for arg in config.args
+        if "::" not in str(arg)
+    ]
+    # the run covers the suite when every default path is one of the
+    # arguments or below one of them; a node id covers nothing
+    return not all(any(arg == p or arg in p.parents for arg in given) for p in suite)
+
+
+def _suite_paths(config: pytest.Config) -> list[Path]:
+    """The paths a bare ``pytest`` in the rootdir collects."""
+    root = config.rootpath
+    found: list[Path] = []
+    for entry in config.getini("testpaths") or []:
+        found.extend(
+            Path(os.path.abspath(Path(root, match)))
+            for match in glob.glob(str(entry), root_dir=root, recursive=True)
+        )
+    return found or [root]
+
+
+def _ignores_on_command_line(config: pytest.Config) -> bool:
+    """An ``--ignore`` or ``--ignore-glob`` on the command line or in PYTEST_ADDOPTS.
+
+    One in the ini ``addopts`` is part of how the suite is defined, like
+    ``collect_ignore``, so a run with it still covers the whole suite.
+    """
+    tokens = [str(arg) for arg in config.invocation_params.args]
+    tokens += shlex.split(os.environ.get("PYTEST_ADDOPTS", ""))
+    return any(
+        token in ("--ignore", "--ignore-glob")
+        or token.startswith(("--ignore=", "--ignore-glob="))
+        for token in tokens
+    )
 
 
 def _identity(raw: Any) -> Identity:
@@ -1145,6 +1249,10 @@ def pytest_sessionfinish(
                 list(identity) for identity in sorted_identities(settings.seen)
             ]
             output["queryguard_reported"] = sarif.to_wire(settings.reported)
+            output["queryguard_executed"] = sorted(
+                settings.executed, key=lambda key: (key[0] or "", key[1])
+            )
+            output["queryguard_deselected"] = settings.deselected
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             record_error(exc, "sending the results to the pytest-xdist controller")
             output["queryguard_seen"] = []
@@ -1212,17 +1320,40 @@ def _update_baseline(
             "not updated: the run stopped early or measurement failed"
         )
         return
+    if session.config.getoption("collectonly", False):
+        settings.baseline_failed = "not updated: --collect-only runs no tests"
+        return
     before = settings.baseline or frozenset()
     after = frozenset(settings.seen)
+    narrowed = _run_is_narrowed(session.config, settings.deselected)
+    kept: frozenset[Identity] = frozenset()
+    if narrowed:
+        # only tests that ran may replace their entries; an entry whose
+        # (file, function) is no test that ran stays, whether its test was
+        # left out or deleted (a full run prunes it)
+        kept = frozenset(
+            entry
+            for entry in before - after
+            if (entry[2], entry[3]) not in settings.executed
+        )
+        after = after | kept
     try:
         baselines.write(path, after)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.baseline_failed = f"could not write {path}: {exc}"
         return
-    settings.baseline_written = (
+    text = (
         f"{path}: {len(after)} entries ({len(after - before)} added, "
         f"{len(before - after)} removed)"
     )
+    if narrowed:
+        reason = "its test did not run" if len(kept) == 1 else "their tests did not run"
+        noun = "entry" if len(kept) == 1 else "entries"
+        text += (
+            f"\nthis run did not cover the whole suite: {len(kept)} {noun} kept "
+            f"because {reason}"
+        )
+    settings.baseline_written = text
 
 
 def _write_baseline_summary(
@@ -1326,6 +1457,11 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         # pytest_configure did not complete (for example it raised a UsageError
         # for a bad option), so there is nothing to measure with.
         return (yield)
+    if settings.update_baseline:
+        try:
+            settings.executed.add(_test_key(item))
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "baseline update")
     # Marker errors fail the test on purpose (pytest.fail), before it runs.
     limit = _budget(item)
     time_limit = _time_budget(item)
