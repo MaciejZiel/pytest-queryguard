@@ -927,23 +927,26 @@ def test_run_explain_raises_when_the_savepoint_cannot_be_managed(step: str) -> N
     assert conn.closed_cursors == 1
 
 
+_SAVEPOINT_UNDO = [
+    "ROLLBACK TO SAVEPOINT queryguard_explain",
+    "RELEASE SAVEPOINT queryguard_explain",
+]
+
+
 @pytest.mark.parametrize(
-    ("autocommit", "undo"),
+    ("autocommit", "in_transaction", "undo"),
     [
-        (
-            False,
-            [
-                "ROLLBACK TO SAVEPOINT queryguard_explain",
-                "RELEASE SAVEPOINT queryguard_explain",
-            ],
-        ),
-        (True, ["ROLLBACK"]),
+        (False, True, _SAVEPOINT_UNDO),
+        (True, False, ["ROLLBACK"]),
+        # AUTOCOMMIT with the application's own BEGIN: only the savepoint goes
+        (True, True, _SAVEPOINT_UNDO),
     ],
 )
 @pytest.mark.parametrize("error", [RuntimeError, MemoryError, RecursionError])
 def test_run_explain_undoes_its_savepoint_when_it_has_a_bug(
     monkeypatch: pytest.MonkeyPatch,
     autocommit: bool,
+    in_transaction: bool,
     undo: list[str],
     error: type[Exception],
 ) -> None:
@@ -954,9 +957,13 @@ def test_run_explain_undoes_its_savepoint_when_it_has_a_bug(
 
     monkeypatch.setattr(indexes, "find_scans", broken)
     conn = FakeConnection(autocommit=autocommit)
+    if not in_transaction:
+        conn.fail["SAVEPOINT"] = _no_transaction_block()
     with pytest.raises(error, match="find_scans broke"):
         run_explain(conn, "SELECT 1", skip_partial=True)
     assert conn.log[-len(undo) :] == undo
+    if undo == _SAVEPOINT_UNDO:
+        assert "ROLLBACK" not in conn.log
     assert conn.closed_cursors == 1
 
 
