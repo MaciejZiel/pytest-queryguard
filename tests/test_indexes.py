@@ -821,13 +821,57 @@ def test_run_explain_uses_a_savepoint_inside_a_transaction() -> None:
     assert conn.closed_cursors == 1
 
 
-def test_run_explain_uses_its_own_transaction_in_autocommit() -> None:
+def _no_transaction_block() -> RuntimeError:
+    """What pg8000 raises for SAVEPOINT outside a transaction block."""
+    return RuntimeError(
+        {
+            "S": "ERROR",
+            "C": "25P01",
+            "M": "SAVEPOINT can only be used in transaction blocks",
+        }
+    )
+
+
+def test_run_explain_uses_its_own_transaction_in_autocommit_outside_one() -> None:
+    conn = FakeConnection(autocommit=True)
+    conn.fail["SAVEPOINT"] = _no_transaction_block()
+    assert run_explain(conn, "SELECT 1") == Explained(
+        {"Node Type": "Seq Scan"}, "public"
+    )
+    assert conn.log[:2] == ["SAVEPOINT queryguard_explain", "BEGIN"]
+    assert conn.log[-1] == "ROLLBACK"
+    assert "ROLLBACK TO SAVEPOINT queryguard_explain" not in conn.log
+
+
+def test_run_explain_keeps_a_manual_transaction_in_autocommit() -> None:
+    # autocommit is the driver's flag: the application's own BEGIN is open
     conn = FakeConnection(autocommit=True)
     assert run_explain(conn, "SELECT 1") == Explained(
         {"Node Type": "Seq Scan"}, "public"
     )
-    assert conn.log[0] == "BEGIN"
-    assert conn.log[-1] == "ROLLBACK"
+    assert conn.log[0] == "SAVEPOINT queryguard_explain"
+    assert "BEGIN" not in conn.log
+    assert "ROLLBACK" not in conn.log
+    assert conn.log[-2:] == [
+        "ROLLBACK TO SAVEPOINT queryguard_explain",
+        "RELEASE SAVEPOINT queryguard_explain",
+    ]
+
+
+def test_run_explain_in_autocommit_stops_on_another_savepoint_error() -> None:
+    conn = FakeConnection(autocommit=True)
+    conn.fail["SAVEPOINT"] = RuntimeError({"C": "08006", "M": "connection failure"})
+    with pytest.raises(SavepointError, match="connection failure"):
+        run_explain(conn, "SELECT 1")
+    assert conn.log == ["SAVEPOINT queryguard_explain"]
+
+
+def test_run_explain_outside_autocommit_never_falls_back_to_begin() -> None:
+    conn = FakeConnection()
+    conn.fail["SAVEPOINT"] = _no_transaction_block()
+    with pytest.raises(SavepointError, match="transaction blocks"):
+        run_explain(conn, "SELECT 1")
+    assert conn.log == ["SAVEPOINT queryguard_explain"]
 
 
 def test_run_explain_accepts_json_as_text() -> None:
@@ -884,23 +928,26 @@ def test_run_explain_raises_when_the_savepoint_cannot_be_managed(step: str) -> N
     assert conn.closed_cursors == 1
 
 
+_SAVEPOINT_UNDO = [
+    "ROLLBACK TO SAVEPOINT queryguard_explain",
+    "RELEASE SAVEPOINT queryguard_explain",
+]
+
+
 @pytest.mark.parametrize(
-    ("autocommit", "undo"),
+    ("autocommit", "in_transaction", "undo"),
     [
-        (
-            False,
-            [
-                "ROLLBACK TO SAVEPOINT queryguard_explain",
-                "RELEASE SAVEPOINT queryguard_explain",
-            ],
-        ),
-        (True, ["ROLLBACK"]),
+        (False, True, _SAVEPOINT_UNDO),
+        (True, False, ["ROLLBACK"]),
+        # AUTOCOMMIT with the application's own BEGIN: only the savepoint goes
+        (True, True, _SAVEPOINT_UNDO),
     ],
 )
 @pytest.mark.parametrize("error", [RuntimeError, MemoryError, RecursionError])
 def test_run_explain_undoes_its_savepoint_when_it_has_a_bug(
     monkeypatch: pytest.MonkeyPatch,
     autocommit: bool,
+    in_transaction: bool,
     undo: list[str],
     error: type[Exception],
 ) -> None:
@@ -911,9 +958,13 @@ def test_run_explain_undoes_its_savepoint_when_it_has_a_bug(
 
     monkeypatch.setattr(indexes, "find_scans", broken)
     conn = FakeConnection(autocommit=autocommit)
+    if not in_transaction:
+        conn.fail["SAVEPOINT"] = _no_transaction_block()
     with pytest.raises(error, match="find_scans broke"):
         run_explain(conn, "SELECT 1", skip_partial=True)
     assert conn.log[-len(undo) :] == undo
+    if undo == _SAVEPOINT_UNDO:
+        assert "ROLLBACK" not in conn.log
     assert conn.closed_cursors == 1
 
 
@@ -1703,11 +1754,32 @@ def test_run_explain_on_asyncpg_runs_explain_in_a_do_block() -> None:
     ]
 
 
-def test_run_explain_on_asyncpg_in_autocommit_uses_its_own_transaction() -> None:
+class _SqlstateError(Exception):
+    """asyncpg's errors carry the SQLSTATE as an attribute."""
+
+    sqlstate = "25P01"
+
+
+def test_run_explain_on_asyncpg_in_autocommit_outside_a_transaction() -> None:
+    conn = FakeAdaptedAsyncpg(autocommit=True)
+    conn.fail["SAVEPOINT"] = _SqlstateError(
+        "SAVEPOINT can only be used in transaction blocks"
+    )
+    run_explain(conn, "SELECT 1", asyncpg=True)
+    assert conn.log[:2] == [
+        ("execute", "SAVEPOINT queryguard_explain"),
+        ("execute", "BEGIN"),
+    ]
+    assert conn.log[-1] == ("execute", "ROLLBACK")
+
+
+def test_run_explain_on_asyncpg_keeps_a_manual_transaction_in_autocommit() -> None:
     conn = FakeAdaptedAsyncpg(autocommit=True)
     run_explain(conn, "SELECT 1", asyncpg=True)
-    assert conn.log[0] == ("execute", "BEGIN")
-    assert conn.log[-1] == ("execute", "ROLLBACK")
+    assert conn.log[0] == ("execute", "SAVEPOINT queryguard_explain")
+    assert ("execute", "BEGIN") not in conn.log
+    assert ("execute", "ROLLBACK") not in conn.log
+    assert conn.log[-1] == ("execute", "RELEASE SAVEPOINT queryguard_explain")
 
 
 def test_run_explain_on_asyncpg_reports_a_failed_explain() -> None:

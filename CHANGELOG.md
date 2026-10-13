@@ -98,6 +98,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is still checked and now gets one notice in the session summary that its
   version is untested. Older servers keep their one "not checked" notice. The
   tested versions are listed in `docs/index-check.md`.
+- The index check no longer rolls back a transaction the application opened by
+  hand on an AUTOCOMMIT connection (`exec_driver_sql("BEGIN")`, with pg8000 or
+  asyncpg). The `autocommit` flag is the driver's setting, not the server's
+  state, so the check now tries a savepoint first and starts a transaction of
+  its own only when none is open (SQLSTATE 25P01). Fixes #91.
 - Documentation: the index check page was published as raw Markdown from the
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test

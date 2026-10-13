@@ -76,8 +76,9 @@ The test's own connection, right after the statement ran
   the user's own listeners do not see them. The cursor that holds the
   test's results is not touched.
 - When the connection is in autocommit mode (the DB-API `autocommit`
-  attribute is true), there is no transaction to protect, so the check runs
-  in its own `BEGIN` … `ROLLBACK` instead of a savepoint.
+  attribute is true), the check still tries a savepoint first, because the
+  application may have opened a transaction by hand; only when none is open
+  (SQLSTATE 25P01) does it run its own `BEGIN` … `ROLLBACK`.
 - `lock_timeout` and `statement_timeout` bound the time the check can wait.
 
 ### 4.2 Statement text

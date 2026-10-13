@@ -171,7 +171,13 @@ because an index on the plain column would not help there.
 Each distinct statement is explained once per test (again after DDL
 changes the catalog), inside a savepoint on
 the connection that ran it, so the check sees tables and rows the test has
-not committed yet and leaves the test's transaction as it was. Statements
+not committed yet and leaves the test's transaction as it was. On an
+AUTOCOMMIT connection the check also tries the savepoint first, so a
+transaction the test opened with its own `BEGIN` is left open; only a
+connection with no transaction open gets a `BEGIN` ... `ROLLBACK` of the
+check's own. That first savepoint fails on such a connection, so the server
+log shows `SAVEPOINT can only be used in transaction blocks` once per
+explained statement; it is expected and changes nothing. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 

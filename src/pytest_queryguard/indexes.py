@@ -1072,17 +1072,9 @@ def run_explain(
     table with a partial index the generic plan cannot rule out come back as
     ``partial_skipped`` instead of in ``issues``.
     """
-    if getattr(dbapi_connection, "autocommit", False):
-        start, undo = ["BEGIN"], ["ROLLBACK"]
-    else:
-        start = [f"SAVEPOINT {_SAVEPOINT}"]
-        undo = [
-            f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}",
-            f"RELEASE SAVEPOINT {_SAVEPOINT}",
-        ]
     cursor = _AsyncpgCursor(dbapi_connection) if asyncpg else dbapi_connection.cursor()
     try:
-        _manage(cursor, start)
+        undo = _begin(cursor, bool(getattr(dbapi_connection, "autocommit", False)))
         try:
             row: Any = None
             settings: Any = None
@@ -1286,6 +1278,44 @@ def _prefer_partial(full: Verification, partial: Verification) -> bool:
         and partial.size is not None
         and partial.size <= advisor.PARTIAL_SIZE_RATIO * full.size
     )
+
+
+_SAVEPOINT_UNDO = [
+    f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}",
+    f"RELEASE SAVEPOINT {_SAVEPOINT}",
+]
+
+# SQLSTATE of "SAVEPOINT can only be used in transaction blocks"
+_NO_ACTIVE_TRANSACTION = "25P01"
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    """The SQLSTATE of a driver error (asyncpg: sqlstate, pg8000: field C)."""
+    code = getattr(exc, "sqlstate", None)
+    if code is None and exc.args and isinstance(exc.args[0], Mapping):
+        code = exc.args[0].get("C")
+    return code if isinstance(code, str) else None
+
+
+def _begin(cursor: Any, autocommit: bool) -> list[str]:
+    """Open the isolation for EXPLAIN and return the statements that undo it.
+
+    A savepoint leaves the connection's transaction as it is. ``autocommit``
+    is the driver's setting, not the server's state: an application can open a
+    transaction by hand with BEGIN on such a connection, and a ROLLBACK from
+    here would end it. So the savepoint comes first on every connection, and
+    only a connection with no transaction open (SAVEPOINT fails with
+    SQLSTATE 25P01, which aborts nothing in autocommit mode) gets a
+    transaction of its own.
+    """
+    try:
+        cursor.execute(f"SAVEPOINT {_SAVEPOINT}")
+    except Exception as exc:  # reported as a stopped check, unless a fallback
+        if not autocommit or _sqlstate(exc) != _NO_ACTIVE_TRANSACTION:
+            raise SavepointError(_error_message(exc)) from exc
+        _manage(cursor, ["BEGIN"])
+        return ["ROLLBACK"]
+    return list(_SAVEPOINT_UNDO)
 
 
 def _manage(cursor: Any, statements: list[str]) -> None:
