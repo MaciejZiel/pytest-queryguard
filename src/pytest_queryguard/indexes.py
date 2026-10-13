@@ -270,6 +270,7 @@ def _issue(
             ctx,
             node,
             above,
+            walked=f"index {whole}",
         )
     if node_type not in (*_INDEX_SCANS, _BITMAP_SCAN):
         return None
@@ -284,7 +285,16 @@ def _issue(
             return None
         if equality_column(condition, rel.alias, varchar) is None:
             return None
-        return _make(rel, label, "filter", condition, ctx, node, above)
+        return _make(
+            rel,
+            label,
+            "filter",
+            condition,
+            ctx,
+            node,
+            above,
+            walked=f"index {index}" if index else None,
+        )
     # Rule 3: the index condition uses only trailing columns of a multicolumn
     # index, which PostgreSQL before 18 serves by reading the whole index.
     first = ctx.leading.get((rel.schema or "", index or ""))
@@ -293,7 +303,16 @@ def _issue(
     columns = condition_columns(index_cond, rel.alias)
     if first in columns or equality_column(index_cond, rel.alias, varchar) is None:
         return None
-    return _make(rel, label, "index condition", index_cond, ctx, node, above)
+    return _make(
+        rel,
+        label,
+        "index condition",
+        index_cond,
+        ctx,
+        node,
+        above,
+        walked=f"index {index}" if index else None,
+    )
 
 
 def _make(
@@ -304,7 +323,9 @@ def _make(
     ctx: _Context,
     node: Mapping[str, Any],
     above: _Above,
+    walked: str | None = None,
 ) -> ScanIssue:
+    """``walked`` names an existing index the plan reads end to end ("index x")."""
     varchar = ctx.varchar.get((rel.schema or "", rel.table), frozenset())
     column = hint_column(condition, rel.alias, varchar)
     conditions = tuple(
@@ -319,6 +340,7 @@ def _make(
         column,
         show_schema=rel.schema not in (None, ctx.current),
         expression=column is None and _needs_expression(condition, rel.alias, varchar),
+        index=walked,
         alias=rel.alias,
         conditions=conditions,
         sort_keys=above.sort,
