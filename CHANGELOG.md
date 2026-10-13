@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- In `warn` mode, a finding turned into an error by `filterwarnings`
+  (`error::pytest_queryguard.QueryGuardWarning` or a blanket `error`) no longer
+  prints about 50 lines of the plugin's hook wrapper source before the finding;
+  the failure shows the finding message, as in `fail` mode.
+
 - Under pytest-xdist, a run stopped by `-x` or `--maxfail` is handled as in a
   serial run instead of as an interrupted one: the baseline is not updated
   because the run stopped early (it no longer blames a collection error,
