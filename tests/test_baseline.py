@@ -330,6 +330,41 @@ def test_update_after_an_early_stop_leaves_the_file_alone(
     result.stdout.fnmatch_lines(["*queryguard baseline not updated: the run stopped*"])
 
 
+def test_update_after_a_collection_error_leaves_the_file_alone(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=ONE_LOOP, test_broken="import no_such_module_anywhere\n")
+    path = project.path / "qg.json"
+    path.write_text(baseline.dumps([LAZY_ID]))
+    before = path.read_text()
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == before
+    result.stdout.fnmatch_lines(["*queryguard baseline not updated: the run was*"])
+
+
+def test_update_after_a_keyboard_interrupt_leaves_the_file_alone(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a="def test_stop():\n    raise KeyboardInterrupt\n" + ONE_LOOP
+    )
+    path = project.path / "qg.json"
+    path.write_text(baseline.dumps([LAZY_ID, ("write-loop", "x", None, None)]))
+    before = path.read_text()
+    result = project.runpytest_subprocess(
+        "--queryguard-baseline=qg.json",
+        "--queryguard-update-baseline",
+        "-p",
+        "no:cacheprovider",
+    )
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == before
+    result.stdout.fnmatch_lines(["*queryguard baseline not updated: the run was*"])
+
+
 def test_a_write_error_is_reported_not_raised(
     project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
