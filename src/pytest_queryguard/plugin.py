@@ -1309,6 +1309,14 @@ def _update_baseline(
     path = settings.baseline_path
     if path is None:
         return
+    if interrupted and (session.shouldstop or session.shouldfail):
+        # pytest-xdist ends a run stopped by -x or --maxfail with the
+        # "interrupted" exit status, but the stop reason is the same as in a
+        # serial run
+        settings.baseline_failed = (
+            "not updated: the run stopped early or measurement failed"
+        )
+        return
     if interrupted:
         settings.baseline_failed = (
             "not updated: the run was interrupted or did not finish "

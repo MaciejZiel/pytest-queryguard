@@ -141,3 +141,30 @@ def test_a_worker_that_crashes_does_not_rewrite_the_file(
     )
     assert path.read_text() == '{"version": 1, "findings": []}\n'
     result.stdout.fnmatch_lines(["*queryguard baseline not updated*"])
+
+
+@pytest.mark.parametrize("stop", ["-x", "--maxfail=1"])
+def test_a_stop_by_maxfail_gives_the_serial_reason(
+    project: pytest.Pytester, stop: str
+) -> None:
+    project.makepyfile(
+        test_fail="""
+        def test_fail():
+            assert False
+        """
+    )
+    path = project.path / "qg.json"
+    path.write_text('{"version": 1, "findings": []}\n')
+    result = _run(
+        project,
+        "-n",
+        "2",
+        stop,
+        "--queryguard-baseline=qg.json",
+        "--queryguard-update-baseline",
+    )
+    assert path.read_text() == '{"version": 1, "findings": []}\n'
+    result.stdout.fnmatch_lines(
+        ["*queryguard baseline not updated: the run stopped early*"]
+    )
+    result.stdout.no_fnmatch_line("*Ctrl-C*")
