@@ -50,6 +50,8 @@ your code.
   behaviour shows up as a failing test and the entry must be removed.
   `scripts/accuracy_report.py` prints the tables below.
 
+Two scenarios were added after the measurement below (`clean_76_refresh_after_create_selectin`, `bug_69_lazy_select_next_to_refresh`, the refresh of a selectin collection; see "Refreshing an object with an eager relationship" in [How detection works](how-detection-works.md)). With them the default configuration is unchanged apart from one more relationship-load true positive, and with the column-load threshold at 2 the new CLEAN scenario is one more documented false positive (two refreshes).
+
 Measured on 2026-10-13 on Linux 7.0.0 (x86_64, 13th Gen Intel Core i5-13500H, 16
 threads), Python 3.14.4, SQLAlchemy 2.1.1, pytest 9.1.1, Flask-SQLAlchemy 3.1.1,
 FastAPI 0.141.1, pytest-queryguard 0.4.0rc2 at the head of `main`, with

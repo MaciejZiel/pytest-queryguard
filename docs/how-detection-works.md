@@ -40,6 +40,23 @@ one-to-one relationship and `selectinload` for a collection. The rule counts
 distinct parent objects, not statements, so it is independent of how
 SQLAlchemy batches the loads.
 
+#### Refreshing an object with an eager relationship
+
+`session.refresh(obj)`, `session.refresh(obj, ["children"])` and the reload of
+an expired object do not run a mapped `lazy="selectin"` or `lazy="subquery"`
+loader the way a query does. SQLAlchemy loads such a collection for that one
+object through its immediate loader, with the parent attached, which is also
+how a lazy load looks. The plugin tells the two apart: while the loader runs
+for a refresh (the outer load has a refresh state), the statement keeps the
+relationship label but is not counted as a lazy load, because
+`selectinload` is already the mapped strategy. An `immediateload()` option on a
+plain query, and every `lazy="select"` access, are still lazy loads.
+
+A loop of refreshes is its own finding, a column-load (see below), not a
+relationship-load: `for obj in objs: session.refresh(obj)` is reported once the
+column-load threshold (default 5) is reached, and the collection queries it
+runs are never a repeated-statement finding.
+
 #### How a lazy load's statement is attributed
 
 SQLAlchemy announces an ORM execution (`do_orm_execute`) before it autoflushes
