@@ -119,11 +119,14 @@ def _kind_label(detection: Detection) -> tuple[str, str]:
 def _statement_line(detection: Detection) -> str:
     """The normalized statement, which is the label of a repeat or a write loop.
 
-    The kind goes in front of it instead of on a line of its own; a statement
-    longer than the report's limit is cut, so match it with a trailing ``*``.
+    The kind goes in front of it instead of on a line of its own. A statement
+    longer than the report's limit is cut and ends with ``*`` instead of
+    ``...``, so that the label as printed is still a pattern that matches it.
     """
     kind, label = _kind_label(detection)
-    return kind_line(kind, _truncate(label))
+    if len(label) > _SQL_LIMIT:
+        label = label[:_SQL_LIMIT] + "*"
+    return kind_line(kind, label)
 
 
 def _block(finding: Detection, cwd: Path | None) -> list[str]:

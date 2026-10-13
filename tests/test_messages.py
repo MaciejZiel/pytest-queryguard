@@ -83,8 +83,29 @@ def test_budget_message_lists_statements() -> None:
 def test_repeat_message_truncates_long_sql() -> None:
     long_sql = "SELECT " + "x" * 300
     lines = format_findings([RepeatFinding(long_sql, 9, None)]).splitlines()
-    assert f"  kind: repeated-statement  label: {long_sql[:200]}..." in lines
+    assert f"  kind: repeated-statement  label: {long_sql[:200]}*" in lines
     assert all(len(line) < 250 for line in lines)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT " + ", ".join(f"col{i}" for i in range(60)) + " FROM t WHERE id = ?",
+        "SELECT * FROM t WHERE id = ANY(ARRAY[?, ?])",
+        "SELECT * FROM [dbo].[t] WHERE id = ?",
+        "SELECT x FROM t WHERE id IN (__[POSTCOMPILE_id_1])",
+    ],
+)
+def test_a_long_or_bracketed_statement_label_still_works_as_a_pattern(
+    sql: str,
+) -> None:
+    from pytest_queryguard.ignores import parse_rule
+    from pytest_queryguard.messages import make_finding
+
+    finding = make_finding(RepeatFinding(sql, 6, None), cwd=CWD)
+    text = _kind_line_of(finding.message).removeprefix("  kind: ")
+    kind, _, label = text.partition("  label: ")
+    assert parse_rule(f"{kind} {label}").matches(finding), text
 
 
 def test_missing_callsite_prints_unknown_location() -> None:
