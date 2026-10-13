@@ -1,0 +1,63 @@
+{
+ "query": "SELECT * FROM orders WHERE to_tsvector('simple', note) @@ to_tsquery('simple', $1)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.0,
+    "Total Cost": 265.25,
+    "Plan Rows": 2,
+    "Plan Width": 93,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Filter": "(to_tsvector('simple'::regconfig, orders.note) @@ to_tsquery('simple'::regconfig, $1))"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": true,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

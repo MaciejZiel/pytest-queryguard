@@ -1,0 +1,90 @@
+{
+ "query": "SELECT customer_id, count(*) FROM orders GROUP BY customer_id HAVING count(*) > $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Sorted",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000036.41,
+    "Total Cost": 10000000040.79,
+    "Plan Rows": 17,
+    "Plan Width": 12,
+    "Output": [
+     "customer_id",
+     "count(*)"
+    ],
+    "Group Key": [
+     "orders.customer_id"
+    ],
+    "Filter": "(count(*) > $1)",
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000036.41,
+      "Total Cost": 10000000037.66,
+      "Plan Rows": 500,
+      "Plan Width": 4,
+      "Output": [
+       "customer_id"
+      ],
+      "Sort Key": [
+       "orders.customer_id"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000014.0,
+        "Plan Rows": 500,
+        "Plan Width": 4,
+        "Output": [
+         "customer_id"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 7,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}

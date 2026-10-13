@@ -1,0 +1,91 @@
+{
+ "query": "WITH x AS MATERIALIZED (SELECT * FROM orders WHERE customer_id = $1) SELECT * FROM x WHERE x.total > $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "CTE Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "CTE Name": "x",
+    "Alias": "x",
+    "Startup Cost": 15.25,
+    "Total Cost": 15.47,
+    "Plan Rows": 3,
+    "Plan Width": 218,
+    "Disabled": false,
+    "Output": [
+     "x.id",
+     "x.customer_id",
+     "x.status",
+     "x.total",
+     "x.created_at",
+     "x.tags",
+     "x.data",
+     "x.note",
+     "x.kind"
+    ],
+    "Filter": "(x.total > $2)",
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "InitPlan",
+      "Subplan Name": "CTE x",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 0.0,
+      "Total Cost": 15.25,
+      "Plan Rows": 10,
+      "Plan Width": 93,
+      "Disabled": true,
+      "Output": [
+       "orders.id",
+       "orders.customer_id",
+       "orders.status",
+       "orders.total",
+       "orders.created_at",
+       "orders.tags",
+       "orders.data",
+       "orders.note",
+       "orders.kind"
+      ],
+      "Filter": "(orders.customer_id = $1)"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "customer_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (customer_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

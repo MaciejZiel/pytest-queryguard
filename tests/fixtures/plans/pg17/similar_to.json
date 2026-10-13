@@ -1,0 +1,74 @@
+{
+ "query": "SELECT * FROM customers WHERE name SIMILAR TO $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "customers",
+    "Schema": "public",
+    "Alias": "customers",
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 10000000001.75,
+    "Plan Rows": 1,
+    "Plan Width": 17,
+    "Output": [
+     "id",
+     "email",
+     "name"
+    ],
+    "Filter": "((customers.name)::text ~ similar_to_escape($1))"
+   },
+   "JIT": {
+    "Functions": 2,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "customers",
+    [
+     "email",
+     "name"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "customers",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

@@ -1,0 +1,114 @@
+{
+ "query": "SELECT * FROM orders o JOIN (VALUES ($1::int), ($2::int)) v(id) ON o.customer_id = v.id",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Hash Join",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Inner",
+    "Startup Cost": 10000000000.05,
+    "Total Cost": 10000000016.12,
+    "Plan Rows": 20,
+    "Plan Width": 97,
+    "Output": [
+     "o.id",
+     "o.customer_id",
+     "o.status",
+     "o.total",
+     "o.created_at",
+     "o.tags",
+     "o.data",
+     "o.note",
+     "o.kind",
+     "\"*VALUES*\".column1"
+    ],
+    "Inner Unique": false,
+    "Hash Cond": "(o.customer_id = \"*VALUES*\".column1)",
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "o",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000014.0,
+      "Plan Rows": 500,
+      "Plan Width": 93,
+      "Output": [
+       "o.id",
+       "o.customer_id",
+       "o.status",
+       "o.total",
+       "o.created_at",
+       "o.tags",
+       "o.data",
+       "o.note",
+       "o.kind"
+      ]
+     },
+     {
+      "Node Type": "Hash",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 0.03,
+      "Total Cost": 0.03,
+      "Plan Rows": 2,
+      "Plan Width": 4,
+      "Output": [
+       "\"*VALUES*\".column1"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Values Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Alias": "*VALUES*",
+        "Startup Cost": 0.0,
+        "Total Cost": 0.03,
+        "Plan Rows": 2,
+        "Plan Width": 4,
+        "Output": [
+         "\"*VALUES*\".column1"
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 9,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}
