@@ -5,6 +5,7 @@ See docs/design-0.2.md for the reasoning behind each rule here.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import weakref
@@ -274,6 +275,7 @@ def _issue(
             ctx,
             node,
             above,
+            walked=f"index {whole}",
         )
     if node_type not in (*_INDEX_SCANS, _BITMAP_SCAN):
         return None
@@ -288,7 +290,16 @@ def _issue(
             return None
         if equality_column(condition, rel.alias, varchar) is None:
             return None
-        return _make(rel, label, "filter", condition, ctx, node, above)
+        return _make(
+            rel,
+            label,
+            "filter",
+            condition,
+            ctx,
+            node,
+            above,
+            walked=f"index {index}" if index else None,
+        )
     # Rule 3: the index condition uses only trailing columns of a multicolumn
     # index, which PostgreSQL before 18 serves by reading the whole index.
     first = ctx.leading.get((rel.schema or "", index or ""))
@@ -297,7 +308,16 @@ def _issue(
     columns = condition_columns(index_cond, rel.alias)
     if first in columns or equality_column(index_cond, rel.alias, varchar) is None:
         return None
-    return _make(rel, label, "index condition", index_cond, ctx, node, above)
+    return _make(
+        rel,
+        label,
+        "index condition",
+        index_cond,
+        ctx,
+        node,
+        above,
+        walked=f"index {index}" if index else None,
+    )
 
 
 def _make(
@@ -308,7 +328,9 @@ def _make(
     ctx: _Context,
     node: Mapping[str, Any],
     above: _Above,
+    walked: str | None = None,
 ) -> ScanIssue:
+    """``walked`` names an existing index the plan reads end to end ("index x")."""
     varchar = ctx.varchar.get((rel.schema or "", rel.table), frozenset())
     column = hint_column(condition, rel.alias, varchar)
     conditions = tuple(
@@ -323,6 +345,7 @@ def _make(
         column,
         show_schema=rel.schema not in (None, ctx.current),
         expression=column is None and _needs_expression(condition, rel.alias, varchar),
+        index=walked,
         alias=rel.alias,
         conditions=conditions,
         sort_keys=above.sort,
@@ -1060,52 +1083,67 @@ def run_explain(
     cursor = _AsyncpgCursor(dbapi_connection) if asyncpg else dbapi_connection.cursor()
     try:
         _manage(cursor, start)
-        row: Any = None
-        settings: Any = None
-        error: ExplainError | None = None
-        columns: dict[tuple[str, str], str] = {}
-        varchar: dict[tuple[str, str], frozenset[str]] = {}
-        catalog_error: str | None = None
-        issues: tuple[ScanIssue, ...] | None = None
-        advisor_notice: str | None = None
-        skipped: tuple[ScanIssue, ...] = ()
         try:
-            cursor.execute(_SETTINGS)
-            settings = cursor.fetchone()
-            row = _explain(cursor, sql, asyncpg)
-        except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
-            error = ExplainError(_error_message(exc), getattr(exc, "sqlstate", None))
-        plan = None if error else _read_plan(row[0] if row else None)
-        if plan is not None and catalog is not None:
+            row: Any = None
+            settings: Any = None
+            error: ExplainError | None = None
+            columns: dict[tuple[str, str], str] = {}
+            varchar: dict[tuple[str, str], frozenset[str]] = {}
+            catalog_error: str | None = None
+            issues: tuple[ScanIssue, ...] | None = None
+            advisor_notice: str | None = None
+            skipped: tuple[ScanIssue, ...] = ()
             try:
-                columns, varchar = _read_catalog(
-                    cursor, plan, catalog, leading, asyncpg
+                cursor.execute(_SETTINGS)
+                settings = cursor.fetchone()
+                row = _explain(cursor, sql, asyncpg)
+            except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
+                error = ExplainError(
+                    _error_message(exc), getattr(exc, "sqlstate", None)
                 )
-            except Exception as exc:  # noqa: BLE001  # reported once by check()
-                catalog_error = _error_message(exc)
-        if (
-            plan is not None
-            and (advise is not None or skip_partial)
-            and catalog_error is None
-        ):
-            schema = settings[-1] if settings else None
-            issues = tuple(
-                find_scans(
-                    plan, schema if isinstance(schema, str) else None, columns, varchar
-                )
-            )
-            if issues and skip_partial:
+            plan = None if error else _read_plan(row[0] if row else None)
+            if plan is not None and catalog is not None:
                 try:
-                    issues, skipped = _split_partial(cursor, issues, catalog, asyncpg)
-                except Exception as exc:  # noqa: BLE001  # fail open: keep the findings
-                    advisor_notice = f"partial index lookup failed, findings kept: {_error_message(exc)}"
-            if issues and advise is not None:
-                try:
-                    issues, advisor_notice = _advise(
-                        cursor, sql, issues, varchar, catalog, advise, asyncpg
+                    columns, varchar = _read_catalog(
+                        cursor, plan, catalog, leading, asyncpg
                     )
-                except Exception as exc:  # noqa: BLE001  # fail open: no advice
-                    advisor_notice = f"index advisor: no suggestions this time: {_error_message(exc)}"
+                except Exception as exc:  # noqa: BLE001  # reported once by check()
+                    catalog_error = _error_message(exc)
+            if (
+                plan is not None
+                and (advise is not None or skip_partial)
+                and catalog_error is None
+            ):
+                schema = settings[-1] if settings else None
+                issues = tuple(
+                    find_scans(
+                        plan,
+                        schema if isinstance(schema, str) else None,
+                        columns,
+                        varchar,
+                    )
+                )
+                if issues and skip_partial:
+                    try:
+                        issues, skipped = _split_partial(
+                            cursor, issues, catalog, asyncpg
+                        )
+                    except Exception as exc:  # noqa: BLE001  # fail open: keep the findings
+                        advisor_notice = f"partial index lookup failed, findings kept: {_error_message(exc)}"
+                if issues and advise is not None:
+                    try:
+                        issues, advisor_notice = _advise(
+                            cursor, sql, issues, varchar, catalog, advise, asyncpg
+                        )
+                    except Exception as exc:  # noqa: BLE001  # fail open: no advice
+                        advisor_notice = f"index advisor: no suggestions this time: {_error_message(exc)}"
+        except Exception:
+            # A bug after the savepoint opened: put the user's connection back
+            # as it was (no open savepoint or transaction, no changed setting)
+            # before the error stops the plugin.
+            with contextlib.suppress(Exception):
+                _manage(cursor, undo)
+            raise
         _manage(cursor, undo)
     finally:
         cursor.close()
