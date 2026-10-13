@@ -99,7 +99,20 @@ _KEYWORDS = frozenset({"and", "or", "not", "is"})
 _TYPE_STOP = frozenset(
     {"and", "or", "is", "not", "collate", "at", "from", "isnull", "notnull"}
     | {"in", "like", "ilike", "similar", "between", "then", "else", "end", "when"}
-    | {"asc", "desc"}
+    | {"asc", "desc", "for", "placing", "escape"}
+)
+# Words that separate the arguments of EXTRACT(field FROM x), SUBSTRING(x FROM
+# 1 FOR 2), POSITION(a IN b) and OVERLAY(x PLACING y FROM 1) as a comma would.
+_ARGUMENT_WORDS = frozenset({"from", "for", "in", "placing"})
+# Words that may open the argument list of a call: count(DISTINCT x),
+# TRIM(BOTH ' ' FROM x). Plan conditions qualify every column, so a bare word
+# followed by more text is one of these, not a column.
+_ARGUMENT_PREFIX = frozenset({"distinct", "all", "both", "leading", "trailing"})
+# Calls the parser makes for syntax that is no function call in SQL, and for
+# calls whose arguments were separated by words (EXTRACT(year FROM x)).
+SYNTAX_CALLS = frozenset(
+    {"case", "timezone", "subscript", "collate", "extract", "substring"}
+    | {"position", "overlay", "trim"}
 )
 _SUBPLAN = frozenset({"subplan", "initplan", "hashed", "alternatives"})
 _OR, _AND, _NOT, _SYMBOL = 1, 2, 3, 4
@@ -239,11 +252,72 @@ class _Parser:
             return Not(self.expr(_NOT))
         return self.postfix(self.primary())
 
+    def word(self, ahead: int = 0) -> str | None:
+        """The lower-case text of an unquoted word, or None."""
+        token = self.peek(ahead)
+        return token.text.lower() if token is not None and token.kind == "id" else None
+
+    def words(self, count: int) -> tuple[str | None, ...]:
+        return tuple(self.word(ahead) for ahead in range(count))
+
     def postfix(self, node: Expr) -> Expr:
-        while (token := self.peek()) is not None and token.kind == "cast":
-            self.pos += 1
-            node = Cast(node, self.type_name())
+        """Casts, subscripts, COLLATE and AT TIME ZONE after an operand.
+
+        Each but the cast hides the column from a plain index, so each becomes
+        a Call, as a function around the operand would.
+        """
+        while (token := self.peek()) is not None:
+            if token.kind == "cast":
+                self.pos += 1
+                node = Cast(node, self.type_name())
+            elif token.kind == "punct" and token.text == "[":
+                self.pos += 1
+                node = Call("subscript", (node, *self.arguments("]")))
+            elif self.word() == "collate":
+                self.pos += 1
+                self.qualified_name()
+                node = Call("collate", (node,))
+            elif self.words(3) == ("at", "time", "zone"):
+                self.pos += 3
+                node = Call("timezone", (self.postfix(self.primary()), node))
+            elif self.words(2) == ("at", "local"):
+                self.pos += 2
+                node = Call("timezone", (node,))
+            else:
+                break
         return node
+
+    def qualified_name(self) -> None:
+        """Skip a name such as ``"C"`` or ``pg_catalog."default"``."""
+        if self.take().kind not in ("id", "qid"):
+            raise Unparsed("name")
+        while self.is_punct(".") and (self.peek(1) or _Token("", "")).kind in (
+            "id",
+            "qid",
+        ):
+            self.pos += 2
+
+    def case(self) -> Expr:
+        """``CASE [x] WHEN a THEN b ... [ELSE c] END``, as one Call."""
+        items: list[Expr] = []
+        if self.word() != "when":
+            items.append(self.expr(0))
+        if self.word() != "when":
+            raise Unparsed("CASE")
+        while self.word() == "when":
+            self.pos += 1
+            items.append(self.expr(0))
+            if self.word() != "then":
+                raise Unparsed("CASE")
+            self.pos += 1
+            items.append(self.expr(0))
+        if self.word() == "else":
+            self.pos += 1
+            items.append(self.expr(0))
+        if self.word() != "end":
+            raise Unparsed("CASE")
+        self.pos += 1
+        return Call("case", tuple(items))
 
     def primary(self) -> Expr:
         token = self.take()
@@ -295,6 +369,8 @@ class _Parser:
             self.pos += 1
             parts.append(self.take().text)
         word = first.text.lower() if first.kind == "id" else None
+        if len(parts) == 1 and word == "case":
+            return self.case()
         if len(parts) == 1 and word == "array" and self.is_punct("["):
             self.pos += 1
             return Call("ARRAY", self.arguments("]"))
@@ -312,9 +388,21 @@ class _Parser:
         if self.is_punct(close):
             self.pos += 1
             return ()
+        star = self.peek()
+        if star is not None and star.text == "*" and self.is_punct(close, 1):
+            self.pos += 2
+            return (Lit("*"),)  # count(*)
+        nxt = self.peek(1)
+        if (
+            self.word() in _ARGUMENT_PREFIX
+            and nxt is not None
+            and nxt.kind != "punct"
+            and nxt.text.lower() not in _ARGUMENT_WORDS
+        ):
+            self.pos += 1
         while True:
             items.append(self.expr(0))
-            if self.is_punct(","):
+            if self.is_punct(",") or (close == ")" and self.word() in _ARGUMENT_WORDS):
                 self.pos += 1
                 continue
             self.expect(close)

@@ -1,0 +1,85 @@
+{
+ "query": "SELECT DISTINCT status FROM orders WHERE customer_id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Hashed",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 15.28,
+    "Total Cost": 15.29,
+    "Plan Rows": 1,
+    "Plan Width": 4,
+    "Disabled": false,
+    "Output": [
+     "status"
+    ],
+    "Group Key": [
+     "orders.status"
+    ],
+    "Planned Partitions": 0,
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 0.0,
+      "Total Cost": 15.25,
+      "Plan Rows": 10,
+      "Plan Width": 4,
+      "Disabled": true,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ],
+      "Filter": "(orders.customer_id = $1)"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "customer_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (customer_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

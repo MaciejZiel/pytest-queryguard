@@ -166,6 +166,57 @@ def test_invalid_cli_mode_is_usage_error(project: pytest.Pytester) -> None:
     result.stderr.fnmatch_lines(["*queryguard-mode*fail*warn*off*"])
 
 
+def test_mode_is_case_insensitive_on_the_command_line(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    project.runpytest("--queryguard-mode=Warn").assert_outcomes(passed=1)
+    project.runpytest("--queryguard-mode= FAIL ").assert_outcomes(failed=1)
+
+
+@pytest.mark.parametrize(
+    ("option", "value", "expected"),
+    [
+        ("queryguard_mode", "WARN", "warn"),
+        ("queryguard_mode", " Off ", "off"),
+        ("queryguard_hypopg", "ON", "on"),
+        ("queryguard_unused_eager_load", "Warn", "warn"),
+        ("queryguard_repeat_scope", "Session", "session"),
+    ],
+)
+def test_enum_options_are_case_insensitive(
+    project: pytest.Pytester, option: str, value: str, expected: str
+) -> None:
+    project.makeini(f"[pytest]\n{option} = {value}\n")
+    config = project.parseconfig()
+    settings = plugin._read_settings(config)
+    got = {
+        "queryguard_mode": settings.mode,
+        "queryguard_hypopg": plugin._hypopg(config),
+        "queryguard_unused_eager_load": plugin._unused_eager(config),
+        "queryguard_repeat_scope": plugin._repeat_scope(config),
+    }[option]
+    assert got == expected
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "queryguard_mode",
+        "queryguard_hypopg",
+        "queryguard_unused_eager_load",
+        "queryguard_repeat_scope",
+    ],
+)
+def test_enum_options_still_reject_unknown_values(
+    project: pytest.Pytester, option: str
+) -> None:
+    project.makeini(f"[pytest]\n{option} = Loud\n")
+    result = project.runpytest()
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines([f"*{option} must be one of*got 'Loud'*"])
+
+
 @pytest.mark.parametrize(
     "option", ["queryguard_relationship_threshold", "queryguard_repeat_threshold"]
 )

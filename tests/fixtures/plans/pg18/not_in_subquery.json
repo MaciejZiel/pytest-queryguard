@@ -1,0 +1,108 @@
+{
+ "query": "SELECT * FROM customers WHERE id NOT IN (SELECT customer_id FROM orders WHERE status = $1)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "customers",
+    "Schema": "public",
+    "Alias": "customers",
+    "Startup Cost": 16.5,
+    "Total Cost": 18.12,
+    "Plan Rows": 25,
+    "Plan Width": 17,
+    "Disabled": true,
+    "Output": [
+     "customers.id",
+     "customers.email",
+     "customers.name"
+    ],
+    "Filter": "(NOT (ANY (customers.id = (hashed SubPlan 1).col1)))",
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "SubPlan",
+      "Subplan Name": "SubPlan 1",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 0.0,
+      "Total Cost": 15.25,
+      "Plan Rows": 500,
+      "Plan Width": 4,
+      "Disabled": true,
+      "Output": [
+       "orders.customer_id"
+      ],
+      "Filter": "((orders.status)::text = $1)"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "customers",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  },
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "status",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (status)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

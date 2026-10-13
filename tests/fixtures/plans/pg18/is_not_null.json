@@ -1,0 +1,63 @@
+{
+ "query": "SELECT * FROM orders WHERE note IS NOT NULL",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.0,
+    "Total Cost": 14.0,
+    "Plan Rows": 500,
+    "Plan Width": 93,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Filter": "(orders.note IS NOT NULL)"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

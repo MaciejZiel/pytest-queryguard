@@ -1,0 +1,63 @@
+{
+ "query": "SELECT * FROM orders WHERE total BETWEEN $1 AND $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.0,
+    "Total Cost": 16.5,
+    "Plan Rows": 2,
+    "Plan Width": 93,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Filter": "((orders.total >= $1) AND (orders.total <= $2))"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "total",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (total)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

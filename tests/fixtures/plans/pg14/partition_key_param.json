@@ -1,0 +1,67 @@
+{
+ "query": "SELECT * FROM events WHERE created_at >= $1 AND kind = $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Append",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 20000000010.13,
+    "Plan Rows": 26,
+    "Plan Width": 24,
+    "Subplans Removed": 1,
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "events_2026",
+      "Schema": "public",
+      "Alias": "events_1",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000004.81,
+      "Plan Rows": 12,
+      "Plan Width": 24,
+      "Output": [
+       "events_1.id",
+       "events_1.account_id",
+       "events_1.kind",
+       "events_1.created_at",
+       "events_1.payload"
+      ],
+      "Filter": "((events_1.created_at >= $1) AND (events_1.kind = $2))"
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 3,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "events_2026",
+    "events_2026_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ]
+  ]
+ }
+}
