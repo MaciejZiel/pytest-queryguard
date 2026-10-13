@@ -114,9 +114,11 @@
   session summary counts them (`N statements skipped: a partial index on
   <table> may serve them; the generic plan cannot tell`). A genuinely
   missing index on such a statement is therefore not found.
-- A partitioned table is reported under the partition's name, and
-  `queryguard_index_ignore_tables` matches partition names, not the parent
-  table's.
+- A partitioned table is reported under its own name, once, and
+  `queryguard_index_ignore_tables` matches that name, not the names of its
+  partitions, also when the statement names a partition itself. An ignore
+  or baseline entry that names a partition no longer matches (see the
+  [index check](index-check.md) for the migration).
 - The index check clears its catalog cache on DDL it sees through
   SQLAlchemy in the same process. DDL run another way while the session
   runs, through a raw DB-API connection, `psql`, another process or a

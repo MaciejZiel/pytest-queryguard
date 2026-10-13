@@ -482,6 +482,35 @@ def walk(
         yield from walk(child, below)
 
 
+def without_qualifier(condition: str, alias: str) -> str | None:
+    """The condition with ``alias.`` written as ``@.``, or None when it does not
+    tokenize.
+
+    Partitions are scanned as events_1, events_2, ... and a condition that
+    differs only in that alias is the same condition. Whole tokens are
+    compared, so a quoted alias, a string literal or a longer name that
+    contains the alias is left alone.
+    """
+    try:
+        tokens = _tokenize(condition)
+    except Unparsed:
+        return None
+    out: list[str] = []
+    for i, token in enumerate(tokens):
+        after_dot = i > 0 and tokens[i - 1].text == "."
+        before_dot = i + 1 < len(tokens) and tokens[i + 1].text == "."
+        if (
+            token.kind in ("id", "qid")
+            and before_dot
+            and not after_dot
+            and unquote(token.text) == alias
+        ):
+            out.append("@")
+        else:
+            out.append(token.text)
+    return " ".join(out)
+
+
 def unquote(name: str) -> str:
     if name.startswith('"'):
         return name[1:-1].replace('""', '"')

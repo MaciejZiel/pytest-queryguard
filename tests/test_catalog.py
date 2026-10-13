@@ -31,11 +31,14 @@ class Conn:
 
 
 def _filled(engine: Engine) -> None:
-    catalog.for_engine(engine).leading[("public", "orders_idx")] = "tenant_id"
+    entry = catalog.for_engine(engine)
+    entry.leading[("public", "orders_idx")] = "tenant_id"
+    entry.roots[("public", "events_2025")] = ("public", "events")
 
 
 def _is_empty(engine: Engine) -> bool:
-    return not catalog.for_engine(engine).leading
+    entry = catalog.for_engine(engine)
+    return not entry.leading and not entry.roots
 
 
 # ------------------------------------------------------------ classification
