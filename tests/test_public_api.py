@@ -34,8 +34,8 @@ EXPECTED_ALL = [
 ]
 
 EXPECTED_FUNCTIONS = {
-    "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryCollector]'",
-    "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryCollector]'",
+    "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
+    "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryLog]'",
     "record_queries": "() -> 'AbstractContextManager[QueryLog]'",
 }
 
@@ -75,7 +75,7 @@ EXPECTED_QUERYLOG = {
     "count": "property",
     "db_time": "property",
     "queries": "property",
-    "slowest": "(self, n: 'int' = 5) -> 'Query | tuple[Query, ...]'",
+    "slowest": "(self, n: 'int' = 5) -> 'tuple[Query, ...]'",
 }
 
 EXPECTED_INI = {
@@ -164,12 +164,7 @@ def _public_members(cls: type) -> dict[str, str]:
 
 
 def test_querylog_public_members() -> None:
-    members = _public_members(pytest_queryguard.QueryLog)
-    # __getitem__ is overloaded: the implementation signature is the stable one.
-    assert members.pop("slowest").startswith("(self, n: 'int' = 5)")
-    expected = dict(EXPECTED_QUERYLOG)
-    expected.pop("slowest")
-    assert members == expected
+    assert _public_members(pytest_queryguard.QueryLog) == EXPECTED_QUERYLOG
 
 
 def _help_lines(pytester: pytest.Pytester, *args: str) -> str:

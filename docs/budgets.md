@@ -35,6 +35,17 @@ def test_checkout(service, cart):
         service.checkout(cart)
 ```
 
+The block yields the same `QueryLog` as
+[`record_queries()`](python-api.md), so the statements can be read after the block:
+
+```python
+def test_checkout_statements(service, cart):
+    with max_queries(2) as log:
+        service.checkout(cart)
+    assert log.count == 2
+    assert "INSERT" in log.queries[-1].sql
+```
+
 Only the statements inside the `with` block count. Above the limit it raises
 `QueryBudgetExceeded`, a subclass of `AssertionError`. The context manager
 does not depend on pytest, so it also works in a script or a benchmark. It
