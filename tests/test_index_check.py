@@ -942,7 +942,8 @@ def test_pg_a_partitioned_table_is_one_finding_on_the_table(
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(failed=1)
     out = result.stdout.str()
-    assert out.count("is read in full") == 1
+    # On CI pytest repeats the whole message in the short summary; count once.
+    assert out.split("short test summary info")[0].count("is read in full") == 1
     result.stdout.fnmatch_lines(
         [
             "  events is read in full: Seq Scan with filter (events_*.kind = $1)",
