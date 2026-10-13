@@ -347,14 +347,20 @@ def test_findings_without_a_location_are_counted_in_the_summary(
 ) -> None:
     from pytest_queryguard import plugin
     from pytest_queryguard.collector import QueryCollector
-    from pytest_queryguard.events import ScanEvent, ScanIssue
+    from pytest_queryguard.events import CallSite, ScanEvent, ScanIssue
 
     issue = ScanIssue("public", "orders", "Seq Scan", "filter", "(a = $1)", "a")
+    # a call site in a file outside the rootdir: no repository location
+    outside = CallSite(
+        filename=str(pytester.path.parent / "elsewhere" / "app.py"),
+        lineno=3,
+        function="handler",
+    )
     real = QueryCollector
 
     def make() -> QueryCollector:
         collector = real()
-        collector.scans.append(ScanEvent(issue, "SELECT 1", None))
+        collector.scans.append(ScanEvent(issue, "SELECT 1", outside))
         return collector
 
     monkeypatch.setattr(plugin, "QueryCollector", make)
@@ -482,3 +488,68 @@ def test_a_run_outside_the_workspace_falls_back_to_the_rootdir(
     project.runpytest("--queryguard-sarif=qg.sarif")
     (first, *_) = _results(project.path / "qg.sarif")
     assert _uri({"runs": [{"results": [first]}]}) == "test_a.py"
+
+
+OFFLOADED = """
+import asyncio
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from qgmodels import Customer, make_sync_session
+
+
+def test_session_execute_in_a_worker_thread():
+    session = make_sync_session()
+
+    async def handler():
+        for customer_id in range(1, 6):
+            # the library callable runs in a worker thread: no application frame
+            await asyncio.to_thread(
+                session.execute, select(Customer).where(Customer.id == customer_id)
+            )
+
+    asyncio.run(handler())
+"""
+
+
+def test_a_finding_without_a_call_site_is_located_at_the_test(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS, test_offload=OFFLOADED)
+    result = pytester.runpytest("--queryguard-sarif=qg.sarif")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*first at <unknown location>*"])
+    (found,) = _results(pytester.path / "qg.sarif")
+    assert found["ruleId"] == "queryguard/repeated-statement"
+    physical = found["locations"][0]["physicalLocation"]
+    assert physical["artifactLocation"]["uri"] == "test_offload.py"
+    assert physical["region"]["startLine"] == 8
+    assert found["locations"][0]["logicalLocations"][0]["name"] == (
+        "test_session_execute_in_a_worker_thread"
+    )
+    assert "reported at the test" in found["message"]["text"]
+    result.stdout.fnmatch_lines(["*qg.sarif: 1 result*"])
+    assert "left out" not in result.stdout.str()
+
+
+def test_the_test_location_is_only_for_sarif(pytester: pytest.Pytester) -> None:
+    # the baseline entry keeps the unknown call site it always had
+    pytester.makepyfile(qgmodels=MODELS, test_offload=OFFLOADED)
+    pytester.runpytest("--queryguard-baseline=b.json", "--queryguard-update-baseline")
+    entries = json.loads((pytester.path / "b.json").read_text())["findings"]
+    assert [(e["file"], e["function"]) for e in entries] == [(None, None)]
+
+
+def test_wrapping_the_call_in_a_lambda_restores_the_call_site(
+    pytester: pytest.Pytester,
+) -> None:
+    # the workaround in docs/limitations.md
+    wrapped = OFFLOADED.replace(
+        "session.execute, select(Customer).where(Customer.id == customer_id)",
+        "lambda: session.execute(select(Customer).where(Customer.id == customer_id))",
+    )
+    assert wrapped != OFFLOADED
+    pytester.makepyfile(qgmodels=MODELS, test_offload=wrapped)
+    result = pytester.runpytest("--queryguard-sarif=qg.sarif")
+    result.stdout.fnmatch_lines(["*first at test_offload.py:*"])
+    assert "<unknown location>" not in result.stdout.str()
