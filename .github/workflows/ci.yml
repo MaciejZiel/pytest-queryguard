@@ -84,7 +84,7 @@ jobs:
       - run: uv sync
       - run: uv run --no-sync pytest tests/test_xdist.py -v
       # 500 generated tests on 4 workers: baseline, SARIF, no leakage
-      - run: uv run --no-sync pytest tests/test_stress_xdist.py -v
+      - run: uv run --no-sync pytest tests/test_stress_xdist.py tests/test_stress_memory.py -v
         env:
           QUERYGUARD_STRESS: "1"
       - run: uv run --no-sync pytest -n 2 --ignore=tests/test_xdist.py
@@ -103,7 +103,7 @@ jobs:
       - run: >-
           uv run --no-sync pytest -v -p no:randomly
           -o asyncio_default_fixture_loop_scope=function
-          tests/test_plugin_interplay.py
+          tests/test_plugin_interplay.py tests/test_concurrency.py
 
   # Per-statement overhead of the measurement against the stored baseline in
   # scripts/bench_baseline.json (relative overhead, generous margin). Linux
