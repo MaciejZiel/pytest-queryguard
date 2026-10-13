@@ -28,16 +28,19 @@ class NPlusOneDetected(AssertionError):
 
 
 @contextmanager
-def _measure(limit: int | None, time_limit: float | None) -> Iterator[QueryCollector]:
+def _measure(limit: int | None, time_limit: float | None) -> Iterator[QueryLog]:
     # The budget failure is raised here; pytest should show the user's with block.
     __tracebackhide__ = True
     install()
     collector = QueryCollector()
+    log = QueryLog(collector)
+    earlier = internal_error()  # recording is already off if this is set
     push(collector)
     try:
-        yield collector
+        yield log
     finally:
         pop(collector)
+        log._finish(earlier)  # however the block ends, the log is fixed
     if limit is not None and len(collector.statements) > limit:
         raise QueryBudgetExceeded(
             format_budget(
@@ -58,15 +61,21 @@ def _measure(limit: int | None, time_limit: float | None) -> Iterator[QueryColle
         )
 
 
-def max_queries(limit: int) -> AbstractContextManager[QueryCollector]:
-    """Fail when the block runs more than ``limit`` SQL statements."""
+def max_queries(limit: int) -> AbstractContextManager[QueryLog]:
+    """Fail when the block runs more than ``limit`` SQL statements.
+
+    Yields the same ``QueryLog`` as ``record_queries()``: ``with max_queries(3)
+    as log:`` gives ``log.count``, ``log.queries`` and the other members.
+    """
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         raise ValueError(f"limit must be a non-negative integer, got {limit!r}")
     return _measure(limit, None)
 
 
-def max_db_time(seconds: float) -> AbstractContextManager[QueryCollector]:
+def max_db_time(seconds: float) -> AbstractContextManager[QueryLog]:
     """Fail when the statements of the block take more than ``seconds`` in total.
+
+    Yields the same ``QueryLog`` as ``record_queries()``.
 
     The time is what the database and the driver took for each statement,
     measured around the cursor call; it does not include the time the code in
