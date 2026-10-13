@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -278,3 +279,58 @@ def test_a_from_statement_column_load_is_recognised_before_sqlalchemy_2_0_30(
     listeners._on_orm_execute(state)  # type: ignore[arg-type]
     assert listeners.internal_error() is None
     assert [load.owner for load in rec.column_loads] == ["Customer"]
+
+
+def _from_statement_state(
+    session: Session, *, load_options: object, compile_options: object
+) -> object:
+    """A pre-2.0.30 ``from_statement()`` state with chosen private attributes."""
+    from types import SimpleNamespace
+
+    from sqlalchemy.exc import InvalidRequestError
+
+    class OldFromStatementState(SimpleNamespace):
+        @property
+        def load_options(self) -> None:
+            raise InvalidRequestError("not against a SELECT statement")
+
+        @property
+        def is_relationship_load(self) -> bool:
+            return False
+
+    execution_options = {}
+    if load_options is not None:
+        execution_options["_sa_orm_load_options"] = load_options
+    return OldFromStatementState(
+        session=session,
+        is_column_load=False,
+        is_select=False,
+        execution_options=execution_options,
+        statement=SimpleNamespace(_compile_options=compile_options),
+    )
+
+
+@pytest.mark.parametrize(
+    "load_options, compile_options",
+    [
+        # SQLAlchemy drops the refresh flag: an ordinary statement again.
+        (None, None),
+        (None, object()),
+        # The flag is there but the load options are not: nothing to attribute.
+        (None, SimpleNamespace(_for_refresh_state=True)),
+        (object(), SimpleNamespace(_for_refresh_state=True)),
+    ],
+)
+def test_a_from_statement_load_without_the_private_attributes_fails_open(
+    session: Session,
+    rec: collector.QueryCollector,
+    load_options: object,
+    compile_options: object,
+) -> None:
+    """Missing private attributes record nothing and raise nothing."""
+    state = _from_statement_state(
+        session, load_options=load_options, compile_options=compile_options
+    )
+    listeners._on_orm_execute(state)  # type: ignore[arg-type]
+    assert listeners.internal_error() is None
+    assert rec.column_loads == []
