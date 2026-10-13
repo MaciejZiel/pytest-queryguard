@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- GitHub Action: the `package` input now defaults to the plugin in the action's
+  own checkout instead of the name `pytest-queryguard`, so the installed plugin
+  matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
+  stable 0.3.0 while 0.4 was a release candidate)
+  ([#106](https://github.com/MaciejZiel/pytest-queryguard/issues/106)).
+
 - The index check notice for a database it cannot check (SQL Server, Oracle)
   said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
   supported. It now lists every supported database, and the help texts of
