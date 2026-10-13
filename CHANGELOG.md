@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   comparison such as `(a, b) > ($1, $2)` no longer asks for an expression index
   ([#85](https://github.com/MaciejZiel/pytest-queryguard/issues/85)).
 
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
+
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
@@ -66,17 +75,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimums, the documentation examples, clean installs, the upgrade from the
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
-
-### Fixed
-
-- PostgreSQL index check: a server newer than the tested releases (16 to 18)
-  is still checked and now gets one notice in the session summary that its
-  version is untested. Older servers keep their one "not checked" notice. The
-  tested versions are listed in `docs/index-check.md`.
-- Documentation: the index check page was published as raw Markdown from the
-  partial-index paragraph on, including its SQLite section
-  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
-  now fails the build for any page left like that.
 
 ## [0.4.0rc2] - 2026-10-12
 
