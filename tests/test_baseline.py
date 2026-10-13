@@ -355,12 +355,31 @@ def test_any_write_error_is_reported_not_raised(
     assert "Traceback" not in result.stdout.str() + result.stderr.str()
 
 
-def test_an_update_replaces_a_deeply_nested_file(project: pytest.Pytester) -> None:
+def _too_deep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make json raise RecursionError, as it does for deep nesting.
+
+    Whether a given depth overflows depends on the interpreter and the stack
+    size (Python 3.14 measures the C stack), so the real input is not used
+    where the message matters.
+    """
+
+    def loads(text: str) -> object:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(baseline.json, "loads", loads)
+
+
+def test_an_update_replaces_a_deeply_nested_file(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
     project.makepyfile(test_a=ONE_LOOP)
     (project.path / "qg.json").write_text("[" * 200_000)
+    real_loads = baseline.json.loads
+    _too_deep(monkeypatch)
     result = project.runpytest(
         "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
     )
+    monkeypatch.setattr(baseline.json, "loads", real_loads)
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*replaced an unusable file*nested too deeply*"])
     assert baseline.load(project.path / "qg.json")
@@ -421,17 +440,27 @@ def test_non_ascii_text_stays_readable_in_the_file(tmp_path: Path) -> None:
     assert baseline.load(path) == {identity}
 
 
-def test_deeply_nested_json_is_an_invalid_baseline_not_a_recursion_error() -> None:
-    text = "[" * 100000 + "]" * 100000
+def test_deeply_nested_json_is_an_invalid_baseline_not_a_recursion_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _too_deep(monkeypatch)
     with pytest.raises(BaselineError, match="nested too deeply"):
+        baseline.parse("[[]]", Path("b.json"))
+
+
+def test_really_deep_json_is_an_invalid_baseline() -> None:
+    # RecursionError or a parsed list without a version: either way, invalid
+    text = "[" * 1_000_000 + "]" * 1_000_000
+    with pytest.raises(BaselineError):
         baseline.parse(text, Path("b.json"))
 
 
 def test_a_deeply_nested_baseline_file_is_a_usage_error(
-    project: pytest.Pytester,
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project.makepyfile(test_a=CLEAN)
-    (project.path / "qg.json").write_text("[" * 100000 + "]" * 100000)
+    (project.path / "qg.json").write_text("[[]]")
+    _too_deep(monkeypatch)
     result = project.runpytest("--queryguard-baseline=qg.json")
     assert result.ret == pytest.ExitCode.USAGE_ERROR
     result.stderr.fnmatch_lines(["*queryguard baseline:*nested too deeply*"])
