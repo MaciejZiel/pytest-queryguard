@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The repeat rules (repeated statement and small repeat) no longer count
+  transaction-control statements: `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`,
+  `RELEASE`, `START TRANSACTION` and `SET TRANSACTION`. With SQLAlchemy's
+  pysqlite `BEGIN` recipe a loop that commits each pass was reported with
+  `BEGIN` as a repeated statement and the advice to fetch rows in one query.
+  Budgets still count them. The accuracy corpus gives the same result before
+  and after. Fixes #158.
+
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
   concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
