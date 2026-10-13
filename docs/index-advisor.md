@@ -159,6 +159,10 @@ Facts about hypopg that shape this:
   may not lower them; the message then says "no gain at the current table
   size", and the verdict "the planner uses it" is still the answer to whether
   the index can serve the statement.
+- On a partitioned table the hypothetical index is created on the
+  partitioned table itself, and the planner uses it on every partition it
+  reads, as it would use a real index created there (checked with hypopg
+  1.4.3 on PostgreSQL 16 and 18).
 - hypopg's functions are called with their schema, so an application's own
   `search_path` does not matter.
 - On asyncpg the EXPLAIN already runs in a DO block, because asyncpg prepares
