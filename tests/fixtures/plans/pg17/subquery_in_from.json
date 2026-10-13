@@ -1,0 +1,79 @@
+{
+ "query": "SELECT * FROM (SELECT * FROM orders WHERE status = $1) s WHERE s.total > $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 10000000016.5,
+    "Plan Rows": 167,
+    "Plan Width": 93,
+    "Output": [
+     "orders.id",
+     "orders.customer_id",
+     "orders.status",
+     "orders.total",
+     "orders.created_at",
+     "orders.tags",
+     "orders.data",
+     "orders.note",
+     "orders.kind"
+    ],
+    "Filter": "((orders.total > $2) AND ((orders.status)::text = $1))"
+   },
+   "JIT": {
+    "Functions": 2,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (status, total)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

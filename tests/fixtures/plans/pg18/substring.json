@@ -1,0 +1,57 @@
+{
+ "query": "SELECT * FROM customers WHERE substring(name FROM 1 FOR 2) = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "customers",
+    "Schema": "public",
+    "Alias": "customers",
+    "Startup Cost": 0.0,
+    "Total Cost": 1.75,
+    "Plan Rows": 1,
+    "Plan Width": 17,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "email",
+     "name"
+    ],
+    "Filter": "(SUBSTRING(customers.name FROM 1 FOR 2) = $1)"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "customers",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": true,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
