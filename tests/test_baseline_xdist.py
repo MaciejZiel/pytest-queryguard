@@ -168,3 +168,24 @@ def test_a_stop_by_maxfail_gives_the_serial_reason(
         ["*queryguard baseline not updated: the run stopped early*"]
     )
     result.stdout.no_fnmatch_line("*Ctrl-C*")
+
+
+def test_a_collection_error_under_x_keeps_the_interrupted_reason(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = project.path / "qg.json"
+    path.write_text('{"version": 1, "findings": []}\n')
+    result = _run(
+        project,
+        "-n",
+        "2",
+        "-x",
+        "--queryguard-baseline=qg.json",
+        "--queryguard-update-baseline",
+    )
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == '{"version": 1, "findings": []}\n'
+    result.stdout.fnmatch_lines(
+        ["*queryguard baseline not updated: the run was interrupted*"]
+    )
