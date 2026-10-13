@@ -18,13 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- PostgreSQL index check: a sequential scan whose filter is only not-equal
-  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
-  longer reported as a missing index. No index serves them, so the advice
-  could not be followed, even on an indexed column; the SQLite check never
-  reported them. A filter with one more servable condition, or a not-equal
-  against a constant in the SQL (which a partial index serves), is still
-  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
+- The index check notice for a database it cannot check (SQL Server, Oracle)
+  said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
+  supported. It now lists every supported database, and the help texts of
+  `--queryguard-index-check` and `queryguard_index_check` name MySQL and
+  MariaDB too. Fixes #154.
+
 - PostgreSQL index check: a finding for an index the plan walks end to end (a
   filter on the trailing column of a composite key, a whole index with a filter,
   a whole-index bitmap) now says `t scans the whole index ix: the ... does not
@@ -49,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commented single-row `INSERT`s was reported as a repeated statement with the
   advice to fetch the rows in one query, and the write-loop rule never saw it.
   Fixes #96.
+
+- The MySQL and MariaDB index check no longer fails on a literal `%` in a
+  statement that was run with the `no_parameters` execution option: the
+  `EXPLAIN` was formatted by PyMySQL (`query % args`) although the statement
+  itself was not, so it was reported as "could not be explained" (a literal
+  `%%` was sent as `%`). Fixes #116.
 
 - `--queryguard-update-baseline` no longer rewrites the baseline, and
   `--queryguard-sarif` no longer writes the file, after an interrupted run (a
@@ -83,6 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments at plan time, so the index check and the advisor can call such a
   function again and its non-transactional side effects (for example
   `nextval()`) are not rolled back with the savepoint. Fixes #92.
+- PostgreSQL index check: a sequential scan whose filter is only not-equal
+  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
+  longer reported as a missing index. No index serves them, so the advice
+  could not be followed, even on an indexed column; the SQLite check never
+  reported them. A filter with one more servable condition, or a not-equal
+  against a constant in the SQL (which a partial index serves), is still
+  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 
 ### Changed
 

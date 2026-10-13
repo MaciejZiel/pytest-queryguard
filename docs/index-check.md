@@ -271,7 +271,7 @@ does not support:
 
 ```
 ============================ queryguard index check ============================
-mssql statements were not checked: the index check needs PostgreSQL 16 or newer
+mssql statements were not checked: the index check supports PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers

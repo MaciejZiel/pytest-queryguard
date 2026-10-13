@@ -4,6 +4,7 @@ import gc
 import json
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -963,10 +964,19 @@ def test_supported_dialect_has_no_reason() -> None:
     ("dialect", "reason"),
     [
         (
-            FakeDialect("sqlite"),
+            FakeDialect("oracle"),
             (
-                "sqlite statements were not checked: "
-                "the index check needs PostgreSQL 16 or newer"
+                "oracle statements were not checked: the index check supports "
+                "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) "
+                "and MariaDB (tested on 11.8)"
+            ),
+        ),
+        (
+            FakeDialect("mssql"),
+            (
+                "mssql statements were not checked: the index check supports "
+                "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) "
+                "and MariaDB (tested on 11.8)"
             ),
         ),
         (
@@ -1095,17 +1105,26 @@ def test_check_skips_writes_and_executemany(sql: str, executemany: bool) -> None
 
 
 def test_check_records_a_notice_for_an_unsupported_engine() -> None:
-    conn = FakeSAConnection(FakeDialect("sqlite"))
+    conn = FakeSAConnection(FakeDialect("oracle"))
     target = _collector()
     check(conn, "SELECT 1", False, [target])
     check(conn, "SELECT 2", False, [target])
     assert conn.raw.log == []
     assert list(target.index_notices) == [
         (
-            "sqlite statements were not checked: "
-            "the index check needs PostgreSQL 16 or newer"
+            "oracle statements were not checked: the index check supports "
+            "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) "
+            "and MariaDB (tested on 11.8)"
         )
     ]
+
+
+def test_help_texts_name_every_supported_database() -> None:
+    from pytest_queryguard import plugin
+
+    source = Path(plugin.__file__).read_text(encoding="utf-8")
+    assert source.count("(PostgreSQL 16 or newer, SQLite, MySQL or MariaDB)") == 2
+    assert "or SQLite)" not in source
 
 
 @pytest.mark.parametrize(
