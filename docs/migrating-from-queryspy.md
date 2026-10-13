@@ -80,12 +80,15 @@ queryguard_column_load_threshold = 2
 | `with queryspy.ignore():` in application code | No `with` block. Ignore the finding by label in `queryguard_ignore`, with the marker, or in the baseline ([Ignoring findings](ignoring.md)) |
 | `QuerySpyMiddleware` (ASGI, WSGI), the panel | Not covered: tests only |
 
-The helpers, side by side:
+The helpers, side by side. They run against the fixed `fetch_customers`, the
+one in `app/customers_fixed.py` of [the first test](getting-started.md#a-first-test),
+which loads the three customers with one `IN` query; the `app.customers`
+module of that page is the N+1 version, and both tests below fail against it:
 
 ```python
 from pytest_queryguard import max_queries, record_queries
 
-from app.customers import fetch_customers
+from app.customers_fixed import fetch_customers
 
 
 def test_fetch_customers_is_one_query(session):
@@ -101,7 +104,9 @@ def test_fetch_customers_budget(session):
 ```
 
 `assert_no_nplusone()` does not read the ini thresholds; pass them as
-arguments (its defaults are 2 for relationships and 5 for repeats).
+arguments. Its defaults are 2 for relationships, 5 for repeats and 5 for
+column loads; the thresholds for small repeats and write loops are off unless
+passed (see [Reading the queries](python-api.md)).
 
 ## A budget for every test
 
