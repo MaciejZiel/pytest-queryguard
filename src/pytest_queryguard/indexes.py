@@ -309,7 +309,11 @@ def _constant(expr: predicates.Expr) -> bool:
         return _CONSTANT.fullmatch(expr.text) is not None
     if isinstance(expr, predicates.Cast):
         return _constant(expr.operand)
-    if isinstance(expr, predicates.Call) and expr.name.lower() in ("array", "any", "all"):
+    if isinstance(expr, predicates.Call) and expr.name.lower() in (
+        "array",
+        "any",
+        "all",
+    ):
         return bool(expr.args) and all(_constant(arg) for arg in expr.args)
     return False
 
