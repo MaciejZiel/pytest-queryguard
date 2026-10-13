@@ -36,5 +36,36 @@
     }
    }
   }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "total",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (total)",
+   "skipped": null,
+   "partial_skipped": false
+  }
  ]
 }

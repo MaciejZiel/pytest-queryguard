@@ -1,0 +1,117 @@
+{
+ "query": "SELECT * FROM events WHERE created_at >= $1 AND kind = $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Append",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 0.0,
+    "Total Cost": 10.13,
+    "Plan Rows": 26,
+    "Plan Width": 24,
+    "Disabled": false,
+    "Subplans Removed": 0,
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "events_2025",
+      "Schema": "public",
+      "Alias": "events_1",
+      "Startup Cost": 0.0,
+      "Total Cost": 5.2,
+      "Plan Rows": 14,
+      "Plan Width": 24,
+      "Disabled": true,
+      "Output": [
+       "events_1.id",
+       "events_1.account_id",
+       "events_1.kind",
+       "events_1.created_at",
+       "events_1.payload"
+      ],
+      "Filter": "((events_1.created_at >= $1) AND (events_1.kind = $2))"
+     },
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "events_2026",
+      "Schema": "public",
+      "Alias": "events_2",
+      "Startup Cost": 0.0,
+      "Total Cost": 4.8,
+      "Plan Rows": 12,
+      "Plan Width": 24,
+      "Disabled": true,
+      "Output": [
+       "events_2.id",
+       "events_2.account_id",
+       "events_2.kind",
+       "events_2.created_at",
+       "events_2.payload"
+      ],
+      "Filter": "((events_2.created_at >= $1) AND (events_2.kind = $2))"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "events_2025",
+    "events_2025_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "events_2026",
+    "events_2026_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "events_2025",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": "CREATE INDEX ON events_2025 (kind, created_at)",
+   "skipped": null,
+   "partial_skipped": false
+  },
+  {
+   "schema": "public",
+   "table": "events_2026",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": "CREATE INDEX ON events_2026 (kind, created_at)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
