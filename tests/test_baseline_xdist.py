@@ -191,19 +191,37 @@ def test_a_collection_error_under_x_keeps_the_interrupted_reason(
     )
 
 
-@pytest.mark.parametrize("workers", [None, "2"])
+# A module that does not collect leaves its tests out; rewriting the file
+# would drop their entries. That holds also when the run goes on, with
+# --continue-on-collection-errors or under pytest-xdist without -x.
+COLLECTION_ERROR_RUNS = pytest.mark.parametrize(
+    "args",
+    [
+        (),
+        ("--continue-on-collection-errors",),
+        ("-n", "2"),
+        ("-n", "2", "--continue-on-collection-errors"),
+    ],
+    ids=["serial", "serial-continue", "xdist", "xdist-continue"],
+)
+
+
+@COLLECTION_ERROR_RUNS
 def test_a_collection_error_leaves_the_baseline_alone_without_x(
-    project: pytest.Pytester, workers: str | None
+    project: pytest.Pytester, args: tuple[str, ...]
 ) -> None:
     project.makepyfile(test_broken="import no_such_module_anywhere\n")
     path = project.path / "qg.json"
     path.write_text('{"version": 1, "findings": [["x"]]}\n')
     result = _run(
         project,
-        *(("-n", workers) if workers else ()),
+        *args,
         "--queryguard-baseline=qg.json",
         "--queryguard-update-baseline",
     )
+    if args:  # the run went on: the other tests ran
+        assert result.ret == pytest.ExitCode.TESTS_FAILED
+        assert result.parseoutcomes()["passed"] > 0
     assert path.read_text() == '{"version": 1, "findings": [["x"]]}\n'
     result.stdout.fnmatch_lines(
         ["*queryguard baseline not updated: the run was interrupted*"]

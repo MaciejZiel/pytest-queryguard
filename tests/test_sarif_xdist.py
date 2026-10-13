@@ -138,15 +138,31 @@ def test_a_collection_error_under_x_leaves_the_file_alone(
     result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])
 
 
-@pytest.mark.parametrize("workers", [None, "2"])
+# A report without the tests of a module that did not collect would close
+# their alerts. That holds also when the run goes on, with
+# --continue-on-collection-errors or under pytest-xdist without -x.
+COLLECTION_ERROR_RUNS = pytest.mark.parametrize(
+    "args",
+    [
+        (),
+        ("--continue-on-collection-errors",),
+        ("-n", "2"),
+        ("-n", "2", "--continue-on-collection-errors"),
+    ],
+    ids=["serial", "serial-continue", "xdist", "xdist-continue"],
+)
+
+
+@COLLECTION_ERROR_RUNS
 def test_a_collection_error_leaves_the_file_alone_without_x(
-    project: pytest.Pytester, workers: str | None
+    project: pytest.Pytester, args: tuple[str, ...]
 ) -> None:
     project.makepyfile(test_broken="import no_such_module_anywhere\n")
     path = project.path / "out.sarif"
     path.write_text("previous")
-    result = _run(
-        project, *(("-n", workers) if workers else ()), "--queryguard-sarif=out.sarif"
-    )
+    result = _run(project, *args, "--queryguard-sarif=out.sarif")
+    if args:  # the run went on: the other tests ran
+        assert result.ret == pytest.ExitCode.TESTS_FAILED
+        assert result.parseoutcomes()["passed"] > 0
     assert path.read_text() == "previous"
     result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])
