@@ -7,11 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
+  `text()`) is now classified like the statement after the comment. A loop of
+  commented single-row `INSERT`s was reported as a repeated statement with the
+  advice to fetch the rows in one query, and the write-loop rule never saw it.
+  Fixes #96.
+
+- `--queryguard-update-baseline` no longer rewrites the baseline, and
+  `--queryguard-sarif` no longer writes the file, after an interrupted run (a
+  collection error, Ctrl-C, a usage error or an internal pytest error). The
+  summary says why. Fixes #95.
+
+- Tests: the public API snapshot recorded a wrong return type for
+  `QueryLog.slowest()` and did not assert it. It now records
+  `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
+- PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
+  longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
+  wrong even for a primary key
+  ([#83](https://github.com/MaciejZiel/pytest-queryguard/issues/83)). Plan
+  conditions with `CASE`, `AT TIME ZONE`, `EXTRACT(... FROM ...)`, `count(*)`,
+  `COLLATE` or an array subscript are now parsed instead of matched as text, so a
+  column inside them is no longer suggested as a plain index and gets the
+  expression-index note
+  ([#84](https://github.com/MaciejZiel/pytest-queryguard/issues/84)). A row
+  comparison such as `(a, b) > ($1, $2)` no longer asks for an expression index
+  ([#85](https://github.com/MaciejZiel/pytest-queryguard/issues/85)).
+
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
   suite and the async helpers need `AsyncAttrs`, which does not exist in
   earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
+- The options with a fixed set of values now agree on case. `queryguard_mode`,
+  `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
+  `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
+  accepted any case; all of them now ignore case and surrounding spaces, and
+  unknown values are still a usage error.
 
 - Lower the per-statement overhead by about a sixth in the in-memory SQLite
   micro-benchmark: one shared `CallSite` per source location, one write check
@@ -25,11 +60,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `queryguard_ignore`. The marker without arguments still leaves the index
   check alone (`allow_missing_index` skips it).
 
+- The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
+  resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
+  caching repositories, `with_for_update`, nested transactions, `yield_per`,
+  large `selectinload`, ORM bulk statements, upserts, and BUG scenarios that
+  look like pagination, batching or polling. `docs/accuracy.md` and the release
+  gate's minimum scenario count are updated; the plugin is unchanged.
+
 - Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
   `scripts/release_gate.py`) that checks the test matrix, the accuracy
   minimums, the documentation examples, clean installs, the upgrade from the
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
+
+### Fixed
+
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
 
 ## [0.4.0rc2] - 2026-10-12
 

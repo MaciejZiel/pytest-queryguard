@@ -30,7 +30,14 @@ jobs:
         with:
           pytest-args: -x tests/
           baseline: queryguard-baseline.json
+          package: "pytest-queryguard>=0.4.0rc2"   # see below
 ```
+
+Until 0.4.0 is released, set `package` as above. Its default,
+`pytest-queryguard`, lets pip pick the stable 0.3.0 when your project does not
+install the plugin itself, and 0.3.0 has no `--queryguard-sarif`: pytest then
+stops with `unrecognized arguments`. If your test dependencies already pin
+`pytest-queryguard>=0.4.0rc2`, the default is satisfied by that install.
 
 The action installs `pytest-queryguard` into the active Python, runs
 `pytest --queryguard-sarif=queryguard.sarif`, uploads the file with

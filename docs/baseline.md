@@ -18,7 +18,10 @@ The baseline applies to the pytest plugin and to every finding kind
 pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline
 ```
 
-The run writes the file and does not fail on findings. Run the whole suite:
+The run writes the file and does not fail on findings. Budgets
+(`max_queries`, `max_db_time`) are not findings: a test over its budget still
+fails on this run and is never recorded, so fix the code or raise the budget.
+Run the whole suite:
 the file holds what this run found, so a partial run drops the entries of the
 tests it did not run. Commit the file.
 
@@ -94,8 +97,9 @@ off, or after an internal error or a crashed worker.
 A missing file, invalid JSON, an unknown `version` or an entry with the wrong
 shape stops pytest with a usage error that names the file and the problem.
 `--queryguard-update-baseline` replaces a missing or unreadable file. It does
-not write after `-x`/`--maxfail` stopped the run, after an internal error, or
-after a worker crashed, and says so in the summary.
+not write after `-x`/`--maxfail` stopped the run, after an internal error, after
+a worker crashed, or after an interrupted run (a collection error, Ctrl-C, a
+usage error or an internal pytest error), and says so in the summary.
 
 ## pytest-xdist
 

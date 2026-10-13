@@ -348,20 +348,42 @@ def _small_repeat(config: pytest.Config, repeat: int) -> int | None:
     return value
 
 
-def _repeat_scope(config: pytest.Config) -> str:
-    name = "queryguard_repeat_scope"
-    try:
-        raw: Any = config.getini(name)
-    except (TypeError, ValueError) as exc:
-        raise pytest.UsageError(
-            f"{name} must be one of {', '.join(SCOPES)}: {exc}"
-        ) from None
+def _choice(
+    config: pytest.Config,
+    name: str,
+    choices: tuple[str, ...],
+    *,
+    flag: str | None = None,
+) -> str:
+    """Read an option with a fixed set of values; case and edge spaces are ignored.
+
+    ``flag`` is the command-line option that overrides the ini option, if any.
+    Every enum-valued option goes through here so that they agree on case.
+    """
+    source = name
+    raw: Any = None
+    if flag is not None:
+        raw = config.getoption(name)
+        if raw is not None:
+            source = flag
+    if raw is None:
+        try:
+            raw = config.getini(name)
+        except (TypeError, ValueError) as exc:
+            # pytest 9 rejects a non-string value from native TOML on its own.
+            raise pytest.UsageError(
+                f"{name} must be one of {', '.join(choices)}: {exc}"
+            ) from None
     value = str(raw).strip().lower()
-    if value not in SCOPES:
+    if value not in choices:
         raise pytest.UsageError(
-            f"{name} must be one of {', '.join(SCOPES)}, got {raw!r}"
+            f"{source} must be one of {', '.join(choices)}, got {raw!r}"
         )
     return value
+
+
+def _repeat_scope(config: pytest.Config) -> str:
+    return _choice(config, "queryguard_repeat_scope", SCOPES)
 
 
 def _write_loop(config: pytest.Config) -> int | None:
@@ -428,16 +450,7 @@ def _ignore_rules(config: pytest.Config) -> tuple[IgnoreRule, ...]:
 
 
 def _unused_eager(config: pytest.Config) -> str:
-    name = "queryguard_unused_eager_load"
-    try:
-        value = str(config.getini(name)).strip().lower()
-    except (TypeError, ValueError) as exc:
-        raise pytest.UsageError(f"{name} must be off, warn or fail: {exc}") from None
-    if value not in _EAGER_MODES:
-        raise pytest.UsageError(
-            f"{name} must be one of {', '.join(_EAGER_MODES)}, got {value!r}"
-        )
-    return value
+    return _choice(config, "queryguard_unused_eager_load", _EAGER_MODES)
 
 
 def _index_check(config: pytest.Config) -> bool:
@@ -464,16 +477,7 @@ def _index_advisor(config: pytest.Config) -> bool:
 
 
 def _hypopg(config: pytest.Config) -> str:
-    name = "queryguard_hypopg"
-    try:
-        raw: Any = config.getini(name)
-    except (TypeError, ValueError) as exc:
-        raise pytest.UsageError(f"{name} must be one of auto, on, off: {exc}") from None
-    if raw not in hypopg.MODES:
-        raise pytest.UsageError(
-            f"{name} must be one of {', '.join(hypopg.MODES)}, got {raw!r}"
-        )
-    return str(raw)
+    return _choice(config, "queryguard_hypopg", tuple(hypopg.MODES))
 
 
 def _ignore_tables(config: pytest.Config) -> tuple[str, ...]:
@@ -517,22 +521,7 @@ def _sarif_path(config: pytest.Config) -> Path | None:
 
 
 def _read_settings(config: pytest.Config) -> _Settings:
-    cli_mode = config.getoption("queryguard_mode")
-    if cli_mode is not None:
-        mode, source = cli_mode, "--queryguard-mode"
-    else:
-        source = "queryguard_mode"
-        try:
-            mode = config.getini(source)
-        except (TypeError, ValueError) as exc:
-            # pytest 9 rejects a non-string value from native TOML on its own.
-            raise pytest.UsageError(
-                f"{source} must be one of {', '.join(_MODES)}: {exc}"
-            ) from None
-    if mode not in _MODES:
-        raise pytest.UsageError(
-            f"{source} must be one of {', '.join(_MODES)}, got {mode!r}"
-        )
+    mode = _choice(config, "queryguard_mode", _MODES, flag="--queryguard-mode")
     repeat = _threshold(config, "queryguard_repeat_threshold")
     baseline_path = _baseline_path(config)
     update = bool(config.getoption("queryguard_update_baseline"))
@@ -546,7 +535,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
     if update and mode == "off":
         raise pytest.UsageError(
             "--queryguard-update-baseline cannot run with measurement off "
-            f"({source} = off)"
+            "(the queryguard mode is off)"
         )
     if baseline_path is not None:
         try:
@@ -1061,7 +1050,18 @@ def _identity(raw: Any) -> Identity:
     return (kind, label, file, function)
 
 
-def pytest_sessionfinish(session: pytest.Session) -> None:
+_ABNORMAL_EXIT = frozenset(
+    (
+        pytest.ExitCode.INTERRUPTED,
+        pytest.ExitCode.USAGE_ERROR,
+        pytest.ExitCode.INTERNAL_ERROR,
+    )
+)
+
+
+def pytest_sessionfinish(
+    session: pytest.Session, exitstatus: int | pytest.ExitCode
+) -> None:
     config = session.config
     settings = config.stash.get(_settings, None)
     if settings is None or not (settings.baselining or settings.sarif_path):
@@ -1077,10 +1077,19 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         return
     if internal_error() is not None:
         settings.baseline_incomplete = True
+    interrupted = exitstatus in _ABNORMAL_EXIT
     if settings.update_baseline:
-        _update_baseline(session, settings)
+        _update_baseline(session, settings, interrupted)
     if settings.sarif_path is not None:
-        _write_sarif(settings)
+        if interrupted:
+            # a partial report would close the alerts of the tests that never ran
+            settings.sarif_failed = (
+                "not written: the run was interrupted or did not finish "
+                "(collection error, Ctrl-C or internal error); "
+                "an existing file is left as it was"
+            )
+        else:
+            _write_sarif(settings)
 
 
 def _write_sarif(settings: _Settings) -> None:
@@ -1107,9 +1116,17 @@ def _write_sarif(settings: _Settings) -> None:
     settings.sarif_result = text
 
 
-def _update_baseline(session: pytest.Session, settings: _Settings) -> None:
+def _update_baseline(
+    session: pytest.Session, settings: _Settings, interrupted: bool = False
+) -> None:
     path = settings.baseline_path
     if path is None:
+        return
+    if interrupted:
+        settings.baseline_failed = (
+            "not updated: the run was interrupted or did not finish "
+            "(collection error, Ctrl-C or internal error)"
+        )
         return
     if session.shouldstop or session.shouldfail or settings.baseline_incomplete:
         settings.baseline_failed = (
