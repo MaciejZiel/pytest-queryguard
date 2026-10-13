@@ -769,3 +769,71 @@ def test_small_repeats_are_sorted_by_count_descending() -> None:
     c.statements.extend(_runs("SELECT 1 FROM few", 3))
     c.statements.extend(_runs("SELECT 1 FROM many", 4, site=OTHER))
     assert [f.count for f in _repeats(c, small=3)] == [4, 3]
+
+
+TRANSACTION_CONTROL = [
+    "BEGIN",
+    "begin immediate",
+    "BEGIN TRANSACTION",
+    "BEGIN;",
+    "BEGIN WORK",
+    "BEGIN ISOLATION LEVEL SERIALIZABLE",
+    "BEGIN READ ONLY",
+    "BEGIN TRAN",
+    "COMMIT",
+    "ROLLBACK",
+    "ROLLBACK TO SAVEPOINT sa_1",
+    "SAVEPOINT sa_1",
+    "RELEASE SAVEPOINT sa_1",
+    "RELEASE sa_1",
+    "START TRANSACTION",
+    "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+    "/* tag */ BEGIN",
+    "-- note\nCOMMIT",
+]
+
+
+@pytest.mark.parametrize("sql", TRANSACTION_CONTROL)
+def test_transaction_control_is_not_reported_as_repeat(sql: str) -> None:
+    c = QueryCollector()
+    c.statements.extend(_stmts(sql, 8))
+    assert detect(c, relationship_threshold=2, repeat_threshold=5) == []
+    assert (
+        detect(
+            c, relationship_threshold=2, repeat_threshold=5, small_repeat_threshold=2
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SET search_path TO app",
+        "SET LOCAL statement_timeout = 5",
+        "START_DATE_QUERY",
+        "SELECT 1 -- BEGIN",
+        "BEGINNING_OF_TIME",
+        # A block that does work, run once per row, is a loop like any query.
+        "BEGIN load_order(:id); END;",
+        "BEGIN\n  SELECT * FROM orders WHERE id = ?;\nEND",
+    ],
+)
+def test_other_statements_are_still_repeat_candidates(sql: str) -> None:
+    c = QueryCollector()
+    c.statements.extend(_stmts(sql, 6))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RepeatFinding)
+
+
+def test_a_savepoint_per_row_write_loop_is_still_a_write_loop() -> None:
+    """SAVEPOINT and RELEASE are skipped; the INSERT of each pass is not."""
+    c = QueryCollector()
+    for i in range(6):
+        c.statements.extend(_stmts(f"SAVEPOINT sa_savepoint_{i + 1}", 1))
+        c.statements.extend(_stmts("INSERT INTO t (x) VALUES (?)", 1))
+        c.statements.extend(_stmts(f"RELEASE SAVEPOINT sa_savepoint_{i + 1}", 1))
+    findings = detect(
+        c, relationship_threshold=2, repeat_threshold=5, write_loop_threshold=2
+    )
+    assert [(type(f).__name__, f.count) for f in findings] == [("WriteLoopFinding", 6)]

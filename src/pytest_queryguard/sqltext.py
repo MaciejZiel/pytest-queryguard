@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 # Text that is copied unchanged when statements are rewritten or scanned:
 # quoted strings and identifiers, dollar quotes and comments. An unterminated
 # one runs to the end of the statement.
@@ -57,3 +59,60 @@ def is_write(sql: str) -> bool:
 
 
 _PREFIX_STARTS = frozenset("-/(")
+
+
+_CONTROL_VERBS = frozenset(("COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE"))
+_CONTROL_PAIRS = frozenset(("START", "SET"))
+# The words that may follow BEGIN when it starts a transaction (PostgreSQL,
+# SQLite, MySQL, SQL Server). Any other word starts a block that does work,
+# such as an Oracle or SQL Server ``BEGIN proc(:x); END;``, which a loop can
+# repeat like any query.
+_BEGIN_MODIFIERS = frozenset(
+    (
+        "TRANSACTION",
+        "TRAN",
+        "WORK",
+        "DEFERRED",
+        "IMMEDIATE",
+        "EXCLUSIVE",
+        "ISOLATION",
+        "READ",
+        "NOT",
+        "DEFERRABLE",
+        "DISTRIBUTED",
+    )
+)
+_WORD = re.compile(r"[A-Za-z]+")
+
+
+def is_transaction_control(sql: str) -> bool:
+    """Whether the statement only opens, ends or marks a transaction.
+
+    BEGIN, COMMIT, ROLLBACK (also ``ROLLBACK TO SAVEPOINT``), SAVEPOINT,
+    RELEASE [SAVEPOINT], START TRANSACTION and SET TRANSACTION. Leading
+    comments and whitespace are skipped. Other SET statements are not, and
+    neither is a BEGIN that opens a block (``BEGIN proc(:x); END;``).
+    """
+    start = skip_prefix(sql)
+    if start is None:
+        return False
+    first = _WORD.match(sql, start)
+    if first is None:
+        return False
+    verb = first[0].upper()
+    if verb in _CONTROL_VERBS:
+        return True
+    if verb == "BEGIN":
+        after = skip_prefix(sql, first.end())
+        if after is None:
+            return False
+        rest = sql[after:].strip()
+        if rest in ("", ";"):
+            return True
+        second = _WORD.match(sql, after)
+        return second is not None and second[0].upper() in _BEGIN_MODIFIERS
+    if verb in _CONTROL_PAIRS:
+        after = skip_prefix(sql, first.end())
+        second = _WORD.match(sql, after) if after is not None else None
+        return second is not None and second[0].upper() == "TRANSACTION"
+    return False
