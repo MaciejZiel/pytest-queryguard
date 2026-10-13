@@ -138,3 +138,17 @@ def test_a_page_without_a_description_fails_the_strict_build(
     module.ROOT = tmp_path
     assert module.build(tmp_path / "out", strict=True) == 1
     assert "has no description" in capsys.readouterr().err
+
+
+def test_the_page_list_collapses_on_narrow_screens(site: Path) -> None:
+    """On a phone the list of pages would push the content two screens down."""
+    page = (site / "faq.html").read_text(encoding="utf-8")
+    nav = page[page.index('<nav class="side">') : page.index("</nav>")]
+    details = nav[nav.index('<details class="toc" open>') : nav.index("</details>")]
+    assert "<summary>All pages</summary>" in details
+    assert 'href="getting-started.html"' in details
+    assert 'id="q"' not in details  # the search box stays outside, always visible
+    script = nav[nav.index("</details>") :]
+    assert "matchMedia('(max-width:48rem)')" in script
+    css = (site / "style.css").read_text(encoding="utf-8")
+    assert "nav.side summary{display:none}" in css
