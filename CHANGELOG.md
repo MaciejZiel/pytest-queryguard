@@ -212,6 +212,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
   now fails the build for any page left like that.
+- Baseline: a file nested more than 100 levels deep is now rejected by a
+  depth check before parsing, so the "nested too deep" usage error no longer
+  depends on the interpreter hitting its recursion limit (which on Python 3.10
+  could surface as a second, unraisable `RecursionError`).
 
 ### Changed
 
