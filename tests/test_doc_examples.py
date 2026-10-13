@@ -58,9 +58,10 @@ NOT_PROJECTS = {
 
 # Packages that the release gate may find missing: not development dependencies
 # of this project (sqlmodel needs SQLAlchemy below 2.1, so only the SQLAlchemy
-# 2.0 CI job installs it; pytest_asyncio is in the "plugins" group). Their
-# recipe pages are projects like the others: where a package is missing, the
-# test of the page is skipped.
+# 2.0 CI jobs install it; pytest_asyncio is in the "plugins" group, whose CI
+# job runs this file; nothing in CI installs litestar). Their recipe pages are
+# projects like the others: where a package is missing, the test of the page is
+# skipped.
 OPTIONAL_PACKAGES = {"litestar", "pytest_asyncio", "sqlmodel"}
 
 # Pages that are history or design notes, not instructions.
