@@ -1,30 +1,23 @@
 from __future__ import annotations
 
-import os
-from collections.abc import Iterator
-
 import pytest
 
 pytest_plugins = ["pytester"]
 
 
-@pytest.hookimpl(wrapper=True)
-def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
+@pytest.fixture(autouse=True)
+def _pytester_sessions_keep_their_order(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Run the pytester sessions in file order even if pytest-randomly is installed.
 
     The files these tests write depend on their order (a table one test makes,
     a fixture that runs first), so shuffling them is not what is under test.
-    The outer run keeps its own order. Pytester clears PYTEST_ADDOPTS when it
-    is set up, so this is done after that, around the call.
+    The outer run keeps its own order. Pytester clears PYTEST_ADDOPTS when it is
+    set up, so it is requested first. This is a fixture and not a hook wrapper
+    because a wrapper adds frames to the stack the tests run on, and some of
+    them probe the recursion limit.
     """
-    if "pytester" not in getattr(item, "fixturenames", ()):
-        return (yield)
-    before = os.environ.get("PYTEST_ADDOPTS")
-    os.environ["PYTEST_ADDOPTS"] = "-p no:randomly"
-    try:
-        return (yield)
-    finally:
-        if before is None:
-            os.environ.pop("PYTEST_ADDOPTS", None)
-        else:
-            os.environ["PYTEST_ADDOPTS"] = before
+    if "pytester" in request.fixturenames:
+        request.getfixturevalue("pytester")
+        monkeypatch.setenv("PYTEST_ADDOPTS", "-p no:randomly")
