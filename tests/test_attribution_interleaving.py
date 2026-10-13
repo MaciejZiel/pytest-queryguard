@@ -23,7 +23,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.pool import NullPool, StaticPool
 
-from pytest_queryguard import NPlusOneDetected, record_queries
+from pytest_queryguard import NPlusOneDetected, listeners, record_queries
 
 pytest.importorskip("greenlet")
 pytest.importorskip("aiosqlite")
@@ -247,3 +247,90 @@ def test_threads_keep_each_attribution(tmp_path: Path) -> None:
     assert not errors
     assert _child_relationships(log) == {"Parent.children"}
     assert not [q for q in log if "FROM thing" in q.sql and q.relationship]
+
+
+def _shared_connection_engine() -> Any:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as seed:
+        seed.add_all(Parent(id=i, children=[Child()]) for i in range(1, 5))
+        seed.add_all(Thing(id=i) for i in range(1, 5))
+        seed.commit()
+    return engine
+
+
+@pytest.mark.parametrize("interleaved", [False, True])
+def test_two_sessions_on_one_connection_keep_each_attribution(
+    interleaved: bool,
+) -> None:
+    # The "test in a transaction" fixture pattern, with a second Session (a
+    # factory, an app's own session) joined to the same external connection.
+    engine = _shared_connection_engine()
+    with engine.connect() as conn:
+        trans = conn.begin()
+        first = Session(bind=conn, join_transaction_mode="rollback_only")
+        second = Session(bind=conn, join_transaction_mode="rollback_only")
+        with record_queries() as log:
+            a = first.scalars(select(Parent)).all()
+            # The second Session begins on the connection after the first.
+            b = second.scalars(select(Parent)).all()
+            if interleaved:
+                for x, y in zip(a, b, strict=True):
+                    _ = x.children
+                    _ = y.children
+            else:
+                for x in a:
+                    _ = x.children
+        first.close()
+        second.close()
+        trans.rollback()
+    assert _child_relationships(log) == {"Parent.children"}
+    _only_child_loads_have_a_relationship(log)
+
+
+def test_async_sessions_on_one_connection_keep_each_attribution() -> None:
+    async def run() -> Any:
+        engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with AsyncSession(engine) as seed:
+            seed.add_all(Parent(id=i, children=[Child()]) for i in range(1, 5))
+            await seed.commit()
+        async with engine.connect() as conn:
+            await conn.begin()
+            first = AsyncSession(bind=conn, join_transaction_mode="rollback_only")
+            second = AsyncSession(bind=conn, join_transaction_mode="rollback_only")
+            with record_queries() as log:
+                a = (await first.scalars(select(Parent))).all()
+                await second.scalars(select(Parent))
+                for parent in a:
+                    await parent.awaitable_attrs.children
+            await first.close()
+            await second.close()
+            await conn.rollback()
+        await engine.dispose()
+        return log
+
+    log = asyncio.run(run())
+    assert _child_relationships(log) == {"Parent.children"}
+
+
+def test_a_stale_attribution_of_another_session_is_not_taken() -> None:
+    # An ORM execution whose SELECT never ran (answered from a cache by a
+    # do_orm_execute listener, or failed before the cursor) leaves its
+    # attribution parked on its Session. A later ORM SELECT of another
+    # Session on the same connection must not take it.
+    engine = _shared_connection_engine()
+    with engine.connect() as conn:
+        trans = conn.begin()
+        first = Session(bind=conn, join_transaction_mode="rollback_only")
+        second = Session(bind=conn, join_transaction_mode="rollback_only")
+        first.scalars(select(Parent)).all()
+        second.scalars(select(Thing)).all()
+        with record_queries() as log:
+            listeners._set_pending(first, "Parent.children")
+            second.scalars(select(Thing).where(Thing.id == 1)).all()
+        first.close()
+        second.close()
+        trans.rollback()
+    assert [q.relationship for q in log] == [None]
