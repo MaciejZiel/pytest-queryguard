@@ -3,9 +3,10 @@ from __future__ import annotations
 import contextlib
 import itertools
 import os
-import threading
+import sys
 import time
 import traceback
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,7 @@ from typing import Any
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import ORMExecuteState, Session
+from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import Pool
 
 from . import catalog, collector, indexes, mysql_index, sqlite_index, sqltext
@@ -30,12 +32,18 @@ _installed = False
 _index_installed = False
 _error: BaseException | None = None
 _failure: Failure | None = None
-_local = threading.local()
 # Scope numbers for the repeat rules: one per Session, one per connection that
 # no Session opened. Process-wide and never reused; the number is stored on the
 # Session or Connection object, so it cannot be mixed up by a recycled id().
 _scopes = itertools.count(1)
 _SCOPE_ATTR = "_queryguard_scope"
+# The attribution of an ORM execution waits on its own Session, and a
+# connection finds that Session through the weak reference that after_begin
+# stores on it. Nothing here is per thread: asyncio tasks share a thread, and
+# statements of other sessions or of begin listeners run between an ORM
+# execution and its SELECT.
+_PENDING_ATTR = "_queryguard_pending"
+_SESSION_ATTR = "_queryguard_session"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,32 +114,85 @@ def scope_of_connection(conn: Any) -> int | None:
 
 def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
     """Tell the connection which Session it serves, for every transaction."""
-    # Without the tag the connection counts as a scope of its own.
+    # Without the tags the connection counts as a scope of its own and no
+    # attribution is handed to its statements.
     with contextlib.suppress(AttributeError, TypeError):
         setattr(connection, _SCOPE_ATTR, scope_of_session(session))
+        setattr(connection, _SESSION_ATTR, weakref.ref(session))
 
 
-def _set_pending(name: str | None, column_load: ColumnLoadEvent | None = None) -> None:
-    if name is None and column_load is None:
-        _local.pending = None
-    else:
-        _local.pending = (collector.generation(), name, column_load)
+def _set_pending(
+    session: Any,
+    name: str | None,
+    column_load: ColumnLoadEvent | None = None,
+) -> None:
+    """Park the attribution of the ORM execution of ``session``."""
+    try:
+        if name is None and column_load is None:
+            session.__dict__.pop(_PENDING_ATTR, None)
+        else:
+            session.__dict__[_PENDING_ATTR] = (
+                collector.generation(),
+                name,
+                column_load,
+            )
+    except (AttributeError, TypeError):
+        pass
 
 
-def _take_pending() -> tuple[str | None, ColumnLoadEvent | None]:
-    """(relationship, column load) of the ORM execution the next statement belongs to."""
-    pending = getattr(_local, "pending", None)
-    _local.pending = None
+def _take_pending(conn: Any) -> tuple[str | None, ColumnLoadEvent | None]:
+    """(relationship, column load) of the ORM execution that ``conn`` serves.
+
+    Only the Session that owns the connection is asked; a statement on any
+    other connection leaves every parked attribution alone.
+    """
+    try:
+        ref = conn.__dict__.get(_SESSION_ATTR)
+        session = ref() if ref is not None else None
+        pending = (
+            session.__dict__.pop(_PENDING_ATTR, None) if session is not None else None
+        )
+    except (AttributeError, TypeError):
+        return None, None
     if pending is not None and pending[0] == collector.generation():
         return pending[1], pending[2]
     return None, None
+
+
+# Code of the method that opens a Session's connection: it runs the engine's
+# begin event and the after_begin listeners. Statements issued while it is on
+# the stack belong to those listeners, never to the ORM execution waiting for
+# its SELECT. None when this SQLAlchemy has no such method (then nothing is
+# skipped, as without the check).
+_BEGIN_CODE = getattr(
+    getattr(SessionTransaction, "_connection_for_bind", None), "__code__", None
+)
+
+
+def _inside_begin() -> bool:
+    if _BEGIN_CODE is None:
+        return False
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code is _BEGIN_CODE:
+            return True
+        frame = frame.f_back  # type: ignore[assignment]
+    return False
+
+
+def _has_pending(conn: Any) -> bool:
+    try:
+        ref = conn.__dict__.get(_SESSION_ATTR)
+        session = ref() if ref is not None else None
+        return session is not None and _PENDING_ATTR in session.__dict__
+    except (AttributeError, TypeError):
+        return False
 
 
 def _reset_for_tests() -> None:
     global _error, _failure
     _error = None
     _failure = None
-    _local.pending = None
 
 
 def _record_column_load(
@@ -140,7 +201,7 @@ def _record_column_load(
     """Note an instance that loads columns it already has a row for."""
     instance = getattr(state.load_options, "_refresh_state", None)
     if instance is None:
-        _set_pending(None)
+        _set_pending(state.session, None)
         return
     options: Any = getattr(state.statement, "_compile_options", None)
     if not hasattr(options, "_only_load_props"):
@@ -169,7 +230,7 @@ def _record_column_load(
         find_callsite(),
         scope=scope_of_session(state.session),
     )
-    _set_pending(None, column_load=load)
+    _set_pending(state.session, None, column_load=load)
     for target in targets:
         target.add_column_load(load)
 
@@ -185,7 +246,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             _record_column_load(state, targets)
             return
         if not state.is_relationship_load:
-            _set_pending(None)
+            _set_pending(state.session, None)
             return
         prop = state.loader_strategy_path[-1]  # type: ignore[index]
         name = str(prop)
@@ -196,7 +257,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             key = parent.identity_key
             if key is None:
                 key = id(parent)
-        _set_pending(name)
+        _set_pending(state.session, name)
         site = find_callsite()
         load = RelationshipLoadEvent(
             name, key, site, scalar, scope_of_session(state.session)
@@ -208,6 +269,16 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
 
 
 _is_write = sqltext.is_write
+_READ_VERBS = frozenset(("SELECT", "WITH"))
+
+
+def _is_read(sql: str) -> bool:
+    """Whether the statement is a SELECT or a WITH (after comments and parentheses)."""
+    start = sqltext.skip_prefix(sql)
+    if start is None:
+        return False
+    word = sql[start : start + 6].upper()
+    return word == "SELECT" or word.startswith("WITH")
 
 
 def _on_cursor_execute(
@@ -227,11 +298,17 @@ def _on_cursor_execute(
         # The ORM runs do_orm_execute before it autoflushes, so the first
         # statement after a lazy load may be the flush's write, not the load's
         # SELECT. Loads are reads: leave the pending attribution for the SELECT.
+        # So is a BEGIN, SAVEPOINT or SET that a begin listener runs, and so is
+        # a statement on the connection of another Session.
         write = _is_write(statement)
-        if write:
-            relationship, column_load = None, None
-        else:
-            relationship, column_load = _take_pending()
+        relationship, column_load = None, None
+        if (
+            not write
+            and _has_pending(conn)
+            and _is_read(statement)
+            and not _inside_begin()
+        ):
+            relationship, column_load = _take_pending(conn)
         if column_load is not None:
             column_load.sql = statement
         stmt = StatementEvent(
