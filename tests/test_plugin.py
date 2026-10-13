@@ -80,6 +80,54 @@ def test_warning_can_be_escalated_by_its_public_path(
     result.stdout.fnmatch_lines(["*QueryGuardWarning*N+1 detected*"])
 
 
+@pytest.mark.parametrize("tbstyle", ["auto", "long", "short"])
+def test_escalated_warning_hides_plugin_source(
+    project: pytest.Pytester, tbstyle: str
+) -> None:
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    project.makeini(
+        "[pytest]\nqueryguard_mode = warn\n"
+        "filterwarnings =\n    error::pytest_queryguard.QueryGuardWarning\n"
+    )
+    result = project.runpytest(f"--tb={tbstyle}")
+    result.assert_outcomes(failed=1)
+    output = result.stdout.str()
+    assert "N+1 detected" in output
+    for internal in (
+        "def pytest_runtest_call",
+        "warn_explicit",
+        "_emit_warnings",
+        "settings = item.config.stash",
+        "plugin.py",
+    ):
+        assert internal not in output
+
+
+def test_escalated_warning_hides_plugin_source_under_xdist(
+    project: pytest.Pytester,
+) -> None:
+    pytest.importorskip("xdist")
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    project.makeini("[pytest]\nqueryguard_mode = warn\nfilterwarnings =\n    error\n")
+    result = project.runpytest("-n", "2", "--tb=long", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    output = result.stdout.str()
+    assert "N+1 detected" in output
+    assert "def pytest_runtest_call" not in output
+    assert "plugin.py" not in output
+
+
+def test_plain_warn_mode_warning_points_at_the_test(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=NPLUSONE_TEST)
+    result = project.runpytest("--queryguard-mode=warn")
+    result.assert_outcomes(passed=1, warnings=1)
+    result.stdout.fnmatch_lines(
+        ["*test_a.py:*: QueryGuardWarning: queryguard: N+1 detected*"]
+    )
+
+
 def test_warning_can_be_ignored_by_its_public_path(project: pytest.Pytester) -> None:
     project.makepyfile(test_a=NPLUSONE_TEST)
     result = project.runpytest(
