@@ -343,6 +343,10 @@ HOOKS = [
     "plugin:_start_measuring",
     "plugin:push",
     "plugin:pop",
+    "plugin:_index_exemption",
+    "plugin:_stop_measuring",
+    "plugin:_budget",
+    "plugin:_time_budget",
 ]
 ALL_TARGETS = LISTENERS + INDEX_CHECK + DETECTORS + REPORTS + HOOKS
 
