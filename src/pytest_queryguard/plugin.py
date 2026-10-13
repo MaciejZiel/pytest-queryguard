@@ -792,9 +792,7 @@ def _apply_baseline(
     if settings.sarif_path is not None:
         for finding in findings:
             level = (
-                sarif.LEVEL_ERROR
-                if settings.fails(finding.kind)
-                else sarif.LEVEL_WARNING
+                sarif.LEVEL_ERROR if _fails(settings, finding) else sarif.LEVEL_WARNING
             )
             sarif.add(settings.reported, _at_the_test(finding, item), level)
     return findings
