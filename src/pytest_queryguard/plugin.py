@@ -760,9 +760,7 @@ def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Findin
     if settings.sarif_path is not None:
         for finding in findings:
             level = (
-                sarif.LEVEL_ERROR
-                if settings.fails(finding.kind)
-                else sarif.LEVEL_WARNING
+                sarif.LEVEL_ERROR if _fails(settings, finding) else sarif.LEVEL_WARNING
             )
             sarif.add(settings.reported, finding, level)
     return findings
@@ -773,13 +771,27 @@ def _drop_ignored(
     settings: _Settings,
     findings: list[Finding],
     marker_rules: tuple[IgnoreRule, ...],
+    *,
+    indexes: bool = False,
 ) -> list[Finding]:
-    """The findings the ini patterns and the test's markers do not ignore."""
+    """The findings the ini patterns and the test's markers do not ignore.
+
+    A marker pattern is stale when it matched neither an N+1 finding nor an
+    index finding of the test: the N+1 pass (``indexes=False``) lists every
+    unmatched pattern, the index pass then takes back those it matched.
+    """
     kept, used = apply_rules(findings, (*settings.ignore, *marker_rules))
     settings.ignore_used.update(used)
-    settings.stale_markers.extend(
-        (item.nodeid, rule) for rule in marker_rules if rule not in used
-    )
+    if indexes:
+        settings.stale_markers[:] = [
+            (nodeid, rule)
+            for nodeid, rule in settings.stale_markers
+            if nodeid != item.nodeid or rule not in used
+        ]
+    else:
+        settings.stale_markers.extend(
+            (item.nodeid, rule) for rule in marker_rules if rule not in used
+        )
     return kept
 
 
@@ -809,13 +821,18 @@ def _analyse_indexes(
     """The missing-index report for the finished test, or None; never raises."""
     if internal_error() is not None or not collector.scans:
         return None
+    _, marker_rules = _nplusone_ignores(item)
     try:
         root = item.config.rootpath
         scans = select_findings(collector.scans, (*settings.ignore_tables, *exempt))
-        if (settings.ignore or settings.baselining or settings.sarif_path) and scans:
+        if (
+            settings.ignore
+            or marker_rules
+            or settings.baselining
+            or settings.sarif_path
+        ) and scans:
             findings = [make_index_finding(scan, cwd=root) for scan in scans]
-            kept, used = apply_rules(findings, settings.ignore)
-            settings.ignore_used.update(used)
+            kept = _drop_ignored(item, settings, findings, marker_rules, indexes=True)
             kept = _apply_baseline(settings, kept)
             keep_ids = {id(f) for f in kept}
             scans = [
