@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the user's later writes were then never committed, and inside a transaction
   `enable_seqscan` stayed `off`. The check now rolls them back before the
   error stops the plugin (#126).
+- Stability: an error inside `pytest_configure`, the per-test start or end
+  of the measurement, the pytest-xdist hand-over of the findings,
+  `pytest_unconfigure` or the attribute-read hook of the unused eager-load
+  check no longer ends the session with an `INTERNALERROR` or fails every
+  test. It stops the measurement and is reported once, like an error in a
+  listener; an error in the xdist hand-over marks the run incomplete, so the
+  baseline is not rewritten and the SARIF summary says findings may be
+  missing. `KeyboardInterrupt`, `SystemExit` and `asyncio.CancelledError` are
+  still never swallowed. `docs/stability.md` describes the contract under
+  "Failing open" (#127).
 
 - Tests: the accuracy corpus now runs on PostgreSQL
   (`QUERYGUARD_CORPUS_PG_URL`). Two scenarios (`bug_23_get_or_create_loop`,
