@@ -48,10 +48,12 @@ queryguard_index_ignore_tables = ["countries", "lookup_*"]
 `pytest.ini` and `setup.cfg` work as usual.
 
 The warning classes, `pytest_queryguard.QueryGuardWarning` for N+1 and
-missing indexes in `warn` mode and
-`pytest_queryguard.QueryGuardInternalWarning` for an internal error, work
-with pytest's usual warning filters. For example, to turn these warnings
-back into failures for one job:
+missing indexes in `warn` mode,
+`pytest_queryguard.QueryGuardInternalWarning` for an internal error and
+`pytest_queryguard.QueryGuardDeprecationWarning` for an option or name that a
+later release may remove (a `DeprecationWarning`, not a `QueryGuardWarning`),
+work with pytest's usual warning filters. For example, to turn the findings
+of `warn` mode back into failures for one job:
 
 ```toml
 [tool.pytest.ini_options]
