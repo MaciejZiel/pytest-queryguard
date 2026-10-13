@@ -6,10 +6,16 @@ so read it with that in mind: the matrix is built from the competitors' own
 documentation and from running their packages, every cell says which, and the
 measurements are ones I ran myself, on scenarios I wrote.
 
-- Facts about other tools were read on **2026-10-12**.
-- pytest-queryguard: the `next` branch at commit `b64d19c` (unreleased; the
-  last release on PyPI is 0.3.0, from 2026-10-11). The results below are those
-  at the time of writing (see the commit SHA in the repository history).
+- Facts about other tools were read on **2026-10-12** and re-checked on
+  **2026-10-13**: no tool had a newer release on PyPI since, the tools with a
+  public repository had no new commit on its default branch (fastapi-nplusone
+  and pytest-capquery list none on PyPI), and the cells below that changed say
+  so.
+- pytest-queryguard: the measurements were made on the `next` branch at commit
+  `b64d19c`, before 0.4.0rc1. The releases on PyPI are now 0.4.0rc2 (a release
+  candidate, 2026-10-12) and the stable 0.3.0 (2026-10-11); the matrix
+  describes 0.4.0rc2. 0.3.0 has no baseline, SARIF, ignore patterns, timing,
+  column-load or write-loop rules and no SQLite or MySQL index check.
 - Marks in the matrix: **(v)** verified by running the package or reading its
   installed source on that date; **(r)** read in the package's PyPI
   description only, not run. Anything I could not check is marked as such.
@@ -18,7 +24,7 @@ measurements are ones I ran myself, on scenarios I wrote.
 
 | Tool | Version (release date) | First release on PyPI | Targets | License |
 |---|---|---|---|---|
-| pytest-queryguard | next (0.3.0 on PyPI, 2026-10-11) | 2026-10-10 | SQLAlchemy 2 | MIT |
+| pytest-queryguard | 0.4.0rc2 (2026-10-12); stable 0.3.0 (2026-10-11) | 2026-10-10 | SQLAlchemy 2 | MIT |
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.5.0 (2026-10-04) | 2026-08-04 | SQLAlchemy 2.0+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |
@@ -26,7 +32,7 @@ measurements are ones I ran myself, on scenarios I wrote.
 | [fastapi-nplusone](https://pypi.org/project/fastapi-nplusone/) | 0.1.0 (2026-02-10) | 2026-02-06 | FastAPI with SQLAlchemy | BSD-3-Clause |
 | [pytest-capquery](https://pypi.org/project/pytest-capquery/) | 0.3.3 (2026-04-04) | 2026-04-01 | SQLAlchemy, Python 3.13+ | CC BY-NC-SA 4.0 (see below) |
 
-Release dates come from the PyPI JSON API on 2026-10-12. Most of these
+Release dates come from the PyPI JSON API on 2026-10-12, re-checked on 2026-10-13. Most of these
 projects are young: pytest-queryguard, queryspy and pytest-querycount shipped
 their first release in the last three months, so expect all of them to change. This
 table will be out of date; check the projects' own pages.
@@ -47,14 +53,14 @@ and restricts commercial use. Read it before you adopt it.
 | Deferred and expired column loads | yes, with the right hint (v) | yes, with the right hint (v) | as a repeated statement, generic hint (v) | no (r) | `.only()` and `.defer()` (r) | no (r) | no (r) |
 | Hint: `joinedload` or `selectinload` by cardinality | yes (v) | yes (v) | generic text (v) | no | Django hints (r) | no | no |
 | Query budget (`max_queries`) | yes (v) | yes (v) | yes (v) | no | no | no | exact count in a block (r) |
-| Budget failure lists every statement with its call site | yes (v) | no: only "expected at most N, got M" (v) | yes, with timing (v) | not applicable | not applicable | not applicable | prints a copy-paste assertion (r) |
-| Time budget and per-query timing | `max_db_time`, timing in `QueryLog` (v) | timing and slowest queries; I did not find a time budget (r) | timing in the failure and the report (v) | no | no | no | no |
+| Budget failure lists every statement with its call site | yes (v) | no: the marker and `queryspy_budget` print only "expected at most N, got M"; the `assert_max_queries()` context manager adds the database time and N+1 findings, not the statements (v, 2026-10-13) | yes, with timing (v) | not applicable | not applicable | not applicable | prints a copy-paste assertion (r) |
+| Time budget and per-query timing | `max_db_time`, timing in `QueryLog` (v) | timing and the slowest statement; no time-budget option in the installed 0.5.0 (v, 2026-10-13) | timing in the failure and the report (v) | no | no | no | no |
 | Baseline for existing findings | yes (v) | yes (v) | no baseline; `--querycount-write-budgets` writes exact budgets into your tests (v) | no | allow-list in settings (r) | no | no |
-| SARIF and a GitHub Action | SARIF yes; a composite action in this repository, `action/` (v) | yes (r) | not found (r) | no | no | no | no |
-| Missing-index check | PostgreSQL 16+ and SQLite, with a `CREATE INDEX` and optional hypopg verification (v) | none: no EXPLAIN code in the installed package (v) | PostgreSQL only, `no_seq_scan`, with a `CREATE INDEX` suggestion (v) | no | no | no | no |
+| SARIF and a GitHub Action | SARIF yes; a composite action in this repository, `action/` (v) | SARIF yes (v: `_serialize.py` in the installed package); an action, `sqla-native/queryspy@v0` (r) | not found: no SARIF code in the installed package (v) | no | no | no | no |
+| Missing-index check | PostgreSQL 16+, SQLite, and MySQL and MariaDB (tested by hand, not in CI), with a `CREATE INDEX`; hypopg verification on PostgreSQL (v) | none: no EXPLAIN code in the installed package (v) | PostgreSQL only, `no_seq_scan`, with a `CREATE INDEX` suggestion (v) | no | no | no | no |
 | Unused eager loads | experimental, off by default (v) | no, deliberately (r) | no | yes, for Flask-SQLAlchemy and Django per its README (r) | no (r) | no | no |
 | Row-by-row write loops | opt-in (v) | not reported (v) | not reported (v) | no | no | no | no |
-| Per-finding ignore | marker, ini patterns and baseline (v); no `with` block | marker and an `ignore()` block (r) | `ignore=` for the index check only (r) | whitelist and an `ignore` block (r) | allow-list and an ignore block (r) | no | no |
+| Per-finding ignore | marker, ini patterns and baseline (v); no `with` block | marker and an `ignore()` block (v) | `ignore=` for the index check only (r) | whitelist and an `ignore` block (r) | allow-list and an ignore block (r) | no | no |
 | In-app middleware and request panel | no | yes: ASGI and WSGI, optional panel (v: modules present) | no | Django, Flask-SQLAlchemy, WSGI (r) | Django middleware (r) | yes, FastAPI middleware (r) | no |
 | Async SQLAlchemy | yes (v) | yes (v) | yes (v) | no | no | not stated | yes, through `sync_engine` (r) |
 | pytest-xdist | tested in CI | not stated | summary per worker; budgets and N+1 unaffected (r) | not stated | not stated | not stated | not stated |
@@ -87,7 +93,7 @@ not work.
   you use a marker, an ini pattern or a baseline.
 - **A missing-index check exists elsewhere too.** pytest-querycount has its
   own PostgreSQL check, based on the same idea (plan with sequential scans
-  disabled), so this is not a feature only pytest-queryguard has.
+  disabled); pytest-queryguard is not alone in having one.
 - **Maturity.** The projects here are all young. nplusone has been around
   longest, but has not had a release since 2018.
 
@@ -192,7 +198,7 @@ agreement with my labels, not how useful a tool is. What the table shows:
 - Nobody reports `09`, a self-referential walk up a parent chain where every
   node loads the next one.
 - On a budget failure, pytest-queryguard and pytest-querycount list the
-  statements; queryspy prints only the counts.
+  statements; queryspy's marker prints only the counts.
 
 ### Missing indexes on PostgreSQL
 
