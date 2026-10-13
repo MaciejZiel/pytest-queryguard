@@ -24,6 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   did not advance the sequences; the corpus moves them after each setup. The
   results on PostgreSQL 17 match SQLite; see `docs/accuracy.md`. Fixes #120.
 
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
+
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
   concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
