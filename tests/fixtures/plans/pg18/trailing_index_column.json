@@ -37,5 +37,25 @@
     ]
    }
   }
- ]
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "order_items",
+    "order_items_order_product",
+    "btree",
+    true,
+    [
+     "order_id",
+     "product_id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
 }

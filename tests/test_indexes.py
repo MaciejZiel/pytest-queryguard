@@ -28,6 +28,7 @@ from pytest_queryguard.indexes import (
     table_label,
     to_numbered,
     unsupported_reason,
+    version_notice,
 )
 
 # ---------------------------------------------------------------- to_numbered
@@ -1102,6 +1103,42 @@ def test_check_records_a_notice_for_an_unsupported_engine() -> None:
             "the index check needs PostgreSQL 16 or newer"
         )
     ]
+
+
+@pytest.mark.parametrize(
+    "dialect",
+    [
+        FakeDialect(version=(16, 0)),
+        FakeDialect(version=(18, 6)),
+        FakeDialect(version=(15, 8)),  # unsupported_reason() speaks for it
+        FakeDialect(version=None),
+        FakeDialect(version=("x",)),  # type: ignore[arg-type]
+        FakeDialect("sqlite", version=(99,)),
+    ],
+)
+def test_no_version_notice_for_tested_or_unknown_versions(
+    dialect: FakeDialect,
+) -> None:
+    assert version_notice(dialect) is None
+
+
+def test_a_server_newer_than_the_tested_ones_gets_a_notice() -> None:
+    assert version_notice(FakeDialect(version=(19, 0))) == (
+        "PostgreSQL 19.0 is newer than the versions the index check is tested "
+        "on (16 to 18): its statements are checked, but a finding may be wrong "
+        "or missing; please report one that is"
+    )
+
+
+def test_check_explains_on_a_newer_server_and_records_one_notice() -> None:
+    conn = FakeSAConnection(FakeDialect(version=(19, 1)), result=SEQ_PLAN)
+    target = _collector()
+    check(conn, "SELECT a FROM t WHERE a = %s", False, [target])
+    check(conn, "SELECT b FROM t WHERE b = %s", False, [target])
+    assert len([s for s in conn.raw.log if s.startswith("EXPLAIN")]) == 2
+    assert len(target.scans) == 2
+    [notice] = target.index_notices
+    assert notice.startswith("PostgreSQL 19.1 is newer than the versions")
 
 
 def test_check_records_explain_errors() -> None:

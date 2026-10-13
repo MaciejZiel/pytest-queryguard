@@ -1,0 +1,59 @@
+{
+ "query": "SELECT * FROM events WHERE created_at >= '2026-02-01' AND kind = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "events_2026",
+    "Schema": "public",
+    "Alias": "events",
+    "Startup Cost": 0.0,
+    "Total Cost": 4.8,
+    "Plan Rows": 31,
+    "Plan Width": 24,
+    "Disabled": true,
+    "Output": [
+     "events.id",
+     "events.account_id",
+     "events.kind",
+     "events.created_at",
+     "events.payload"
+    ],
+    "Filter": "((events.created_at >= '2026-02-01 00:00:00'::timestamp without time zone) AND (events.kind = $1))"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "events_2026",
+    "events_2026_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "events_2026",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": "CREATE INDEX ON events_2026 (kind, created_at)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
