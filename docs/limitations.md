@@ -125,4 +125,14 @@
   `console_output_style = 3`) stops pytest with an internal error, with or
   without this plugin. Wrong types for this plugin's options are reported
   as usage errors.
-
+- On SQLAlchemy 2.0.20 to 2.0.49, any `do_orm_execute` listener makes the outer
+  statement's `yield_per` leak into its `selectinload` statement, which then
+  fails with "Can't use the ORM yield_per feature in conjunction with unique()"
+  (SQLAlchemy issue 13301, fixed in 2.0.50). The plugin installs such a
+  listener, so on those versions it also removes the leaked option from the
+  statements the ORM runs for loaders, and a `yield_per` plus `selectinload`
+  test behaves as it does without the plugin. Nothing is lost from the
+  findings. The statement the ORM runs for the loader is the only one changed,
+  and only on those versions. A listener of your own triggers the same error
+  with the plugin disabled; upgrade to SQLAlchemy 2.0.50 or later to remove the
+  cause.

@@ -188,6 +188,13 @@ error and the line that raised it. A test then passes or fails on its own
 assertions. Invalid configuration values are the exception: they stop pytest
 at start-up with a usage error, before any test runs.
 
+On SQLAlchemy 2.0.20 to 2.0.49, every `do_orm_execute` listener, the plugin's
+included, makes `yield_per` leak into a `selectinload` statement and fail with
+"Can't use the ORM yield_per feature in conjunction with unique()" (SQLAlchemy
+issue 13301). The plugin removes the leaked option on those versions, so the
+test does not fail only because the plugin is installed. Upgrading to
+SQLAlchemy 2.0.50 or later fixes the cause.
+
 The checks do not change the SQL your code sends. The index check explains
 statements without running them: on PostgreSQL inside a savepoint that is
 rolled back, on SQLite and MySQL with `EXPLAIN`, so data and the test's

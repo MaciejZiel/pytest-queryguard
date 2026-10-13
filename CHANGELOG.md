@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On SQLAlchemy 2.0.20 to 2.0.49 a `yield_per` statement with `selectinload`
+  failed with "Can't use the ORM yield_per feature in conjunction with
+  unique()" only because the plugin was installed: any `do_orm_execute`
+  listener triggers SQLAlchemy issue 13301 (fixed in 2.0.50). On those versions
+  the plugin now removes the leaked option from the loader statement, so the
+  test behaves as it does without the plugin
+  ([#169](https://github.com/MaciejZiel/pytest-queryguard/issues/169)).
+
 - SARIF: a finding whose call site is unknown (for example `session.execute`
   handed straight to a worker thread) is located at the test instead of being
   left out of the file, so code scanning shows it. The terminal text, the
