@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
+  object `record_queries()` yields) instead of the internal `QueryCollector`,
+  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
+  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
+  Code that read `.statements` of the yielded object, an undocumented
+  attribute, must use `log.queries` or `log.count`.
+
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
   suite and the async helpers need `AsyncAttrs`, which does not exist in
   earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
