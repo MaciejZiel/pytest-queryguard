@@ -553,3 +553,16 @@ def test_wrapping_the_call_in_a_lambda_restores_the_call_site(
     result = pytester.runpytest("--queryguard-sarif=qg.sarif")
     result.stdout.fnmatch_lines(["*first at test_offload.py:*"])
     assert "<unknown location>" not in result.stdout.str()
+
+
+def test_no_sarif_is_written_after_an_interrupted_run(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS, test_loops=LOOP)
+    pytester.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = pytester.path / "out.sarif"
+    path.write_text("previous")
+    result = pytester.runpytest("--queryguard-sarif=out.sarif")
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == "previous"
+    result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])

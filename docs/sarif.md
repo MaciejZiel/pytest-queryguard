@@ -101,6 +101,11 @@ The file is written at the end of every run, also when no finding was made,
 so an upload step always has something to upload. With pytest-xdist, the
 workers send their findings to the controller, which writes the file once.
 
+After an interrupted run (a collection error, Ctrl-C, a usage error or an
+internal pytest error) the file is not written and an existing one is left as
+it was: a report from the tests that did run would close the alerts of the
+tests that did not. The summary says so.
+
 An excerpt:
 
 ```json
