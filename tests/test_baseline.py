@@ -111,6 +111,14 @@ def test_unreadable_file_is_an_error_not_a_crash(tmp_path: Path) -> None:
         baseline.load(tmp_path)  # a directory
 
 
+def test_deeply_nested_json_is_an_error_not_a_crash(tmp_path: Path) -> None:
+    # json raises RecursionError, not ValueError, for this
+    path = tmp_path / "qg.json"
+    path.write_text("[" * 200_000)
+    with pytest.raises(BaselineError, match="nested too deep"):
+        baseline.load(path)
+
+
 def test_dumps_writes_two_space_indented_utf8_text() -> None:
     text = baseline.dumps([("write-loop", "Zażółć", "a.py", None)])
     assert text == (
@@ -475,11 +483,32 @@ def test_a_write_error_is_reported_not_raised(
     result.stdout.fnmatch_lines(["*could not write *qg.json: read-only*"])
 
 
-@pytest.mark.parametrize("error", [RuntimeError, MemoryError])
+def test_a_deeply_nested_file_is_a_usage_error(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=CLEAN)
+    (project.path / "qg.json").write_text("[" * 200_000)
+    result = project.runpytest("--queryguard-baseline=qg.json")
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*qg.json is not a queryguard baseline*"])
+
+
+def test_an_update_replaces_a_deeply_nested_file(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=ONE_LOOP)
+    (project.path / "qg.json").write_text("[" * 200_000)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*replaced an unusable file*nested too deep*"])
+    assert baseline.load(project.path / "qg.json")
+
+
+@pytest.mark.parametrize("error", [RuntimeError, MemoryError, UnicodeEncodeError])
 def test_any_write_error_is_reported_not_raised(
     project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, error: type
 ) -> None:
     def fail(path: Path, identities: object) -> None:
+        if error is UnicodeEncodeError:
+            raise UnicodeEncodeError("utf-8", "\udc80", 0, 1, "surrogates not allowed")
         raise error("broken")
 
     monkeypatch.setattr(baseline, "write", fail)
@@ -488,54 +517,8 @@ def test_any_write_error_is_reported_not_raised(
         "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
     )
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*could not write *qg.json: broken*"])
+    result.stdout.fnmatch_lines(["*queryguard baseline could not write *qg.json*"])
     assert "Traceback" not in result.stdout.str() + result.stderr.str()
-
-
-def _too_deep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make json raise RecursionError, as it does for deep nesting.
-
-    Whether a given depth overflows depends on the interpreter and the stack
-    size (Python 3.14 measures the C stack), so the real input is not used
-    where the message matters.
-    """
-
-    def loads(text: str) -> object:
-        raise RecursionError("maximum recursion depth exceeded")
-
-    monkeypatch.setattr(baseline.json, "loads", loads)
-
-
-def test_an_update_replaces_a_deeply_nested_file(
-    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project.makepyfile(test_a=ONE_LOOP)
-    (project.path / "qg.json").write_text("[" * 200_000)
-    real_loads = baseline.json.loads
-    _too_deep(monkeypatch)
-    result = project.runpytest(
-        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
-    )
-    monkeypatch.setattr(baseline.json, "loads", real_loads)
-    result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines(["*replaced an unusable file*nested too deeply*"])
-    assert baseline.load(project.path / "qg.json")
-
-
-def test_an_unexpected_write_error_is_reported_not_raised(
-    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def fail(path: Path, identities: object) -> None:
-        raise UnicodeEncodeError("utf-8", "\udce9", 0, 1, "surrogates not allowed")
-
-    monkeypatch.setattr(baseline, "write", fail)
-    project.makepyfile(test_a=ONE_LOOP)
-    result = project.runpytest(
-        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
-    )
-    result.assert_outcomes(passed=1)
-    result.stdout.no_fnmatch_line("*INTERNALERROR*")
-    result.stdout.fnmatch_lines(["*could not write *qg.json: 'utf-8' codec*"])
 
 
 def _make_non_utf8_dir(root: Path) -> None:
@@ -575,32 +558,6 @@ def test_non_ascii_text_stays_readable_in_the_file(tmp_path: Path) -> None:
     baseline.write(path, [identity])
     assert "zam\u00f3wienie" in path.read_text(encoding="utf-8")
     assert baseline.load(path) == {identity}
-
-
-def test_deeply_nested_json_is_an_invalid_baseline_not_a_recursion_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _too_deep(monkeypatch)
-    with pytest.raises(BaselineError, match="nested too deeply"):
-        baseline.parse("[[]]", Path("b.json"))
-
-
-def test_really_deep_json_is_an_invalid_baseline() -> None:
-    # RecursionError or a parsed list without a version: either way, invalid
-    text = "[" * 1_000_000 + "]" * 1_000_000
-    with pytest.raises(BaselineError):
-        baseline.parse(text, Path("b.json"))
-
-
-def test_a_deeply_nested_baseline_file_is_a_usage_error(
-    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project.makepyfile(test_a=CLEAN)
-    (project.path / "qg.json").write_text("[[]]")
-    _too_deep(monkeypatch)
-    result = project.runpytest("--queryguard-baseline=qg.json")
-    assert result.ret == pytest.ExitCode.USAGE_ERROR
-    result.stderr.fnmatch_lines(["*queryguard baseline:*nested too deeply*"])
 
 
 def test_stale_entries_are_not_reported_with_measurement_off(

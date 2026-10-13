@@ -85,7 +85,10 @@ def parse(text: str, path: Path) -> frozenset[Identity]:
     except ValueError as exc:
         raise BaselineError(f"{path} is not valid JSON: {exc}") from None
     except RecursionError:
-        raise BaselineError(f"{path} is not valid: JSON nested too deeply") from None
+        # json raises it, not ValueError, for arrays or objects nested too deep
+        raise BaselineError(
+            f"{path} is not a queryguard baseline (nested too deep)"
+        ) from None
     if not isinstance(document, dict) or "version" not in document:
         raise BaselineError(
             f"{path} is not a queryguard baseline (no 'version' field); "

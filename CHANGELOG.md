@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
+
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
   concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
@@ -45,13 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
 
-- `--queryguard-update-baseline` no longer ends the run with an
-  `INTERNALERROR` when a test lives in a directory whose name is not valid
-  UTF-8. The baseline is written with `\udcXX` escapes for such characters
-  (other text stays readable), so the entry matches on the next run, and any
-  other error while writing is reported as `could not write ...` like the
-  SARIF writer does. A baseline file with deeply nested JSON is now the usual
-  "invalid baseline" error instead of a `RecursionError`. Fixes #89.
+- `--queryguard-update-baseline` writes a usable baseline when a test lives in
+  a directory whose name is not valid UTF-8: such characters are written as
+  `\udcXX` escapes (other text stays readable), so the entry matches on the
+  next run instead of the write failing. Fixes #89.
 
 - PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
   longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was

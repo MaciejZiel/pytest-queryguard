@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -17,7 +16,7 @@ from .messages import (
     format_time_budget,
     make_findings,
 )
-from .warnings import QueryGuardInternalWarning
+from .warnings import QueryGuardInternalWarning, warn_internal
 
 
 class QueryBudgetExceeded(AssertionError):
@@ -325,7 +324,7 @@ def _record() -> Iterator[QueryLog]:
         # normal exit only: it must not replace the exception that ended it.
         error = log._finish(earlier)
     if error is not None:
-        warnings.warn(
+        warn_internal(
             QueryGuardInternalWarning(
                 "the QueryLog of this block may be incomplete: pytest-queryguard "
                 f"stopped recording after an internal error: {error!r}"
