@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A lazy load keeps its relationship when another statement runs between the
+  load and its `SELECT`: statements of other `AsyncSession`s running
+  concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
+  or any statement of a `begin` or `after_begin` listener. The attribution is
+  now parked on the `Session` that issued the load instead of on the thread, so
+  these loops are no longer reported a second time as a repeated statement.
+  Fixes #97 and #99.
+
 - The SARIF level of an unused-eager-load finding now follows the test outcome:
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
   Fixes #98.
