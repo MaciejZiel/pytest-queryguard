@@ -7,9 +7,10 @@ plugin from advanced-alchemy, which was not run. Versions: Litestar 2.24.0,
 SQLAlchemy 2.1.4, aiosqlite.
 
 The layout is `app/__init__.py` (an empty file), `app/models.py`,
-`app/main.py`, `tests/conftest.py` and `tests/test_orders.py`. `pytest.ini`
-puts the project directory on `sys.path`, so that the tests can `import app`
-(see [getting started](getting-started.md)):
+`app/main.py`, `tests/conftest.py` and `tests/test_orders.py`.
+
+`pytest.ini` puts the project directory on `sys.path`, so that the tests can
+`import app` (see [getting started](getting-started.md)):
 
 ```ini
 [pytest]

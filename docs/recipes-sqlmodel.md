@@ -5,9 +5,10 @@ statements, so lazy loads and repeated statements are seen like in plain
 SQLAlchemy. Run with SQLModel 0.0.48.
 
 The layout is `app/__init__.py` (an empty file), `app/models.py`,
-`app/orders.py`, `tests/conftest.py` and `tests/test_orders.py`. `pytest.ini`
-puts the project directory on `sys.path`, so that the tests can `import app`
-(see [getting started](getting-started.md)):
+`app/orders.py`, `tests/conftest.py` and `tests/test_orders.py`.
+
+`pytest.ini` puts the project directory on `sys.path`, so that the tests can
+`import app` (see [getting started](getting-started.md)):
 
 ```ini
 [pytest]

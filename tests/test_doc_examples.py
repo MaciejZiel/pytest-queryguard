@@ -168,15 +168,30 @@ def test_the_project_of_a_page_runs(page: Path, tmp_path: Path) -> None:
         target = project / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(code, encoding="utf-8")
+    # An empty __init__.py exists only where the page says so; one that the page
+    # does not mention would change what pytest puts on sys.path.
+    text = page.read_text(encoding="utf-8")
     for package in {Path(name).parent for name in files if name.endswith(".py")}:
         init = project / package / "__init__.py"
-        if package != Path(".") and not init.exists():
+        if (
+            package != Path(".")
+            and f"`{package.as_posix()}/__init__.py`" in text
+            and not init.exists()
+        ):
             init.write_text("", encoding="utf-8")
 
     report = tmp_path / "report.xml"
     env = {k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS"}
+    # Not `python -m pytest`: python puts the project directory on sys.path, which
+    # hides a page that forgets `pythonpath = .`, and a reader's `pytest` does not.
+    launcher = (
+        "import os, sys\n"
+        "sys.path[:] = [p for p in sys.path if p not in ('', os.getcwd())]\n"
+        "import pytest\n"
+        "sys.exit(pytest.console_main())"
+    )
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+        [sys.executable, "-c", launcher, "-q", "-p", "no:cacheprovider"]
         + [f"--junitxml={report}"],
         cwd=project,
         capture_output=True,
