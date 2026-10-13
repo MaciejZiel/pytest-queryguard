@@ -16,6 +16,15 @@ class QueryGuardInternalWarning(UserWarning):
     """
 
 
+class QueryGuardDeprecationWarning(DeprecationWarning):
+    """A pytest-queryguard option, name or behaviour that a later release removes.
+
+    Not a ``QueryGuardWarning``: a ``filterwarnings`` entry that turns findings
+    into errors (or ignores them) does not catch a deprecation, and the other
+    way round.
+    """
+
+
 def warn_internal(warning: QueryGuardInternalWarning, stacklevel: int = 1) -> None:
     """Issue ``warning``; a warnings "error" filter never raises it.
 
