@@ -474,42 +474,84 @@ def swap_error(new: BaseException | None) -> BaseException | None:
     return old
 
 
-def _leaks_yield_per() -> bool:
-    """Whether this SQLAlchemy lets a ``do_orm_execute`` listener leak ``yield_per``.
+# Options the ORM reads into a statement's load options. On the affected
+# versions a loader statement inherits them from the outer statement in the
+# first pass and reads them as its own in the second; see _on_orm_execute_heal.
+_LEAKED_LOAD_OPTIONS = ("yield_per", "autoflush", "populate_existing", "identity_token")
+_MISSING = object()
 
-    From 2.0.20 to 2.0.49 any listener makes the outer statement's
-    ``yield_per`` reach its ``selectinload`` statement, which then raises
-    "Can't use the ORM yield_per feature in conjunction with unique()"
-    (SQLAlchemy issue 13301, fixed in 2.0.50).
+
+def _leaks_load_options() -> bool:
+    """Whether this SQLAlchemy lets a ``do_orm_execute`` listener leak load options.
+
+    From 2.0.20 (issue 10231, loaders inherit the outer statement's execution
+    options) to 2.0.49, and in 2.1.0b1 and 2.1.0b2, any listener makes the
+    outer statement's ``yield_per``, ``autoflush`` and similar options become
+    load options of its ``selectinload`` statement (SQLAlchemy issue 13301,
+    fixed in 2.0.50 and 2.1.0b3). ``yield_per`` then raises "Can't use the ORM
+    yield_per feature in conjunction with unique()"; ``autoflush=False`` stops
+    the loader from flushing.
     """
     import sqlalchemy
 
-    found = re.match(r"(\d+)\.(\d+)\.(\d+)", sqlalchemy.__version__)
+    found = re.match(r"(\d+)\.(\d+)\.(\d+)(?:(a|b|rc)(\d+))?", sqlalchemy.__version__)
     if found is None:
         return False
-    major, minor, patch = (int(part) for part in found.groups())
-    return (major, minor) == (2, 0) and 20 <= patch < 50
+    major, minor, patch = (int(part) for part in found.groups()[:3])
+    if (major, minor) == (2, 0):
+        return 20 <= patch < 50
+    if (major, minor, patch) == (2, 1, 0) and found.group(4) is not None:
+        return found.group(4) == "a" or (
+            found.group(4) == "b" and int(found.group(5)) < 3
+        )
+    return False
+
+
+def _only_own_listeners(state: Any) -> bool:
+    """Whether every ``do_orm_execute`` listener of this execution is the plugin's."""
+    todo = getattr(state, "_events_todo", None)
+    if todo is None:
+        return False
+    return all(
+        getattr(fn, "__module__", "").startswith("pytest_queryguard.") for fn in todo
+    )
 
 
 def _on_orm_execute_heal(state: Any) -> None:
-    """Drop the leaked ``yield_per`` from a statement the ORM runs for a loader.
+    """Undo the load options a loader statement inherited only because of listeners.
 
-    Registered only where ``_leaks_yield_per()`` is true. The statements the
-    ORM issues for ``selectinload`` and the like carry the outer statement's
-    ``yield_per`` in their execution options but have none of their own in
-    the load options; without a listener they never see it.
+    Registered only where ``_leaks_load_options()`` is true. With a listener,
+    SQLAlchemy prepares the statement twice and hands the first result to the
+    second pass. For a loader statement (``sa_top_level_orm_context``) that
+    result holds the outer statement's options next to the loader's own load
+    options from the first pass; an option whose value differs from those
+    load options came from the outer statement. Removing it makes the second
+    pass read the options the loader would have read without any listener;
+    the outer statement's options are merged back for the cursor as before.
+
+    Nothing happens when a listener that is not the plugin's takes part: that
+    listener leaks the options without the plugin as well, and it may read or
+    update them, so the plugin leaves SQLAlchemy's behaviour as it is.
     """
     try:
         options = state.local_execution_options
-        if "yield_per" not in options or "sa_top_level_orm_context" not in options:
+        if "sa_top_level_orm_context" not in options:
             return
-        if getattr(options.get("_sa_orm_load_options"), "_yield_per", None):
+        if not _only_own_listeners(state):
+            return
+        load = options.get("_sa_orm_load_options")
+        leaked = {
+            key
+            for key in _LEAKED_LOAD_OPTIONS
+            if key in options and getattr(load, "_" + key, _MISSING) != options[key]
+        }
+        if not leaked:
             return
         state.local_execution_options = options.__class__(
-            {key: value for key, value in options.items() if key != "yield_per"}
+            {key: value for key, value in options.items() if key not in leaked}
         )
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-        _fail(exc, "do_orm_execute listener (yield_per)")
+        _fail(exc, "do_orm_execute listener (leaked load options)")
 
 
 def install() -> None:
@@ -518,7 +560,7 @@ def install() -> None:
     if _installed:
         return
     event.listen(Session, "do_orm_execute", _on_orm_execute)
-    if _leaks_yield_per():
+    if _leaks_load_options():
         event.listen(Session, "do_orm_execute", _on_orm_execute_heal)
     event.listen(Session, "after_begin", _on_after_begin)
     event.listen(Engine, "before_cursor_execute", _on_cursor_execute)
