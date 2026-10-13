@@ -509,3 +509,16 @@ def test_the_level_follows_the_unused_eager_load_mode(
     results = document["runs"][0]["results"]
     assert [r["ruleId"] for r in results] == ["queryguard/unused-eager-load"]
     assert results[0]["level"] == level
+
+
+def test_no_sarif_is_written_after_an_interrupted_run(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS, test_loops=LOOP)
+    pytester.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = pytester.path / "out.sarif"
+    path.write_text("previous")
+    result = pytester.runpytest("--queryguard-sarif=out.sarif")
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == "previous"
+    result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])

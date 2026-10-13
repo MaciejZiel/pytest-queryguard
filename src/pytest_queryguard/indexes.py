@@ -412,12 +412,14 @@ def _operator(text: str, start: int, end: int, cast_ok: bool) -> str | None:
 _COMPARISON_OPS = frozenset({"=", "<", "<=", ">", ">="})
 # Calls that wrap a column without hiding it from an index (a column inside
 # them is still no plain comparison, but needs no expression index either).
-_NOT_FUNCTIONS = frozenset({"any", "all", "some", "array"})
+# "row" is a row comparison, (a, b) > ($1, $2), which a btree on (a, b) serves.
+_NOT_FUNCTIONS = frozenset({"any", "all", "some", "array", "row"})
 
 
 def _in_function(parents: Sequence[predicates.Expr]) -> bool:
     return any(
-        isinstance(p, predicates.Call) and p.name not in _NOT_FUNCTIONS for p in parents
+        isinstance(p, predicates.Call) and p.name.lower() not in _NOT_FUNCTIONS
+        for p in parents
     )
 
 
@@ -443,7 +445,9 @@ def _tree_comparisons(
     cast_ok = _unquote(column) in varchar
     ops: set[str] = set()
     for ref, parents in refs:
-        if _in_function(parents):
+        # NOT (x = ANY (...)), the NOT IN of PostgreSQL 17 and newer, is no
+        # comparison an index on x serves.
+        if _in_function(parents) or any(isinstance(p, predicates.Not) for p in parents):
             return None
         operand: predicates.Expr = ref
         above = list(parents)

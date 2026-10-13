@@ -1,0 +1,139 @@
+{
+ "query": "WITH d AS (DELETE FROM orders WHERE status = $1 RETURNING *) SELECT count(*) FROM d",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Plain",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000026.5,
+    "Total Cost": 10000000026.51,
+    "Plan Rows": 1,
+    "Plan Width": 8,
+    "Output": [
+     "count(*)"
+    ],
+    "Plans": [
+     {
+      "Node Type": "ModifyTable",
+      "Operation": "Delete",
+      "Parent Relationship": "InitPlan",
+      "Subplan Name": "CTE d",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000015.25,
+      "Plan Rows": 500,
+      "Plan Width": 6,
+      "Output": [
+       "orders.id",
+       "orders.customer_id",
+       "orders.status",
+       "orders.total",
+       "orders.created_at",
+       "orders.tags",
+       "orders.data",
+       "orders.note",
+       "orders.kind"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 500,
+        "Plan Width": 6,
+        "Output": [
+         "orders.ctid"
+        ],
+        "Filter": "((orders.status)::text = $1)"
+       }
+      ]
+     },
+     {
+      "Node Type": "CTE Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "CTE Name": "d",
+      "Alias": "d",
+      "Startup Cost": 0.0,
+      "Total Cost": 10.0,
+      "Plan Rows": 500,
+      "Plan Width": 0,
+      "Output": [
+       "d.id",
+       "d.customer_id",
+       "d.status",
+       "d.total",
+       "d.created_at",
+       "d.tags",
+       "d.data",
+       "d.note",
+       "d.kind"
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 6,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "status",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (status)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

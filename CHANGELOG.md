@@ -13,15 +13,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
   Fixes #98.
 
+- A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
+  `text()`) is now classified like the statement after the comment. A loop of
+  commented single-row `INSERT`s was reported as a repeated statement with the
+  advice to fetch the rows in one query, and the write-loop rule never saw it.
+  Fixes #96.
+
+- `--queryguard-update-baseline` no longer rewrites the baseline, and
+  `--queryguard-sarif` no longer writes the file, after an interrupted run (a
+  collection error, Ctrl-C, a usage error or an internal pytest error). The
+  summary says why. Fixes #95.
+
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
+- PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
+  longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
+  wrong even for a primary key
+  ([#83](https://github.com/MaciejZiel/pytest-queryguard/issues/83)). Plan
+  conditions with `CASE`, `AT TIME ZONE`, `EXTRACT(... FROM ...)`, `count(*)`,
+  `COLLATE` or an array subscript are now parsed instead of matched as text, so a
+  column inside them is no longer suggested as a plain index and gets the
+  expression-index note
+  ([#84](https://github.com/MaciejZiel/pytest-queryguard/issues/84)). A row
+  comparison such as `(a, b) > ($1, $2)` no longer asks for an expression index
+  ([#85](https://github.com/MaciejZiel/pytest-queryguard/issues/85)).
 
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
   suite and the async helpers need `AsyncAttrs`, which does not exist in
   earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
+- The options with a fixed set of values now agree on case. `queryguard_mode`,
+  `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
+  `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
+  accepted any case; all of them now ignore case and surrounding spaces, and
+  unknown values are still a usage error.
 
 - Lower the per-statement overhead by about a sixth in the in-memory SQLite
   micro-benchmark: one shared `CallSite` per source location, one write check

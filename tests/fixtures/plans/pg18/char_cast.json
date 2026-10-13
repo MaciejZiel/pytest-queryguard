@@ -28,5 +28,36 @@
     "Filter": "(orders.kind = $1)"
    }
   }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "kind",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (kind)",
+   "skipped": null,
+   "partial_skipped": false
+  }
  ]
 }
