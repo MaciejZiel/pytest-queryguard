@@ -23,8 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RELEASE`, `START TRANSACTION` and `SET TRANSACTION`. With SQLAlchemy's
   pysqlite `BEGIN` recipe a loop that commits each pass was reported with
   `BEGIN` as a repeated statement and the advice to fetch rows in one query.
-  Budgets still count them. The accuracy corpus gives the same result before
-  and after. Fixes #158.
+  Budgets still count them. A `BEGIN` that opens a block
+  (`BEGIN load_order(:id); END;`) is still counted, and a loop with a
+  `SAVEPOINT` per row is still a write loop. The accuracy corpus gives the
+  same result before and after. Fixes #158.
 
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
