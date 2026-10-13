@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The repeated-statement and small-repeat rules no longer count schema
+  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
+  their temp variants, and reads of `pg_catalog` or `information_schema`
+  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
+  version-table check). `max_queries` budgets still count them. See
+  `docs/how-detection-works.md` for the exact rule
+  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
