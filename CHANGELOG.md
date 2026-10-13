@@ -23,7 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or without pytest-xdist) no longer drops the entries of tests that did not
   run. Only the entries of tests that ran are replaced, the others are kept, and
   the summary says how many were kept. A deleted test's entries are removed on
-  the next full run. `docs/baseline.md` describes the rule. Fixes #148.
+  the next full run. `docs/baseline.md` describes which runs are full
+  and which are partial. Fixes #148.
+
+- `--queryguard-update-baseline` with `--collect-only` emptied the baseline file.
+  It now leaves the file alone and says why.
 
 - The index check notice for a database it cannot check (SQL Server, Oracle)
   said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
