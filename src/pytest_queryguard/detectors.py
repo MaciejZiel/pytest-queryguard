@@ -15,6 +15,7 @@ from .events import (
     RelationshipLoadEvent,
     StatementEvent,
 )
+from .sqltext import is_write, skip_prefix
 
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
@@ -39,7 +40,6 @@ _IN_LIST = re.compile(
 )
 _DOLLAR_PARAM = re.compile(r"\$\d+")
 _WS = re.compile(r"\s+")
-_WRITES = ("INSERT", "UPDATE", "DELETE")
 # Pagination: OFFSET, or LIMIT with a range comparison on a parameter (keyset).
 _OFFSET = re.compile(r"\bOFFSET\b", re.IGNORECASE)
 _LIMIT = re.compile(r"\bLIMIT\b|\bFETCH\s+(?:FIRST|NEXT)\b|\bTOP\b", re.IGNORECASE)
@@ -304,7 +304,7 @@ def _write_loop_findings(
     """
     groups: dict[tuple[str, object], list[StatementEvent]] = {}
     for stmt in collector.statements:
-        if stmt.executemany or not stmt.sql.lstrip().upper().startswith(_WRITES):
+        if stmt.executemany or not is_write(stmt.sql):
             continue
         if _value_rows(_WS.sub(" ", stmt.sql)) > 1:
             continue
@@ -326,7 +326,9 @@ def _write_loop_findings(
                 best, best_count = stmts, count
         if best is None:
             continue
-        verb = best[0].sql.lstrip().split(None, 1)[0].upper()
+        first = best[0].sql
+        start = skip_prefix(first) or 0
+        verb = first[start : start + 6].upper()  # every write verb has 6 letters
         found.append(
             WriteLoopFinding(
                 sql,
@@ -621,7 +623,7 @@ def _repeat_groups(collector: QueryCollector) -> dict[str, list[StatementEvent]]
     for stmt in collector.statements:
         if stmt.relationship is not None or stmt.column_load:
             continue
-        if stmt.sql.lstrip().upper().startswith(_WRITES):
+        if is_write(stmt.sql):
             continue
         groups.setdefault(normalize(stmt.sql), []).append(stmt)
     return groups

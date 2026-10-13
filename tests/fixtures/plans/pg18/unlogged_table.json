@@ -1,0 +1,45 @@
+{
+ "query": "SELECT * FROM cache_entries WHERE key = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "cache_entries",
+    "Schema": "public",
+    "Alias": "cache_entries",
+    "Startup Cost": 0.0,
+    "Total Cost": 2.25,
+    "Plan Rows": 1,
+    "Plan Width": 13,
+    "Disabled": true,
+    "Output": [
+     "key",
+     "value",
+     "expires_at"
+    ],
+    "Filter": "(cache_entries.key = $1)"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": []
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "cache_entries",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "key",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON cache_entries (key)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
