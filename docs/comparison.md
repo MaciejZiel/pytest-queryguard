@@ -95,7 +95,7 @@ not work.
 
 ### N+1 and budgets on SQLite
 
-A larger run, with 110 scenarios and precision and recall per finding kind, is on the
+A larger run, with 133 scenarios and precision and recall per finding kind, is on the
 [accuracy page](accuracy.md).
 
 I ran 45 scenarios in `tests/scenarios` (SQLAlchemy ORM and Core, sync and
