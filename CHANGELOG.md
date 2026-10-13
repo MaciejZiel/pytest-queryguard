@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `--queryguard-update-baseline` on a partial run (`-k`, `-m`, `--deselect`,
+  `--lf`, `--sw`, `--ignore`, a node id or a path narrower than `testpaths`, with
+  or without pytest-xdist) no longer drops the entries of tests that did not
+  run. Only the entries of tests that ran are replaced, the others are kept, and
+  the summary says how many were kept. A deleted test's entries are removed on
+  the next full run. `docs/baseline.md` describes the rule. Fixes #148.
+
 - The index check notice for a database it cannot check (SQL Server, Oracle)
   said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
   supported. It now lists every supported database, and the help texts of

@@ -21,9 +21,33 @@ pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseli
 The run writes the file and does not fail on findings. Budgets
 (`max_queries`, `max_db_time`) are not findings: a test over its budget still
 fails on this run and is never recorded, so fix the code or raise the budget.
-Run the whole suite:
-the file holds what this run found, so a partial run drops the entries of the
-tests it did not run. Commit the file.
+Run the whole suite to create the file, and again to prune it. Commit the file.
+
+### Partial runs
+
+A run that aims at part of the suite (`-k`, `-m`, `--deselect`, `--lf`,
+`--sw`, `--ignore`, a node id, or a path narrower than `testpaths`, or than the
+rootdir without it) only replaces the entries of the tests that ran:
+
+- a test that ran and produced a finding adds its entry;
+- a test that ran and no longer produces a finding loses its entry;
+- an entry whose test did not run is kept as it was.
+
+The summary says how many entries were kept:
+
+```
+queryguard-baseline.json: 3 entries (0 added, 0 removed)
+this run did not cover the whole suite: 2 entries kept because their tests did not run
+```
+
+A test is identified by the file and function of the entry, so the rule
+applies to an entry whose call site is inside a test function that ran. An
+entry for code outside a test (a helper or application module, or an entry
+with no file) is kept on a partial run unless a finding of the same identity
+shows up again; a full run prunes it. The same holds for a test that was deleted:
+a partial run cannot tell a deleted test from one that did not run, so the
+entry is removed on the next full run (no narrowing option, and the default
+paths). Tests skipped before their call phase count as not run.
 
 Then turn it on for everyone, in `pyproject.toml`:
 
