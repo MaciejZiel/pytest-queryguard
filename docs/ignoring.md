@@ -26,6 +26,12 @@ character class:
 def test_legacy_report(session): ...
 ```
 
+The patterns match every kind of finding, `missing-index` included, so
+`@pytest.mark.allow_nplusone("public.audit_log", kind="missing-index")` leaves
+out one table's finding. The bare marker leaves out N+1 findings only;
+`allow_missing_index` is the shortcut for skipping the index check for the test
+or for some tables.
+
 The same patterns work for the whole suite in `queryguard_ignore`, one per
 line as `KIND LABEL [file=GLOB] [function=GLOB]`:
 

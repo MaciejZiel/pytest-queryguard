@@ -883,6 +883,53 @@ def test_run_explain_raises_when_the_savepoint_cannot_be_managed(step: str) -> N
     assert conn.closed_cursors == 1
 
 
+@pytest.mark.parametrize(
+    ("autocommit", "undo"),
+    [
+        (
+            False,
+            [
+                "ROLLBACK TO SAVEPOINT queryguard_explain",
+                "RELEASE SAVEPOINT queryguard_explain",
+            ],
+        ),
+        (True, ["ROLLBACK"]),
+    ],
+)
+@pytest.mark.parametrize("error", [RuntimeError, MemoryError, RecursionError])
+def test_run_explain_undoes_its_savepoint_when_it_has_a_bug(
+    monkeypatch: pytest.MonkeyPatch,
+    autocommit: bool,
+    undo: list[str],
+    error: type[Exception],
+) -> None:
+    # A bug past the SAVEPOINT (or BEGIN) must not leave the user's connection
+    # inside the plugin's savepoint, transaction or local settings.
+    def broken(*args: object) -> list[object]:
+        raise error("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+    conn = FakeConnection(autocommit=autocommit)
+    with pytest.raises(error, match="find_scans broke"):
+        run_explain(conn, "SELECT 1", skip_partial=True)
+    assert conn.log[-len(undo) :] == undo
+    assert conn.closed_cursors == 1
+
+
+def test_run_explain_raises_its_own_bug_when_the_undo_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(*args: object) -> list[object]:
+        raise RuntimeError("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+    conn = FakeConnection()
+    conn.fail["ROLLBACK TO SAVEPOINT"] = RuntimeError("connection lost")
+    with pytest.raises(RuntimeError, match="find_scans broke"):
+        run_explain(conn, "SELECT 1", skip_partial=True)
+    assert conn.closed_cursors == 1
+
+
 # ---------------------------------------------------------- unsupported_reason
 
 
@@ -1912,3 +1959,22 @@ def test_rows_read_before_a_clear_are_not_written_after_it(text_cast: bool) -> N
     assert varchar == ({("public", "t"): frozenset({"s"})} if text_cast else {})
     assert entry.leading == {}
     assert entry.varchar == {}
+
+
+def test_a_walked_index_is_named_by_every_rule_that_reports_one() -> None:
+    # rule 2, an index scan with a filter and no index condition
+    [whole] = find_scans(_pkey_scan("(orders.customer_id = $1)"))
+    assert whole.index == "index orders_pkey"
+    # rule 2 again, a whole index read as a bitmap
+    [bitmap] = find_scans(_bitmap_whole_index("(orders.note = $1)"))
+    assert bitmap.index == "index o_inc"
+    # rule 3, an index condition on a trailing column
+    [trailing] = find_scans(
+        _composite("Bitmap Index Scan", "(orders.status = $1)"), None, LEADING
+    )
+    assert trailing.index == "index orders_tenant_id_status_idx"
+
+
+def test_a_sequential_scan_names_no_index() -> None:
+    [issue] = find_scans(_seq(Filter="(orders.customer_id = $1)"))
+    assert issue.index is None

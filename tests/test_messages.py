@@ -204,12 +204,14 @@ def test_index_message_for_a_trailing_index_column() -> None:
         "(orders.status = $1)",
         "status",
         show_schema=False,
+        index="index orders_tenant_id_status_idx",
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
     assert lines[2] == (
-        "  orders is read in full: Index Scan using orders_tenant_id_status_idx "
-        "with index condition (orders.status = $1)"
+        "  orders scans the whole index orders_tenant_id_status_idx: the index "
+        "condition (orders.status = $1) does not match the start of any index"
     )
+    assert "read in full" not in "\n".join(lines)
     assert lines[6] == "  fix: CREATE INDEX ON orders (status)"
 
 
@@ -222,11 +224,12 @@ def test_index_message_names_the_index_and_quotes_the_hint() -> None:
         '("Order"."customerId" = $1)',
         '"customerId"',
         show_schema=False,
+        index="index Order_pkey",
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
     assert lines[2] == (
-        '  "Order" is read in full: Index Scan using Order_pkey with filter '
-        '("Order"."customerId" = $1)'
+        '  "Order" scans the whole index Order_pkey: the filter '
+        '("Order"."customerId" = $1) does not match the start of any index'
     )
     assert lines[6] == '  fix: CREATE INDEX ON "Order" ("customerId")'
 
@@ -416,3 +419,25 @@ def test_an_index_finding_and_an_unused_eager_load_name_theirs(
     monkeypatch.setattr(eager, "unused", lambda tracker: [Load()])
     (finding,) = eager.findings(object())  # type: ignore[arg-type]
     assert "  kind: unused-eager-load  label: Order.customer" in finding.message
+
+
+def test_the_closing_note_names_a_whole_index_scan_when_no_table_was_read() -> None:
+    walked = ScanIssue(
+        "public",
+        "rw_link",
+        "Bitmap Index Scan using rw_link_pkey",
+        "index condition",
+        "(rw_link.hero_id = $1)",
+        "hero_id",
+        show_schema=False,
+        index="index rw_link_pkey",
+    )
+    seq = ScanIssue("public", "a", "Seq Scan", "filter", "(a.x = $1)", "x")
+    only_walked = format_index_findings([_scan(walked)], cwd=CWD)
+    assert "  rw_link scans the whole index rw_link_pkey: the index condition" in (
+        only_walked
+    )
+    assert "a whole-index scan is fine on a small lookup table" in only_walked
+    assert "sequential scan" not in only_walked
+    mixed = format_index_findings([_scan(walked), _scan(seq)], cwd=CWD)
+    assert "a sequential scan is fine on a small lookup table" in mixed
