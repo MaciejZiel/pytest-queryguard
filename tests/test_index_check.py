@@ -470,6 +470,31 @@ def test_pg_not_equal_next_to_an_equality_is_still_reported(
 
 
 @needs_pg
+def test_pg_not_equal_to_a_constant_in_the_sql_is_still_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # A partial index WHERE customer_id <> 1 serves this statement, so it is
+    # advice the user can follow, unlike a not-equal against a parameter.
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import literal_column, select
+
+        from qgmodels import Order
+
+
+        def test_constant(session):
+            stmt = select(Order).where(Order.customer_id != literal_column("1"))
+            session.scalars(stmt).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        ["*orders is read in full: Seq Scan with filter (orders.customer_id <> 1)"]
+    )
+
+
+@needs_pg
 def test_pg_passes_once_the_index_exists(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:

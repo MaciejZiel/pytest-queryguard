@@ -1919,9 +1919,10 @@ def test_rows_read_before_a_clear_are_not_written_after_it(text_cast: bool) -> N
     [
         "((orders.status)::text <> ($1)::text)",
         "(orders.customer_id <> $1)",
-        "(orders.customer_id <> ALL ('{1,2}'::integer[]))",
         "(NOT (orders.customer_id = ANY ($1)))",
+        "(orders.customer_id <> ALL (ARRAY[$1, $2]))",
         "((orders.customer_id <> $1) AND (orders.id <> $2))",
+        "(orders.customer_id <> orders.id)",
     ],
 )
 def test_a_seq_scan_that_filters_only_with_not_equal_is_not_reported(
@@ -1938,6 +1939,13 @@ def test_a_seq_scan_that_filters_only_with_not_equal_is_not_reported(
         "((orders.id <> $1) AND (orders.customer_id > $2))",
         "((orders.id <> $1) OR (orders.id <> $2))",
         "(orders.id <> $1 AND orders.note ~~ 'a%')",
+        # a constant written into the SQL: a partial index WHERE status <> 'done'
+        # serves it, and pays off when 'done' is the common value
+        "((orders.status)::text <> 'done'::text)",
+        "(orders.customer_id <> 5)",
+        "(orders.customer_id <> ALL ('{1,2}'::integer[]))",
+        "(orders.customer_id <> ALL (ARRAY[1, 2]))",
+        "((orders.customer_id <> $1) AND ((orders.status)::text <> 'done'::text))",
     ],
 )
 def test_a_seq_scan_with_one_servable_condition_is_still_reported(
