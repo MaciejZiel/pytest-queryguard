@@ -219,22 +219,22 @@ instead of an SQLite file.
   URL with `+asyncpg`). The index check is off, as in the SQLite run: this
   page covers the N+1, repeat, column-load, write-loop and unused-eager-load
   rules. The run uses one database, so it cannot be split over several
-  `pytest-xdist` workers.
+  `pytest-xdist` workers; the regular `tests/corpus` tests also ran there
+  (`pytest -n 0 tests/corpus`, 993 passed, 57 xfailed as documented limits).
 - Server: one PostgreSQL 17.11 in the official `postgres:17` Docker image on
   the machine of the SQLite run (Linux 7.0.0, x86_64, 13th Gen Intel Core
   i5-13500H, 16 threads). Other PostgreSQL versions were not run.
-- Software: Python 3.14.4 (free-threaded build), SQLAlchemy 2.1.1, pytest 9.1.1,
+- Software: Python 3.13.13, SQLAlchemy 2.1.1, pytest 9.1.1,
   pg8000 1.31.5, asyncpg 0.31.0, Flask-SQLAlchemy 3.1.1, FastAPI 0.141.1,
   SQLModel not installed (131 of 133 scenarios ran), pytest-queryguard
   0.4.0rc2 at `main`, run on 2026-10-13.
 
 **Result: the output of `scripts/accuracy_report.py` on PostgreSQL 17 is
-identical to the output on SQLite**, run in the same environment on the same
-commit: the same TP, FP and FN in every table and the same disagreements,
+identical to the output on SQLite** (the SQLite run was on Python 3.14.4, the
+same commit and packages): the same TP, FP and FN in every table and the same disagreements,
 scenario by scenario. With the default configuration, 54 of 57 BUG scenarios
 that its rules can report are flagged and 4 of 74 CLEAN scenarios are; with
-all opt-in rules, 60 of 62 and 9 of 69. A run of the report took 2 minutes 53
-seconds on PostgreSQL and 37 seconds on SQLite.
+all opt-in rules, 60 of 62 and 9 of 69. The report took 2 minutes 20 seconds on PostgreSQL.
 
 **What the first PostgreSQL run found.** Before the fix, two BUG scenarios
 (`bug_23_get_or_create_loop`, `bug_30_flush_per_insert`) were listed as
