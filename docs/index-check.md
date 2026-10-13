@@ -1,4 +1,4 @@
-# Missing-index check (PostgreSQL and SQLite)
+# Missing-index check (PostgreSQL)
 
 A test database holds a few rows, so a query that reads the whole table is
 as fast in CI as one that uses an index. The missing index shows up in
@@ -241,12 +241,16 @@ views and plans it does not recognize alone. See
 [the SQLite page](index-check-sqlite.md) for the rules, the
 false-positive traps and the differences.
 
+MySQL and MariaDB are checked as well, from their `EXPLAIN` output; see
+[the MySQL and MariaDB page](index-check-mysql.md).
+
 Statements that cannot be checked do not fail the test. They are summed up
-once at the end of the session, for example with MySQL:
+once at the end of the session, for example with SQL Server, which the check
+does not support:
 
 ```
 ============================ queryguard index check ============================
-mysql statements were not checked: the index check needs PostgreSQL 16 or newer
+mssql statements were not checked: the index check needs PostgreSQL 16 or newer
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers
