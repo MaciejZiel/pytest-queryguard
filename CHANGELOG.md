@@ -17,6 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for a refresh or an expired reload are no longer counted as lazy loads. A
   `lazy="select"` collection read per parent, an `immediateload()` option and
   a loop of refreshes (a column-load finding) are reported as before.
+- A table name in a missing-index finding is now matched the same way in
+  `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
+  and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`
+  (also for a table the report prints without its schema), quoted or unquoted
+  identifiers (unquoted as written, case-sensitive; quoted exactly, may hold
+  dots). The documented
+  `allow_nplusone("public.audit_log", kind="missing-index")` now matches.
+  Every spelling that matched before still does, and the labels in reports and
+  baselines are unchanged. This can leave out missing-index findings that were
+  reported before: in `queryguard_ignore` and `allow_nplusone`, a bare name
+  (`audit_log`) now also matches the table in a schema off the search path
+  (label `audit.audit_log`), `schema.table` matches a table printed without
+  its schema, and an unquoted name matches a table whose label is quoted
+  (`UserAccount` for `"UserAccount"`). Findings of other kinds match as
+  before.
+- `docs/sarif.md` and `docs/baseline.md` listed five finding kinds; the SARIF
+  file lists six rules, `unused-eager-load` included.
 - The budget failure says `expected at most 1 query` (it said `1 queries`);
   other limits are unchanged.
 - Documentation found in a walk of the 0.4.0rc3 docs, each snippet run in a

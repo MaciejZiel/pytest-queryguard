@@ -9,8 +9,8 @@ fix at once. A baseline file records them, so that:
   pruned as the code gets fixed.
 
 The baseline applies to the pytest plugin and to every finding kind
-(`relationship-load`, `repeated-statement`, `column-load`, `write-loop` and
-`missing-index`). `QueryLog.assert_no_nplusone()` does not read it.
+(`relationship-load`, `repeated-statement`, `column-load`, `write-loop`,
+`unused-eager-load` and `missing-index`). `QueryLog.assert_no_nplusone()` does not read it.
 
 ## Create it
 

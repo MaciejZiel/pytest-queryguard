@@ -32,6 +32,29 @@ out one table's finding. The bare marker leaves out N+1 findings only;
 `allow_missing_index` is the shortcut for skipping the index check for the test
 or for some tables.
 
+A table name is matched the same way in all four places that take one
+(`allow_nplusone(..., kind="missing-index")`, `queryguard_ignore`,
+`allow_missing_index` and `queryguard_index_ignore_tables`), so one spelling
+works everywhere. A pattern is a table name or `schema.table`, and each part is
+an identifier:
+
+- unquoted (`audit_log`, `UserAccount`, `audit_*`): compared as written
+  (case-sensitive, `UserAccount` does not match `useraccount`), with `fnmatch`
+  wildcards;
+- double-quoted (`"UserAccount"`, `public."UserAccount"`, `"my.table"`):
+  compared exactly, with no wildcards, and may hold dots (`""` is a quote).
+
+A bare name matches the table in any schema; `public.audit_log` matches the
+table `audit_log` in the schema `public` also when the report prints it as
+`audit_log` because that schema is on the search path. The label as printed
+(`"UserAccount"`) matches too, and so does any `fnmatch` pattern on `table` or
+`schema.table` (`audit*` also matches every table in the schema `audit`). Schemas are
+known on PostgreSQL only; on SQLite and MySQL only bare names match.
+
+In `queryguard_ignore` and `allow_nplusone`, this makes a bare name match the
+table in every schema: `missing-index audit_log` also leaves out the finding
+labelled `audit.audit_log`.
+
 The same patterns work for the whole suite in `queryguard_ignore`, one per
 line as `KIND LABEL [file=GLOB] [function=GLOB]`:
 
@@ -52,7 +75,8 @@ the label as the pattern. The kinds are `relationship-load` (the label is the re
 the class and the cause for expired attributes, as in `Book (expired)`),
 `write-loop` (the normalized `INSERT`, `UPDATE` or `DELETE`),
 `unused-eager-load` (the relationship, as in `Order.customer`) and
-`missing-index` (the table, with its schema as in the report). `file` is
+`missing-index` (the table, with its schema as in the report; see below for
+the spellings a table name accepts). `file` is
 relative to pytest's rootdir, with forward slashes. Findings that no longer
 exist are easy to forget, so a pattern that matched nothing in the run is
 listed in the terminal summary under "stale ignores" (not shown with
