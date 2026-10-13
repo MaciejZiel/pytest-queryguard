@@ -3,13 +3,13 @@
 ## Install
 
 ```bash
-pip install "pytest-queryguard>=0.4.0rc4"
+pip install pytest-queryguard
 ```
 
 It needs Python 3.10 or newer, pytest 8 or newer and SQLAlchemy 2.0.13 or
 newer; pip installs pytest and SQLAlchemy with it. The plugin registers itself
 with pytest: there is nothing to import or configure. `pytest -VV` lists it
-(`pytest-queryguard-0.4.0rc4`).
+(`pytest-queryguard-0.4.0`).
 
 !!! note "Free-threaded Python"
     The free-threaded builds (CPython 3.13t and 3.14t, no GIL) are not in the
@@ -26,16 +26,6 @@ with pytest: there is nothing to import or configure. `pytest -VV` lists it
     check and then update shared sets, so with several threads they may do
     one step twice; those were not examined further. Every listener fails
     open, so a race there costs accuracy, not the test run.
-
-!!! note "Release candidate"
-    These pages describe 0.4.0rc4. The version specifier above makes pip and
-    uv install it, and keeps working once 0.4.0 is out. A plain
-    `pip install pytest-queryguard` gets the stable 0.3.0: the same N+1
-    detection and `max_queries` budgets, but no baseline, SARIF, ignore
-    patterns, timing, column-load or write-loop rules and no SQLite or MySQL
-    index check (`--queryguard-baseline` is an unrecognized argument there),
-    and it suggests `selectinload` where 0.4 suggests `joinedload`.
-
 
 ## A first test
 
