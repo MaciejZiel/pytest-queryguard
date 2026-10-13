@@ -96,12 +96,12 @@ point and `assert_no_nplusone()` still refuses it.
 What is public API, and what is not, is defined on the
 [Stability and versioning](stability.md) page. In short: the names in
 `pytest_queryguard.__all__` and the pytest options, markers and finding kinds
-are public; the constructors of `QueryLog`, `Query` and `CallSite`, and the
-object `with max_queries(n) as c` yields, are not. Use `record_queries()` to
-read the queries.
+are public; the constructors of `QueryLog`, `Query` and `CallSite` are not.
+`record_queries()` reads the queries; `max_queries()` and `max_db_time()` yield
+the same `QueryLog`, so `with max_queries(3) as log:` also gives `log.count`,
+`log.queries` and `log.slowest()`.
 
 Recording changes nothing else. The plugin's N+1 detection, budgets and
-index check see the same statements, and `record_queries()` combines with
-`max_queries()`: `with max_queries(3), record_queries() as log:`. Like
-`max_queries()`, it also works outside pytest.
+index check see the same statements. Like `max_queries()`, `record_queries()`
+also works outside pytest.
 

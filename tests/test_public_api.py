@@ -35,8 +35,8 @@ EXPECTED_ALL = [
 ]
 
 EXPECTED_FUNCTIONS = {
-    "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryCollector]'",
-    "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryCollector]'",
+    "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
+    "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryLog]'",
     "record_queries": "() -> 'AbstractContextManager[QueryLog]'",
 }
 
