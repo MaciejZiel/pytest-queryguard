@@ -1,7 +1,6 @@
 """Run the accuracy corpus and print precision, recall and every mismatch.
 
     uv run python scripts/accuracy_report.py                 # pytest-queryguard, every configuration
-    uv run python scripts/accuracy_report.py --markdown      # the tables of docs/accuracy.md
     uv run python scripts/accuracy_report.py --compare PY    # also queryspy and pytest-querycount
 
 ``--compare`` takes the Python of a scratch environment where queryspy and
@@ -165,9 +164,9 @@ def main() -> int:
         )
         print("| tool | BUG flagged | BUG missed | CLEAN passed | CLEAN flagged |")
         print("|---|---|---|---|---|")
-        own = binary(scenarios, raw["default"])
         rows = {
-            "pytest-queryguard": own,
+            "pytest-queryguard, defaults": binary(scenarios, raw["default"]),
+            "pytest-queryguard, all opt-in rules": binary(scenarios, raw["all-opt-in"]),
             **{t: binary(scenarios, r) for t, r in others.items()},
         }
         for tool, t in rows.items():
