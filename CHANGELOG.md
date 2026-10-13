@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   triggers the same issue without the plugin
   ([#169](https://github.com/MaciejZiel/pytest-queryguard/issues/169)).
 
+- Free-threaded CPython (3.14t): statements, relationship and column loads and
+  database time reported from several threads into one collector lost updates
+  (`counted 15839, expected 16000`), which budgets and the truncation flag rely
+  on. The collector now updates them under a lock on a build without the GIL
+  and takes no lock with the GIL (`scripts/bench_overhead.py` shows no change
+  on CPython 3.12). Tests: the memory test measures what the plugin itself
+  allocated, because the whole-process figure on the free-threaded build
+  reflects SQLAlchemy's late freeing, not a leak in the plugin. Free-threaded
+  builds are still not in the CI matrix; `docs/getting-started.md` says so.
+  Fixes #159.
+
 - The repeat rules (repeated statement and small repeat) no longer count
   transaction-control statements: `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`,
   `RELEASE`, `START TRANSACTION` and `SET TRANSACTION`. With SQLAlchemy's
