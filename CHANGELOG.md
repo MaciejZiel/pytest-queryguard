@@ -15,8 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   strategy that is already mapped; two creates followed by a refresh each were
   enough to fail a test, on sync and async sessions. The loads SQLAlchemy runs
   for a refresh or an expired reload are no longer counted as lazy loads. A
-  `lazy="select"` collection read per parent, an `immediateload()` option and
-  a loop of refreshes (a column-load finding) are reported as before.
+  `lazy="select"` collection read per parent and an `immediateload()` option
+  are reported as before.
+- The refresh a repository runs after each create or update (advanced-alchemy's
+  `auto_refresh`) was a column-load finding as soon as a test created five
+  rows. A `session.refresh()` of an object that the latest flush of its
+  Session wrote is no longer counted (one object per class and flush). A loop
+  of refreshes of objects that were only read, a refresh of every row of one
+  bulk insert and a second refresh of the same write are reported as before.
+  On litestar-fullstack this removes the column-load finding of two tests that
+  create ten tokens each; their repeated-statement findings remain.
+- `session.refresh(obj, ["name"])` in a loop was labelled as an expired load
+  with an `expire_on_commit=False` hint; it is now a refresh (`Book (refresh)`)
+  with the refresh hint.
 - A table name in a missing-index finding is now matched the same way in
   `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
   and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`

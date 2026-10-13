@@ -50,7 +50,18 @@ your code.
   behaviour shows up as a failing test and the entry must be removed.
   `scripts/accuracy_report.py` prints the tables below.
 
-Two scenarios were added after the measurement below (`clean_76_refresh_after_create_selectin`, `bug_69_lazy_select_next_to_refresh`, the refresh of a selectin collection; see "Refreshing an object with an eager relationship" in [How detection works](how-detection-works.md)). With them the default configuration is unchanged apart from one more relationship-load true positive, and with the column-load threshold at 2 the new CLEAN scenario is one more documented false positive (two refreshes).
+Four scenarios about `session.refresh()` were added after the measurement
+below: `bug_69_lazy_select_next_to_refresh`, `bug_70_refresh_each_after_bulk_insert`,
+`clean_76_refresh_after_create_selectin` and `clean_77_refresh_after_each_create`
+(see "Refreshing an object with an eager relationship" and "Refresh after a
+write" in [How detection works](how-detection-works.md)). On the 145 scenarios
+(Python 3.12.13, SQLAlchemy 2.1.1, 2026-10-13), the default configuration flags
+61 of 64 BUG and 1 of 81 CLEAN scenarios: relationship-load 20 TP, 0 FP, 0 FN;
+column-load 5 TP, 0 FP, 1 FN; repeated-statement unchanged. Before the refresh
+fixes the same 145 gave 2 relationship-load and 1 column-load false positives
+(both new CLEAN scenarios) with no other difference. With the column-load
+threshold at 2, column-load is 6 TP, 1 FP (`clean_22`, documented below), 0 FN.
+The tables below are still the 141-scenario measurement.
 
 Measured on 2026-10-13 on Linux 7.0.0 (x86_64, 13th Gen Intel Core i5-13500H, 16
 threads), Python 3.14.4, SQLAlchemy 2.1.1, pytest 9.1.1, Flask-SQLAlchemy 3.1.1,
