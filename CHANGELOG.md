@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Under pytest-xdist, a collection error without `-x` no longer rewrites the
+  baseline or writes the `--queryguard-sarif` file: the run is handled as the
+  interrupted run a serial run is, with the same reason. Closes #194.
+- An internal error in the budget markers, the `allow_missing_index` check or
+  the end of a measurement in the `pytest_runtest_call` hook no longer fails
+  the user's test: it ends measurement with a `QueryGuardInternalWarning` and
+  the "queryguard: measurement stopped" section, as other internal errors do.
+  The collection-report and pytest-xdist worker hooks are guarded the same
+  way. Closes #197.
 - Under pytest-xdist, a run stopped by `-x` or `--maxfail` is handled as in a
   serial run instead of as an interrupted one: the baseline is not updated
   because the run stopped early (it no longer blames a collection error,
