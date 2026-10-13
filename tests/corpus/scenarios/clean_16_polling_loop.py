@@ -14,7 +14,7 @@ from ..kit import CLEAN, Ctx
 VERDICT = CLEAN
 KINDS = frozenset()
 KNOWN = {
-    "*": "a legitimate repeat of one statement is indistinguishable from a loop; use allow_nplusone",
+    "*": "every poll has the same parameters, like the loop-invariant query of bug_55; the statements cannot tell them apart; use allow_nplusone",
 }
 setup = shop.setup
 

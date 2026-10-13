@@ -91,6 +91,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The repeated-statement rules no longer report pagination and chunked `IN`
+  loads when the bound parameters show them: only the `OFFSET` or an integer
+  keyset bound changes, in one direction, by at least a page of more than one
+  row (the walk may be repeated once); or one `IN` list of at least 50 values
+  changes, the lists share no value and all but one have the same length.
+  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
+  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
+  loop and identical repeats are still reported. Closes #60.
+  The accuracy corpus has five more CLEAN scenarios for these shapes and five
+  more BUG scenarios that imitate them; on its 141 scenarios the default
+  repeated-statement precision goes from 80% to 97% (90% to 97% without the
+  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
+  configuration, and the release gate's minimum precision for the kind is now
+  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
+
 - `docs/stability.md` has an "Experimental" section: the
   `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
   and the missing-index check on MySQL and MariaDB are exempt from the
