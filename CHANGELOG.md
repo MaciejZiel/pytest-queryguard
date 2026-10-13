@@ -18,6 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
 
+- PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
+  longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
+  wrong even for a primary key
+  ([#83](https://github.com/MaciejZiel/pytest-queryguard/issues/83)). Plan
+  conditions with `CASE`, `AT TIME ZONE`, `EXTRACT(... FROM ...)`, `count(*)`,
+  `COLLATE` or an array subscript are now parsed instead of matched as text, so a
+  column inside them is no longer suggested as a plain index and gets the
+  expression-index note
+  ([#84](https://github.com/MaciejZiel/pytest-queryguard/issues/84)). A row
+  comparison such as `(a, b) > ($1, $2)` no longer asks for an expression index
+  ([#85](https://github.com/MaciejZiel/pytest-queryguard/issues/85)).
+
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
