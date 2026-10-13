@@ -117,6 +117,51 @@ def test_escalated_warning_hides_plugin_source_under_xdist(
     assert "plugin.py" not in output
 
 
+@pytest.mark.parametrize("mode", ["warn", "fail"])
+def test_escalation_keeps_user_failure_traceback(
+    project: pytest.Pytester, mode: str
+) -> None:
+    project.makepyfile(
+        test_a="""
+        def helper(value):
+            raise ValueError(f"user error {value}")
+
+
+        def test_raises():
+            helper("deep")
+        """
+    )
+    project.makeini(
+        f"[pytest]\nqueryguard_mode = {mode}\nfilterwarnings =\n    error\n"
+    )
+    result = project.runpytest("--tb=long")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        ['*helper("deep")*', '*raise ValueError(f"user error {value}")*']
+    )
+    assert "def pytest_runtest_call" not in result.stdout.str()
+
+
+def test_plugin_bug_in_hook_keeps_hook_frame(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(item: pytest.Item) -> None:
+        raise RuntimeError("index exemption bug")
+
+    monkeypatch.setattr(plugin, "_index_exemption", boom)
+    project.makepyfile(test_a="def test_ok():\n    pass\n")
+    project.makeini("[pytest]\nqueryguard_index_check = true\n")
+    result = project.runpytest("--tb=long")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*def pytest_runtest_call*",
+            "*_index_exemption(item)*",
+            "*index exemption bug*",
+        ]
+    )
+
+
 def test_plain_warn_mode_warning_points_at_the_test(
     project: pytest.Pytester,
 ) -> None:
