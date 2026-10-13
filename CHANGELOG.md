@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `docs/limitations.md` notes that on SQLAlchemy 2.0.20 to 2.0.49 a
+  `yield_per` query with `selectinload` raises once any `do_orm_execute` hook
+  exists, the plugin's included (SQLAlchemy issue 13301, fixed in 2.0.50). The
+  accuracy corpus skips its `yield_per` scenario there and now checks that a
+  scenario never fails without a finding in every run, not only in the
+  pytest-xdist worker that happened to measure it.
+
+- On SQLAlchemy 2.0.13 to 2.0.29 the column load of a joined-inheritance
+  subclass (reading `manager.budget` after `select(Employee)`) was not
+  recognised as a column load and was reported as a repeated statement. Before
+  2.0.30 SQLAlchemy reports `is_select` and `is_column_load` as False for the
+  `from_statement()` execution that loads those columns; the plugin now also
+  reads the refresh state from the statement and the execution options. The
+  oldest-versions job of the release gate now installs exactly
+  `sqlalchemy==2.0.13`, the declared minimum, instead of the latest 2.0.x.
+  Fixes #161.
+
 - Free-threaded CPython (3.14t): statements, relationship and column loads and
   database time reported from several threads into one collector lost updates
   (`counted 15839, expected 16000`), which budgets and the truncation flag rely
@@ -195,6 +212,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
   now fails the build for any page left like that.
+- Baseline: a file nested more than 100 levels deep is now rejected by a
+  depth check before parsing, so the "nested too deep" usage error no longer
+  depends on the interpreter hitting its recursion limit (which on Python 3.10
+  could surface as a second, unraisable `RecursionError`).
 
 - `--queryguard-update-baseline` on a partial run (`-k`, `-m`, `--deselect`,
   `--lf`, `--sw`, `--ignore`, a node id or a path narrower than `testpaths`, with

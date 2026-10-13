@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import ORMExecuteState, Session
 from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import Pool
@@ -233,11 +234,39 @@ def _reset_for_tests() -> None:
     _failure = None
 
 
+def _load_options(state: ORMExecuteState) -> Any:
+    """The load options of an ORM execution, also for ``from_statement()``.
+
+    Before SQLAlchemy 2.0.30 ``ORMExecuteState.is_select`` is False for
+    ``select(Entity).from_statement(...)`` and ``load_options`` then raises.
+    The loader of a joined-inheritance subclass column runs exactly such a
+    statement, so read the options from the execution options directly.
+    """
+    try:
+        return state.load_options
+    except InvalidRequestError:
+        return state.execution_options.get("_sa_orm_load_options")
+
+
+def _is_column_load(state: ORMExecuteState) -> bool:
+    """True for a refresh, an expired or a deferred column load of an instance.
+
+    ``ORMExecuteState.is_column_load`` is False for a ``from_statement()``
+    execution before SQLAlchemy 2.0.30 (see ``_load_options``), so the compile
+    options of the statement are asked as well.
+    """
+    if state.is_column_load:
+        return True
+    statement = getattr(state, "statement", None)
+    options = getattr(statement, "_compile_options", None)
+    return bool(getattr(options, "_for_refresh_state", False))
+
+
 def _record_column_load(
     state: ORMExecuteState, targets: tuple[collector.QueryCollector, ...]
 ) -> None:
     """Note an instance that loads columns it already has a row for."""
-    instance = getattr(state.load_options, "_refresh_state", None)
+    instance = getattr(_load_options(state), "_refresh_state", None)
     if instance is None:
         _set_pending(state.session, None)
         return
@@ -280,7 +309,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         targets = collector.active()
         if not targets:
             return
-        if state.is_column_load:
+        if _is_column_load(state):
             _record_column_load(state, targets)
             return
         if not state.is_relationship_load:
