@@ -883,6 +883,53 @@ def test_run_explain_raises_when_the_savepoint_cannot_be_managed(step: str) -> N
     assert conn.closed_cursors == 1
 
 
+@pytest.mark.parametrize(
+    ("autocommit", "undo"),
+    [
+        (
+            False,
+            [
+                "ROLLBACK TO SAVEPOINT queryguard_explain",
+                "RELEASE SAVEPOINT queryguard_explain",
+            ],
+        ),
+        (True, ["ROLLBACK"]),
+    ],
+)
+@pytest.mark.parametrize("error", [RuntimeError, MemoryError, RecursionError])
+def test_run_explain_undoes_its_savepoint_when_it_has_a_bug(
+    monkeypatch: pytest.MonkeyPatch,
+    autocommit: bool,
+    undo: list[str],
+    error: type[Exception],
+) -> None:
+    # A bug past the SAVEPOINT (or BEGIN) must not leave the user's connection
+    # inside the plugin's savepoint, transaction or local settings.
+    def broken(*args: object) -> list[object]:
+        raise error("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+    conn = FakeConnection(autocommit=autocommit)
+    with pytest.raises(error, match="find_scans broke"):
+        run_explain(conn, "SELECT 1", skip_partial=True)
+    assert conn.log[-len(undo) :] == undo
+    assert conn.closed_cursors == 1
+
+
+def test_run_explain_raises_its_own_bug_when_the_undo_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(*args: object) -> list[object]:
+        raise RuntimeError("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+    conn = FakeConnection()
+    conn.fail["ROLLBACK TO SAVEPOINT"] = RuntimeError("connection lost")
+    with pytest.raises(RuntimeError, match="find_scans broke"):
+        run_explain(conn, "SELECT 1", skip_partial=True)
+    assert conn.closed_cursors == 1
+
+
 # ---------------------------------------------------------- unsupported_reason
 
 
