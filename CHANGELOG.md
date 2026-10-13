@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- PostgreSQL index check: a sequential scan whose filter is only not-equal
+  comparisons (`<>`, `!=`, `NOT IN` with values) is no longer reported as a
+  missing index. No btree index serves them, so the advice could not be
+  followed, even on an indexed column; the SQLite check never reported them. A
+  filter with one more servable condition is still reported
+  ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
