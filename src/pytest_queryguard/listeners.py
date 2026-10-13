@@ -118,7 +118,18 @@ def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None
     # attribution is handed to its statements.
     with contextlib.suppress(AttributeError, TypeError):
         setattr(connection, _SCOPE_ATTR, scope_of_session(session))
-        setattr(connection, _SESSION_ATTR, weakref.ref(session))
+        # Every live Session that began on this connection: an external
+        # connection can serve several (the "test in a transaction" fixture
+        # with a second Session joined to it).
+        refs = connection.__dict__.get(_SESSION_ATTR, ())
+        if not any(ref() is session for ref in refs):
+            live = tuple(ref for ref in refs if ref() is not None)
+            setattr(connection, _SESSION_ATTR, (*live, weakref.ref(session)))
+
+
+# Orders the ORM executions of all Sessions: of the Sessions that share a
+# connection, the one that executed last owns the connection's next SELECT.
+_executions = itertools.count(1)
 
 
 def _set_pending(
@@ -126,36 +137,52 @@ def _set_pending(
     name: str | None,
     column_load: ColumnLoadEvent | None = None,
 ) -> None:
-    """Park the attribution of the ORM execution of ``session``."""
+    """Park the attribution of the ORM execution of ``session``.
+
+    An execution with nothing to attribute is recorded too, so that it
+    supersedes an older attribution parked by another Session of the same
+    connection whose SELECT never ran.
+    """
     try:
-        if name is None and column_load is None:
-            session.__dict__.pop(_PENDING_ATTR, None)
-        else:
-            session.__dict__[_PENDING_ATTR] = (
-                collector.generation(),
-                name,
-                column_load,
-            )
+        session.__dict__[_PENDING_ATTR] = (
+            next(_executions),
+            collector.generation(),
+            name,
+            column_load,
+        )
     except (AttributeError, TypeError):
         pass
+
+
+def _latest(conn: Any) -> tuple[Any, Any]:
+    """(Session, parked entry) of the latest ORM execution on ``conn``."""
+    best: Any = None
+    owner: Any = None
+    for ref in conn.__dict__.get(_SESSION_ATTR, ()):
+        session = ref()
+        if session is None:
+            continue
+        entry = session.__dict__.get(_PENDING_ATTR)
+        if entry is not None and (best is None or entry[0] > best[0]):
+            best, owner = entry, session
+    return owner, best
 
 
 def _take_pending(conn: Any) -> tuple[str | None, ColumnLoadEvent | None]:
     """(relationship, column load) of the ORM execution that ``conn`` serves.
 
-    Only the Session that owns the connection is asked; a statement on any
-    other connection leaves every parked attribution alone.
+    Only the Sessions that began on the connection are asked; a statement on
+    any other connection leaves every parked attribution alone.
     """
     try:
-        ref = conn.__dict__.get(_SESSION_ATTR)
-        session = ref() if ref is not None else None
-        pending = (
-            session.__dict__.pop(_PENDING_ATTR, None) if session is not None else None
-        )
+        session, entry = _latest(conn)
+        if entry is None or (entry[2] is None and entry[3] is None):
+            return None, None
+        session.__dict__[_PENDING_ATTR] = (entry[0], entry[1], None, None)
     except (AttributeError, TypeError):
         return None, None
-    if pending is not None and pending[0] == collector.generation():
-        return pending[1], pending[2]
+    if entry[1] == collector.generation():
+        return entry[2], entry[3]
     return None, None
 
 
@@ -182,9 +209,8 @@ def _inside_begin() -> bool:
 
 def _has_pending(conn: Any) -> bool:
     try:
-        ref = conn.__dict__.get(_SESSION_ATTR)
-        session = ref() if ref is not None else None
-        return session is not None and _PENDING_ATTR in session.__dict__
+        entry = _latest(conn)[1]
+        return entry is not None and (entry[2] is not None or entry[3] is not None)
     except (AttributeError, TypeError):
         return False
 
