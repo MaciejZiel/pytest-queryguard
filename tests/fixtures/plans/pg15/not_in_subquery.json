@@ -1,0 +1,91 @@
+{
+ "query": "SELECT * FROM customers WHERE id NOT IN (SELECT customer_id FROM orders WHERE status = $1)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "customers",
+    "Schema": "public",
+    "Alias": "customers",
+    "Startup Cost": 20000000016.5,
+    "Total Cost": 20000000018.12,
+    "Plan Rows": 25,
+    "Plan Width": 17,
+    "Output": [
+     "customers.id",
+     "customers.email",
+     "customers.name"
+    ],
+    "Filter": "(NOT (hashed SubPlan 1))",
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "SubPlan",
+      "Subplan Name": "SubPlan 1",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000015.25,
+      "Plan Rows": 500,
+      "Plan Width": 4,
+      "Output": [
+       "orders.customer_id"
+      ],
+      "Filter": "((orders.status)::text = $1)"
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 13,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
+}

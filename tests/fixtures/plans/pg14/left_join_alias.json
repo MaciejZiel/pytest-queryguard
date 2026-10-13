@@ -102,5 +102,43 @@
     }
    }
   }
- ]
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "customers",
+    [
+     "email",
+     "name"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
 }

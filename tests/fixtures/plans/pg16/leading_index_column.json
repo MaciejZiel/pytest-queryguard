@@ -23,5 +23,31 @@
     "Index Cond": "((order_items.order_id = $1) AND (order_items.product_id = $2))"
    }
   }
- ]
+ ],
+ "catalog": {
+  "leading": [
+   [
+    "public",
+    "order_items_order_product",
+    "order_id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "order_items",
+    "order_items_order_product",
+    "btree",
+    true,
+    [
+     "order_id",
+     "product_id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
 }
