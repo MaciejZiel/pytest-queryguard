@@ -653,7 +653,7 @@ class _CollectionErrors:
             if report.failed:
                 self._settings.collection_failed = True
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-            record_error(exc, "baseline update")
+            record_error(exc, "collection report")
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
