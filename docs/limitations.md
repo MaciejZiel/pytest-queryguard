@@ -37,12 +37,6 @@
 - Tests that use `pytester` to run pytest in-process are also measured by the
   outer test, which sees the inner run's queries. Mark such tests with
   `allow_nplusone` or use `pytester.runpytest_subprocess()`.
-- On SQLAlchemy 2.0.20 to 2.0.49, a query with `yield_per` and
-  `selectinload` (or `immediateload`) raises "Can't use the ORM yield_per
-  feature in conjunction with unique()" once any `do_orm_execute` hook is
-  registered, and the plugin registers one. This is SQLAlchemy issue 13301,
-  fixed in 2.0.50; upgrade SQLAlchemy if a test that streams rows with
-  `yield_per` fails only with the plugin installed.
 - unittest `setUp` and `tearDown` run inside the test call, so their queries
   are counted, unlike pytest fixtures.
 - A non-strict `xfail` test that has an N+1 is reported as xfailed rather
@@ -133,4 +127,17 @@
   `console_output_style = 3`) stops pytest with an internal error, with or
   without this plugin. Wrong types for this plugin's options are reported
   as usage errors.
-
+- On SQLAlchemy 2.0.20 to 2.0.49 (and 2.1.0b1, 2.1.0b2), any `do_orm_execute`
+  listener makes the outer statement's `yield_per`, `autoflush`,
+  `populate_existing` and `identity_token` options load options of its
+  `selectinload` and `immediateload` statements (SQLAlchemy issue 13301, fixed
+  in 2.0.50). With `yield_per` the loader statement fails with "Can't use the
+  ORM yield_per feature in conjunction with unique()"; with `autoflush=False`
+  it no longer flushes. The plugin installs such a listener, so on those
+  versions it removes the inherited options from the loader statement before
+  SQLAlchemy reads them, and the statement runs as it does without the
+  plugin; the cursor still gets the outer statement's options. This happens
+  only when the plugin's listeners are the only ones: with a
+  `do_orm_execute` listener of your own the plugin changes nothing, because
+  your listener triggers the same issue without the plugin. Upgrade to
+  SQLAlchemy 2.0.50 or later to remove the cause.

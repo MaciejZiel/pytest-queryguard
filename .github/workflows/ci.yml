@@ -57,6 +57,12 @@ jobs:
           - python-version: "3.10"
             sqlalchemy: "2.0"
             pytest: "8.0"
+          # the last SQLAlchemy that leaks the outer statement's load options
+          # (yield_per, autoflush) into selectinload when a do_orm_execute
+          # listener exists (fixed in 2.0.50); see tests/test_yield_per_leak.py
+          - python-version: "3.12"
+            sqlalchemy: "2.0.49"
+            pytest: "latest"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -68,6 +74,9 @@ jobs:
         # SQLModel requires SQLAlchemy below 2.1, so it is not in uv.lock; the
         # corpus scenarios that use it run only here.
         run: uv pip install "sqlalchemy==2.0.*" sqlmodel
+      - name: Pin SQLAlchemy to 2.0.49
+        if: matrix.sqlalchemy == '2.0.49'
+        run: uv pip install "sqlalchemy==2.0.49" sqlmodel
       - name: Pin pytest to the oldest supported series
         if: matrix.pytest == '8.0'
         run: uv pip install "pytest==8.0.*"

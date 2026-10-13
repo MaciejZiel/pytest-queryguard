@@ -4,13 +4,10 @@ With ``yield_per`` the ORM runs the ``selectinload`` for each batch of 200
 orders as the batch is fetched, so 1200 orders give six ``IN`` statements. That
 is the documented way to stream rows with their collections.
 
-SQLAlchemy 2.0.20 to 2.0.49 raise "Can't use the ORM yield_per feature in
-conjunction with unique()" here whenever any ``do_orm_execute`` hook exists
-(SQLAlchemy issue 13301, fixed in 2.0.50), so the scenario skips there.
+On SQLAlchemy 2.0.20 to 2.0.49 this also checks that the plugin's listeners do
+not trigger SQLAlchemy issue 13301 (issue 169).
 """
 
-import pytest
-import sqlalchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -26,9 +23,6 @@ def setup(ctx: Ctx) -> None:
 
 
 def run(ctx: Ctx) -> None:
-    version = tuple(int(part) for part in sqlalchemy.__version__.split(".")[:3])
-    if (2, 0, 20) <= version < (2, 0, 50):
-        pytest.skip("SQLAlchemy 2.0.20 to 2.0.49 issue 13301: yield_per with a hook")
     with Session(ctx.engine()) as session:
         stmt = (
             select(shop.Order)
