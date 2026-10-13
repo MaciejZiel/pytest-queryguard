@@ -301,10 +301,13 @@ def _on_after_flush(session: Session, flush_context: Any) -> None:
         if not collector.active():
             session.__dict__.pop(_WRITTEN_ATTR, None)
             return
-        # Still the state before the flush here: new and dirty are what it wrote.
-        states = {
-            instance_state(obj) for obj in itertools.chain(session.new, session.dirty)
-        }
+        # Still the state before the flush here: new and dirty are what it
+        # wrote. An object in dirty without a net change (an attribute set to
+        # its own value) got no UPDATE, so a refresh of it reads back nothing.
+        states = {instance_state(obj) for obj in session.new}
+        states.update(
+            instance_state(obj) for obj in session.dirty if session.is_modified(obj)
+        )
         session.__dict__[_WRITTEN_ATTR] = _Written(states)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "after_flush listener (refresh after write)")

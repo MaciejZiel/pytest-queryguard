@@ -184,3 +184,22 @@ def test_async_creates_each_refreshed_are_clean() -> None:
             await engine.dispose()
 
     assert _report(asyncio.run(main()), column_load_threshold=2) == ""
+
+
+def test_a_refresh_loop_after_flushes_that_wrote_nothing_is_reported(
+    engine: Any,
+) -> None:
+    # Assigning an attribute its own value puts the object in session.dirty,
+    # but the flush emits no UPDATE: the refresh reads back no write.
+    with Session(engine) as session:
+        for i in range(ROWS):
+            _create(session, f"t{i}")
+        session.commit()
+    with Session(engine) as session, record_queries() as log:
+        for team in session.scalars(select(Team)).all():
+            team.name = team.name
+            session.flush()
+            session.refresh(team)
+    assert not any(q.sql.startswith("UPDATE") for q in log.queries)
+    report = _report(log)
+    assert f"Team was reloaded with session.refresh() {ROWS} times" in report
