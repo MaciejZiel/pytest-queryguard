@@ -35,6 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sqlalchemy==2.0.13`, the declared minimum, instead of the latest 2.0.x.
   Fixes #161.
 
+- The repeat rules (repeated statement and small repeat) no longer count
+  transaction-control statements: `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`,
+  `RELEASE`, `START TRANSACTION` and `SET TRANSACTION`. With SQLAlchemy's
+  pysqlite `BEGIN` recipe a loop that commits each pass was reported with
+  `BEGIN` as a repeated statement and the advice to fetch rows in one query.
+  Budgets still count them. A `BEGIN` that opens a block
+  (`BEGIN load_order(:id); END;`) is still counted, and a loop with a
+  `SAVEPOINT` per row is still a write loop. The accuracy corpus gives the
+  same result before and after. Fixes #158.
+
 - Stability: with `-W error` or `filterwarnings = error`, an internal error
   no longer fails the user's test. `QueryGuardInternalWarning` was raised as
   an exception from the test call, from the terminal summary (which aborted
