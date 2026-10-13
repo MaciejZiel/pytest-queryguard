@@ -173,6 +173,7 @@ check is off by default. See [PostgreSQL](https://maciejziel.github.io/pytest-qu
 [tool.pytest.ini_options]
 queryguard_mode = "warn"                  # fail (default), warn or off
 queryguard_repeat_threshold = 10
+# the file must exist: create it first with --queryguard-update-baseline
 queryguard_baseline = "queryguard-baseline.json"
 queryguard_index_check = true
 queryguard_index_ignore_tables = ["countries", "lookup_*"]

@@ -54,16 +54,14 @@ NOT_PROJECTS = {
     "index-check.md",
     # configures nplusone, the library the page migrates away from
     "migrating-from-nplusone.md",
-    # these three show only part of their project (the models, or the test file
-    # is not named) and need packages that are not development dependencies
-    "recipes-litestar.md",
-    "recipes-pytest-asyncio.md",
-    "recipes-sqlmodel.md",
 }
 
 # Packages that the release gate may find missing: not development dependencies
 # of this project (sqlmodel needs SQLAlchemy below 2.1, so only the SQLAlchemy
-# 2.0 CI job installs it).
+# 2.0 CI jobs install it; pytest_asyncio is in the "plugins" group, whose CI
+# job runs this file; nothing in CI installs litestar). Their recipe pages are
+# projects like the others: where a package is missing, the test of the page is
+# skipped.
 OPTIONAL_PACKAGES = {"litestar", "pytest_asyncio", "sqlmodel"}
 
 # Pages that are history or design notes, not instructions.
@@ -72,18 +70,21 @@ NOT_CHECKED = {"design.md", "design-0.2.md", "design-0.3.md", "design-0.3-api.md
 # Names that are the example's own packages, not installable ones.
 LOCAL = {"app", "tests", "conftest"}
 
-FENCE = re.compile(r"^```(python|py)\n(.*?)^```", re.DOTALL | re.MULTILINE)
-LABEL = re.compile(r"^`([\w./-]+\.py)`")
+FENCE = re.compile(r"^```(python|py|ini)\n(.*?)^```", re.DOTALL | re.MULTILINE)
+LABEL = re.compile(r"^`([\w./-]+\.(?:py|ini))`")
 
 
 def _blocks(page: Path) -> list[tuple[int, str | None, str]]:
-    """(line, file name or None, code) of each Python block of the page."""
+    """(line, file name or None, code) of each Python block of the page, and of
+    each ini block that a paragraph introduces with a file name (`pytest.ini`)."""
     text = page.read_text(encoding="utf-8")
     found = []
     for match in FENCE.finditer(text):
         before = text[: match.start()].rstrip("\n")
         paragraph = before.rsplit("\n\n", 1)[-1]
         label = LABEL.match(paragraph)
+        if match.group(1) == "ini" and not label:
+            continue
         line = text[: match.start()].count("\n") + 2
         found.append((line, label.group(1) if label else None, match.group(2)))
     return found
@@ -103,7 +104,9 @@ WITH_PROJECT = [
 
 @pytest.mark.parametrize("page", CHECKED, ids=_ids(CHECKED))
 def test_every_python_block_parses(page: Path) -> None:
-    for line, _, code in _blocks(page):
+    for line, label, code in _blocks(page):
+        if label and label.endswith(".ini"):
+            continue
         try:
             ast.parse(code)
         except SyntaxError as error:
@@ -116,6 +119,9 @@ def test_the_pages_with_projects_are_found() -> None:
         "getting-started.md",
         "recipes-fastapi.md",
         "recipes-flask-sqlalchemy.md",
+        "recipes-litestar.md",
+        "recipes-pytest-asyncio.md",
+        "recipes-sqlmodel.md",
     } <= names
 
 
@@ -138,7 +144,9 @@ def test_the_project_of_a_page_runs(page: Path, tmp_path: Path) -> None:
             assert label not in files, f"{page.name} shows {label} twice"
             files[label] = code
     missing = sorted(
-        m for m in _imported_modules(list(files.values())) if find_spec(m) is None
+        m
+        for m in _imported_modules([c for n, c in files.items() if n.endswith(".py")])
+        if find_spec(m) is None
     )
     if missing:
         message = f"{page.name} needs {missing}, which are not installed"
@@ -161,15 +169,30 @@ def test_the_project_of_a_page_runs(page: Path, tmp_path: Path) -> None:
         target = project / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(code, encoding="utf-8")
-    for package in {Path(name).parent for name in files}:
+    # An empty __init__.py exists only where the page says so; one that the page
+    # does not mention would change what pytest puts on sys.path.
+    text = page.read_text(encoding="utf-8")
+    for package in {Path(name).parent for name in files if name.endswith(".py")}:
         init = project / package / "__init__.py"
-        if package != Path(".") and not init.exists():
+        if (
+            package != Path(".")
+            and f"`{package.as_posix()}/__init__.py`" in text
+            and not init.exists()
+        ):
             init.write_text("", encoding="utf-8")
 
     report = tmp_path / "report.xml"
     env = {k: v for k, v in os.environ.items() if k != "PYTEST_ADDOPTS"}
+    # Not `python -m pytest`: python puts the project directory on sys.path, which
+    # hides a page that forgets `pythonpath = .`, and a reader's `pytest` does not.
+    launcher = (
+        "import os, sys\n"
+        "sys.path[:] = [p for p in sys.path if p not in ('', os.getcwd())]\n"
+        "import pytest\n"
+        "sys.exit(pytest.console_main())"
+    )
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+        [sys.executable, "-c", launcher, "-q", "-p", "no:cacheprovider"]
         + [f"--junitxml={report}"],
         cwd=project,
         capture_output=True,
