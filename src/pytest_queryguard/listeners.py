@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import itertools
 import os
+import re
 import sys
 import time
 import traceback
@@ -465,12 +466,52 @@ def swap_error(new: BaseException | None) -> BaseException | None:
     return old
 
 
+def _leaks_yield_per() -> bool:
+    """Whether this SQLAlchemy lets a ``do_orm_execute`` listener leak ``yield_per``.
+
+    From 2.0.20 to 2.0.49 any listener makes the outer statement's
+    ``yield_per`` reach its ``selectinload`` statement, which then raises
+    "Can't use the ORM yield_per feature in conjunction with unique()"
+    (SQLAlchemy issue 13301, fixed in 2.0.50).
+    """
+    import sqlalchemy
+
+    found = re.match(r"(\d+)\.(\d+)\.(\d+)", sqlalchemy.__version__)
+    if found is None:
+        return False
+    major, minor, patch = (int(part) for part in found.groups())
+    return (major, minor) == (2, 0) and 20 <= patch < 50
+
+
+def _on_orm_execute_heal(state: Any) -> None:
+    """Drop the leaked ``yield_per`` from a statement the ORM runs for a loader.
+
+    Registered only where ``_leaks_yield_per()`` is true. The statements the
+    ORM issues for ``selectinload`` and the like carry the outer statement's
+    ``yield_per`` in their execution options but have none of their own in
+    the load options; without a listener they never see it.
+    """
+    try:
+        options = state.local_execution_options
+        if "yield_per" not in options or "sa_top_level_orm_context" not in options:
+            return
+        if getattr(options.get("_sa_orm_load_options"), "_yield_per", None):
+            return
+        state.local_execution_options = options.__class__(
+            {key: value for key, value in options.items() if key != "yield_per"}
+        )
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "do_orm_execute listener (yield_per)")
+
+
 def install() -> None:
     """Register the class-level listeners once per process."""
     global _installed
     if _installed:
         return
     event.listen(Session, "do_orm_execute", _on_orm_execute)
+    if _leaks_yield_per():
+        event.listen(Session, "do_orm_execute", _on_orm_execute_heal)
     event.listen(Session, "after_begin", _on_after_begin)
     event.listen(Engine, "before_cursor_execute", _on_cursor_execute)
     event.listen(Engine, "after_cursor_execute", _on_timing_after)
