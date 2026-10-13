@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Tests: the accuracy corpus now runs on PostgreSQL
+  (`QUERYGUARD_CORPUS_PG_URL`). Two scenarios (`bug_23_get_or_create_loop`,
+  `bug_30_flush_per_insert`) failed there because seeded rows with explicit ids
+  did not advance the sequences; the corpus moves them after each setup. The
+  results on PostgreSQL 17 match SQLite; see `docs/accuracy.md`. Fixes #120.
+
 - SARIF: a finding whose call site is unknown (for example `session.execute`
   handed straight to a worker thread) is located at the test instead of being
   left out of the file, so code scanning shows it. The terminal text, the
