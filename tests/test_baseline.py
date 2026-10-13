@@ -110,6 +110,14 @@ def test_unreadable_file_is_an_error_not_a_crash(tmp_path: Path) -> None:
         baseline.load(tmp_path)  # a directory
 
 
+def test_deeply_nested_json_is_an_error_not_a_crash(tmp_path: Path) -> None:
+    # json raises RecursionError, not ValueError, for this
+    path = tmp_path / "qg.json"
+    path.write_text("[" * 200_000)
+    with pytest.raises(BaselineError, match="nested too deep"):
+        baseline.load(path)
+
+
 def test_dumps_writes_two_space_indented_utf8_text() -> None:
     text = baseline.dumps([("write-loop", "Zażółć", "a.py", None)])
     assert text == (
@@ -472,6 +480,44 @@ def test_a_write_error_is_reported_not_raised(
     )
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*could not write *qg.json: read-only*"])
+
+
+def test_a_deeply_nested_file_is_a_usage_error(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=CLEAN)
+    (project.path / "qg.json").write_text("[" * 200_000)
+    result = project.runpytest("--queryguard-baseline=qg.json")
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*qg.json is not a queryguard baseline*"])
+
+
+def test_an_update_replaces_a_deeply_nested_file(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=ONE_LOOP)
+    (project.path / "qg.json").write_text("[" * 200_000)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*replaced an unusable file*nested too deep*"])
+    assert baseline.load(project.path / "qg.json")
+
+
+@pytest.mark.parametrize("error", [RuntimeError, MemoryError, UnicodeEncodeError])
+def test_any_write_error_is_reported_not_raised(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, error: type
+) -> None:
+    def fail(path: Path, identities: object) -> None:
+        if error is UnicodeEncodeError:
+            raise UnicodeEncodeError("utf-8", "\udc80", 0, 1, "surrogates not allowed")
+        raise error("broken")
+
+    monkeypatch.setattr(baseline, "write", fail)
+    project.makepyfile(test_a=ONE_LOOP)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*queryguard baseline could not write *qg.json*"])
+    assert "Traceback" not in result.stdout.str() + result.stderr.str()
 
 
 def test_stale_entries_are_not_reported_with_measurement_off(

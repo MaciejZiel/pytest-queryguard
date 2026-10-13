@@ -236,7 +236,9 @@ def test_off_mode_unmarked_test_is_not_measured(project: pytest.Pytester) -> Non
         ("max_queries('3')", "*non-negative integer*'3'*"),
         ("max_queries()", "*non-negative integer*None*"),
         ("max_queries(1, 2)", "*takes a single argument*"),
-        ("max_queries(1, n=2)", "*limit twice*"),
+        ("max_queries(1, n=2)", "*limit more than once*"),
+        ("max_queries(1, limit=2)", "*limit more than once*"),
+        ("max_queries(limit=1, n=2)", "*limit more than once*"),
         ("max_queries(m=2)", "*takes a single argument*"),
     ],
 )
@@ -282,12 +284,26 @@ def test_marker_zero_budget(project: pytest.Pytester) -> None:
 
 
 def test_marker_keyword_form(project: pytest.Pytester) -> None:
-    project.makepyfile(test_a=BODY.format(limit="n=2"))
+    project.makepyfile(test_a=BODY.format(limit="limit=2"))
     result = project.runpytest("test_a.py")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*expected at most 2 queries, got 3*"])
-    project.makepyfile(test_b=BODY.format(limit="n=3"))
+    project.makepyfile(test_b=BODY.format(limit="limit=3"))
     project.runpytest("test_b.py").assert_outcomes(passed=1)
+
+
+STRICT = ("-W", "error::DeprecationWarning", "-W", "error::UserWarning")
+
+
+def test_marker_still_accepts_n_without_a_warning(project: pytest.Pytester) -> None:
+    """``n=`` was the keyword of 0.1 to 0.3; it still works, silently."""
+    project.makepyfile(test_a=BODY.format(limit="n=2"))
+    result = project.runpytest("test_a.py", *STRICT)
+    result.assert_outcomes(failed=1, warnings=0)
+    result.stdout.fnmatch_lines(["*expected at most 2 queries, got 3*"])
+    result.stdout.no_fnmatch_line("*warnings summary*")
+    project.makepyfile(test_b=BODY.format(limit="n=3"))
+    project.runpytest("test_b.py", *STRICT).assert_outcomes(passed=1)
 
 
 def test_marker_counts_writes(project: pytest.Pytester) -> None:
