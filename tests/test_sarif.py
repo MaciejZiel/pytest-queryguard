@@ -482,3 +482,16 @@ def test_a_run_outside_the_workspace_falls_back_to_the_rootdir(
     project.runpytest("--queryguard-sarif=qg.sarif")
     (first, *_) = _results(project.path / "qg.sarif")
     assert _uri({"runs": [{"results": [first]}]}) == "test_a.py"
+
+
+def test_no_sarif_is_written_after_an_interrupted_run(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(qgmodels=MODELS, test_loops=LOOP)
+    pytester.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = pytester.path / "out.sarif"
+    path.write_text("previous")
+    result = pytester.runpytest("--queryguard-sarif=out.sarif")
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == "previous"
+    result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])
