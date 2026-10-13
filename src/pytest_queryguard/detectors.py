@@ -66,9 +66,10 @@ _BEFORE_RANGE = re.compile(rf"(?<![<>!=])(?:<=?|>=?)\s*{_CAST_OPEN}$")
 # LIMIT 4 OFFSET 8 rendered with literal values.
 _PAGE_LITERAL = re.compile(r"\b(LIMIT|OFFSET)\s+(\d+)\b", re.IGNORECASE)
 # A chunk is a slice of a longer list: at least this many values per IN list.
-# Shorter lists usually come from one item's own fields (an order's two
-# addresses), which is a loop, not batching.
-MIN_CHUNK = 10
+# Shorter lists usually come from one item's own rows (an order's two
+# addresses, a customer's ten orders), which is a loop, not batching. Batch
+# sizes in loaders and ORMs are larger (SQLAlchemy's selectinload uses 500).
+MIN_CHUNK = 50
 # Distinct instances that must load columns on their own to count as N+1: as
 # high as the repeat rule, because touching a few objects after a commit is
 # ordinary test code.

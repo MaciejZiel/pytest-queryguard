@@ -263,6 +263,12 @@ def test_short_in_lists_are_reported() -> None:
     assert len(_repeats(_collector(runs))) == 1
 
 
+def test_ten_ids_per_item_are_reported() -> None:
+    # A helper called with each customer's own ten orders: equal-sized lists
+    # that share no value, from a loop over customers, not from one list.
+    assert len(_repeats(_collector(_chunks(range(1, 81), 10)))) == 1
+
+
 def test_one_id_per_in_list_is_reported() -> None:
     assert len(_repeats(_collector(_chunks(range(1, 11), 1)))) == 1
 
@@ -297,7 +303,7 @@ def test_identical_in_lists_are_reported() -> None:
 def test_unhashable_values_in_lists_do_not_break_the_rule() -> None:
     runs = [
         (_in_sql(MIN_CHUNK), tuple([i] for i in range(s, s + MIN_CHUNK)))
-        for s in range(0, 60, 10)
+        for s in range(0, 6 * MIN_CHUNK, MIN_CHUNK)
     ]
     assert _repeats(_collector(runs)) == []
 
