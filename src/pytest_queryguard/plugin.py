@@ -6,6 +6,7 @@ import os
 import shlex
 import warnings as std_warnings
 from collections.abc import Generator, Sequence
+from dataclasses import replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, cast
@@ -738,7 +739,7 @@ def _analyse(
             findings.extend(eager.findings(tracker, cwd=root))
         if settings.ignore or marker_rules:
             findings = _drop_ignored(item, settings, findings, marker_rules)
-        findings = _apply_baseline(settings, findings)
+        findings = _apply_baseline(settings, findings, item)
         failing = [f for f in findings if _fails(settings, f)]
         warning = [f for f in findings if not _fails(settings, f)]
         note = ""
@@ -753,7 +754,38 @@ def _analyse(
         return None, None
 
 
-def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Finding]:
+def _at_the_test(finding: Finding, item: pytest.Item) -> Finding:
+    """The finding located at the test, for SARIF, when its call site is unknown.
+
+    The call site is unknown when no application frame was on the stack, for
+    example when ``session.execute`` itself is handed to a worker thread. GitHub
+    shows a result only with a location, so the test stands in for it. Only
+    the SARIF copy changes: the terminal text, the baseline and the ignore
+    rules keep the finding as it was.
+    """
+    if finding.file is not None or finding.function is not None:
+        return finding
+    try:
+        path, line, _ = item.reportinfo()
+        file = item.nodeid.split("::", 1)[0]
+        if not file or Path(str(path)).name != Path(file).name:
+            return finding
+        return replace(
+            finding,
+            file=file,
+            function=getattr(item, "originalname", None) or item.name,
+            line=(line or 0) + 1,
+            message=finding.message.replace(
+                "<unknown location>", "<unknown location>, reported at the test"
+            ),
+        )
+    except Exception:  # noqa: BLE001  # a plugin bug must never break the user suite
+        return finding
+
+
+def _apply_baseline(
+    settings: _Settings, findings: list[Finding], item: pytest.Item
+) -> list[Finding]:
     """The findings that still count: not in the baseline, and no update run.
 
     Records every finding it gets, for the stale-entry report and for an update.
@@ -769,7 +801,7 @@ def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Findin
             level = (
                 sarif.LEVEL_ERROR if _fails(settings, finding) else sarif.LEVEL_WARNING
             )
-            sarif.add(settings.reported, finding, level)
+            sarif.add(settings.reported, _at_the_test(finding, item), level)
     return findings
 
 
@@ -840,7 +872,7 @@ def _analyse_indexes(
         ) and scans:
             findings = [make_index_finding(scan, cwd=root) for scan in scans]
             kept = _drop_ignored(item, settings, findings, marker_rules, indexes=True)
-            kept = _apply_baseline(settings, kept)
+            kept = _apply_baseline(settings, kept, item)
             keep_ids = {id(f) for f in kept}
             scans = [
                 scan

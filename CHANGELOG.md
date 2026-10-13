@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--queryguard-update-baseline` with `--collect-only` emptied the baseline file.
   It now leaves the file alone and says why.
 
+- SARIF: a finding whose call site is unknown (for example `session.execute`
+  handed straight to a worker thread) is located at the test instead of being
+  left out of the file, so code scanning shows it. The terminal text, the
+  baseline and the ignore rules are unchanged. `docs/limitations.md` explains
+  the cause and the workaround
+  ([#132](https://github.com/MaciejZiel/pytest-queryguard/issues/132)).
+
 - GitHub Action: the `package` input now defaults to the plugin in the action's
   own checkout instead of the name `pytest-queryguard`, so the installed plugin
   matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
@@ -102,6 +109,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is still checked and now gets one notice in the session summary that its
   version is untested. Older servers keep their one "not checked" notice. The
   tested versions are listed in `docs/index-check.md`.
+- The index check no longer rolls back a transaction the application opened by
+  hand on an AUTOCOMMIT connection (`exec_driver_sql("BEGIN")`, with pg8000 or
+  asyncpg). The `autocommit` flag is the driver's setting, not the server's
+  state, so the check now tries a savepoint first and starts a transaction of
+  its own only when none is open (SQLSTATE 25P01). Fixes #91.
 - Documentation: the index check page was published as raw Markdown from the
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
@@ -117,6 +129,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version-table check). `max_queries` budgets still count them. See
   `docs/how-detection-works.md` for the exact rule
   ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
+- PostgreSQL index check: a sequential scan whose filter is only not-equal
+  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
+  longer reported as a missing index. No index serves them, so the advice
+  could not be followed, even on an indexed column; the SQLite check never
+  reported them. A filter with one more servable condition, or a not-equal
+  against a constant in the SQL (which a partial index serves), is still
+  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
 
 ### Changed
 
