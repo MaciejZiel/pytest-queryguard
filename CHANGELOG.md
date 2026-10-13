@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- In `warn` mode, a finding turned into an error by `filterwarnings`
+  (`error::pytest_queryguard.QueryGuardWarning` or a blanket `error`) no longer
+  prints about 50 lines of the plugin's hook wrapper source before the finding;
+  the failure shows the finding message, as in `fail` mode.
 - The budget failure says `expected at most 1 query` (it said `1 queries`);
   other limits are unchanged.
 - Documentation found in a walk of the 0.4.0rc3 docs, each snippet run in a
