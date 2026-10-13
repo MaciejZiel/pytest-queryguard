@@ -460,13 +460,14 @@ def format_index_findings(scans: list[ScanEvent], *, cwd: Path | None = None) ->
     for scan in scans:
         lines.append("")
         lines.append(make_index_finding(scan, cwd=cwd).message)
-    lines.extend(
-        [
-            "",
-            "  a sequential scan is fine on a small lookup table:",
-            "  list it in queryguard_index_ignore_tables",
-        ]
+    # A whole index walked is no sequential scan: say what the note is about.
+    walked_only = all(scan.issue.index is not None for scan in scans)
+    note = (
+        "a whole-index scan is fine on a small lookup table:"
+        if walked_only
+        else "a sequential scan is fine on a small lookup table:"
     )
+    lines.extend(["", f"  {note}", "  list it in queryguard_index_ignore_tables"])
     return "\n".join(lines)
 
 

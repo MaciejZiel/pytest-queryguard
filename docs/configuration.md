@@ -61,6 +61,12 @@ queryguard_mode = "warn"
 filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]
 ```
 
+An "error" filter never applies to `QueryGuardInternalWarning`: a bug in the
+plugin must not fail a test, so with `-W error` or `filterwarnings = error`
+that warning is still shown in the warnings summary, not raised. An "ignore"
+filter hides it as usual; the "queryguard: measurement stopped" section of the
+summary is printed either way.
+
 Command-line options:
 
 | Option | Meaning |
@@ -78,7 +84,7 @@ Command-line options:
 
 | Marker | Meaning |
 |---|---|
-| `max_queries(n)` | Fails the test if it runs more than `n` SQL statements. See [Budgets and timing](budgets.md). |
+| `max_queries(limit)` | Fails the test if it runs more than `limit` SQL statements. See [Budgets and timing](budgets.md). |
 | `max_db_time(seconds)` | Fails the test if its statements take more than that many seconds in total. |
 | `allow_nplusone(*labels, kind=..., file=..., function=...)` | Leaves out findings: all of them without arguments, or only those that match the `fnmatch` patterns. See [Ignoring findings](ignoring.md). |
 | `allow_missing_index(*tables)` | Skips the missing-index check for the test, or only for the given tables. `allow_nplusone` without arguments does not affect the index check; with patterns it also matches missing-index findings, as in `allow_nplusone("public.audit_log", kind="missing-index")`. |
