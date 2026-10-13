@@ -22,5 +22,45 @@
     "Filter": "(lower((customers.name)::text) = $1)"
    }
   }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "customers",
+    [
+     "email",
+     "name"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "customers",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": true,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  }
  ]
 }

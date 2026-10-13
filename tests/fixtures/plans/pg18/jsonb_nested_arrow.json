@@ -1,0 +1,74 @@
+{
+ "query": "SELECT * FROM docs WHERE body -> 'a' ->> 'b' = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "docs",
+    "Schema": "public",
+    "Alias": "docs",
+    "Startup Cost": 0.0,
+    "Total Cost": 6.5,
+    "Plan Rows": 1,
+    "Plan Width": 65,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "owner_id",
+     "body"
+    ],
+    "Filter": "(((docs.body -> 'a'::text) ->> 'b'::text) = $1)"
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "docs",
+    []
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "docs",
+    "docs_body",
+    "gin",
+    true,
+    [
+     "body"
+    ],
+    null
+   ],
+   [
+    "public",
+    "docs",
+    "docs_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "docs",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

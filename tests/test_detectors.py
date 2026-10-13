@@ -4,12 +4,20 @@ import pytest
 
 from pytest_queryguard.collector import QueryCollector
 from pytest_queryguard.detectors import (
+    ColumnLoadFinding,
     RelationshipFinding,
     RepeatFinding,
+    WriteLoopFinding,
+    _value_rows,
     detect,
     normalize,
 )
-from pytest_queryguard.events import CallSite, RelationshipLoadEvent, StatementEvent
+from pytest_queryguard.events import (
+    CallSite,
+    ColumnLoadEvent,
+    RelationshipLoadEvent,
+    StatementEvent,
+)
 
 SITE = CallSite(filename="app.py", lineno=10, function="handler")
 OTHER = CallSite(filename="app.py", lineno=20, function="other")
@@ -293,3 +301,471 @@ def test_normalize_is_stable_across_cached_calls() -> None:
     assert normalize(sql) == expected
     assert normalize(sql) == expected  # second call is served from the cache
     assert normalize(sql.replace("42", "43")) == expected
+
+
+# ------------------------------------------- relationship rule: edge cases
+
+
+def _rel_load(
+    rel: str, key: object, scope: int | None, scalar: bool = False
+) -> RelationshipLoadEvent:
+    return RelationshipLoadEvent(rel, key, SITE, scalar, scope)
+
+
+def test_relationship_threshold_of_one_reports_a_single_parent() -> None:
+    c = _loads("Order.customer", [1])
+    [f] = detect(c, relationship_threshold=1, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert (f.count, f.scopes, f.scoped) == (1, 1, False)
+
+
+def test_relationship_below_threshold_does_not_hide_a_later_relationship() -> None:
+    c = QueryCollector()
+    c.relationship_loads.append(_rel_load("A.small", 1, None))
+    c.relationship_loads.extend(_rel_load("B.big", k, None) for k in (1, 2, 3))
+    [f] = detect(c, relationship_threshold=3, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert f.relationship == "B.big"
+
+
+def test_relationship_per_session_reports_the_session_with_most_parents() -> None:
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, 1) for k in (1, 2))
+    c.relationship_loads.extend(_rel_load("A.b", k, 2) for k in (1, 2, 3))
+    c.statements.append(StatementEvent("SELECT one", SITE, "A.b", scope=1))
+    c.statements.append(StatementEvent("SELECT two", SITE, "A.b", scope=2))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5, scope="session")
+    assert isinstance(f, RelationshipFinding)
+    assert (f.count, f.scopes, f.scoped) == (3, 1, True)
+    assert f.sample_sql == "SELECT two"
+
+
+def test_relationship_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    # Same number of parents in both Sessions; the first Session loaded more.
+    c.relationship_loads.extend(_rel_load("A.b", k, 1) for k in (1, 1, 1, 2))
+    c.relationship_loads.extend(_rel_load("A.b", k, 2) for k in (1, 2))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5, scope="session")
+    assert isinstance(f, RelationshipFinding)
+    assert f.count == 4
+
+
+def test_relationship_sample_sql_skips_other_relationships_statements() -> None:
+    c = _loads("A.b", [1, 2])
+    c.statements.append(StatementEvent("SELECT other", SITE, "C.d"))
+    c.statements.append(StatementEvent("SELECT mine", SITE, "A.b"))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert f.sample_sql == "SELECT mine"
+
+
+def test_relationship_sample_sql_is_the_first_statement_across_sessions() -> None:
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, 1) for k in (1, 2))
+    c.statements.append(StatementEvent("SELECT first", SITE, "A.b", scope=2))
+    c.statements.append(StatementEvent("SELECT second", SITE, "A.b", scope=1))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert f.sample_sql == "SELECT first"
+    assert f.scopes == 1
+
+
+def test_relationship_sample_sql_falls_back_when_no_statement_is_in_the_session() -> (
+    None
+):
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, 2) for k in (1, 2))
+    c.statements.append(StatementEvent("SELECT elsewhere", SITE, "A.b", scope=1))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5, scope="session")
+    assert isinstance(f, RelationshipFinding)
+    assert f.sample_sql == "SELECT elsewhere"
+
+
+def test_relationship_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.relationship_loads.extend(_rel_load("A.b", k, k % 3) for k in range(6))
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    assert (f.count, f.scopes, f.scoped) == (6, 3, False)
+
+
+# ------------------------------------------- column-load rule: edge cases
+
+
+def _column_events(
+    owner: str,
+    keys: list[object],
+    *,
+    scope: int | None = None,
+    site: CallSite | None = SITE,
+    cause: str = "deferred",
+    sql: str | None = "SELECT 1",
+) -> list[ColumnLoadEvent]:
+    return [ColumnLoadEvent(owner, ("blob",), cause, k, site, sql, scope) for k in keys]
+
+
+def test_column_load_threshold_of_one_reports_a_single_instance() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1]))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=1
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.count, f.instances, f.scopes, f.scoped) == (1, 1, 1, False)
+
+
+def test_column_load_below_threshold_does_not_hide_a_later_class() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Small", [1]))
+    c.column_loads.extend(_column_events("Big", [1, 2, 3]))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=3
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert f.owner == "Big"
+
+
+def test_non_deferred_column_loads_have_no_attributes() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], cause="expired"))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert f.attributes == ()
+
+
+def test_column_loads_without_callsite_or_sql_are_still_reported() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], site=None, sql=None))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.first, f.sample_sql) == (None, None)
+
+
+def test_column_loads_per_session_report_the_busiest_session() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], scope=1))
+    c.column_loads.extend(_column_events("Child", [1, 2, 3], scope=2))
+    [f] = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=5,
+        column_load_threshold=2,
+        scope="session",
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.count, f.instances, f.scopes, f.scoped) == (3, 3, 1, True)
+
+
+def test_column_loads_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 1, 1, 2], scope=1))
+    c.column_loads.extend(_column_events("Child", [1, 2], scope=2))
+    [f] = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=5,
+        column_load_threshold=2,
+        scope="session",
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert f.count == 4
+
+
+def test_column_load_findings_are_sorted_by_count_descending() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Few", [1, 2]))
+    c.column_loads.extend(_column_events("Many", [1, 2, 3, 4]))
+    found = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert [f.owner for f in found if isinstance(f, ColumnLoadFinding)] == [
+        "Many",
+        "Few",
+    ]
+
+
+def test_column_loads_count_the_sessions_they_came_from() -> None:
+    c = QueryCollector()
+    c.column_loads.extend(_column_events("Child", [1, 2], scope=1))
+    c.column_loads.extend(_column_events("Child", [3, 4], scope=2))
+    [f] = detect(
+        c, relationship_threshold=2, repeat_threshold=5, column_load_threshold=2
+    )
+    assert isinstance(f, ColumnLoadFinding)
+    assert (f.count, f.scopes, f.scoped) == (4, 2, False)
+
+
+# ------------------------------------------------- counting VALUES rows
+
+
+@pytest.mark.parametrize(
+    ("sql", "rows"),
+    [
+        ("INSERT INTO t (a) VALUES (1)", 1),
+        ("INSERT INTO t (a) VALUES (1), (2), (3)", 3),
+        ("insert into t (a) values (1), (2)", 2),
+        ("UPDATE t SET a = 1 WHERE id = 2", 1),
+        ("INSERT INTO t (a) VALUES (1), (2) RETURNING id", 2),
+        ("INSERT INTO t (a) VALUES (1) ON CONFLICT DO NOTHING", 1),
+        ("INSERT INTO t (a, b) VALUES (?, ?),\n\t(?, ?)", 2),
+        # string literals: quotes, escaped quotes and parentheses are not rows
+        ("INSERT INTO t (a) VALUES ('x'), ('y')", 2),
+        ("INSERT INTO t (a) VALUES (''), ('')", 2),
+        ("INSERT INTO t (a, b) VALUES ('it''s', 1), ('x', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('a''', 1), ('b', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('''', 1), ('b', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('(', 1), (')', 2)", 2),
+        ("INSERT INTO t (a, b) VALUES ('ab', 1), ('cde', 2)", 2),
+        # an unterminated literal ends the scan instead of raising
+        ("INSERT INTO t (a) VALUES ('abc", 1),
+        ("INSERT INTO t (a) VALUES (1), ('abc", 2),
+    ],
+)
+def test_value_rows_counts_the_row_tuples(sql: str, rows: int) -> None:
+    assert _value_rows(sql) == rows
+
+
+# ------------------------------------------------ write-loop rule: edge cases
+
+INSERT = "INSERT INTO t (a) VALUES (?)"
+
+
+def _writes(
+    sql: str, n: int, *, scope: int | None = None, site: CallSite | None = SITE
+) -> list[StatementEvent]:
+    return [StatementEvent(sql, site, None, scope=scope) for _ in range(n)]
+
+
+def _write_loops(
+    c: QueryCollector, threshold: int, scope: str = "test"
+) -> list[WriteLoopFinding]:
+    found = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=50,
+        write_loop_threshold=threshold,
+        scope=scope,
+    )
+    return [f for f in found if isinstance(f, WriteLoopFinding)]
+
+
+def test_write_loop_threshold_of_one_reports_a_single_write() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 1))
+    [f] = _write_loops(c, 1)
+    assert isinstance(f, WriteLoopFinding)
+    assert (f.verb, f.count, f.first, f.scopes, f.scoped) == (
+        "INSERT",
+        1,
+        SITE,
+        1,
+        False,
+    )
+
+
+def test_write_loop_ignores_executemany_and_reads_but_keeps_scanning() -> None:
+    c = QueryCollector()
+    c.statements.append(StatementEvent(INSERT, SITE, None, executemany=True))
+    c.statements.append(StatementEvent("SELECT 1", SITE, None))
+    c.statements.extend(_writes(INSERT, 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.count == 3
+
+
+def test_write_loop_skips_multi_row_inserts_and_keeps_scanning() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("INSERT INTO t (a) VALUES (?), (?)", 4))
+    c.statements.extend(_writes(INSERT, 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.sql == normalize(INSERT)
+
+
+def test_write_loop_counts_a_two_row_insert_as_batched() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("INSERT INTO t (a) VALUES (?), (?)", 5))
+    assert _write_loops(c, 2) == []
+
+
+def test_write_loop_below_threshold_does_not_hide_a_later_write() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("UPDATE t SET a = 1 WHERE id = 1", 1, site=OTHER))
+    c.statements.extend(_writes(INSERT, 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.verb == "INSERT"
+
+
+def test_write_loop_verb_is_upper_case_and_survives_leading_space() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes("  delete from t where id = 1", 3))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert f.verb == "DELETE"
+
+
+def test_write_loop_per_session_picks_the_busiest_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 3, scope=1))
+    c.statements.extend(_writes(INSERT, 4, scope=2))
+    [f] = _write_loops(c, 3, scope="session")
+    assert (f.count, f.scopes, f.scoped) == (4, 1, True)
+
+
+def test_write_loop_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 2, scope=1))
+    c.statements.extend(_writes(INSERT, 2, scope=2))
+    [f] = _write_loops(c, 3)
+    assert isinstance(f, WriteLoopFinding)
+    assert (f.count, f.scopes, f.scoped) == (4, 2, False)
+
+
+def test_write_loops_are_sorted_by_count_descending() -> None:
+    c = QueryCollector()
+    c.statements.extend(_writes(INSERT, 3, site=OTHER))
+    c.statements.extend(_writes("DELETE FROM t WHERE id = ?", 5))
+    assert [f.verb for f in _write_loops(c, 3)] == ["DELETE", "INSERT"]
+
+
+# --------------------------------------------- repeat rules: edge cases
+
+SELECT = "SELECT * FROM t WHERE id = ?"
+
+
+def _runs(
+    sql: str,
+    n: int,
+    *,
+    scope: int | None = None,
+    site: CallSite | None = SITE,
+    start: int = 0,
+) -> list[StatementEvent]:
+    """``n`` runs of one statement, each with its own parameter."""
+    return [
+        StatementEvent(sql, site, None, parameters=(start + i,), scope=scope)
+        for i in range(n)
+    ]
+
+
+def _repeats(
+    c: QueryCollector, *, small: int | None = None, scope: str = "test"
+) -> list[RepeatFinding]:
+    found = detect(
+        c,
+        relationship_threshold=2,
+        repeat_threshold=5,
+        small_repeat_threshold=small,
+        scope=scope,
+    )
+    return [f for f in found if isinstance(f, RepeatFinding)]
+
+
+def test_repeat_finding_is_not_marked_as_a_small_repeat() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5))
+    [f] = _repeats(c)
+    assert f.varying is False
+    assert (f.scopes, f.scoped) == (1, False)
+
+
+def test_repeat_without_any_call_site_is_still_reported() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5, site=None))
+    [f] = _repeats(c)
+    assert f.first is None
+
+
+def test_repeat_per_session_picks_the_busiest_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5, scope=1))
+    c.statements.extend(_runs(SELECT, 7, scope=2))
+    [f] = _repeats(c, scope="session")
+    assert (f.count, f.scopes, f.scoped) == (7, 1, True)
+
+
+def test_repeat_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 5, scope=1, site=SITE))
+    c.statements.extend(_runs(SELECT, 5, scope=2, site=OTHER))
+    [f] = _repeats(c, scope="session")
+    assert f.first is SITE
+
+
+def test_repeat_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3, scope=1))
+    c.statements.extend(_runs(SELECT, 3, scope=2))
+    [f] = _repeats(c)
+    assert (f.count, f.scopes, f.scoped) == (6, 2, False)
+
+
+def test_small_repeat_reports_runs_from_one_line_with_other_parameters() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3))
+    [f] = _repeats(c, small=3)
+    assert f.varying is True
+    assert (f.count, f.first, f.scopes, f.scoped) == (3, SITE, 1, False)
+    assert f.sql == SELECT
+
+
+def test_small_repeat_handles_a_statement_that_ran_once() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs("SELECT 1 FROM once", 1))
+    c.statements.extend(_runs(SELECT, 3))
+    [f] = _repeats(c, small=3)
+    assert f.sql == SELECT
+
+
+def test_small_repeat_leaves_pagination_alone_and_checks_the_next_statement() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs("SELECT * FROM t LIMIT 10 OFFSET 10", 3))
+    c.statements.extend(_runs(SELECT, 3))
+    [f] = _repeats(c, small=3)
+    assert f.sql == SELECT
+
+
+def test_small_repeat_per_session_skips_a_session_with_two_call_sites() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 2, scope=1))
+    c.statements.extend(_runs(SELECT, 2, scope=1, site=OTHER, start=10))
+    c.statements.extend(_runs(SELECT, 3, scope=2, start=20))
+    [f] = _repeats(c, small=3, scope="session")
+    assert (f.count, f.scopes, f.scoped) == (3, 1, True)
+
+
+def test_small_repeat_per_session_keeps_the_larger_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3, scope=1))
+    c.statements.extend(_runs(SELECT, 4, scope=2, start=10))
+    [f] = _repeats(c, small=3, scope="session")
+    assert f.count == 4
+
+
+def test_small_repeat_per_session_tie_keeps_the_first_session() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 3, scope=1, site=SITE))
+    c.statements.extend(_runs(SELECT, 3, scope=2, site=OTHER, start=10))
+    [f] = _repeats(c, small=3, scope="session")
+    assert f.first is SITE
+    assert f.count == 3
+
+
+def test_small_repeat_counts_the_sessions_it_came_from() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs(SELECT, 2, scope=1))
+    c.statements.extend(_runs(SELECT, 2, scope=2, start=10))
+    [f] = _repeats(c, small=4)
+    assert (f.count, f.scopes, f.scoped) == (4, 2, False)
+
+
+def test_small_repeats_are_sorted_by_count_descending() -> None:
+    c = QueryCollector()
+    c.statements.extend(_runs("SELECT 1 FROM few", 3))
+    c.statements.extend(_runs("SELECT 1 FROM many", 4, site=OTHER))
+    assert [f.count for f in _repeats(c, small=3)] == [4, 3]
