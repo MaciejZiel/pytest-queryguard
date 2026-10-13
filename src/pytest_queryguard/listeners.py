@@ -15,7 +15,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import ORMExecuteState, Session
 from sqlalchemy.pool import Pool
 
-from . import catalog, collector, indexes, mysql_index, sqlite_index
+from . import catalog, collector, indexes, mysql_index, sqlite_index, sqltext
 from .callsite import find_callsite, find_flush
 from .events import (
     CAUSE_DEFERRED,
@@ -207,15 +207,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         _fail(exc, "do_orm_execute listener (relationship loads)")
 
 
-_WRITE_VERBS = frozenset(("INSERT", "UPDATE", "DELETE"))
-
-
-def _is_write(statement: str) -> bool:
-    # Slice first: only a statement that starts with whitespace needs lstrip().
-    head = statement[:6]
-    if head[:1].isspace():
-        head = statement.lstrip()[:6]
-    return head.upper() in _WRITE_VERBS
+_is_write = sqltext.is_write
 
 
 def _on_cursor_execute(

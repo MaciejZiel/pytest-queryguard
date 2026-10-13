@@ -1,0 +1,155 @@
+{
+ "query": "UPDATE orders SET status = $1 WHERE customer_id IN (SELECT id FROM customers WHERE email = $2)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "ModifyTable",
+    "Operation": "Update",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 10000000013.03,
+    "Total Cost": 10000000028.48,
+    "Plan Rows": 0,
+    "Plan Width": 0,
+    "Plans": [
+     {
+      "Node Type": "Hash Join",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Join Type": "Inner",
+      "Startup Cost": 10000000013.03,
+      "Total Cost": 10000000028.48,
+      "Plan Rows": 10,
+      "Plan Width": 70,
+      "Output": [
+       "$1",
+       "orders.ctid",
+       "customers.ctid"
+      ],
+      "Inner Unique": true,
+      "Hash Cond": "(orders.customer_id = customers.id)",
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000014.0,
+        "Plan Rows": 500,
+        "Plan Width": 10,
+        "Output": [
+         "orders.ctid",
+         "orders.customer_id"
+        ]
+       },
+       {
+        "Node Type": "Hash",
+        "Parent Relationship": "Inner",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 13.02,
+        "Total Cost": 13.02,
+        "Plan Rows": 1,
+        "Plan Width": 10,
+        "Output": [
+         "customers.ctid",
+         "customers.id"
+        ],
+        "Plans": [
+         {
+          "Node Type": "Index Scan",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "customers_pkey",
+          "Relation Name": "customers",
+          "Schema": "public",
+          "Alias": "customers",
+          "Startup Cost": 0.14,
+          "Total Cost": 13.02,
+          "Plan Rows": 1,
+          "Plan Width": 10,
+          "Output": [
+           "customers.ctid",
+           "customers.id"
+          ],
+          "Filter": "((customers.email)::text = $2)"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 12,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "customers",
+    [
+     "email",
+     "name"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "customers",
+   "node": "Index Scan using customers_pkey",
+   "kind": "filter",
+   "column": "email",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON customers (email)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
