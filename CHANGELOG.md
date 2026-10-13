@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Every finding in a report now has a `kind: ...  label: ...` line, the pair that
+  `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
+  `kind: relationship-load  label: Order.customer`. For a repeated statement or
+  a write loop the line replaces the separate line with the normalized
+  statement (a statement longer than 200 characters is cut in the report). The
+  line is in the SARIF message too
+  ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
+
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
   suite and the async helpers need `AsyncAttrs`, which does not exist in
   earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
