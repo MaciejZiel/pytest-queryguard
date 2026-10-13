@@ -7,11 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Tests: the public API snapshot recorded a wrong return type for
+  `QueryLog.slowest()` and did not assert it. It now records
+  `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
 ### Changed
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
   suite and the async helpers need `AsyncAttrs`, which does not exist in
   earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
+- The options with a fixed set of values now agree on case. `queryguard_mode`,
+  `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
+  `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
+  accepted any case; all of them now ignore case and surrounding spaces, and
+  unknown values are still a usage error.
 
 - Lower the per-statement overhead by about a sixth in the in-memory SQLite
   micro-benchmark: one shared `CallSite` per source location, one write check
