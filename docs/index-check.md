@@ -167,6 +167,14 @@ not committed yet and leaves the test's transaction as it was. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 
+`EXPLAIN` does not run the statement, but the planner evaluates calls to
+`IMMUTABLE` functions with constant arguments while it plans. Such a function
+runs again for each plan the check (and the [advisor](index-advisor.md), when
+it verifies a suggestion) asks for, and a side effect that is not
+transactional, such as `nextval()`, is not undone by the savepoint. That only
+concerns functions that are marked `IMMUTABLE` but have side effects; see
+[Limitations](limitations.md).
+
 The check costs a few database round trips per distinct statement per test:
 open the savepoint, set the planner settings, `EXPLAIN` and roll back. The
 first column of the btree indexes a plan uses and the `varchar` columns of

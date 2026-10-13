@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial-index paragraph on, including its SQLite section
   ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
   now fails the build for any page left like that.
+- Documented that PostgreSQL evaluates `IMMUTABLE` functions with constant
+  arguments at plan time, so the index check and the advisor can call such a
+  function again and its non-transactional side effects (for example
+  `nextval()`) are not rolled back with the savepoint. Fixes #92.
 
 ### Changed
 
