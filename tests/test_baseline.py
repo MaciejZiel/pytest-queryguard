@@ -112,11 +112,23 @@ def test_unreadable_file_is_an_error_not_a_crash(tmp_path: Path) -> None:
 
 
 def test_deeply_nested_json_is_an_error_not_a_crash(tmp_path: Path) -> None:
-    # json raises RecursionError, not ValueError, for this
+    # rejected by an iterative depth check, so the interpreter's recursion limit
+    # (which differs per version and platform) is never reached
     path = tmp_path / "qg.json"
-    path.write_text("[" * 200_000)
+    path.write_text("[" * 1_000)
     with pytest.raises(BaselineError, match="nested too deep"):
         baseline.load(path)
+
+
+def test_the_nesting_limit_counts_brackets_outside_strings_only() -> None:
+    path = Path("qg.json")
+    inside = '{"version": 1, "findings": [], "note": "' + "[" * 500 + '"}'
+    assert baseline.parse(inside, path) == frozenset()
+    at_limit = "[" * 100 + "]" * 100
+    with pytest.raises(BaselineError, match="no 'version' field"):
+        baseline.parse(at_limit, path)
+    with pytest.raises(BaselineError, match="nested too deep"):
+        baseline.parse("{" * 101, path)
 
 
 def test_dumps_writes_two_space_indented_utf8_text() -> None:
@@ -485,7 +497,7 @@ def test_a_write_error_is_reported_not_raised(
 
 def test_a_deeply_nested_file_is_a_usage_error(project: pytest.Pytester) -> None:
     project.makepyfile(test_a=CLEAN)
-    (project.path / "qg.json").write_text("[" * 200_000)
+    (project.path / "qg.json").write_text("[" * 1_000)
     result = project.runpytest("--queryguard-baseline=qg.json")
     assert result.ret == pytest.ExitCode.USAGE_ERROR
     result.stderr.fnmatch_lines(["*qg.json is not a queryguard baseline*"])
@@ -493,7 +505,7 @@ def test_a_deeply_nested_file_is_a_usage_error(project: pytest.Pytester) -> None
 
 def test_an_update_replaces_a_deeply_nested_file(project: pytest.Pytester) -> None:
     project.makepyfile(test_a=ONE_LOOP)
-    (project.path / "qg.json").write_text("[" * 200_000)
+    (project.path / "qg.json").write_text("[" * 1_000)
     result = project.runpytest(
         "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
     )
