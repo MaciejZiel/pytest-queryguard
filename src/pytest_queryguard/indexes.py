@@ -22,6 +22,10 @@ from .events import Advice, Catalog, ScanEvent, ScanIssue, Verification
 from .sqltext import QUOTED, skip_prefix
 
 MIN_SERVER_VERSION = 16
+# The newest PostgreSQL release the check is tested on (CI and the plan
+# fixtures in tests/fixtures/plans). A newer server is still checked, with one
+# notice per session: its plans may print conditions in a new way.
+MAX_TESTED_VERSION = 18
 ASYNCPG = "asyncpg"  # the one async driver the check supports
 _SAVEPOINT = "queryguard_explain"
 _SETTINGS = (
@@ -1371,6 +1375,25 @@ def unsupported_reason(dialect: Any) -> str | None:
     return None
 
 
+def version_notice(dialect: Any) -> str | None:
+    """The notice for a PostgreSQL server newer than the tested ones, or None."""
+    version = getattr(dialect, "server_version_info", None)
+    if (
+        getattr(dialect, "name", None) != "postgresql"
+        or not version
+        or not isinstance(version[0], int)
+        or version[0] <= MAX_TESTED_VERSION
+    ):
+        return None
+    shown = ".".join(str(part) for part in version)
+    return (
+        f"PostgreSQL {shown} is newer than the versions the index check is "
+        f"tested on ({MIN_SERVER_VERSION} to {MAX_TESTED_VERSION}): its "
+        "statements are checked, but a finding may be wrong or missing; "
+        "please report one that is"
+    )
+
+
 def _advisor_options(
     targets: Sequence[QueryCollector], version: Sequence[object] | None
 ) -> AdvisorOptions | None:
@@ -1402,8 +1425,11 @@ def check(
     fresh = [target for target in targets if key not in target.explained]
     if not fresh:
         return
+    notice = version_notice(dialect)
     for target in fresh:
         target.explained.add(key)
+        if notice is not None:
+            target.index_notices[notice] = None
     numbered = to_numbered(
         statement,
         dialect.paramstyle,

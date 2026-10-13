@@ -41,7 +41,8 @@ changes by accident.
   SQLAlchemy version.
 - The index check beyond what the documentation promises: it is documented
   for PostgreSQL 16 and newer and for SQLite, and on older PostgreSQL servers
-  it only prints a notice.
+  it only prints a notice. It is tested on PostgreSQL 16 to 18; on a newer
+  server it runs and prints a notice that the version is untested.
 
 ## Version numbers
 
