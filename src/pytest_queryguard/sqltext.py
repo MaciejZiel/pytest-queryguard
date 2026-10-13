@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 # Text that is copied unchanged when statements are rewritten or scanned:
 # quoted strings and identifiers, dollar quotes and comments. An unterminated
 # one runs to the end of the statement.
@@ -57,3 +59,31 @@ def is_write(sql: str) -> bool:
 
 
 _PREFIX_STARTS = frozenset("-/(")
+
+
+_CONTROL_VERBS = frozenset(("BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "RELEASE"))
+_CONTROL_PAIRS = frozenset(("START", "SET"))
+_WORD = re.compile(r"[A-Za-z]+")
+
+
+def is_transaction_control(sql: str) -> bool:
+    """Whether the statement only opens, ends or marks a transaction.
+
+    BEGIN, COMMIT, ROLLBACK (also ``ROLLBACK TO SAVEPOINT``), SAVEPOINT,
+    RELEASE [SAVEPOINT], START TRANSACTION and SET TRANSACTION. Leading
+    comments and whitespace are skipped. Other SET statements are not.
+    """
+    start = skip_prefix(sql)
+    if start is None:
+        return False
+    first = _WORD.match(sql, start)
+    if first is None:
+        return False
+    verb = first[0].upper()
+    if verb in _CONTROL_VERBS:
+        return True
+    if verb in _CONTROL_PAIRS:
+        after = skip_prefix(sql, first.end())
+        second = _WORD.match(sql, after) if after is not None else None
+        return second is not None and second[0].upper() == "TRANSACTION"
+    return False

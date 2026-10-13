@@ -14,7 +14,7 @@ from .events import (
     RelationshipLoadEvent,
     StatementEvent,
 )
-from .sqltext import is_write, skip_prefix
+from .sqltext import is_transaction_control, is_write, skip_prefix
 
 _STRING = re.compile(r"'(?:[^']|'')*'")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
@@ -322,12 +322,17 @@ def _paginates(sql: str) -> bool:
 
 
 def _repeat_groups(collector: QueryCollector) -> dict[str, list[StatementEvent]]:
-    """The statements the repeat rules count, by normalized text."""
+    """The statements the repeat rules count, by normalized text.
+
+    Writes and transaction control (BEGIN, COMMIT, SAVEPOINT, ...) are left
+    out: a loop that commits each pass runs one BEGIN and one COMMIT per pass.
+    Budgets still count them.
+    """
     groups: dict[str, list[StatementEvent]] = {}
     for stmt in collector.statements:
         if stmt.relationship is not None or stmt.column_load:
             continue
-        if is_write(stmt.sql):
+        if is_write(stmt.sql) or is_transaction_control(stmt.sql):
             continue
         groups.setdefault(normalize(stmt.sql), []).append(stmt)
     return groups
