@@ -173,6 +173,14 @@ explained statement; it is expected and changes nothing. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 
+`EXPLAIN` does not run the statement, but the planner evaluates calls to
+`IMMUTABLE` functions with constant arguments while it plans. Such a function
+runs again for each plan the check (and the [advisor](index-advisor.md), when
+it verifies a suggestion) asks for, and a side effect that is not
+transactional, such as `nextval()`, is not undone by the savepoint. That only
+concerns functions that are marked `IMMUTABLE` but have side effects; see
+[Limitations](limitations.md).
+
 The check costs a few database round trips per distinct statement per test:
 open the savepoint, set the planner settings, `EXPLAIN` and roll back. The
 first column of the btree indexes a plan uses and the `varchar` columns of
@@ -194,7 +202,10 @@ production. Exclude such tables with `queryguard_index_ignore_tables`, one
 test with `@pytest.mark.allow_missing_index`, or only some tables in one
 test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
 Findings follow `queryguard_mode`: `warn` turns them into warnings and
-`off` turns the check off. `allow_nplusone` does not affect the index check.
+`off` turns the check off. `allow_nplusone` without arguments does not
+affect the index check, but `allow_nplusone` with patterns matches
+missing-index findings the same way `queryguard_ignore` does
+(`@pytest.mark.allow_nplusone("audit_log", kind="missing-index")`).
 
 ## PostgreSQL versions
 
