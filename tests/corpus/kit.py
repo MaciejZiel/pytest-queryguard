@@ -56,6 +56,10 @@ END $$
 """
 
 
+def pg_url_from_env() -> str | None:
+    return os.environ.get(PG_URL_ENV)
+
+
 def _fast_sqlite(engine: Engine) -> None:
     """No fsync: the corpus databases are throw-away. Not seen by the plugin,
     which listens to statements SQLAlchemy executes, not to the DBAPI cursor here."""
@@ -73,7 +77,7 @@ class Ctx:
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
-        self.pg_url = os.environ.get(PG_URL_ENV)
+        self.pg_url = pg_url_from_env()
         self._engine: Engine | None = None
         self._async_engine: AsyncEngine | None = None
 

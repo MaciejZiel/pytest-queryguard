@@ -23,6 +23,13 @@ pytest.importorskip("factory")
 # pytester sessions run in this process, so the outer plugin sees their queries too.
 pytestmark = pytest.mark.allow_nplusone
 
+if kit.pg_url_from_env():
+    # pytester restores sys.modules after each in-process session. asyncpg's
+    # compiled protocol module, first imported inside a session and imported
+    # again in the next one, crashed the process (a segmentation fault).
+    # Imported here, it is part of the restored snapshot.
+    import asyncpg  # noqa: F401
+
 SCENARIOS = runner.load()
 BY_NAME = {s.name: s for s in SCENARIOS}
 _cache: dict[str, dict[str, runner.Result]] = {}
