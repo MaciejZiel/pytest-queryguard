@@ -1,0 +1,133 @@
+{
+ "query": "SELECT id FROM orders WHERE status = $1 UNION SELECT id FROM orders WHERE customer_id = $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Hashed",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 20000000034.33,
+    "Total Cost": 20000000039.42,
+    "Plan Rows": 510,
+    "Plan Width": 4,
+    "Output": [
+     "orders.id"
+    ],
+    "Group Key": [
+     "orders.id"
+    ],
+    "Planned Partitions": 0,
+    "Plans": [
+     {
+      "Node Type": "Append",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 20000000033.05,
+      "Plan Rows": 510,
+      "Plan Width": 4,
+      "Subplans Removed": 0,
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Member",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 500,
+        "Plan Width": 4,
+        "Output": [
+         "orders.id"
+        ],
+        "Filter": "((orders.status)::text = $1)"
+       },
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Member",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders_1",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 10,
+        "Plan Width": 4,
+        "Output": [
+         "orders_1.id"
+        ],
+        "Filter": "(orders_1.customer_id = $2)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 10,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "status",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (status)",
+   "skipped": null,
+   "partial_skipped": false
+  },
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "customer_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (customer_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

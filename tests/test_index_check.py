@@ -783,6 +783,49 @@ def test_pg_before_16_gets_one_notice(
     )
 
 
+ORDERS_ON_A_NEWER_SERVER = """
+import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from qgmodels import Order
+
+
+@pytest.fixture
+def session(engine):
+    # what SQLAlchemy reads from a server newer than the tested ones
+    engine.dialect.server_version_info = (19, 0)
+    with Session(engine) as session:
+        yield session
+
+
+def test_orders(session):
+    stmt = select(Order).where(Order.customer_id == 1)
+    assert len(session.scalars(stmt).all()) == 2
+
+
+def test_more_orders(session):
+    stmt = select(Order).where(Order.customer_id == 2)
+    assert len(session.scalars(stmt).all()) == 2
+"""
+
+
+@needs_pg
+def test_pg_newer_than_tested_is_checked_with_one_notice(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(test_a=ORDERS_ON_A_NEWER_SERVER)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    notice = (
+        "PostgreSQL 19.0 is newer than the versions the index check is tested "
+        "on (16 to 18): its statements are checked, but a finding may be wrong "
+        "or missing; please report one that is"
+    )
+    assert result.stdout.str().count(notice) == 1
+    result.stdout.fnmatch_lines(["*orders is read in full: Seq Scan*"])
+
+
 # A table with columns for the pagination and cast cases, created inside the
 # test's own transaction (the check sees it), with or without statistics.
 ITEMS = """
