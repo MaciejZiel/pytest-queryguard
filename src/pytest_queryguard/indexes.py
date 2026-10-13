@@ -249,7 +249,7 @@ def _issue(
     if node_type == "Seq Scan":
         # Rule 1: the table is read in full to apply its filter.
         condition = _text(node, "Filter")
-        if condition is None:
+        if condition is None or _only_not_equal(condition):
             return None
         return _make(rel, "Seq Scan", "filter", condition, ctx, node, above)
     if node_type == "Bitmap Heap Scan":
@@ -294,6 +294,35 @@ def _issue(
     if first in columns or equality_column(index_cond, rel.alias, varchar) is None:
         return None
     return _make(rel, label, "index condition", index_cond, ctx, node, above)
+
+
+def _not_equal(expr: predicates.Expr) -> bool:
+    """``<>``, ``<> ALL (...)`` or ``NOT (x = ANY (...))``: no btree index serves it."""
+    if isinstance(expr, predicates.Op):
+        return expr.op in ("<>", "!=")
+    if isinstance(expr, predicates.Not):
+        inner = expr.operand
+        return isinstance(inner, predicates.Op) and inner.op == "="
+    return False
+
+
+def _only_not_equal(condition: str) -> bool:
+    """True when every condition ANDed together is a not-equal comparison.
+
+    A sequential scan is what the planner must do then, indexed column or not,
+    so there is no index to add. One condition an index could serve (``a = $1
+    AND b <> $2``) makes the scan reportable as before; text the parser does
+    not know is reportable too.
+    """
+    tree = predicates.parse(condition)
+    if tree is None:
+        return False
+    items = (
+        tree.items
+        if isinstance(tree, predicates.Bool) and tree.op == "AND"
+        else (tree,)
+    )
+    return all(_not_equal(item) for item in items)
 
 
 def _make(
