@@ -1284,6 +1284,9 @@ def test_select_findings_drops_ignored_tables(pattern: str) -> None:
 def test_ignore_patterns_are_case_sensitive() -> None:
     event = _event("Countries", '("Countries".code = $1)')
     assert select_findings([event], ["countries"]) == [event]
+    assert select_findings([event], ['"countries"']) == [event]
+    assert select_findings([event], ['"Countries"']) == []
+    assert select_findings([event], ["Countries"]) == []
 
 
 def test_run_explain_reads_the_current_schema() -> None:

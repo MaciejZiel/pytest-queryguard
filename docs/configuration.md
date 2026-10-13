@@ -17,7 +17,7 @@
 | `queryguard_index_check` | `true`, `false` | `false` | Checks each `SELECT` for a missing index (PostgreSQL 16 or newer, and `SELECT`, `UPDATE` and `DELETE` on SQLite, MySQL and MariaDB). |
 | `queryguard_index_advisor` | `true`, `false` | `true` | Suggests an index for each missing-index finding, see [Index advisor](index-advisor.md). Used with the index check. |
 | `queryguard_hypopg` | `auto`, `on`, `off` | `auto` | Verifies the suggested indexes with the hypopg extension: `auto` when it is installed, `on` also creates it inside the check's savepoint, `off` never uses it. |
-| `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, for example `countries`, `lookup_*` or `audit.*`. |
+| `queryguard_index_ignore_tables` | table names or `fnmatch` patterns, one per line | empty | Tables the index check ignores. A pattern matches `table` or `schema.table`, quoted or not, for example `countries`, `"UserAccount"`, `lookup_*` or `audit.*`; the spellings are the same as in `queryguard_ignore` and `allow_nplusone`, see [Ignoring findings](ignoring.md). |
 
 Any invalid value stops pytest with a usage error.
 
