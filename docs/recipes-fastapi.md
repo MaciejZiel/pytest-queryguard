@@ -230,7 +230,8 @@ By default the repeated-statement rule counts a statement across the whole
 test body, not per request. A test that calls a fine endpoint in a loop is
 therefore reported, although each request sends only a few queries. With a
 detail endpoint that sends four queries per call (each request has its own
-session, from the dependency), a test like this:
+session, from the dependency), a test like this, in
+`tests/test_loop.py`:
 
 ```python
 def test_every_order_page_loads(client):
@@ -279,7 +280,7 @@ queryguard: N+1 detected
   own (QueryLog.assert_no_nplusone: repeat_scope='session')
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 =========================== short test summary info ============================
-FAILED tests/test_loop_tmp.py::test_every_order_page_loads - Failed: querygua...
+FAILED tests/test_loop.py::test_every_order_page_loads - Failed: queryguard: ...
 1 failed in 0.09s
 ```
 
