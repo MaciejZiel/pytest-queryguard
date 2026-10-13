@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A table name in a missing-index finding is now matched the same way in
+  `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
+  and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`
+  (also for a table the report prints without its schema), quoted or unquoted
+  identifiers (unquoted compare without regard to case, quoted exactly). The
+  documented `allow_nplusone("public.audit_log", kind="missing-index")` now
+  matches. Every spelling that matched before still does, and the labels in
+  reports and baselines are unchanged.
+- `docs/sarif.md` and `docs/baseline.md` listed five finding kinds; the SARIF
+  file lists six rules, `unused-eager-load` included.
+
 ## [0.4.0rc3] - 2026-10-13
 
 ### Added
