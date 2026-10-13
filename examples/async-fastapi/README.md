@@ -1,7 +1,7 @@
 # Async FastAPI endpoint
 
 ```console
-$ pip install pytest-queryguard fastapi httpx aiosqlite "sqlalchemy[asyncio]"
+$ pip install "pytest-queryguard>=0.4.0rc2" fastapi httpx aiosqlite "sqlalchemy[asyncio]"
 $ pytest tests/test_orders.py
 ```
 

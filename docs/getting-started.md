@@ -6,22 +6,19 @@
 pip install "pytest-queryguard>=0.4.0rc2"
 ```
 
-This documentation describes 0.4.0rc2, a release candidate. A plain
-`pip install pytest-queryguard` installs the last stable release, 0.3.0, which
-finds the same N+1 queries and enforces the same `max_queries` budgets, but
-has none of the baseline, SARIF, GitHub Action, ignore patterns, timing,
-column-load, write-loop or SQLite and MySQL index checks described here
-(on 0.3.0, `--queryguard-baseline` stops with
-`pytest: error: unrecognized arguments`), and
-suggests `selectinload` where 0.4 suggests `joinedload`. The version
-specifier above opts into the release candidate (pip and uv install a
-pre-release when the specifier names one) and keeps working once 0.4.0 is
-out. `pytest -VV` lists the installed version (`pytest-queryguard-0.4.0rc2`),
-and so does the `plugins:` line at the top of every run.
-
 It needs Python 3.10 or newer, pytest 8 or newer and SQLAlchemy 2.0.13 or
-newer; pip installs pytest and SQLAlchemy with it if they are missing. The
-plugin registers itself with pytest. There is nothing to import or configure.
+newer; pip installs pytest and SQLAlchemy with it. The plugin registers itself
+with pytest: there is nothing to import or configure. `pytest -VV` lists it
+(`pytest-queryguard-0.4.0rc2`).
+
+!!! note "Release candidate"
+    These pages describe 0.4.0rc2. The version specifier above makes pip and
+    uv install it, and keeps working once 0.4.0 is out. A plain
+    `pip install pytest-queryguard` gets the stable 0.3.0: the same N+1
+    detection and `max_queries` budgets, but no baseline, SARIF, ignore
+    patterns, timing, column-load or write-loop rules and no SQLite or MySQL
+    index check (`--queryguard-baseline` is an unrecognized argument there),
+    and it suggests `selectinload` where 0.4 suggests `joinedload`.
 
 
 ## A first test

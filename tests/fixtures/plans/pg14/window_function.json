@@ -1,0 +1,99 @@
+{
+ "query": "SELECT id, row_number() OVER (PARTITION BY customer_id ORDER BY created_at) FROM orders WHERE status = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "WindowAgg",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000037.66,
+    "Total Cost": 10000000047.66,
+    "Plan Rows": 500,
+    "Plan Width": 24,
+    "Output": [
+     "id",
+     "row_number() OVER (?)",
+     "created_at",
+     "customer_id"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000037.66,
+      "Total Cost": 10000000038.91,
+      "Plan Rows": 500,
+      "Plan Width": 16,
+      "Output": [
+       "created_at",
+       "customer_id",
+       "id"
+      ],
+      "Sort Key": [
+       "orders.customer_id",
+       "orders.created_at"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 500,
+        "Plan Width": 16,
+        "Output": [
+         "created_at",
+         "customer_id",
+         "id"
+        ],
+        "Filter": "((orders.status)::text = $1)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 8,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
+}
