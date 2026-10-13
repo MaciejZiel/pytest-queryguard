@@ -226,7 +226,7 @@ def test_pg_async_temporary_table_reports_the_trailing_column(
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "  pg_temp.tmp_items is read in full: *Index Scan using *",
+            "  pg_temp.tmp_items scans the whole index *",
             "*",
             "*",
             "  fix: CREATE INDEX ON pg_temp.tmp_items (status)",

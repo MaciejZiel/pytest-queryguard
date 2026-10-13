@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asyncpg). The `autocommit` flag is the driver's setting, not the server's
   state, so the check now tries a savepoint first and starts a transaction of
   its own only when none is open (SQLSTATE 25P01). Fixes #91.
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
+
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
   concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
