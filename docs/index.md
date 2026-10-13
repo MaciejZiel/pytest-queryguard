@@ -1,8 +1,9 @@
 # pytest-queryguard
 
 A pytest plugin that fails tests with N+1 queries and enforces query budgets
-for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer
-and on SQLite it can also fail tests whose queries have no index to use.
+for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer,
+SQLite, MySQL and MariaDB it can also fail tests whose queries have no index
+to use.
 
 ORM code that looks correct can send one query per row instead of one query
 per page. The tests pass, because a test database holds a handful of rows. In
@@ -14,30 +15,41 @@ test and points to the line that caused it.
 queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
-  first at app/orders.py:9 in list_orders
+  first at app/orders.py:10 in list_orders
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
 ```
 
 ```bash
-pip install pytest-queryguard
+pip install "pytest-queryguard>=0.4.0rc2"
 ```
 
-It is on by default: there is nothing to import or configure.
+It is on by default: there is nothing to import or configure. These pages
+describe 0.4.0rc2; the stable 0.3.0 (`pip install pytest-queryguard`) lacks
+most of the adoption features, see [Getting started](getting-started.md#install).
 
 ## Where to go
 
-- New here: [Getting started](getting-started.md), then
-  [How detection works](how-detection-works.md).
-- Turning it up or down: [Configuration reference](configuration.md),
-  [Budgets and timing](budgets.md), [Ignoring findings](ignoring.md).
-- Adopting it on an existing project: [Baseline](baseline.md) and
-  [CI and SARIF](ci.md).
-- Missing indexes: [PostgreSQL](index-check.md), [SQLite](index-check-sqlite.md), [MySQL and MariaDB](index-check-mysql.md)
-  and the [index advisor](index-advisor.md).
-- Questions: [FAQ](faq.md), [Limitations](limitations.md),
-  [Stability and versioning](stability.md).
+The path most projects take, one page each:
+
+1. [Getting started](getting-started.md): install, a first failing test and
+   its fix, async code and FastAPI.
+2. [A test failed: now what](when-a-test-fails.md): read the report, check the
+   finding, fix it or leave it out on purpose.
+3. [CI and GitHub Action](ci.md): findings as pull request annotations.
+4. [Baseline](baseline.md): adopt it on an existing project; only new
+   findings fail.
+5. [Index check](index-check.md) and [index advisor](index-advisor.md):
+   queries no index can serve, on [PostgreSQL](index-check.md),
+   [SQLite](index-check-sqlite.md) and [MySQL and MariaDB](index-check-mysql.md).
+
+Reference: [How detection works](how-detection-works.md),
+[Configuration](configuration.md), [Budgets and timing](budgets.md),
+[Ignoring findings](ignoring.md). Before you adopt it:
+[FAQ](faq.md), [Limitations](limitations.md),
+[Comparison with other tools](comparison.md),
+[Stability and versioning](stability.md).
 
 The source and the issue tracker are on
 [GitHub](https://github.com/MaciejZiel/pytest-queryguard).

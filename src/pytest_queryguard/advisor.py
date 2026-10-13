@@ -113,6 +113,8 @@ def render(expr: Expr, alias: str) -> str:
         return f"(NOT {render(expr.operand, alias)})"
     if isinstance(expr, Bool):
         return "(" + f" {expr.op} ".join(render(i, alias) for i in expr.items) + ")"
+    if expr.name in predicates.SYNTAX_CALLS:
+        raise _Unrenderable  # CASE, AT TIME ZONE, ... are not printed back
     args = ", ".join(render(a, alias) for a in expr.args)
     return f"{expr.name}({args})" if expr.name != "ARRAY" else f"ARRAY[{args}]"
 

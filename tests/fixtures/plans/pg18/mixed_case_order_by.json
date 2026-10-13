@@ -1,0 +1,96 @@
+{
+ "query": "SELECT * FROM \"Mixed Case\" WHERE \"customerId\" = $1 ORDER BY \"Name\" LIMIT 3",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Limit",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 2.38,
+    "Total Cost": 2.39,
+    "Plan Rows": 3,
+    "Plan Width": 10,
+    "Disabled": false,
+    "Output": [
+     "id",
+     "\"customerId\"",
+     "\"Name\""
+    ],
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 2.38,
+      "Total Cost": 2.4,
+      "Plan Rows": 10,
+      "Plan Width": 10,
+      "Disabled": false,
+      "Output": [
+       "id",
+       "\"customerId\"",
+       "\"Name\""
+      ],
+      "Sort Key": [
+       "\"Mixed Case\".\"Name\""
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "Mixed Case",
+        "Schema": "public",
+        "Alias": "Mixed Case",
+        "Startup Cost": 0.0,
+        "Total Cost": 2.25,
+        "Plan Rows": 10,
+        "Plan Width": 10,
+        "Disabled": true,
+        "Output": [
+         "id",
+         "\"customerId\"",
+         "\"Name\""
+        ],
+        "Filter": "(\"Mixed Case\".\"customerId\" = $1)"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "Mixed Case",
+    "Mixed Case_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "Mixed Case",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "\"customerId\"",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON \"Mixed Case\" (\"customerId\", \"Name\")",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

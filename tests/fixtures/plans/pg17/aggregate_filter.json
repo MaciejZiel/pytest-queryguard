@@ -1,0 +1,88 @@
+{
+ "query": "SELECT count(*) FILTER (WHERE status = $1) FROM orders WHERE customer_id = $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Plain",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000015.3,
+    "Total Cost": 10000000015.31,
+    "Plan Rows": 1,
+    "Plan Width": 8,
+    "Output": [
+     "count(*) FILTER (WHERE ((status)::text = $1))"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000015.25,
+      "Plan Rows": 10,
+      "Plan Width": 4,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ],
+      "Filter": "(orders.customer_id = $2)"
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 5,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "customer_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (customer_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
