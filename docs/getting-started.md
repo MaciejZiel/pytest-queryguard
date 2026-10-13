@@ -11,6 +11,17 @@ newer; pip installs pytest and SQLAlchemy with it. The plugin registers itself
 with pytest: there is nothing to import or configure. `pytest -VV` lists it
 (`pytest-queryguard-0.4.0rc2`).
 
+!!! note "Free-threaded Python"
+    The free-threaded builds (CPython 3.13t and 3.14t, no GIL) are not in the
+    CI matrix and not in the package classifiers, so they are not a supported
+    configuration. The test suite was run once on CPython 3.14.4t with
+    SQLAlchemy 2.1.1 and passed; 3.13t was not tried. On those builds the
+    counters of a measurement (statements, loads and database time) are
+    updated under a lock, so statements from several threads are all counted
+    and budgets hold; on a build with the GIL no lock is taken. Other
+    thread-shared state, such as the missing-index check's own bookkeeping, was
+    not examined for races.
+
 !!! note "Release candidate"
     These pages describe 0.4.0rc2. The version specifier above makes pip and
     uv install it, and keeps working once 0.4.0 is out. A plain
