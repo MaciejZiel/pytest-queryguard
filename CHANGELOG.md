@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On SQLAlchemy 2.0.13 to 2.0.29 the column load of a joined-inheritance
+  subclass (reading `manager.budget` after `select(Employee)`) was not
+  recognised as a column load and was reported as a repeated statement. Before
+  2.0.30 SQLAlchemy reports `is_select` and `is_column_load` as False for the
+  `from_statement()` execution that loads those columns; the plugin now also
+  reads the refresh state from the statement and the execution options. The
+  oldest-versions job of the release gate now installs exactly
+  `sqlalchemy==2.0.13`, the declared minimum, instead of the latest 2.0.x.
+  Fixes #161.
+
 - A lazy load keeps its relationship when another statement runs between the
   load and its `SELECT`: statements of other `AsyncSession`s running
   concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
