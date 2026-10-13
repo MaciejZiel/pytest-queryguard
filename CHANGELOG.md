@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
