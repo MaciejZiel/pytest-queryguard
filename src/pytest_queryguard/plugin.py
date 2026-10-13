@@ -1031,7 +1031,18 @@ def _identity(raw: Any) -> Identity:
     return (kind, label, file, function)
 
 
-def pytest_sessionfinish(session: pytest.Session) -> None:
+_ABNORMAL_EXIT = frozenset(
+    (
+        pytest.ExitCode.INTERRUPTED,
+        pytest.ExitCode.USAGE_ERROR,
+        pytest.ExitCode.INTERNAL_ERROR,
+    )
+)
+
+
+def pytest_sessionfinish(
+    session: pytest.Session, exitstatus: int | pytest.ExitCode
+) -> None:
     config = session.config
     settings = config.stash.get(_settings, None)
     if settings is None or not (settings.baselining or settings.sarif_path):
@@ -1047,10 +1058,19 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
         return
     if internal_error() is not None:
         settings.baseline_incomplete = True
+    interrupted = exitstatus in _ABNORMAL_EXIT
     if settings.update_baseline:
-        _update_baseline(session, settings)
+        _update_baseline(session, settings, interrupted)
     if settings.sarif_path is not None:
-        _write_sarif(settings)
+        if interrupted:
+            # a partial report would close the alerts of the tests that never ran
+            settings.sarif_failed = (
+                "not written: the run was interrupted or did not finish "
+                "(collection error, Ctrl-C or internal error); "
+                "an existing file is left as it was"
+            )
+        else:
+            _write_sarif(settings)
 
 
 def _write_sarif(settings: _Settings) -> None:
@@ -1077,9 +1097,17 @@ def _write_sarif(settings: _Settings) -> None:
     settings.sarif_result = text
 
 
-def _update_baseline(session: pytest.Session, settings: _Settings) -> None:
+def _update_baseline(
+    session: pytest.Session, settings: _Settings, interrupted: bool = False
+) -> None:
     path = settings.baseline_path
     if path is None:
+        return
+    if interrupted:
+        settings.baseline_failed = (
+            "not updated: the run was interrupted or did not finish "
+            "(collection error, Ctrl-C or internal error)"
+        )
         return
     if session.shouldstop or session.shouldfail or settings.baseline_incomplete:
         settings.baseline_failed = (
