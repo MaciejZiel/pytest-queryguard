@@ -74,15 +74,19 @@ def test_state_does_not_grow_across_many_measurements(measured: None) -> None:
     finally:
         tracemalloc.stop()
     total = sum(d.size_diff for d in after.compare_to(before, "filename"))
-    owned = sum(
-        d.size_diff
-        for d in after.filter_traces(PLUGIN_ONLY).compare_to(
-            before.filter_traces(PLUGIN_ONLY), "filename"
-        )
+    diffs = after.filter_traces(PLUGIN_ONLY).compare_to(
+        before.filter_traces(PLUGIN_ONLY), "filename"
     )
+    owned = sum(d.size_diff for d in diffs)
+    owned_blocks = sum(d.count_diff for d in diffs)
     # What the plugin allocated (any frame of the allocation in its package)
-    # must not grow: a leak of even one event per measurement is above this.
-    assert owned < 4_096, f"{owned} bytes of plugin-owned memory kept"
+    # must not grow. Counted in blocks: a leak of even one object per
+    # measurement keeps 150 of them. A few may stay for good: walking the
+    # stack for the call site can create the frame objects of the pytest frames
+    # above the test (3 blocks, 4 KB, seen on 3.14t), which live on until the
+    # test returns. The byte bound catches one buffer that keeps growing.
+    assert owned_blocks < 50, f"{owned_blocks} plugin-owned blocks kept"
+    assert owned < 32_768, f"{owned} bytes of plugin-owned memory kept"
     # The free-threaded build frees SQLAlchemy's compiled-statement caches late
     # and out of step with the cycles (1 MB to 7 MB after 150 cycles, none of it
     # allocated by this package), so the whole-process figure says nothing about
