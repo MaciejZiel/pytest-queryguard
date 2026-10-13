@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Tests: the accuracy corpus now runs on PostgreSQL
+  (`QUERYGUARD_CORPUS_PG_URL`). Two scenarios (`bug_23_get_or_create_loop`,
+  `bug_30_flush_per_insert`) failed there because seeded rows with explicit ids
+  did not advance the sequences; the corpus moves them after each setup. The
+  results on PostgreSQL 17 match SQLite; see `docs/accuracy.md`. Fixes #120.
+
 - The SARIF level of an unused-eager-load finding now follows the test outcome:
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
   Fixes #98.
