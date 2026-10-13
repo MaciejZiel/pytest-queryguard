@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The budget failure says `expected at most 1 query` (it said `1 queries`);
+  other limits are unchanged.
+- Documentation found in a walk of the 0.4.0rc3 docs, each snippet run in a
+  fresh environment: the Flask-SQLAlchemy, SQLModel, Litestar and
+  pytest-asyncio recipes show `pytest.ini` with `pythonpath = .` (copied
+  literally, they failed with `No module named 'app'`) and the models and test
+  files they were missing; `python-api.md` and `migrating-from-queryspy.md`
+  import the fixed modules where they expect the fixed behaviour;
+  `python-api.md` documents `column_load_threshold`, `small_repeat_threshold`
+  and `write_loop_threshold` of `assert_no_nplusone()`; the legacy recipe puts
+  its settings in the example's `pytest.ini`, which pytest reads instead of a
+  `pyproject.toml`; the JUnit XML of the CI recipe, a line number in the
+  budgets recipe, a test file name in the FastAPI recipe, a missing file on the
+  getting-started page and the stale `0.4.0rc2` install lines are corrected.
+  `tests/test_doc_examples.py` now runs the SQLModel, Litestar and
+  pytest-asyncio pages as projects too (skipped where the package is not
+  installed).
+
 ## [0.4.0rc3] - 2026-10-13
 
 ### Added
