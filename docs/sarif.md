@@ -108,6 +108,13 @@ internal pytest error) the file is not written and an existing one is left as
 it was: a report from the tests that did run would close the alerts of the
 tests that did not. The summary says so.
 
+A collection error counts as an interrupted run also when the run goes on,
+with `--continue-on-collection-errors` or under pytest-xdist, so such a run
+writes no file either. The [GitHub Action](ci.md) then skips the upload with
+a warning; an `upload-sarif` step of your own fails because the file is
+missing, unless a file from an earlier step is still there. Fix the module
+that does not collect to get a report again.
+
 An excerpt:
 
 ```json
