@@ -17,7 +17,9 @@ still enforced.
 
 To leave out one finding instead of the whole test, give the marker patterns
 (`fnmatch`, case-sensitive) for the finding's label, and optionally `kind`,
-`file` and `function`:
+`file` and `function`. A label written out exactly as the report prints it
+matches too, even when it holds `[` or `]`, which `fnmatch` would read as a
+character class:
 
 ```python
 @pytest.mark.allow_nplusone("Order.customer", function="list_orders")

@@ -29,7 +29,7 @@ queryguard: N+1 detected
   and the baseline do: `relationship-load Order.customer` is the pattern for
   this one. For a repeated statement the label is the normalized statement,
   which takes the place of a separate line; a statement longer than 200
-  characters is cut in the report, so end the pattern with `*`.
+  characters is cut and ends with `*`, so the label as printed still matches.
 - `sql` is one of the statements, as SQLAlchemy rendered it.
 - `fix` is the usual remedy for this kind of finding. It is a hint, not a
   patch: check it against what the code needs.

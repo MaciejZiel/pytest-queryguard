@@ -55,7 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
   `kind: relationship-load  label: Order.customer`. For a repeated statement or
   a write loop the line replaces the separate line with the normalized
-  statement (a statement longer than 200 characters is cut in the report). The
+  statement (a statement longer than 200 characters is cut and ends with `*`,
+  so the printed label still works as a pattern). An ignore pattern that is
+  the exact label now matches even when the label holds `[` or `]`. The
   line is in the SARIF message too
   ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
 - `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
