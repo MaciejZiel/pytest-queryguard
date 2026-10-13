@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SARIF: a finding whose call site is unknown (for example `session.execute`
+  handed straight to a worker thread) is located at the test instead of being
+  left out of the file, so code scanning shows it. The terminal text, the
+  baseline and the ignore rules are unchanged. `docs/limitations.md` explains
+  the cause and the workaround
+  ([#132](https://github.com/MaciejZiel/pytest-queryguard/issues/132)).
+
 - GitHub Action: the `package` input now defaults to the plugin in the action's
   own checkout instead of the name `pytest-queryguard`, so the installed plugin
   matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
