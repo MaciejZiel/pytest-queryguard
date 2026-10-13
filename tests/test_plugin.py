@@ -145,19 +145,25 @@ def test_escalation_keeps_user_failure_traceback(
 def test_plugin_bug_in_hook_keeps_hook_frame(
     project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def boom(item: pytest.Item) -> None:
-        raise RuntimeError("index exemption bug")
+    # _emit_warnings is not behind a fail-open guard: a QueryGuardWarning that
+    # filterwarnings turns into an error must reach the test. Every other
+    # step of the hook degrades to an internal warning instead of failing.
+    emit = plugin._emit_warnings
 
-    monkeypatch.setattr(plugin, "_index_exemption", boom)
+    def boom(item: pytest.Item, texts: list[str]) -> None:
+        if item.nodeid != "test_a.py::test_ok":  # this test's own call phase
+            return emit(item, texts)
+        raise RuntimeError("emit warnings bug")
+
+    monkeypatch.setattr(plugin, "_emit_warnings", boom)
     project.makepyfile(test_a="def test_ok():\n    pass\n")
-    project.makeini("[pytest]\nqueryguard_index_check = true\n")
     result = project.runpytest("--tb=long")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
             "*def pytest_runtest_call*",
-            "*_index_exemption(item)*",
-            "*index exemption bug*",
+            "*_emit_warnings(item, warn_texts)*",
+            "*emit warnings bug*",
         ]
     )
 

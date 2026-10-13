@@ -69,8 +69,12 @@ not run. If the summary of your usual full run says it did not cover the whole
 suite (a `-m` in `addopts`, for example), run once without that option to
 prune the file.
 
-Runs that stop early (`-x`, `--maxfail`, Ctrl-C, a crashed xdist worker, a
-collection error) and `--collect-only` do not write the file at all.
+Runs that stop early (`-x`, `--maxfail`, Ctrl-C, a crashed xdist worker),
+runs with a collection error and `--collect-only` do not write the file at
+all. A collection error counts also when the run goes on, with
+`--continue-on-collection-errors` or under pytest-xdist: the tests of the
+module that did not collect never ran, and a rewrite would drop their
+entries. Fix the module, then update.
 
 Then turn it on for everyone, in `pyproject.toml`:
 
@@ -152,7 +156,9 @@ shape stops pytest with a usage error that names the file and the problem.
 `--queryguard-update-baseline` replaces a missing or unreadable file. It does
 not write after `-x`/`--maxfail` stopped the run, after an internal error, after
 a worker crashed, or after an interrupted run (a collection error, Ctrl-C, a
-usage error or an internal pytest error), and says so in the summary.
+usage error or an internal pytest error), and says so in the summary. A
+collection error counts as an interrupted run also with
+`--continue-on-collection-errors`.
 
 ## pytest-xdist
 

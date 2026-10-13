@@ -13,7 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`error::pytest_queryguard.QueryGuardWarning` or a blanket `error`) no longer
   prints about 50 lines of the plugin's hook wrapper source before the finding;
   the failure shows the finding message, as in `fail` mode.
-
+- Under pytest-xdist, a collection error without `-x` no longer rewrites the
+  baseline or writes the `--queryguard-sarif` file: the run is handled as the
+  interrupted run a serial run is, with the same reason. Closes #194.
+- **Behavior change:** a serial run with `--continue-on-collection-errors`
+  and a collection error also no longer rewrites the baseline or writes the
+  `--queryguard-sarif` file, where it did before. The tests of the module that
+  did not collect never ran: a rewritten baseline would drop their entries and
+  an uploaded report would close their alerts. The summary gives the
+  interrupted-run reason; the GitHub Action skips the upload with a warning.
+- An internal error in the budget markers, the `allow_missing_index` check or
+  the end of a measurement in the `pytest_runtest_call` hook no longer fails
+  the user's test: it ends measurement with a `QueryGuardInternalWarning` and
+  the "queryguard: measurement stopped" section, as other internal errors do.
+  The collection-report and pytest-xdist worker hooks are guarded the same
+  way. A `KeyboardInterrupt` or `SystemExit` at the end of a measurement still
+  stops the run, and leaves no collector or eager-load tracker behind.
+  Closes #197.
 - Under pytest-xdist, a run stopped by `-x` or `--maxfail` is handled as in a
   serial run instead of as an interrupted one: the baseline is not updated
   because the run stopped early (it no longer blames a collection error,
