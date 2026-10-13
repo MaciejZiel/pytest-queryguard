@@ -21,6 +21,8 @@
 
 Any invalid value stops pytest with a usage error.
 
+The options with a fixed set of values (`queryguard_mode`, `queryguard_repeat_scope`, `queryguard_unused_eager_load`, `queryguard_hypopg`) and `--queryguard-mode` ignore case and surrounding spaces: `WARN`, `Warn` and `warn` mean the same.
+
 In `pyproject.toml`:
 
 ```toml

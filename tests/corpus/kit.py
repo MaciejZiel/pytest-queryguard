@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -103,3 +105,8 @@ class Ctx:
         if self._engine is not None:
             self._engine.dispose()
             self._engine = None
+
+
+def insert_for(engine: Engine) -> Any:
+    """The dialect's ``insert`` with ``on_conflict_*``: SQLite, or PostgreSQL."""
+    return postgresql.insert if engine.dialect.name == "postgresql" else sqlite.insert
