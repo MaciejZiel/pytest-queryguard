@@ -32,6 +32,7 @@ queryguard: N+1 detected
 
   Book.author was lazy-loaded 7 times
   first at app/books.py:27 in titles_of
+  kind: relationship-load  label: Book.author
   sql: SELECT author.id, author.name FROM author WHERE author.id = ?
   fix: load it with the parent query, e.g.
        select(Book).options(joinedload(Book.author))
