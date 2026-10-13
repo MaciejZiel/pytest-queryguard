@@ -84,7 +84,8 @@ The runs of one shape are **pagination** when all of these hold:
 - the cursor moves the same way (up or down) from run to run and never repeats,
   and an offset moves by at least the page size, so pages do not overlap;
 - a keyset bound is an integer and moves by at least the page size: the next
-  cursor is the last key of a full page. A loop that passes each row's own key
+  cursor is the last key of a full page (only the step after the last, partly
+  filled page may be shorter, and it ends the walk). A loop that passes each row's own key
   (`WHERE id > :row_id LIMIT 3` for every row) moves it by one row and is
   reported. String and date bounds cannot be measured, so their walks are
   reported as before;
