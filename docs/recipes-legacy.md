@@ -38,6 +38,7 @@ tests/test_orders.py::test_list_orders
   
     Order.customer was lazy-loaded 50 times
     first at app/orders.py:10 in list_orders
+    kind: relationship-load  label: Order.customer
     sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
     fix: load it with the parent query, e.g.
          select(Order).options(joinedload(Order.customer))
@@ -47,7 +48,7 @@ tests/test_orders.py::test_fetch_customers
   
     the same statement ran 50 times
     first at app/customers.py:9 in fetch_customers
-    SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+    kind: repeated-statement  label: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
     fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
@@ -150,7 +151,7 @@ queryguard: N+1 detected
 
   the same statement ran 10 times
   first at app/reports.py:11 in customer_ids_by_name
-  SELECT customer.id FROM customer WHERE customer.name = ?
+  kind: repeated-statement  label: SELECT customer.id FROM customer WHERE customer.name = ?
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 =========================== short test summary info ============================
 FAILED tests/test_new.py::test_customer_ids_by_name - Failed: queryguard: N+1...
