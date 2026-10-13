@@ -4,6 +4,7 @@ import importlib.metadata
 import os
 import warnings as std_warnings
 from collections.abc import Generator
+from dataclasses import replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, cast
@@ -40,7 +41,7 @@ from .messages import (
     make_index_finding,
     swap_root,
 )
-from .warnings import QueryGuardInternalWarning, QueryGuardWarning
+from .warnings import QueryGuardInternalWarning, QueryGuardWarning, warn_internal
 
 _MODES = ("fail", "warn", "off")
 _EAGER_MODES = ("off", "warn", "fail")
@@ -169,7 +170,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_const",
         const=True,
         default=None,
-        help="Check statements for a missing index (PostgreSQL 16 or newer, or SQLite); "
+        help="Check statements for a missing index (PostgreSQL 16 or newer, SQLite, MySQL or MariaDB); "
         "overrides queryguard_index_check.",
     )
     group.addoption(
@@ -285,7 +286,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addini(
         "queryguard_index_check",
-        "Check statements for a missing index (PostgreSQL 16 or newer, or SQLite)",
+        "Check statements for a missing index (PostgreSQL 16 or newer, SQLite, MySQL or MariaDB)",
         type="bool",
         default=False,
     )
@@ -578,7 +579,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "max_queries(n): fail the test if it runs more than n SQL statements.",
+        "max_queries(limit): fail the test if it runs more than limit SQL statements.",
     )
     config.addinivalue_line(
         "markers",
@@ -635,12 +636,11 @@ def _report_internal_error(config: pytest.Config) -> None:
     config.stash[_internal_reported] = True
     failure = internal_failure()
     where = f" ({failure.source})" if failure is not None else ""
-    std_warnings.warn(
+    warn_internal(
         QueryGuardInternalWarning(
             f"pytest-queryguard disabled itself after an internal error: {error!r}"
             f"{where}"
-        ),
-        stacklevel=1,
+        )
     )
 
 
@@ -731,7 +731,7 @@ def _analyse(
             findings.extend(eager.findings(tracker, cwd=root))
         if settings.ignore or marker_rules:
             findings = _drop_ignored(item, settings, findings, marker_rules)
-        findings = _apply_baseline(settings, findings)
+        findings = _apply_baseline(settings, findings, item)
         failing = [f for f in findings if _fails(settings, f)]
         warning = [f for f in findings if not _fails(settings, f)]
         note = ""
@@ -746,7 +746,38 @@ def _analyse(
         return None, None
 
 
-def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Finding]:
+def _at_the_test(finding: Finding, item: pytest.Item) -> Finding:
+    """The finding located at the test, for SARIF, when its call site is unknown.
+
+    The call site is unknown when no application frame was on the stack, for
+    example when ``session.execute`` itself is handed to a worker thread. GitHub
+    shows a result only with a location, so the test stands in for it. Only
+    the SARIF copy changes: the terminal text, the baseline and the ignore
+    rules keep the finding as it was.
+    """
+    if finding.file is not None or finding.function is not None:
+        return finding
+    try:
+        path, line, _ = item.reportinfo()
+        file = item.nodeid.split("::", 1)[0]
+        if not file or Path(str(path)).name != Path(file).name:
+            return finding
+        return replace(
+            finding,
+            file=file,
+            function=getattr(item, "originalname", None) or item.name,
+            line=(line or 0) + 1,
+            message=finding.message.replace(
+                "<unknown location>", "<unknown location>, reported at the test"
+            ),
+        )
+    except Exception:  # noqa: BLE001  # a plugin bug must never break the user suite
+        return finding
+
+
+def _apply_baseline(
+    settings: _Settings, findings: list[Finding], item: pytest.Item
+) -> list[Finding]:
     """The findings that still count: not in the baseline, and no update run.
 
     Records every finding it gets, for the stale-entry report and for an update.
@@ -762,7 +793,7 @@ def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Findin
             level = (
                 sarif.LEVEL_ERROR if _fails(settings, finding) else sarif.LEVEL_WARNING
             )
-            sarif.add(settings.reported, finding, level)
+            sarif.add(settings.reported, _at_the_test(finding, item), level)
     return findings
 
 
@@ -771,13 +802,27 @@ def _drop_ignored(
     settings: _Settings,
     findings: list[Finding],
     marker_rules: tuple[IgnoreRule, ...],
+    *,
+    indexes: bool = False,
 ) -> list[Finding]:
-    """The findings the ini patterns and the test's markers do not ignore."""
+    """The findings the ini patterns and the test's markers do not ignore.
+
+    A marker pattern is stale when it matched neither an N+1 finding nor an
+    index finding of the test: the N+1 pass (``indexes=False``) lists every
+    unmatched pattern, the index pass then takes back those it matched.
+    """
     kept, used = apply_rules(findings, (*settings.ignore, *marker_rules))
     settings.ignore_used.update(used)
-    settings.stale_markers.extend(
-        (item.nodeid, rule) for rule in marker_rules if rule not in used
-    )
+    if indexes:
+        settings.stale_markers[:] = [
+            (nodeid, rule)
+            for nodeid, rule in settings.stale_markers
+            if nodeid != item.nodeid or rule not in used
+        ]
+    else:
+        settings.stale_markers.extend(
+            (item.nodeid, rule) for rule in marker_rules if rule not in used
+        )
     return kept
 
 
@@ -807,14 +852,19 @@ def _analyse_indexes(
     """The missing-index report for the finished test, or None; never raises."""
     if internal_error() is not None or not collector.scans:
         return None
+    _, marker_rules = _nplusone_ignores(item)
     try:
         root = item.config.rootpath
         scans = select_findings(collector.scans, (*settings.ignore_tables, *exempt))
-        if (settings.ignore or settings.baselining or settings.sarif_path) and scans:
+        if (
+            settings.ignore
+            or marker_rules
+            or settings.baselining
+            or settings.sarif_path
+        ) and scans:
             findings = [make_index_finding(scan, cwd=root) for scan in scans]
-            kept, used = apply_rules(findings, settings.ignore)
-            settings.ignore_used.update(used)
-            kept = _apply_baseline(settings, kept)
+            kept = _drop_ignored(item, settings, findings, marker_rules, indexes=True)
+            kept = _apply_baseline(settings, kept, item)
             keep_ids = {id(f) for f in kept}
             scans = [
                 scan
@@ -846,17 +896,23 @@ def _budget(item: pytest.Item) -> int | None:
     marker = item.get_closest_marker("max_queries")
     if marker is None:
         return None
-    if len(marker.args) > 1 or set(marker.kwargs) - {"n"}:
+    # ``n`` is the spelling of 0.1 to 0.3; it stays accepted, without a warning,
+    # until a deprecation period (docs/stability.md) says otherwise.
+    if len(marker.args) > 1 or set(marker.kwargs) - {"limit", "n"}:
         pytest.fail(
             f"max_queries on {item.nodeid} takes a single argument, the limit",
             pytrace=False,
         )
-    if marker.args and "n" in marker.kwargs:
+    keywords = [name for name in ("limit", "n") if name in marker.kwargs]
+    if len(marker.args) + len(keywords) > 1:
         pytest.fail(
-            f"max_queries on {item.nodeid} got the limit twice, positionally and as n=",
+            f"max_queries on {item.nodeid} got the limit more than once "
+            "(positionally, as limit= or as n=)",
             pytrace=False,
         )
-    limit = marker.args[0] if marker.args else marker.kwargs.get("n")
+    limit = marker.kwargs[keywords[0]] if keywords else None
+    if marker.args:
+        limit = marker.args[0]
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         pytest.fail(
             f"max_queries on {item.nodeid} needs a non-negative integer "
@@ -1116,7 +1172,7 @@ def _update_baseline(
     after = frozenset(settings.seen)
     try:
         baselines.write(path, after)
-    except OSError as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.baseline_failed = f"could not write {path}: {exc}"
         return
     settings.baseline_written = (

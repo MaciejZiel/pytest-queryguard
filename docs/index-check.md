@@ -132,6 +132,14 @@ What is reported:
   case is not checked there. BRIN and GIN indexes serve any of their
   columns and are not judged this way.
 
+The last two cases walk an index that exists, so the finding does not say the
+table is read in full. It reads `rw_link scans the whole index rw_link_pkey:
+the index condition (rw_link.hero_id = $1) does not match the start of any
+index` (or `the filter`), as the SQLite check words it, and the fix is still
+the `CREATE INDEX` for the filtered column. When every finding of a test is of
+this kind, the closing note speaks of a whole-index scan instead of a
+sequential scan.
+
 A table with a partial index is judged with one exception. The check
 plans with a generic plan, where bound values are parameters, so it cannot
 tell whether `... (x) WHERE status = 'open'` serves `status = $1 AND x = $2`
@@ -167,6 +175,14 @@ not committed yet and leaves the test's transaction as it was. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
 
+`EXPLAIN` does not run the statement, but the planner evaluates calls to
+`IMMUTABLE` functions with constant arguments while it plans. Such a function
+runs again for each plan the check (and the [advisor](index-advisor.md), when
+it verifies a suggestion) asks for, and a side effect that is not
+transactional, such as `nextval()`, is not undone by the savepoint. That only
+concerns functions that are marked `IMMUTABLE` but have side effects; see
+[Limitations](limitations.md).
+
 The check costs a few database round trips per distinct statement per test:
 open the savepoint, set the planner settings, `EXPLAIN` and roll back. The
 first column of the btree indexes a plan uses and the `varchar` columns of
@@ -188,7 +204,10 @@ production. Exclude such tables with `queryguard_index_ignore_tables`, one
 test with `@pytest.mark.allow_missing_index`, or only some tables in one
 test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
 Findings follow `queryguard_mode`: `warn` turns them into warnings and
-`off` turns the check off. `allow_nplusone` does not affect the index check.
+`off` turns the check off. `allow_nplusone` without arguments does not
+affect the index check, but `allow_nplusone` with patterns matches
+missing-index findings the same way `queryguard_ignore` does
+(`@pytest.mark.allow_nplusone("audit_log", kind="missing-index")`).
 
 ## PostgreSQL versions
 
@@ -244,7 +263,7 @@ does not support:
 
 ```
 ============================ queryguard index check ============================
-mssql statements were not checked: the index check needs PostgreSQL 16 or newer
+mssql statements were not checked: the index check supports PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers
