@@ -88,8 +88,17 @@ def test_plugin_agrees_with_the_verdict(
             monkeypatch.setenv(key, value)
         pytester.inline_run("-p", "no:cacheprovider", "-W", "ignore", "-q")
         _cache[config] = runner.read_results(out)
+    result = _cache[config][name]
+    # Checked here as well as in the test below: under pytest-xdist that test
+    # sees only the configurations its own worker ran, so it would catch a
+    # scenario that fails without findings only on some runs.
+    assert result.failed == bool(result.findings), (
+        "the scenario's test failed without a finding"
+        if result.failed
+        else "a finding did not fail the scenario's test"
+    )
     scope = runner.scope(config)
-    observed = _cache[config][name].kinds & scope
+    observed = result.kinds & scope
     expected = scenario.kinds & scope
     assert observed == expected, (
         f"{scenario.verdict}: expected {sorted(expected)}, the plugin reported {sorted(observed)}"
