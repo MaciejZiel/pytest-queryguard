@@ -496,7 +496,7 @@ def _walks(runs: Sequence[_Run]) -> bool:
     if any(size <= 1 for size in sizes):
         return False
     page = min(sizes, default=None)
-    direction, length, restarts = 0, 1, 0
+    direction, length, restarts, ended = 0, 1, 0, False
     for before, after in itertools.pairwise(runs):
         step = _step(before.cursor, after.cursor)
         if step == 0:
@@ -508,8 +508,10 @@ def _walks(runs: Sequence[_Run]) -> bool:
             restarts += 1
             if restarts > 1:
                 return False  # the same walk in a loop: a loop-invariant query
-            direction, length = 0, 1
+            direction, length, ended = 0, 1, False
             continue
+        if ended:
+            return False  # a short keyset step can only end a walk
         if page is not None and before.offsets != after.offsets:
             moved = [
                 abs(b - a)
@@ -518,10 +520,12 @@ def _walks(runs: Sequence[_Run]) -> bool:
             ]
             if any(m < page for m in moved):
                 return False  # pages overlap: a sliding window, not paging
-        if before.bounds != after.bounds and not _keyset_step(
-            before.bounds, after.bounds, page
-        ):
-            return False
+        if before.bounds != after.bounds:
+            distance = _keyset_moved(before.bounds, after.bounds)
+            if distance is None or page is None:
+                return False  # a string or date bound: its step says nothing
+            # The page before a short step was not full, so it was the last.
+            ended = distance < page
         direction, length = step, length + 1
     return length > 1
 
@@ -530,23 +534,24 @@ def _is_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _keyset_step(before: Sequence[Any], after: Sequence[Any], page: int | None) -> bool:
-    """A keyset cursor moved past a whole page.
+def _keyset_moved(before: Sequence[Any], after: Sequence[Any]) -> int | None:
+    """How far a keyset cursor moved, or None when that cannot be measured.
 
-    The next cursor of a keyset walk is the last key of a full page, so on a
-    unique integer key it moves by at least the page size. A bound that moves
-    by less (each row of a loop, ``WHERE id > :row_id LIMIT 3``), or one that
-    cannot be measured (a string, a date, an unknown page size), is not read
-    as paging.
+    The next cursor of a keyset walk is the last key of the page before, so on
+    a unique integer key it moves by at least the page size after every full
+    page; only the last page, the one that was not full, moves it less. A
+    bound that moves by less again and again (each row of a loop,
+    ``WHERE id > :row_id LIMIT 3``) is not paging. A string or a date bound
+    cannot be measured.
     """
-    if page is None:
-        return False
+    steps: list[int] = []
     for a, b in zip(before, after, strict=True):
         if a == b:
             continue
-        if not (_is_int(a) and _is_int(b)) or abs(b - a) < page:
-            return False
-    return True
+        if not (_is_int(a) and _is_int(b)):
+            return None
+        steps.append(abs(int(b) - int(a)))
+    return min(steps, default=None)
 
 
 def _partitions(runs: Sequence[_Run]) -> bool:

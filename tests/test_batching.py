@@ -95,6 +95,20 @@ def test_a_growing_keyset_bound_per_row_is_reported() -> None:
     assert len(_repeats(_collector(runs))) == 1
 
 
+def test_a_short_last_keyset_step_ends_the_walk() -> None:
+    # Newest first in pages of five over ids 24..1: the last page holds four
+    # rows, so the final, empty query moves the cursor by four.
+    sql = "SELECT id FROM t WHERE id < ? ORDER BY id DESC LIMIT ?"
+    runs = [(sql, (last, 5)) for last in (10**9, 20, 15, 10, 5, 1)]
+    assert _repeats(_collector(runs)) == []
+
+
+def test_a_short_keyset_step_in_the_middle_is_reported() -> None:
+    sql = "SELECT id FROM t WHERE id > ? ORDER BY id LIMIT ?"
+    runs = [(sql, (last, 5)) for last in (0, 5, 7, 12, 17, 22)]
+    assert len(_repeats(_collector(runs))) == 1
+
+
 def test_a_growing_string_keyset_bound_is_reported() -> None:
     sql = "SELECT id FROM t WHERE name > ? ORDER BY name LIMIT ?"
     names = [f"customer{i}" for i in range(1, 9)]
