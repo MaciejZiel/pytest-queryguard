@@ -36,7 +36,9 @@ queryguard_ignore = [
 ]
 ```
 
-The kinds are `relationship-load` (the label is the relationship, as in
+Every finding in the report has a line such as
+`kind: relationship-load  label: Order.customer`; write the kind, a space and
+the label as the pattern. The kinds are `relationship-load` (the label is the relationship, as in
 `Order.customer`), `repeated-statement` (the normalized statement),
 `column-load` (the class and its deferred columns, as in `Book.summary`, or
 the class and the cause for expired attributes, as in `Book (expired)`),

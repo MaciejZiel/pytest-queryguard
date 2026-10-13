@@ -12,6 +12,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/orders.py:10 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -24,32 +25,38 @@ queryguard: N+1 detected
   library and `site-packages`. If it points to your test file instead of the
   application, the application is probably installed non-editable into
   `site-packages` (see [Limitations](limitations.md)).
+- `kind` and `label` name the finding the way ignore patterns, `allow_nplusone`
+  and the baseline do: `relationship-load Order.customer` is the pattern for
+  this one. For a repeated statement the label is the normalized statement,
+  which takes the place of a separate line; a statement longer than 200
+  characters is cut in the report, so end the pattern with `*`.
 - `sql` is one of the statements, as SQLAlchemy rendered it.
 - `fix` is the usual remedy for this kind of finding. It is a hint, not a
   patch: check it against what the code needs.
 
-The terminal report does not print the finding's kind. You need it only to
-silence a finding; the table below maps the headline to the kind and label.
+The `kind:` line is what you need to silence a finding; the table below shows
+how each headline maps to the kind and label, for the cases where you want to
+write a pattern with a wildcard.
 
 | The report says | Kind | Label (for ignore patterns and the baseline) | Usual fix |
 |---|---|---|---|
 | `Order.customer was lazy-loaded 50 times` | `relationship-load` | `Order.customer` | `joinedload` (many-to-one) or `selectinload` (collection) on the query that loaded the parents |
-| `the same statement ran 7 times` | `repeated-statement` | the normalized SQL, as printed under the headline | one query with `WHERE id IN (...)`, or a join, instead of a loop |
+| `the same statement ran 7 times` | `repeated-statement` | the normalized SQL, on the `kind:` line | one query with `WHERE id IN (...)`, or a join, instead of a loop |
 | `Customer had its columns reloaded 50 times for 50 instances, after commit(), ...` | `column-load` | `Customer (expired)` | `expire_on_commit=False`, or load the objects again with one query |
 | `Customer.name was loaded on its own 50 times for 50 instances (deferred column)` | `column-load` | `Customer.name` | `undefer(Customer.name)`, or drop `defer()` / `load_only()` |
 | `the same INSERT ran 6 times, one row at a time` (opt-in) | `write-loop` | the normalized `INSERT`, `UPDATE` or `DELETE` | `session.add_all()` and one flush, or `session.execute(insert(Model), rows)` |
 | `queryguard: missing index` (opt-in) | `missing-index` | the table | the `CREATE INDEX` on the `fix:` line; see the [index advisor](index-advisor.md) |
 | `queryguard: expected at most 2 queries, got 4` | a budget, not a finding | none | fix the code, or raise the budget; ignore patterns and the baseline do not apply |
 
-To see the exact kind and label of every finding of a run, write them to a
-scratch baseline file and read it:
+To list the kind and label of every finding of a run in one file, write a
+scratch baseline:
 
 ```console
 pytest --queryguard-baseline=/tmp/findings.json --queryguard-update-baseline
 ```
 
-The SARIF file (`--queryguard-sarif=PATH`) carries them as well, as
-`queryguard/<kind>` rule ids.
+The SARIF file (`--queryguard-sarif=PATH`) carries the `kind:` line in each
+message and the kind as the `queryguard/<kind>` rule id.
 
 ## 2. Is it real?
 
