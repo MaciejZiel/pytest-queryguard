@@ -60,6 +60,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `docs/stability.md` has an "Experimental" section: the
+  `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
+  and the missing-index check on MySQL and MariaDB are exempt from the
+  deprecation policy and may change or go in a minor release with a changelog
+  entry. The policy had no such tier although the option was labelled
+  experimental.
+
 - `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
   object `record_queries()` yields) instead of the internal `QueryCollector`,
   and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
