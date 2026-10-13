@@ -1453,8 +1453,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     # A finding escalated by ``filterwarnings = error`` is raised from this frame;
-    # keep the plugin's own source out of the failure, as in fail mode.
-    __tracebackhide__ = True
+    # keep the plugin's own source out of that failure, as in fail mode. Any other
+    # exception (a user test failure, a plugin bug) keeps this frame visible.
+    __tracebackhide__ = _hide_escalated_warning
     settings = item.config.stash.get(_settings, None)
     if settings is None:
         # pytest_configure did not complete (for example it raised a UsageError
@@ -1501,9 +1502,16 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     return result
 
 
+def _hide_escalated_warning(
+    excinfo: pytest.ExceptionInfo[BaseException] | None,
+) -> bool:
+    """Hide a plugin frame only when a ``QueryGuardWarning`` was raised as an error."""
+    return excinfo is not None and excinfo.errisinstance(QueryGuardWarning)
+
+
 def _emit_warnings(item: pytest.Item, texts: list[str]) -> None:
     """Emit each finding as a ``QueryGuardWarning`` located at the test."""
-    __tracebackhide__ = True
+    __tracebackhide__ = _hide_escalated_warning
     path, line, _ = item.reportinfo()
     for text in texts:
         std_warnings.warn_explicit(
