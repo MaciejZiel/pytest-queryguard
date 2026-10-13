@@ -1933,9 +1933,7 @@ def _partition_issue(alias: str, table: str, condition: str) -> ScanIssue:
 def test_partitions_of_one_root_become_one_issue_on_the_root() -> None:
     issues = [
         _partition_issue("ev_1", "ev_a", "((ev_1.a = $1) AND (ev_1.b > $2))"),
-        _partition_issue(
-            '"Ev x_2"', "ev_b", '(("Ev x_2".a = $1) AND ("Ev x_2".b > $2))'
-        ),
+        _partition_issue("Ev x_2", "ev_b", '(("Ev x_2".a = $1) AND ("Ev x_2".b > $2))'),
         _partition_issue("ev_3", "ev_c", "((ev_3.a = $1) AND (ev_3.c > $2))"),
         _partition_issue("other", "other", "(other.a = $1)"),
     ]
@@ -1955,3 +1953,27 @@ def test_no_roots_change_nothing() -> None:
     issues = [_partition_issue("t", "t", "(t.a = $1)")]
     found, widened = indexes.to_roots(issues, {}, None, {})
     assert list(found) == issues and widened == {}
+
+
+def test_partitions_are_merged_by_tokens_not_by_text() -> None:
+    # the alias inside a string literal or a longer name is not an alias: ev_1
+    # and ev_2 differ in the literal, ev_3 equals ev_1, ev_4 reads another column
+    issues = [
+        _partition_issue("ev_1", "ev_a", "(ev_1.a = 'ev_1.x')"),
+        _partition_issue("ev_2", "ev_b", "(ev_2.a = 'ev_2.x')"),
+        _partition_issue("ev_3", "ev_c", "(ev_3.a = 'ev_1.x')"),
+        _partition_issue("ev_4", "ev_d", "(xev_4.a = ev_4.a)"),
+    ]
+    roots = {("public", t): ("public", "ev") for t in ("ev_a", "ev_b", "ev_c", "ev_d")}
+    found, _ = indexes.to_roots(issues, roots, "public", {})
+    assert [i.alias for i in found] == ["ev_1", "ev_2", "ev_4"]
+
+
+def test_partitions_with_a_condition_outside_the_tokens_stay_apart() -> None:
+    issues = [
+        _partition_issue("ev_1", "ev_a", "(ev_1.a = `x`)"),
+        _partition_issue("ev_2", "ev_b", "(ev_2.a = `x`)"),
+    ]
+    roots = {("public", t): ("public", "ev") for t in ("ev_a", "ev_b")}
+    found, _ = indexes.to_roots(issues, roots, "public", {})
+    assert len(found) == 2

@@ -885,9 +885,8 @@ def partition_roots(
 def _same_condition(issue: ScanIssue) -> str:
     """The condition with the scan's alias left out: partitions are scanned as
     events_1, events_2, ... with otherwise the same condition."""
-    names = {issue.alias, '"' + issue.alias.replace('"', '""') + '"'}
-    pattern = "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
-    return re.sub(rf'(?<![\w$."])(?:{pattern})\.', "@.", issue.condition)
+    stripped = predicates.without_qualifier(issue.condition, issue.alias)
+    return issue.condition if stripped is None else stripped
 
 
 def to_roots(
