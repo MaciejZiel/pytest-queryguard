@@ -115,17 +115,22 @@ def scope_of_connection(conn: Any) -> int | None:
 
 def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
     """Tell the connection which Session it serves, for every transaction."""
-    # Without the tags the connection counts as a scope of its own and no
-    # attribution is handed to its statements.
-    with contextlib.suppress(AttributeError, TypeError):
-        setattr(connection, _SCOPE_ATTR, scope_of_session(session))
-        # Every live Session that began on this connection: an external
-        # connection can serve several (the "test in a transaction" fixture
-        # with a second Session joined to it).
-        refs = connection.__dict__.get(_SESSION_ATTR, ())
-        if not any(ref() is session for ref in refs):
-            live = tuple(ref for ref in refs if ref() is not None)
-            setattr(connection, _SESSION_ATTR, (*live, weakref.ref(session)))
+    if _error is not None:
+        return
+    try:
+        # Without the tags the connection counts as a scope of its own and no
+        # attribution is handed to its statements.
+        with contextlib.suppress(AttributeError, TypeError):
+            setattr(connection, _SCOPE_ATTR, scope_of_session(session))
+            # Every live Session that began on this connection: an external
+            # connection can serve several (the "test in a transaction" fixture
+            # with a second Session joined to it).
+            refs = connection.__dict__.get(_SESSION_ATTR, ())
+            if not any(ref() is session for ref in refs):
+                live = tuple(ref for ref in refs if ref() is not None)
+                setattr(connection, _SESSION_ATTR, (*live, weakref.ref(session)))
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "after_begin listener (session scopes)")
 
 
 # Orders the ORM executions of all Sessions: of the Sessions that share a

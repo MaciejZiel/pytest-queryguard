@@ -75,6 +75,16 @@
   not plan. After the first check, the connection knows the custom setting
   `queryguard.plan`, with an empty value: `current_setting('queryguard.plan')`
   returns `''` there instead of an error.
+- `EXPLAIN` does not run the statement, but PostgreSQL's planner evaluates
+  calls to functions marked `IMMUTABLE` that have constant arguments while it
+  plans. A function that is marked `IMMUTABLE` and still has a side effect
+  therefore runs again for every plan the check asks for: once for the check's
+  `EXPLAIN` and, when the [index advisor](index-advisor.md) verifies its
+  suggestions with hypopg, once more for the plan without them and twice for
+  each hypothetical index it tries (three more for a single suggestion). The savepoint rolls back what is transactional, but not a
+  `nextval()` call, an advisory lock or a write through `dblink` or
+  `COPY ... TO PROGRAM`. A test that sees a sequence advance by more than it
+  expects can look for such a function.
 - The index check looks only at `SELECT` and `WITH` statements and judges
   plans, not data: it says that no index can serve a filter, not that an
   existing index is a good one. A missing index that only a join would use
