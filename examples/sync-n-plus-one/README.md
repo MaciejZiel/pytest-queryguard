@@ -1,7 +1,7 @@
 # Sync SQLAlchemy: N+1, a lookup loop and a budget
 
 ```console
-$ pip install "pytest-queryguard>=0.4.0rc3"
+$ pip install "pytest-queryguard>=0.4.0rc4"
 $ pytest --queryguard-report tests/test_orders.py
 ```
 
