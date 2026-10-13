@@ -136,6 +136,11 @@ with an `INTERNALERROR`:
 - With pytest-xdist, an error while a worker hands its findings to the
   controller marks the run as incomplete: the baseline is not rewritten and
   the SARIF summary says that findings may be missing.
+- With pytest-xdist, each worker stops and reports on its own. An error in
+  a worker reaches the controller as its `QueryGuardInternalWarning` (pytest
+  lists the same message once, under every test that raised it) and marks
+  the run as incomplete; the "queryguard: measurement stopped" section is
+  written only for an error in the controller process.
 
 `tests/test_fault_injection.py` makes each of these steps raise in turn and
 checks the outcome of every test of a small suite.
