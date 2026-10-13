@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `session.refresh()` of an object whose collection is mapped `lazy="selectin"`
+  or `lazy="subquery"` (also reached through a `lazy="joined"` relationship)
+  was reported as a relationship-load N+1 with a `selectinload` hint for the
+  strategy that is already mapped; two creates followed by a refresh each were
+  enough to fail a test, on sync and async sessions. The loads SQLAlchemy runs
+  for a refresh or an expired reload are no longer counted as lazy loads. A
+  `lazy="select"` collection read per parent, an `immediateload()` option and
+  a loop of refreshes (a column-load finding) are reported as before.
 - The budget failure says `expected at most 1 query` (it said `1 queries`);
   other limits are unchanged.
 - Documentation found in a walk of the 0.4.0rc3 docs, each snippet run in a
