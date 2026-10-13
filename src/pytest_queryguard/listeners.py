@@ -327,7 +327,10 @@ def _record_column_load(
     only = options._only_load_props
     expired = instance.expired_attributes
     columns = {prop.key for prop in instance.mapper.column_attrs}
-    if only is None:
+    # session.refresh(obj, ["name"]) expires the names before it loads them,
+    # so without the flag it would look like an expired load.
+    user_refresh = bool(getattr(_load_options(state), "_is_user_refresh", False))
+    if only is None or user_refresh:
         cause, names = CAUSE_REFRESH, ()
     elif instance.expired or (only and set(only) <= expired):
         cause, names = CAUSE_EXPIRED, ()
