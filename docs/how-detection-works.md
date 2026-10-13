@@ -51,7 +51,10 @@ two), is a `SELECT` or `WITH`, and does not run inside the `Session`'s own
 begin step (the engine's `begin` event and `after_begin` listeners, such as
 SQLAlchemy's pysqlite `BEGIN` recipe). Statements of another `Session`
 (asyncio tasks share a thread), autoflush writes and transaction control
-statements therefore neither take the attribution nor clear it. A
+statements therefore neither take the attribution nor clear it. When several
+`Session`s share one connection (a second `Session` joined to the external
+connection of a "test in a transaction" fixture), the `SELECT` belongs to the
+one whose ORM execution came last. A
 `contextvars` slot would not be enough: the autoflush and the pool checkout
 await inside one task, and a second task's statements run in that gap.
 
