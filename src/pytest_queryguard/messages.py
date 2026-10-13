@@ -475,6 +475,7 @@ def make_index_finding(scan: ScanEvent, *, cwd: Path | None = None) -> Finding:
         message="\n".join(_scan_block(scan, cwd)),
         line=None if site is None else site.lineno,
         advice=_index_advice(scan.issue),
+        table=(scan.issue.schema, scan.issue.table),
     )
 
 

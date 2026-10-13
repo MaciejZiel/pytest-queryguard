@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Finding kinds. They are part of the identity of a finding, so they never change.
 KIND_RELATIONSHIP = "relationship-load"
@@ -73,6 +73,10 @@ class Finding:
     # For ``missing-index`` findings, with the index advisor on; not part of
     # the identity.
     advice: IndexAdvice | None = None
+    # For ``missing-index`` findings: (schema, table) as the plan names them,
+    # which the label may leave out or quote; lets ignore patterns match any
+    # spelling of the table. Not part of the identity.
+    table: tuple[str | None, str] | None = field(default=None, compare=False)
 
     @property
     def identity(self) -> tuple[str, str, str | None, str | None]:
