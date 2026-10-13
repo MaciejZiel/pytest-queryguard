@@ -67,6 +67,20 @@ def test_repeat_message() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("limit", "first_line"),
+    [
+        (0, "queryguard: expected at most 0 queries, got 1"),
+        (1, "queryguard: expected at most 1 query, got 1"),
+        (2, "queryguard: expected at most 2 queries, got 1"),
+    ],
+)
+def test_budget_message_noun_agrees_with_the_limit(limit: int, first_line: str) -> None:
+    site = CallSite(filename="/work/project/app/a.py", lineno=7, function="run")
+    statements = [StatementEvent("SELECT 1", site, None)]
+    assert format_budget(limit, statements, cwd=CWD).splitlines()[0] == first_line
+
+
 def test_budget_message_lists_statements() -> None:
     site = CallSite(filename="/work/project/app/a.py", lineno=7, function="run")
     long_sql = "SELECT " + "x" * 300
@@ -75,7 +89,7 @@ def test_budget_message_lists_statements() -> None:
         StatementEvent(long_sql, None, None),
     ]
     lines = format_budget(1, statements, cwd=CWD).splitlines()
-    assert lines[0] == "queryguard: expected at most 1 queries, got 2"
+    assert lines[0] == "queryguard: expected at most 1 query, got 2"
     assert "  1. SELECT 1  (app/a.py:7 in run)" in lines
     assert f"  2. {long_sql[:200]}..." in lines
 

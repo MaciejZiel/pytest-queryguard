@@ -86,7 +86,7 @@ def test_findings_and_budgets_come_from_the_workers(
         [
             "*queryguard: N+1 detected*",
             "*Order.customer was lazy-loaded*",
-            "*queryguard: expected at most 1 queries, got *",
+            "*queryguard: expected at most 1 query, got *",
         ]
     )
     assert any(f"[gw{n}]" in result.stdout.str() for n in range(workers))
