@@ -65,10 +65,19 @@ one test. Statements are compared after normalization: whitespace is
 collapsed, literals and parameter placeholders become `?`, and `IN (...)`
 lists of any length are one shape. Statements already reported as a
 relationship or column load are not counted again, and `INSERT`, `UPDATE`
-and `DELETE` are never counted by this rule. Pagination and chunked `IN`
-loads are not counted either, when their parameters show it (see below). The
-label is the normalized statement. This rule sees Core and `text()`
-statements as well as ORM ones.
+and `DELETE` are never counted by this rule, nor are transaction-control
+statements: `BEGIN`, `COMMIT`, `ROLLBACK` (also `ROLLBACK TO SAVEPOINT`),
+`SAVEPOINT`, `RELEASE`, `START TRANSACTION` and `SET TRANSACTION`. A loop that
+commits on each pass runs one `BEGIN` and one `COMMIT` per pass, for example
+with SQLAlchemy's pysqlite `BEGIN` recipe, and that is not a query to batch.
+Budgets (`max_queries`) still count these statements. Other `SET` statements
+(`SET search_path`, `SET LOCAL ...`) are counted like any statement, and so is
+a `BEGIN` that opens a block rather than a transaction (`BEGIN
+load_order(:id); END;`). A loop that opens a `SAVEPOINT` for each row still
+shows its `INSERT`s to the [write-loop](#write-loop) rule. Pagination and
+chunked `IN` loads are not counted either, when their parameters show it (see
+below). The label is the normalized statement. This rule sees Core and
+`text()` statements as well as ORM ones.
 
 Schema reflection is not counted either, by this rule or by the small-repeat
 rule: SQLAlchemy's `MetaData.reflect()`, `Inspector.has_table()` and
@@ -89,8 +98,8 @@ statements still count for `max_queries` and appear in the report.
 With `queryguard_small_repeat_threshold` set (off by default, for example
 `2`), a statement that ran at least that many times but fewer than the repeat
 threshold is reported too, if all of these hold: every run came from the same
-source line, every run had different parameters, the statement is not a write,
-and it is not pagination (`OFFSET`, or `LIMIT` with a `>` or `<` condition on
+source line, every run had different parameters, the statement is not a write
+or transaction control, and it is not pagination (`OFFSET`, or `LIMIT` with a `>` or `<` condition on
 a parameter) or a chunked `IN` load as described below.
 
 #### Pagination and chunks
