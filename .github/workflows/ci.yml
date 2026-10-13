@@ -100,7 +100,27 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync
       - run: uv run --no-sync pytest tests/test_xdist.py -v
+      # 500 generated tests on 4 workers: baseline, SARIF, no leakage
+      - run: uv run --no-sync pytest tests/test_stress_xdist.py -v
+        env:
+          QUERYGUARD_STRESS: "1"
       - run: uv run --no-sync pytest -n 2 --ignore=tests/test_xdist.py
+
+  # Third-party plugins that change how every test runs (the "plugins"
+  # dependency group: pytest-randomly, pytest-asyncio). Only the tests written
+  # for them run here; installed, they would reorder the whole suite.
+  plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --group plugins
+      - run: >-
+          uv run --no-sync pytest -v -p no:randomly
+          -o asyncio_default_fixture_loop_scope=function
+          tests/test_plugin_interplay.py
 
   # Per-statement overhead of the measurement against the stored baseline in
   # scripts/bench_baseline.json (relative overhead, generous margin). Linux

@@ -80,7 +80,11 @@ def db(with_hypopg: Postgres) -> Iterator[Db]:
         "FROM generate_series(1, 20000) g",
         "CREATE TABLE customers (id serial PRIMARY KEY, email varchar(50))",
         "INSERT INTO customers SELECT g, 'c' || g FROM generate_series(1, 200) g",
-        "ANALYZE",
+        # Not a bare ANALYZE: that reads every schema of the database, so it
+        # rewrote the statistics of the tables other xdist workers were using
+        # and deadlocked with their DROP SCHEMA.
+        "ANALYZE orders",
+        "ANALYZE customers",
     )
     yield database
     engine.dispose()
