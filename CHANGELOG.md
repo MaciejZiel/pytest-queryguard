@@ -18,12 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- On SQLAlchemy 2.0.20 to 2.0.49 a `yield_per` statement with `selectinload`
-  failed with "Can't use the ORM yield_per feature in conjunction with
-  unique()" only because the plugin was installed: any `do_orm_execute`
-  listener triggers SQLAlchemy issue 13301 (fixed in 2.0.50). On those versions
-  the plugin now removes the leaked option from the loader statement, so the
-  test behaves as it does without the plugin
+- On SQLAlchemy 2.0.20 to 2.0.49 (and 2.1.0b1, 2.1.0b2) the plugin's
+  `do_orm_execute` listener triggered SQLAlchemy issue 13301 (fixed in 2.0.50):
+  the outer statement's `yield_per`, `autoflush`, `populate_existing` and
+  `identity_token` options became load options of its `selectinload` and
+  `immediateload` statements. A `yield_per` plus `selectinload` test failed
+  with "Can't use the ORM yield_per feature in conjunction with unique()", and
+  `autoflush=False` stopped the loader statement from flushing, only because
+  the plugin was installed. On those versions the plugin now removes the
+  inherited options from a loader statement before SQLAlchemy reads them, so
+  the statement runs as it does without the plugin. When a `do_orm_execute`
+  listener of your own takes part, the plugin changes nothing: your listener
+  triggers the same issue without the plugin
   ([#169](https://github.com/MaciejZiel/pytest-queryguard/issues/169)).
 
 - Tests: the accuracy corpus now runs on PostgreSQL
