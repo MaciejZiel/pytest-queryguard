@@ -246,7 +246,7 @@ _IMMEDIATE_CODE = getattr(
 _MAX_LOADER_DEPTH = 40
 
 
-def _is_refresh_eager_load() -> bool:
+def _is_refresh_eager_load(parent: Any, prop: Any) -> bool:
     """Whether the load running now is a mapped eager loader run by a refresh.
 
     ``session.refresh(obj)`` (and the reload of expired attributes) of an
@@ -256,6 +256,11 @@ def _is_refresh_eager_load() -> bool:
     eager strategy at work and ``selectinload`` would change nothing. The
     outer query of that step is a refresh (``refresh_state`` is set); an
     ``immediateload()`` of a plain query has none and stays a lazy load.
+
+    Only the loader's own query counts: ``parent`` must be one of the states it
+    loads and ``prop`` its relationship. A lazy load that user code (a
+    reconstructor, a ``load`` event) runs while the loader builds the children
+    is a lazy load like anywhere else.
     """
     if _IMMEDIATE_CODE is None:
         return False
@@ -264,8 +269,12 @@ def _is_refresh_eager_load() -> bool:
         if frame is None:
             return False
         if frame.f_code is _IMMEDIATE_CODE:
-            context = frame.f_locals.get("context")
-            return getattr(context, "refresh_state", None) is not None
+            local = frame.f_locals
+            if getattr(local.get("context"), "refresh_state", None) is None:
+                return False
+            if getattr(local.get("self"), "parent_property", None) is not prop:
+                return False
+            return any(state is parent for state, _ in local.get("states") or ())
         frame = frame.f_back
     return False
 
@@ -428,7 +437,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         name = str(prop)
         scalar = getattr(prop, "uselist", None) is False
         parent = state.lazy_loaded_from
-        if parent is not None and _is_refresh_eager_load():
+        if parent is not None and _is_refresh_eager_load(parent, prop):
             # An eager loader's query: label the statement, count no lazy load.
             _set_pending(state.session, name, lazy=False)
             return

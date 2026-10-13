@@ -26,6 +26,7 @@ from sqlalchemy.orm import (
     Session,
     immediateload,
     mapped_column,
+    reconstructor,
     relationship,
 )
 from sqlalchemy.pool import StaticPool
@@ -342,3 +343,71 @@ def test_without_the_immediate_loader_refreshes_count_as_before(
 
 def test_the_immediate_loader_is_found_on_this_sqlalchemy() -> None:
     assert listeners._IMMEDIATE_CODE is not None
+
+
+# ------------------------------------------- loads run by user code in a refresh
+
+
+class HookBase(DeclarativeBase):
+    pass
+
+
+class Shelf(HookBase):
+    __tablename__ = "shelf"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    items: Mapped[list[Item]] = relationship(lazy="selectin")
+
+
+class Keeper(HookBase):
+    __tablename__ = "keeper"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+
+
+class Item(HookBase):
+    __tablename__ = "item"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    shelf_id: Mapped[int] = mapped_column(ForeignKey("shelf.id"))
+    keeper_id: Mapped[int] = mapped_column(ForeignKey("keeper.id"))
+    keeper: Mapped[Keeper] = relationship(lazy="select")
+    read_keeper = False
+
+    @reconstructor
+    def _on_load(self) -> None:
+        # user code that runs while the refresh's immediate loader loads items
+        if Item.read_keeper:
+            self.keeper_name = self.keeper.name
+
+
+def test_a_lazy_load_run_by_a_load_hook_inside_a_refresh_is_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Only the immediate loader's own query for the refreshed object is an
+    # eager load; a lazy load that user code runs while it loads the children
+    # (here a reconstructor reading Item.keeper) is a lazy load as anywhere else.
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    HookBase.metadata.create_all(engine)
+    try:
+        with Session(engine) as session:
+            for i in (1, 2, 3):
+                session.add_all([Keeper(id=i, name=f"k{i}"), Shelf(id=i)])
+                session.flush()
+                session.add(Item(id=i, shelf_id=i, keeper_id=i))
+            session.commit()
+        with Session(engine) as session:
+            shelves = session.scalars(select(Shelf)).all()
+            for obj in list(session.identity_map.values()):
+                if not isinstance(obj, Shelf):
+                    session.expunge(obj)
+            monkeypatch.setattr(Item, "read_keeper", True)
+            with record_queries() as log:
+                session.refresh(shelves[0])
+                session.refresh(shelves[1])
+    finally:
+        engine.dispose()
+    report = _report(log)
+    assert "Item.keeper was lazy-loaded 2 times" in report
+    assert "Shelf.items" not in report
