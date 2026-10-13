@@ -132,6 +132,14 @@ What is reported:
   case is not checked there. BRIN and GIN indexes serve any of their
   columns and are not judged this way.
 
+The last two cases walk an index that exists, so the finding does not say the
+table is read in full. It reads `rw_link scans the whole index rw_link_pkey:
+the index condition (rw_link.hero_id = $1) does not match the start of any
+index` (or `the filter`), as the SQLite check words it, and the fix is still
+the `CREATE INDEX` for the filtered column. When every finding of a test is of
+this kind, the closing note speaks of a whole-index scan instead of a
+sequential scan.
+
 A table with a partial index is judged with one exception. The check
 plans with a generic plan, where bound values are parameters, so it cannot
 tell whether `... (x) WHERE status = 'open'` serves `status = $1 AND x = $2`
@@ -163,9 +171,17 @@ and each child read in full are separate findings.
 
 Not reported: a sequential scan without a filter, such as `SELECT * FROM t`,
 `SELECT count(*) FROM t` or a join without a `WHERE`, because the statement
-reads the whole table anyway; scans of PostgreSQL's own catalogs. Whether a
-join reads its unindexed side in full depends on table statistics, so join
-conditions on their own are never reported.
+reads the whole table anyway; a sequential scan whose filter is only
+not-equal comparisons against parameters or other columns (`<> $1`,
+`NOT IN ($1, $2)`), because no index serves them, whether the column is
+indexed or not; scans of PostgreSQL's own catalogs. One more condition an
+index could serve, as in `a = $1 AND b <> $2`, makes the scan reportable
+again. A not-equal against a constant written into the SQL, such as
+`status <> 'done'`, stays reported: a partial index such as
+`CREATE INDEX ON orders (id) WHERE status <> 'done'` serves it, and pays off
+when the excluded value is the common one. Whether a join reads
+its unindexed side in full depends on table statistics, so join conditions on
+their own are never reported.
 
 The `fix:` line names a column only when the condition compares one plain
 column with `=`, `<`, `<=`, `>` or `>=`. PostgreSQL prints a `::text` cast
@@ -180,9 +196,23 @@ because an index on the plain column would not help there.
 Each distinct statement is explained once per test (again after DDL
 changes the catalog), inside a savepoint on
 the connection that ran it, so the check sees tables and rows the test has
-not committed yet and leaves the test's transaction as it was. Statements
+not committed yet and leaves the test's transaction as it was. On an
+AUTOCOMMIT connection the check also tries the savepoint first, so a
+transaction the test opened with its own `BEGIN` is left open; only a
+connection with no transaction open gets a `BEGIN` ... `ROLLBACK` of the
+check's own. That first savepoint fails on such a connection, so the server
+log shows `SAVEPOINT can only be used in transaction blocks` once per
+explained statement; it is expected and changes nothing. Statements
 from fixtures are not checked, like for N+1 detection. Statements that
 start with comments, such as sqlcommenter tags, are checked too.
+
+`EXPLAIN` does not run the statement, but the planner evaluates calls to
+`IMMUTABLE` functions with constant arguments while it plans. Such a function
+runs again for each plan the check (and the [advisor](index-advisor.md), when
+it verifies a suggestion) asks for, and a side effect that is not
+transactional, such as `nextval()`, is not undone by the savepoint. That only
+concerns functions that are marked `IMMUTABLE` but have side effects; see
+[Limitations](limitations.md).
 
 The check costs a few database round trips per distinct statement per test:
 open the savepoint, set the planner settings, `EXPLAIN` and roll back. The
@@ -205,7 +235,10 @@ production. Exclude such tables with `queryguard_index_ignore_tables`, one
 test with `@pytest.mark.allow_missing_index`, or only some tables in one
 test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
 Findings follow `queryguard_mode`: `warn` turns them into warnings and
-`off` turns the check off. `allow_nplusone` does not affect the index check.
+`off` turns the check off. `allow_nplusone` without arguments does not
+affect the index check, but `allow_nplusone` with patterns matches
+missing-index findings the same way `queryguard_ignore` does
+(`@pytest.mark.allow_nplusone("audit_log", kind="missing-index")`).
 
 ## PostgreSQL versions
 
@@ -261,7 +294,7 @@ does not support:
 
 ```
 ============================ queryguard index check ============================
-mssql statements were not checked: the index check needs PostgreSQL 16 or newer
+mssql statements were not checked: the index check supports PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)
 ```
 
 The same summary names a PostgreSQL server older than 16, async drivers

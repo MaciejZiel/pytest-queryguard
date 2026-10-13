@@ -14,6 +14,9 @@ changes by accident.
   attributes and methods of the classes in it (`QueryLog`, `Query`,
   `CallSite`, the exceptions and the warning classes). A new keyword argument
   with a default, or a new attribute, is not a breaking change.
+  Each of these reports `pytest_queryguard` as its `__module__`, so tracebacks,
+  reprs, pickles and `filterwarnings` entries use the documented import path
+  (`pytest_queryguard.NPlusOneDetected`, not the submodule it lives in).
 - The pytest integration: the ini options (`queryguard_*`), the command-line
   flags (`--queryguard-*`, `--no-queryguard-*`), their defaults and accepted
   values, and the markers (`max_queries`, `max_db_time`, `allow_nplusone`,
@@ -40,7 +43,7 @@ changes by accident.
 - Which statements SQLAlchemy emits for a given ORM call; that depends on the
   SQLAlchemy version.
 - The index check beyond what the documentation promises: it is documented
-  for PostgreSQL 16 and newer and for SQLite, and on older PostgreSQL servers
+  for PostgreSQL 16 and newer, SQLite, MySQL and MariaDB, and on older PostgreSQL servers
   it only prints a notice. It is tested on PostgreSQL 16 to 18; on a newer
   server it runs and prints a notice that the version is untested.
 
@@ -75,9 +78,13 @@ release.
 ## Deprecation policy
 
 1. The old name or behaviour keeps working and starts emitting a
-   `QueryGuardWarning` (a `UserWarning` subclass) that names the replacement
-   and the release in which it will be removed. Command-line flags and ini
-   options print the same warning once per run.
+   `QueryGuardDeprecationWarning` (a `DeprecationWarning` subclass, exported
+   from `pytest_queryguard`) that names the replacement and the release in
+   which it will be removed. It is not a `QueryGuardWarning`, so a
+   `filterwarnings` entry that turns findings into errors, or ignores them,
+   does not catch it; pytest shows `DeprecationWarning` in the warnings
+   summary by default. Command-line flags and ini options print the same
+   warning once per run.
 2. The deprecation is listed under "Deprecated" in the changelog, and the
    documentation points to the replacement.
 3. It stays for at least one minor release (two, from 1.0 on) and at least
@@ -90,6 +97,24 @@ A security or data-loss fix may skip these steps; the changelog says so.
 A new finding kind, or a stricter version of an existing check, first appears
 in a release where it can be turned off with an ini option, and the changelog
 says how. Before 1.0 it may be on by default (see the pre-1.0 clause above).
+
+## Experimental
+
+Options, finding kinds and markers listed here are public to use but exempt
+from the deprecation policy: a minor release may change their values,
+defaults, labels or messages, or remove them, with a changelog entry under
+"Changed" or "Removed" and no deprecation period. The ini option is marked
+`EXPERIMENTAL` in `pytest --help`.
+
+- `queryguard_unused_eager_load` and the `unused-eager-load` finding kind
+  (rule `queryguard/unused-eager-load` in SARIF). See
+  [Unused eager loads](unused-eager-load.md).
+- The missing-index check on MySQL and MariaDB (tested by hand, not in CI; see
+  [the MySQL and MariaDB page](index-check-mysql.md)).
+
+Everything else listed under "What is public" follows the deprecation policy.
+`tests/test_public_api.py` still snapshots the experimental ini option and its
+default, so a change to it is deliberate and visible in review.
 
 ## How this is enforced
 

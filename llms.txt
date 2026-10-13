@@ -54,7 +54,7 @@ import pytest
 from pytest_queryguard import max_queries
 
 
-@pytest.mark.max_queries(3)  # or max_queries(n=3)
+@pytest.mark.max_queries(3)  # or max_queries(limit=3)
 def test_order_page(client):
     client.get("/orders/1")
 
@@ -102,6 +102,7 @@ Here `list_orders` is the fixed function from the README (`select(Order).options
 - `log.queries` is a tuple of `Query` objects (`sql`, `callsite` as a `CallSite` with `filename`, `lineno` and `function`, or `None`, and `relationship`, such as `"Order.customer"`, or `None`). `log.count`, `len(log)`, iteration and indexing also work; a `QueryLog` is not a `collections.abc.Sequence`.
 - `log.assert_no_nplusone()` raises `NPlusOneDetected` (a subclass of `AssertionError`) with the plugin's two rules. Thresholds are the keyword arguments `relationship_threshold=2`, `repeat_threshold=5`, `column_load_threshold=5`, `small_repeat_threshold` and `write_loop_threshold`; the `queryguard_*` ini options, `queryguard_mode` and `allow_nplusone` are not read.
 - After an internal error, a block that ends normally issues `QueryGuardInternalWarning` (the log may be incomplete), and `assert_no_nplusone()` raises `RuntimeError` instead of passing.
+- `QueryGuardDeprecationWarning` (a `DeprecationWarning`, not a `QueryGuardWarning`) is what a later release uses to announce an option or name it removes; a `filterwarnings` entry for `QueryGuardWarning` does not match it.
 
 ## Configuration
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -17,7 +16,7 @@ from .messages import (
     format_time_budget,
     make_findings,
 )
-from .warnings import QueryGuardInternalWarning
+from .warnings import QueryGuardInternalWarning, warn_internal
 
 
 class QueryBudgetExceeded(AssertionError):
@@ -228,7 +227,9 @@ class QueryLog:
         The rules, and the defaults of the thresholds, are the plugin's: one
         relationship lazy-loaded for ``relationship_threshold`` different
         parent objects, or one ``SELECT``, without its literals and
-        parameters, run ``repeat_threshold`` times, or ``column_load_threshold``
+        parameters, run ``repeat_threshold`` times (pagination and chunked
+        ``IN`` loads, recognised by their parameters, do not count), or
+        ``column_load_threshold``
         instances of one class each loading deferred or expired columns on
         their own. With ``small_repeat_threshold`` (an integer, at least 2 and
         below ``repeat_threshold``), a statement that ran that many times or
@@ -325,7 +326,7 @@ def _record() -> Iterator[QueryLog]:
         # normal exit only: it must not replace the exception that ended it.
         error = log._finish(earlier)
     if error is not None:
-        warnings.warn(
+        warn_internal(
             QueryGuardInternalWarning(
                 "the QueryLog of this block may be incomplete: pytest-queryguard "
                 f"stopped recording after an internal error: {error!r}"

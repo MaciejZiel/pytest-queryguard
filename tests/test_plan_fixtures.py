@@ -146,11 +146,13 @@ EXPECTED: dict[str, list[tuple[str, str, str, str | None, bool]]] = {
     "mixed_case_schema": [("Order Lines", SEQ, "filter", '"orderId"', False)],
     "multicolumn_leading_order": [],
     "multicolumn_trailing_range": [],
-    "ne_all_array": [("orders", SEQ, "filter", None, False)],
-    "not_condition": [("orders", SEQ, "filter", None, False)],
-    "not_equal": [("orders", SEQ, "filter", None, False)],
+    # no btree index serves <>, <> ALL or NOT IN with values: a filter made only
+    # of those is not reported
+    "ne_all_array": [],
+    "not_condition": [],
+    "not_equal": [],
     "not_exists_anti_join": [],
-    "not_in_list": [("orders", SEQ, "filter", None, False)],
+    "not_in_list": [],
     "not_in_subquery": [
         ("customers", SEQ, "filter", None, False),
         ("orders", SEQ, "filter", "status", False),

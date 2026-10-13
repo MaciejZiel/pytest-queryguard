@@ -5,6 +5,7 @@ See docs/design-0.2.md for the reasoning behind each rule here.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import weakref
@@ -253,7 +254,7 @@ def _issue(
     if node_type == "Seq Scan":
         # Rule 1: the table is read in full to apply its filter.
         condition = _text(node, "Filter")
-        if condition is None:
+        if condition is None or _only_not_equal(condition):
             return None
         return _make(rel, "Seq Scan", "filter", condition, ctx, node, above)
     if node_type == "Bitmap Heap Scan":
@@ -274,6 +275,7 @@ def _issue(
             ctx,
             node,
             above,
+            walked=f"index {whole}",
         )
     if node_type not in (*_INDEX_SCANS, _BITMAP_SCAN):
         return None
@@ -288,7 +290,16 @@ def _issue(
             return None
         if equality_column(condition, rel.alias, varchar) is None:
             return None
-        return _make(rel, label, "filter", condition, ctx, node, above)
+        return _make(
+            rel,
+            label,
+            "filter",
+            condition,
+            ctx,
+            node,
+            above,
+            walked=f"index {index}" if index else None,
+        )
     # Rule 3: the index condition uses only trailing columns of a multicolumn
     # index, which PostgreSQL before 18 serves by reading the whole index.
     first = ctx.leading.get((rel.schema or "", index or ""))
@@ -297,7 +308,70 @@ def _issue(
     columns = condition_columns(index_cond, rel.alias)
     if first in columns or equality_column(index_cond, rel.alias, varchar) is None:
         return None
-    return _make(rel, label, "index condition", index_cond, ctx, node, above)
+    return _make(
+        rel,
+        label,
+        "index condition",
+        index_cond,
+        ctx,
+        node,
+        above,
+        walked=f"index {index}" if index else None,
+    )
+
+
+_CONSTANT = re.compile(r"'.*'|[-+]?\d+(\.\d+)?|true|false", re.IGNORECASE | re.DOTALL)
+
+
+def _constant(expr: predicates.Expr) -> bool:
+    """A value written into the SQL: a literal, a cast of one, an array of them."""
+    if isinstance(expr, predicates.Lit):
+        return _CONSTANT.fullmatch(expr.text) is not None
+    if isinstance(expr, predicates.Cast):
+        return _constant(expr.operand)
+    if isinstance(expr, predicates.Call) and expr.name.lower() in (
+        "array",
+        "any",
+        "all",
+    ):
+        return bool(expr.args) and all(_constant(arg) for arg in expr.args)
+    return False
+
+
+def _not_equal(expr: predicates.Expr) -> bool:
+    """``<>``, ``<> ALL (...)`` or ``NOT (x = ANY (...))`` against a parameter.
+
+    No btree index serves it. Against a constant written into the SQL
+    (``status <> 'done'``) a partial index ``WHERE status <> 'done'`` does,
+    and is worth it when the excluded value is the common one, so that stays
+    reportable.
+    """
+    if isinstance(expr, predicates.Not):
+        expr = expr.operand
+        if not (isinstance(expr, predicates.Op) and expr.op == "="):
+            return False
+    elif not (isinstance(expr, predicates.Op) and expr.op in ("<>", "!=")):
+        return False
+    return not (_constant(expr.left) or _constant(expr.right))
+
+
+def _only_not_equal(condition: str) -> bool:
+    """True when every condition ANDed together is a not-equal comparison.
+
+    A sequential scan is what the planner must do then, indexed column or not,
+    so there is no index to add (see ``_not_equal`` for constants). One condition an index could serve (``a = $1
+    AND b <> $2``) makes the scan reportable as before; text the parser does
+    not know is reportable too.
+    """
+    tree = predicates.parse(condition)
+    if tree is None:
+        return False
+    items = (
+        tree.items
+        if isinstance(tree, predicates.Bool) and tree.op == "AND"
+        else (tree,)
+    )
+    return all(_not_equal(item) for item in items)
 
 
 def _make(
@@ -308,7 +382,9 @@ def _make(
     ctx: _Context,
     node: Mapping[str, Any],
     above: _Above,
+    walked: str | None = None,
 ) -> ScanIssue:
+    """``walked`` names an existing index the plan reads end to end ("index x")."""
     varchar = ctx.varchar.get((rel.schema or "", rel.table), frozenset())
     column = hint_column(condition, rel.alias, varchar)
     conditions = tuple(
@@ -323,6 +399,7 @@ def _make(
         column,
         show_schema=rel.schema not in (None, ctx.current),
         expression=column is None and _needs_expression(condition, rel.alias, varchar),
+        index=walked,
         alias=rel.alias,
         conditions=conditions,
         sort_keys=above.sort,
@@ -1131,74 +1208,78 @@ def run_explain(
     table with a partial index the generic plan cannot rule out come back as
     ``partial_skipped`` instead of in ``issues``.
     """
-    if getattr(dbapi_connection, "autocommit", False):
-        start, undo = ["BEGIN"], ["ROLLBACK"]
-    else:
-        start = [f"SAVEPOINT {_SAVEPOINT}"]
-        undo = [
-            f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}",
-            f"RELEASE SAVEPOINT {_SAVEPOINT}",
-        ]
     cursor = _AsyncpgCursor(dbapi_connection) if asyncpg else dbapi_connection.cursor()
     try:
-        _manage(cursor, start)
-        row: Any = None
-        settings: Any = None
-        error: ExplainError | None = None
-        columns: dict[tuple[str, str], str] = {}
-        varchar: dict[tuple[str, str], frozenset[str]] = {}
-        catalog_error: str | None = None
-        issues: tuple[ScanIssue, ...] | None = None
-        advisor_notice: str | None = None
-        skipped: tuple[ScanIssue, ...] = ()
+        undo = _begin(cursor, bool(getattr(dbapi_connection, "autocommit", False)))
         try:
-            cursor.execute(_SETTINGS)
-            settings = cursor.fetchone()
-            row = _explain(cursor, sql, asyncpg)
-        except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
-            error = ExplainError(_error_message(exc), getattr(exc, "sqlstate", None))
-        plan = None if error else _read_plan(row[0] if row else None)
-        if plan is not None and catalog is not None:
+            row: Any = None
+            settings: Any = None
+            error: ExplainError | None = None
+            columns: dict[tuple[str, str], str] = {}
+            varchar: dict[tuple[str, str], frozenset[str]] = {}
+            catalog_error: str | None = None
+            issues: tuple[ScanIssue, ...] | None = None
+            advisor_notice: str | None = None
+            skipped: tuple[ScanIssue, ...] = ()
             try:
-                columns, varchar = _read_catalog(
-                    cursor, plan, catalog, leading, asyncpg
+                cursor.execute(_SETTINGS)
+                settings = cursor.fetchone()
+                row = _explain(cursor, sql, asyncpg)
+            except Exception as exc:  # noqa: BLE001  # any database error from EXPLAIN
+                error = ExplainError(
+                    _error_message(exc), getattr(exc, "sqlstate", None)
                 )
-            except Exception as exc:  # noqa: BLE001  # reported once by check()
-                catalog_error = _error_message(exc)
-        if (
-            plan is not None
-            and (advise is not None or skip_partial)
-            and catalog_error is None
-        ):
-            schema = settings[-1] if settings else None
-            current = schema if isinstance(schema, str) else None
-            issues = tuple(find_scans(plan, current, columns, varchar))
-            tables = {(i.schema, i.table) for i in issues if i.schema}
-            lookups_ok = True
-            if tables:
+            plan = None if error else _read_plan(row[0] if row else None)
+            if plan is not None and catalog is not None:
                 try:
-                    roots = partition_roots(cursor, tables, catalog, asyncpg)
-                    issues, varchar = to_roots(issues, roots, current, varchar)
-                except Exception as exc:  # noqa: BLE001  # fail open: name the partitions
-                    # the savepoint is aborted now: no more lookups in it
-                    lookups_ok = False
-                    advisor_notice = (
-                        "partition lookup failed, findings name the partitions "
-                        f"and get no advice: {_error_message(exc)}"
+                    columns, varchar = _read_catalog(
+                        cursor, plan, catalog, leading, asyncpg
                     )
-            if issues and skip_partial and lookups_ok:
-                try:
-                    issues, skipped = _split_partial(cursor, issues, catalog, asyncpg)
-                except Exception as exc:  # noqa: BLE001  # fail open: keep the findings
-                    advisor_notice = f"partial index lookup failed, findings kept: {_error_message(exc)}"
-            if issues and advise is not None and lookups_ok:
-                try:
-                    issues, notice = _advise(
-                        cursor, sql, issues, varchar, catalog, advise, asyncpg
-                    )
-                    advisor_notice = advisor_notice or notice
-                except Exception as exc:  # noqa: BLE001  # fail open: no advice
-                    advisor_notice = f"index advisor: no suggestions this time: {_error_message(exc)}"
+                except Exception as exc:  # noqa: BLE001  # reported once by check()
+                    catalog_error = _error_message(exc)
+            if (
+                plan is not None
+                and (advise is not None or skip_partial)
+                and catalog_error is None
+            ):
+                schema = settings[-1] if settings else None
+                current = schema if isinstance(schema, str) else None
+                issues = tuple(find_scans(plan, current, columns, varchar))
+                tables = {(i.schema, i.table) for i in issues if i.schema}
+                lookups_ok = True
+                if tables:
+                    try:
+                        roots = partition_roots(cursor, tables, catalog, asyncpg)
+                        issues, varchar = to_roots(issues, roots, current, varchar)
+                    except Exception as exc:  # noqa: BLE001  # fail open: name the partitions
+                        # the savepoint is aborted now: no more lookups in it
+                        lookups_ok = False
+                        advisor_notice = (
+                            "partition lookup failed, findings name the partitions "
+                            f"and get no advice: {_error_message(exc)}"
+                        )
+                if issues and skip_partial and lookups_ok:
+                    try:
+                        issues, skipped = _split_partial(
+                            cursor, issues, catalog, asyncpg
+                        )
+                    except Exception as exc:  # noqa: BLE001  # fail open: keep the findings
+                        advisor_notice = f"partial index lookup failed, findings kept: {_error_message(exc)}"
+                if issues and advise is not None and lookups_ok:
+                    try:
+                        issues, notice = _advise(
+                            cursor, sql, issues, varchar, catalog, advise, asyncpg
+                        )
+                        advisor_notice = advisor_notice or notice
+                    except Exception as exc:  # noqa: BLE001  # fail open: no advice
+                        advisor_notice = f"index advisor: no suggestions this time: {_error_message(exc)}"
+        except Exception:
+            # A bug after the savepoint opened: put the user's connection back
+            # as it was (no open savepoint or transaction, no changed setting)
+            # before the error stops the plugin.
+            with contextlib.suppress(Exception):
+                _manage(cursor, undo)
+            raise
         _manage(cursor, undo)
     finally:
         cursor.close()
@@ -1343,6 +1424,44 @@ def _prefer_partial(full: Verification, partial: Verification) -> bool:
     )
 
 
+_SAVEPOINT_UNDO = [
+    f"ROLLBACK TO SAVEPOINT {_SAVEPOINT}",
+    f"RELEASE SAVEPOINT {_SAVEPOINT}",
+]
+
+# SQLSTATE of "SAVEPOINT can only be used in transaction blocks"
+_NO_ACTIVE_TRANSACTION = "25P01"
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    """The SQLSTATE of a driver error (asyncpg: sqlstate, pg8000: field C)."""
+    code = getattr(exc, "sqlstate", None)
+    if code is None and exc.args and isinstance(exc.args[0], Mapping):
+        code = exc.args[0].get("C")
+    return code if isinstance(code, str) else None
+
+
+def _begin(cursor: Any, autocommit: bool) -> list[str]:
+    """Open the isolation for EXPLAIN and return the statements that undo it.
+
+    A savepoint leaves the connection's transaction as it is. ``autocommit``
+    is the driver's setting, not the server's state: an application can open a
+    transaction by hand with BEGIN on such a connection, and a ROLLBACK from
+    here would end it. So the savepoint comes first on every connection, and
+    only a connection with no transaction open (SAVEPOINT fails with
+    SQLSTATE 25P01, which aborts nothing in autocommit mode) gets a
+    transaction of its own.
+    """
+    try:
+        cursor.execute(f"SAVEPOINT {_SAVEPOINT}")
+    except Exception as exc:  # reported as a stopped check, unless a fallback
+        if not autocommit or _sqlstate(exc) != _NO_ACTIVE_TRANSACTION:
+            raise SavepointError(_error_message(exc)) from exc
+        _manage(cursor, ["BEGIN"])
+        return ["ROLLBACK"]
+    return list(_SAVEPOINT_UNDO)
+
+
 def _manage(cursor: Any, statements: list[str]) -> None:
     for statement in statements:
         try:
@@ -1438,13 +1557,23 @@ def swap_no_plpgsql(new: EngineSet) -> EngineSet:
     return old
 
 
+# One wording for the notice and the help texts (plugin.py repeats it).
+SUPPORTED_DATABASES = (
+    "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)"
+)
+
+
 def unsupported_reason(dialect: Any) -> str | None:
-    """Why statements from this dialect cannot be checked, or None."""
+    """Why statements from this dialect cannot be checked, or None.
+
+    SQLite, MySQL and MariaDB never get here: the listener hands them to their
+    own checks, so the notice for another name lists every supported database.
+    """
     name = getattr(dialect, "name", "?")
     if name != "postgresql":
         return (
             f"{name} statements were not checked: "
-            f"the index check needs PostgreSQL {MIN_SERVER_VERSION} or newer"
+            f"the index check supports {SUPPORTED_DATABASES}"
         )
     driver = getattr(dialect, "driver", "?")
     if getattr(dialect, "is_async", False) and driver != ASYNCPG:

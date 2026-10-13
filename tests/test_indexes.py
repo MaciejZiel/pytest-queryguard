@@ -4,6 +4,7 @@ import gc
 import json
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -820,13 +821,57 @@ def test_run_explain_uses_a_savepoint_inside_a_transaction() -> None:
     assert conn.closed_cursors == 1
 
 
-def test_run_explain_uses_its_own_transaction_in_autocommit() -> None:
+def _no_transaction_block() -> RuntimeError:
+    """What pg8000 raises for SAVEPOINT outside a transaction block."""
+    return RuntimeError(
+        {
+            "S": "ERROR",
+            "C": "25P01",
+            "M": "SAVEPOINT can only be used in transaction blocks",
+        }
+    )
+
+
+def test_run_explain_uses_its_own_transaction_in_autocommit_outside_one() -> None:
+    conn = FakeConnection(autocommit=True)
+    conn.fail["SAVEPOINT"] = _no_transaction_block()
+    assert run_explain(conn, "SELECT 1") == Explained(
+        {"Node Type": "Seq Scan"}, "public"
+    )
+    assert conn.log[:2] == ["SAVEPOINT queryguard_explain", "BEGIN"]
+    assert conn.log[-1] == "ROLLBACK"
+    assert "ROLLBACK TO SAVEPOINT queryguard_explain" not in conn.log
+
+
+def test_run_explain_keeps_a_manual_transaction_in_autocommit() -> None:
+    # autocommit is the driver's flag: the application's own BEGIN is open
     conn = FakeConnection(autocommit=True)
     assert run_explain(conn, "SELECT 1") == Explained(
         {"Node Type": "Seq Scan"}, "public"
     )
-    assert conn.log[0] == "BEGIN"
-    assert conn.log[-1] == "ROLLBACK"
+    assert conn.log[0] == "SAVEPOINT queryguard_explain"
+    assert "BEGIN" not in conn.log
+    assert "ROLLBACK" not in conn.log
+    assert conn.log[-2:] == [
+        "ROLLBACK TO SAVEPOINT queryguard_explain",
+        "RELEASE SAVEPOINT queryguard_explain",
+    ]
+
+
+def test_run_explain_in_autocommit_stops_on_another_savepoint_error() -> None:
+    conn = FakeConnection(autocommit=True)
+    conn.fail["SAVEPOINT"] = RuntimeError({"C": "08006", "M": "connection failure"})
+    with pytest.raises(SavepointError, match="connection failure"):
+        run_explain(conn, "SELECT 1")
+    assert conn.log == ["SAVEPOINT queryguard_explain"]
+
+
+def test_run_explain_outside_autocommit_never_falls_back_to_begin() -> None:
+    conn = FakeConnection()
+    conn.fail["SAVEPOINT"] = _no_transaction_block()
+    with pytest.raises(SavepointError, match="transaction blocks"):
+        run_explain(conn, "SELECT 1")
+    assert conn.log == ["SAVEPOINT queryguard_explain"]
 
 
 def test_run_explain_accepts_json_as_text() -> None:
@@ -883,6 +928,60 @@ def test_run_explain_raises_when_the_savepoint_cannot_be_managed(step: str) -> N
     assert conn.closed_cursors == 1
 
 
+_SAVEPOINT_UNDO = [
+    "ROLLBACK TO SAVEPOINT queryguard_explain",
+    "RELEASE SAVEPOINT queryguard_explain",
+]
+
+
+@pytest.mark.parametrize(
+    ("autocommit", "in_transaction", "undo"),
+    [
+        (False, True, _SAVEPOINT_UNDO),
+        (True, False, ["ROLLBACK"]),
+        # AUTOCOMMIT with the application's own BEGIN: only the savepoint goes
+        (True, True, _SAVEPOINT_UNDO),
+    ],
+)
+@pytest.mark.parametrize("error", [RuntimeError, MemoryError, RecursionError])
+def test_run_explain_undoes_its_savepoint_when_it_has_a_bug(
+    monkeypatch: pytest.MonkeyPatch,
+    autocommit: bool,
+    in_transaction: bool,
+    undo: list[str],
+    error: type[Exception],
+) -> None:
+    # A bug past the SAVEPOINT (or BEGIN) must not leave the user's connection
+    # inside the plugin's savepoint, transaction or local settings.
+    def broken(*args: object) -> list[object]:
+        raise error("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+    conn = FakeConnection(autocommit=autocommit)
+    if not in_transaction:
+        conn.fail["SAVEPOINT"] = _no_transaction_block()
+    with pytest.raises(error, match="find_scans broke"):
+        run_explain(conn, "SELECT 1", skip_partial=True)
+    assert conn.log[-len(undo) :] == undo
+    if undo == _SAVEPOINT_UNDO:
+        assert "ROLLBACK" not in conn.log
+    assert conn.closed_cursors == 1
+
+
+def test_run_explain_raises_its_own_bug_when_the_undo_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken(*args: object) -> list[object]:
+        raise RuntimeError("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+    conn = FakeConnection()
+    conn.fail["ROLLBACK TO SAVEPOINT"] = RuntimeError("connection lost")
+    with pytest.raises(RuntimeError, match="find_scans broke"):
+        run_explain(conn, "SELECT 1", skip_partial=True)
+    assert conn.closed_cursors == 1
+
+
 # ---------------------------------------------------------- unsupported_reason
 
 
@@ -916,10 +1015,19 @@ def test_supported_dialect_has_no_reason() -> None:
     ("dialect", "reason"),
     [
         (
-            FakeDialect("sqlite"),
+            FakeDialect("oracle"),
             (
-                "sqlite statements were not checked: "
-                "the index check needs PostgreSQL 16 or newer"
+                "oracle statements were not checked: the index check supports "
+                "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) "
+                "and MariaDB (tested on 11.8)"
+            ),
+        ),
+        (
+            FakeDialect("mssql"),
+            (
+                "mssql statements were not checked: the index check supports "
+                "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) "
+                "and MariaDB (tested on 11.8)"
             ),
         ),
         (
@@ -1048,17 +1156,26 @@ def test_check_skips_writes_and_executemany(sql: str, executemany: bool) -> None
 
 
 def test_check_records_a_notice_for_an_unsupported_engine() -> None:
-    conn = FakeSAConnection(FakeDialect("sqlite"))
+    conn = FakeSAConnection(FakeDialect("oracle"))
     target = _collector()
     check(conn, "SELECT 1", False, [target])
     check(conn, "SELECT 2", False, [target])
     assert conn.raw.log == []
     assert list(target.index_notices) == [
         (
-            "sqlite statements were not checked: "
-            "the index check needs PostgreSQL 16 or newer"
+            "oracle statements were not checked: the index check supports "
+            "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) "
+            "and MariaDB (tested on 11.8)"
         )
     ]
+
+
+def test_help_texts_name_every_supported_database() -> None:
+    from pytest_queryguard import plugin
+
+    source = Path(plugin.__file__).read_text(encoding="utf-8")
+    assert source.count("(PostgreSQL 16 or newer, SQLite, MySQL or MariaDB)") == 2
+    assert "or SQLite)" not in source
 
 
 @pytest.mark.parametrize(
@@ -1637,11 +1754,32 @@ def test_run_explain_on_asyncpg_runs_explain_in_a_do_block() -> None:
     ]
 
 
-def test_run_explain_on_asyncpg_in_autocommit_uses_its_own_transaction() -> None:
+class _SqlstateError(Exception):
+    """asyncpg's errors carry the SQLSTATE as an attribute."""
+
+    sqlstate = "25P01"
+
+
+def test_run_explain_on_asyncpg_in_autocommit_outside_a_transaction() -> None:
+    conn = FakeAdaptedAsyncpg(autocommit=True)
+    conn.fail["SAVEPOINT"] = _SqlstateError(
+        "SAVEPOINT can only be used in transaction blocks"
+    )
+    run_explain(conn, "SELECT 1", asyncpg=True)
+    assert conn.log[:2] == [
+        ("execute", "SAVEPOINT queryguard_explain"),
+        ("execute", "BEGIN"),
+    ]
+    assert conn.log[-1] == ("execute", "ROLLBACK")
+
+
+def test_run_explain_on_asyncpg_keeps_a_manual_transaction_in_autocommit() -> None:
     conn = FakeAdaptedAsyncpg(autocommit=True)
     run_explain(conn, "SELECT 1", asyncpg=True)
-    assert conn.log[0] == ("execute", "BEGIN")
-    assert conn.log[-1] == ("execute", "ROLLBACK")
+    assert conn.log[0] == ("execute", "SAVEPOINT queryguard_explain")
+    assert ("execute", "BEGIN") not in conn.log
+    assert ("execute", "ROLLBACK") not in conn.log
+    assert conn.log[-1] == ("execute", "RELEASE SAVEPOINT queryguard_explain")
 
 
 def test_run_explain_on_asyncpg_reports_a_failed_explain() -> None:
@@ -1977,3 +2115,63 @@ def test_partitions_with_a_condition_outside_the_tokens_stay_apart() -> None:
     roots = {("public", t): ("public", "ev") for t in ("ev_a", "ev_b")}
     found, _ = indexes.to_roots(issues, roots, "public", {})
     assert len(found) == 2
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "((orders.status)::text <> ($1)::text)",
+        "(orders.customer_id <> $1)",
+        "(NOT (orders.customer_id = ANY ($1)))",
+        "(orders.customer_id <> ALL (ARRAY[$1, $2]))",
+        "((orders.customer_id <> $1) AND (orders.id <> $2))",
+        "(orders.customer_id <> orders.id)",
+    ],
+)
+def test_a_seq_scan_that_filters_only_with_not_equal_is_not_reported(
+    condition: str,
+) -> None:
+    # No btree index serves <>, so there is no index to add, indexed or not.
+    assert find_scans(_seq(Filter=condition)) == []
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "((orders.customer_id = $1) AND (orders.id <> $2))",
+        "((orders.id <> $1) AND (orders.customer_id > $2))",
+        "((orders.id <> $1) OR (orders.id <> $2))",
+        "(orders.id <> $1 AND orders.note ~~ 'a%')",
+        # a constant written into the SQL: a partial index WHERE status <> 'done'
+        # serves it, and pays off when 'done' is the common value
+        "((orders.status)::text <> 'done'::text)",
+        "(orders.customer_id <> 5)",
+        "(orders.customer_id <> ALL ('{1,2}'::integer[]))",
+        "(orders.customer_id <> ALL (ARRAY[1, 2]))",
+        "((orders.customer_id <> $1) AND ((orders.status)::text <> 'done'::text))",
+    ],
+)
+def test_a_seq_scan_with_one_servable_condition_is_still_reported(
+    condition: str,
+) -> None:
+    [issue] = find_scans(_seq(Filter=condition))
+    assert issue.node == "Seq Scan"
+
+
+def test_a_walked_index_is_named_by_every_rule_that_reports_one() -> None:
+    # rule 2, an index scan with a filter and no index condition
+    [whole] = find_scans(_pkey_scan("(orders.customer_id = $1)"))
+    assert whole.index == "index orders_pkey"
+    # rule 2 again, a whole index read as a bitmap
+    [bitmap] = find_scans(_bitmap_whole_index("(orders.note = $1)"))
+    assert bitmap.index == "index o_inc"
+    # rule 3, an index condition on a trailing column
+    [trailing] = find_scans(
+        _composite("Bitmap Index Scan", "(orders.status = $1)"), None, LEADING
+    )
+    assert trailing.index == "index orders_tenant_id_status_idx"
+
+
+def test_a_sequential_scan_names_no_index() -> None:
+    [issue] = find_scans(_seq(Filter="(orders.customer_id = $1)"))
+    assert issue.index is None

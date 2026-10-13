@@ -102,7 +102,7 @@ def test_stale_pending_tag_does_not_cross_measurements(
 ) -> None:
     first = collector.QueryCollector()
     collector.push(first)
-    listeners._set_pending("Order.customer")
+    listeners._set_pending(session, "Order.customer")
     collector.pop(first)
 
     second = collector.QueryCollector()
@@ -164,6 +164,7 @@ def test_listener_error_is_swallowed_and_disables(
 def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
     class State:
         is_column_load = True
+        session = object()
         load_options = object()  # no _refresh_state: an unknown SQLAlchemy shape
 
     target = collector.QueryCollector()
@@ -174,7 +175,7 @@ def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
         collector.pop(target)
     assert listeners.internal_error() is None
     assert target.column_loads == []
-    assert listeners._take_pending() == (None, None)
+    assert listeners._take_pending(object()) == (None, None)
 
 
 @pytest.mark.filterwarnings(
@@ -237,3 +238,35 @@ def test_is_write_matches_the_plain_definition(statement: str) -> None:
 
     expected = statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
     assert _is_write(statement) is expected
+
+
+@pytest.mark.filterwarnings(
+    "ignore::pytest_queryguard.warnings.QueryGuardInternalWarning"
+)
+def test_after_begin_error_is_swallowed_and_disables(
+    session: Session,
+    rec: collector.QueryCollector,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Any error, not only the AttributeError and TypeError of an object that
+    # cannot carry the scope tag: the user's transaction must still begin.
+    def boom(owner: object) -> int:
+        raise RuntimeError("scope broke")
+
+    monkeypatch.setattr(listeners, "scope_of_session", boom)
+    assert len(session.execute(select(Customer)).all()) == 3
+    error = listeners.internal_error()
+    assert isinstance(error, RuntimeError)
+    failure = listeners.internal_failure()
+    assert failure is not None
+    assert failure.source == "after_begin listener (session scopes)"
+
+
+def test_after_begin_does_nothing_after_an_internal_error(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(listeners, "scope_of_session", calls.append)
+    listeners.record_error(RuntimeError("earlier"))
+    session.execute(select(Customer)).all()
+    assert calls == []
