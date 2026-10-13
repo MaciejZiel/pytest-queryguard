@@ -34,7 +34,8 @@ def test_sqlite():
 """
 
 SQLITE_NOTICE = (
-    "oracle statements were not checked: the index check needs PostgreSQL 16 or newer"
+    "oracle statements were not checked: the index check supports "
+    "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)"
 )
 
 
