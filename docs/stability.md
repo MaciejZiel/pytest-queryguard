@@ -40,7 +40,7 @@ changes by accident.
 - Which statements SQLAlchemy emits for a given ORM call; that depends on the
   SQLAlchemy version.
 - The index check beyond what the documentation promises: it is documented
-  for PostgreSQL 16 and newer and for SQLite, and on older PostgreSQL servers
+  for PostgreSQL 16 and newer, SQLite, MySQL and MariaDB, and on older PostgreSQL servers
   it only prints a notice. It is tested on PostgreSQL 16 to 18; on a newer
   server it runs and prints a notice that the version is untested.
 
