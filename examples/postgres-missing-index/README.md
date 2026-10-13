@@ -1,7 +1,7 @@
 # Missing index on PostgreSQL
 
 ```console
-$ pip install "pytest-queryguard>=0.4.0rc3" pg8000
+$ pip install "pytest-queryguard>=0.4.0rc4" pg8000
 $ docker compose up -d --wait
 $ pytest tests/test_orders.py
 ```
