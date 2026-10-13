@@ -6,6 +6,7 @@ example ``postgresql+pg8000://postgres:pg@localhost:5432/postgres``.
 
 from __future__ import annotations
 
+import json
 import os
 import textwrap
 import uuid
@@ -959,6 +960,51 @@ def test_pg_a_partitioned_table_is_ignored_by_its_own_name(
     project.makeini("[pytest]\nqueryguard_index_ignore_tables = events\n")
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(passed=1)
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    ("marker", "outcome"),
+    [
+        ('allow_missing_index("events_2025", "events_2026")', "failed"),
+        ('allow_missing_index("events")', "passed"),
+        ('allow_nplusone("events_2025", kind="missing-index")', "failed"),
+        ('allow_nplusone("events", kind="missing-index")', "passed"),
+    ],
+)
+def test_pg_a_partitioned_table_is_allowed_by_its_own_name_only(
+    project: pytest.Pytester, pg16: Postgres, marker: str, outcome: str
+) -> None:
+    # #86: entries that named a partition stop matching after the change.
+    source = EVENTS.replace(
+        "def test_events", f"import pytest\n\n\n@pytest.mark.{marker}\ndef test_events"
+    )
+    _pg_project(project, pg16).makepyfile(test_a=source)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(**{outcome: 1})
+
+
+@needs_pg
+def test_pg_a_baseline_records_the_partitioned_table_and_not_its_partitions(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(test_a=EVENTS)
+    args = ("--queryguard-index-check", "--queryguard-baseline=qg.json")
+    project.runpytest(*args, "--queryguard-update-baseline")
+    path = project.path / "qg.json"
+    data = json.loads(path.read_text())
+    assert [e["label"] for e in data["findings"]] == ["events"]
+    project.runpytest(*args).assert_outcomes(passed=1)
+    # a baseline recorded before #86 named each partition: it no longer matches
+    data["findings"] = [
+        dict(entry, label=f"events_{year}")
+        for entry in data["findings"]
+        for year in (2025, 2026)
+    ]
+    path.write_text(json.dumps(data))
+    result = project.runpytest(*args)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*events is read in full*"])
 
 
 @needs_pg
