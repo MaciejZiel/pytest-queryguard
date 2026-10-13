@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0rc3] - 2026-10-13
+
 ### Added
 
 - `QueryGuardDeprecationWarning`, a `DeprecationWarning` subclass exported from
@@ -15,6 +17,114 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (and `ignore::` for findings) neither turns a deprecation into a failure nor
   hides it. `docs/stability.md` names it in step 1 of the policy. Nothing is
   deprecated yet.
+
+### Changed
+
+- The repeated-statement rules no longer report pagination and chunked `IN`
+  loads when the bound parameters show them: only the `OFFSET` or an integer
+  keyset bound changes, in one direction, by at least a page of more than one
+  row (the walk may be repeated once); or one `IN` list of at least 50 values
+  changes, the lists share no value and all but one have the same length.
+  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
+  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
+  loop and identical repeats are still reported. Closes #60.
+  The accuracy corpus has five more CLEAN scenarios for these shapes and five
+  more BUG scenarios that imitate them; on its 141 scenarios the default
+  repeated-statement precision goes from 80% to 97% (90% to 97% without the
+  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
+  configuration, and the release gate's minimum precision for the kind is now
+  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
+
+- `docs/stability.md` has an "Experimental" section: the
+  `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
+  and the missing-index check on MySQL and MariaDB are exempt from the
+  deprecation policy and may change or go in a minor release with a changelog
+  entry. The policy had no such tier although the option was labelled
+  experimental.
+
+- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
+  object `record_queries()` yields) instead of the internal `QueryCollector`,
+  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
+  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
+  Code that read `.statements` of the yielded object, an undocumented
+  attribute, must use `log.queries` or `log.count`.
+
+- The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
+  suite and the async helpers need `AsyncAttrs`, which does not exist in
+  earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
+- The options with a fixed set of values now agree on case. `queryguard_mode`,
+  `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
+  `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
+  accepted any case; all of them now ignore case and surrounding spaces, and
+  unknown values are still a usage error.
+
+- Lower the per-statement overhead by about a sixth in the in-memory SQLite
+  micro-benchmark: one shared `CallSite` per source location, one write check
+  per statement and a cache for `normalize()`. Behaviour is unchanged. New
+  `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
+  for file-based SQLite or PostgreSQL).
+
+- `allow_nplusone` with patterns now also applies to missing-index findings.
+  `kind="missing-index"` was accepted but never matched anything and was then
+  reported as a stale ignore; it now works like the same pattern in
+  `queryguard_ignore`. The marker without arguments still leaves the index
+  check alone (`allow_missing_index` skips it).
+
+- The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
+  resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
+  caching repositories, `with_for_update`, nested transactions, `yield_per`,
+  large `selectinload`, ORM bulk statements, upserts, and BUG scenarios that
+  look like pagination, batching or polling. `docs/accuracy.md` and the release
+  gate's minimum scenario count are updated; the plugin is unchanged.
+
+- Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
+  `scripts/release_gate.py`) that checks the test matrix, the accuracy
+  minimums, the documentation examples, clean installs, the upgrade from the
+  previous release, the overhead budget, the package contents and the
+  changelog before a release is tagged. See `docs/releasing.md`.
+
+- PostgreSQL index check: a statement on a partitioned table is now one
+  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
+  creates the index on every partition) and its hypopg verification, instead of
+  one finding and one `CREATE INDEX` per partition
+  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
+  ignore or baseline entry that named a partition no longer matches: replace
+  the partition's name with the partitioned table's in
+  `queryguard_index_ignore_tables`, `allow_missing_index` and `missing-index`
+  patterns, and record the baseline again with `--queryguard-update-baseline`
+  (see `docs/index-check.md`). A statement that names a partition itself is
+  reported under the partitioned table too; inheritance children
+  (`INHERITS`) are still reported one by one. Each partition is looked up once
+  per session (`pg_partition_root()`), only for statements with findings. The
+  advisor's reason for an invalid existing index now also names
+  `CREATE INDEX ON ONLY` a partitioned table whose partitions are not all
+  attached.
+
+- The classes and functions in `pytest_queryguard.__all__` now report
+  `pytest_queryguard` as their `__module__`. Tracebacks and logs show
+  `pytest_queryguard.NPlusOneDetected` instead of
+  `pytest_queryguard.api.NPlusOneDetected`, so the printed name matches the
+  documented import path and the submodules can move without changing it. A
+  `filterwarnings` entry that names the submodule
+  (`error::pytest_queryguard.warnings.QueryGuardWarning`) keeps working.
+
+- The keyword of the `max_queries` marker is now `limit`, as in the
+  `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The
+  keyword `n=` of earlier releases is still accepted, without a warning. It
+  may be removed in a future minor release, but only after a deprecation
+  period with a warning, as described in `docs/stability.md`. The positional
+  form is unchanged.
+
+- Every finding in a report now has a `kind: ...  label: ...` line, the pair that
+  `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
+  `kind: relationship-load  label: Order.customer`. For a repeated statement or
+  a write loop the line replaces the separate line with the normalized
+  statement (a statement longer than 200 characters is cut and ends with `*`,
+  so the printed label still works as a pattern). An ignore pattern that is
+  the exact label now matches even when the label holds `[` or `]`. The
+  line is in the SARIF message too
+  ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
 
 ### Fixed
 
@@ -238,114 +348,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `--queryguard-update-baseline` with `--collect-only` emptied the baseline file.
   It now leaves the file alone and says why.
-
-### Changed
-
-- The repeated-statement rules no longer report pagination and chunked `IN`
-  loads when the bound parameters show them: only the `OFFSET` or an integer
-  keyset bound changes, in one direction, by at least a page of more than one
-  row (the walk may be repeated once); or one `IN` list of at least 50 values
-  changes, the lists share no value and all but one have the same length.
-  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
-  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
-  loop and identical repeats are still reported. Closes #60.
-  The accuracy corpus has five more CLEAN scenarios for these shapes and five
-  more BUG scenarios that imitate them; on its 141 scenarios the default
-  repeated-statement precision goes from 80% to 97% (90% to 97% without the
-  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
-  configuration, and the release gate's minimum precision for the kind is now
-  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
-
-- `docs/stability.md` has an "Experimental" section: the
-  `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
-  and the missing-index check on MySQL and MariaDB are exempt from the
-  deprecation policy and may change or go in a minor release with a changelog
-  entry. The policy had no such tier although the option was labelled
-  experimental.
-
-- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
-  object `record_queries()` yields) instead of the internal `QueryCollector`,
-  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
-  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
-  Code that read `.statements` of the yielded object, an undocumented
-  attribute, must use `log.queries` or `log.count`.
-
-- The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
-  suite and the async helpers need `AsyncAttrs`, which does not exist in
-  earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
-
-- The options with a fixed set of values now agree on case. `queryguard_mode`,
-  `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
-  `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
-  accepted any case; all of them now ignore case and surrounding spaces, and
-  unknown values are still a usage error.
-
-- Lower the per-statement overhead by about a sixth in the in-memory SQLite
-  micro-benchmark: one shared `CallSite` per source location, one write check
-  per statement and a cache for `normalize()`. Behaviour is unchanged. New
-  `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
-  for file-based SQLite or PostgreSQL).
-
-- `allow_nplusone` with patterns now also applies to missing-index findings.
-  `kind="missing-index"` was accepted but never matched anything and was then
-  reported as a stale ignore; it now works like the same pattern in
-  `queryguard_ignore`. The marker without arguments still leaves the index
-  check alone (`allow_missing_index` skips it).
-
-- The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
-  resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
-  caching repositories, `with_for_update`, nested transactions, `yield_per`,
-  large `selectinload`, ORM bulk statements, upserts, and BUG scenarios that
-  look like pagination, batching or polling. `docs/accuracy.md` and the release
-  gate's minimum scenario count are updated; the plugin is unchanged.
-
-- Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
-  `scripts/release_gate.py`) that checks the test matrix, the accuracy
-  minimums, the documentation examples, clean installs, the upgrade from the
-  previous release, the overhead budget, the package contents and the
-  changelog before a release is tagged. See `docs/releasing.md`.
-
-- PostgreSQL index check: a statement on a partitioned table is now one
-  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
-  creates the index on every partition) and its hypopg verification, instead of
-  one finding and one `CREATE INDEX` per partition
-  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
-  ignore or baseline entry that named a partition no longer matches: replace
-  the partition's name with the partitioned table's in
-  `queryguard_index_ignore_tables`, `allow_missing_index` and `missing-index`
-  patterns, and record the baseline again with `--queryguard-update-baseline`
-  (see `docs/index-check.md`). A statement that names a partition itself is
-  reported under the partitioned table too; inheritance children
-  (`INHERITS`) are still reported one by one. Each partition is looked up once
-  per session (`pg_partition_root()`), only for statements with findings. The
-  advisor's reason for an invalid existing index now also names
-  `CREATE INDEX ON ONLY` a partitioned table whose partitions are not all
-  attached.
-
-- The classes and functions in `pytest_queryguard.__all__` now report
-  `pytest_queryguard` as their `__module__`. Tracebacks and logs show
-  `pytest_queryguard.NPlusOneDetected` instead of
-  `pytest_queryguard.api.NPlusOneDetected`, so the printed name matches the
-  documented import path and the submodules can move without changing it. A
-  `filterwarnings` entry that names the submodule
-  (`error::pytest_queryguard.warnings.QueryGuardWarning`) keeps working.
-
-- The keyword of the `max_queries` marker is now `limit`, as in the
-  `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The
-  keyword `n=` of earlier releases is still accepted, without a warning. It
-  may be removed in a future minor release, but only after a deprecation
-  period with a warning, as described in `docs/stability.md`. The positional
-  form is unchanged.
-
-- Every finding in a report now has a `kind: ...  label: ...` line, the pair that
-  `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
-  `kind: relationship-load  label: Order.customer`. For a repeated statement or
-  a write loop the line replaces the separate line with the normalized
-  statement (a statement longer than 200 characters is cut and ends with `*`,
-  so the printed label still works as a pattern). An ignore pattern that is
-  the exact label now matches even when the label holds `[` or `]`. The
-  line is in the SARIF message too
-  ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
 
 ## [0.4.0rc2] - 2026-10-12
 
@@ -777,7 +779,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc2...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc3...HEAD
+[0.4.0rc3]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc2...v0.4.0rc3
 [0.4.0rc2]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc1...v0.4.0rc2
 [0.4.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.3.0...v0.4.0rc1
 [0.3.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.2.0...v0.3.0
