@@ -40,7 +40,7 @@ from .messages import (
     make_index_finding,
     swap_root,
 )
-from .warnings import QueryGuardInternalWarning, QueryGuardWarning
+from .warnings import QueryGuardInternalWarning, QueryGuardWarning, warn_internal
 
 _MODES = ("fail", "warn", "off")
 _EAGER_MODES = ("off", "warn", "fail")
@@ -169,7 +169,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_const",
         const=True,
         default=None,
-        help="Check statements for a missing index (PostgreSQL 16 or newer, or SQLite); "
+        help="Check statements for a missing index (PostgreSQL 16 or newer, SQLite, MySQL or MariaDB); "
         "overrides queryguard_index_check.",
     )
     group.addoption(
@@ -285,7 +285,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addini(
         "queryguard_index_check",
-        "Check statements for a missing index (PostgreSQL 16 or newer, or SQLite)",
+        "Check statements for a missing index (PostgreSQL 16 or newer, SQLite, MySQL or MariaDB)",
         type="bool",
         default=False,
     )
@@ -635,12 +635,11 @@ def _report_internal_error(config: pytest.Config) -> None:
     config.stash[_internal_reported] = True
     failure = internal_failure()
     where = f" ({failure.source})" if failure is not None else ""
-    std_warnings.warn(
+    warn_internal(
         QueryGuardInternalWarning(
             f"pytest-queryguard disabled itself after an internal error: {error!r}"
             f"{where}"
-        ),
-        stacklevel=1,
+        )
     )
 
 

@@ -18,13 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The repeated-statement and small-repeat rules no longer count schema
-  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
-  their temp variants, and reads of `pg_catalog` or `information_schema`
-  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
-  version-table check). `max_queries` budgets still count them. See
-  `docs/how-detection-works.md` for the exact rule
-  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
+- The index check notice for a database it cannot check (SQL Server, Oracle)
+  said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
+  supported. It now lists every supported database, and the help texts of
+  `--queryguard-index-check` and `queryguard_index_check` name MySQL and
+  MariaDB too. Fixes #154.
+
 - PostgreSQL index check: a finding for an index the plan walks end to end (a
   filter on the trailing column of a composite key, a whole index with a filter,
   a whole-index bitmap) now says `t scans the whole index ix: the ... does not
@@ -49,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commented single-row `INSERT`s was reported as a repeated statement with the
   advice to fetch the rows in one query, and the write-loop rule never saw it.
   Fixes #96.
+
+- The MySQL and MariaDB index check no longer fails on a literal `%` in a
+  statement that was run with the `no_parameters` execution option: the
+  `EXPLAIN` was formatted by PyMySQL (`query % args`) although the statement
+  itself was not, so it was reported as "could not be explained" (a literal
+  `%%` was sent as `%`). Fixes #116.
 
 - `--queryguard-update-baseline` no longer rewrites the baseline, and
   `--queryguard-sarif` no longer writes the file, after an interrupted run (a
@@ -83,6 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arguments at plan time, so the index check and the advisor can call such a
   function again and its non-transactional side effects (for example
   `nextval()`) are not rolled back with the savepoint. Fixes #92.
+- The repeated-statement and small-repeat rules no longer count schema
+  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
+  their temp variants, and reads of `pg_catalog` or `information_schema`
+  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
+  version-table check). `max_queries` budgets still count them. See
+  `docs/how-detection-works.md` for the exact rule
+  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
 
 ### Changed
 
