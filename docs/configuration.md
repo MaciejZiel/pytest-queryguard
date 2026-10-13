@@ -8,7 +8,7 @@
 | `queryguard_small_repeat_threshold` | `0` or integer ≥ 2, below the repeat threshold | `0` (off) | Number of runs of one statement from one source line, each with different parameters, that count as N+1 although they are below `queryguard_repeat_threshold`. Pagination and writes are not counted. |
 | `queryguard_repeat_scope` | `test`, `session` | `test` | What the repeat, relationship, column-load and write-loop rules count together. `test` adds up everything one test runs. `session` counts each SQLAlchemy `Session` (or, for a connection no `Session` opened, each connection checkout) on its own, which is what a test that makes several independent requests needs. See [Tests with several sessions or requests](several-sessions.md). |
 | `queryguard_write_loop_threshold` | `0` or integer ≥ 2 | `0` (off) | Number of single-row `INSERT`, `UPDATE` or `DELETE` statements of one shape from one source line that count as a write loop (kind `write-loop`). |
-| `queryguard_unused_eager_load` | `off`, `warn`, `fail` | `off` | Experimental. Reports relationships a test eager-loads and never reads (kind `unused-eager-load`); `warn` only warns, `fail` fails the test in `fail` mode. See [docs/unused-eager-load.md](unused-eager-load.md). |
+| `queryguard_unused_eager_load` | `off`, `warn`, `fail` | `off` | Experimental (exempt from the [deprecation policy](stability.md#experimental)). Reports relationships a test eager-loads and never reads (kind `unused-eager-load`); `warn` only warns, `fail` fails the test in `fail` mode. See [docs/unused-eager-load.md](unused-eager-load.md). |
 | `queryguard_fail_on` | kinds or `fnmatch` patterns, one per line | empty (all kinds) | The finding kinds that fail a test in `fail` mode; the other kinds are reported as `QueryGuardWarning` and the test passes. For example `relationship-load` alone. Budgets always fail. |
 | `queryguard_column_load_threshold` | integer ≥ 2 | `5` | Number of different instances of one class that must load deferred or expired columns on their own to count as N+1. |
 | `queryguard_max_events` | integer ≥ 0 | `10000` | Statements (and relationship loads) stored per test for reports. Beyond it they are only counted, and the report says so. `0` stores everything. |
@@ -48,10 +48,12 @@ queryguard_index_ignore_tables = ["countries", "lookup_*"]
 `pytest.ini` and `setup.cfg` work as usual.
 
 The warning classes, `pytest_queryguard.QueryGuardWarning` for N+1 and
-missing indexes in `warn` mode and
-`pytest_queryguard.QueryGuardInternalWarning` for an internal error, work
-with pytest's usual warning filters. For example, to turn these warnings
-back into failures for one job:
+missing indexes in `warn` mode,
+`pytest_queryguard.QueryGuardInternalWarning` for an internal error and
+`pytest_queryguard.QueryGuardDeprecationWarning` for an option or name that a
+later release may remove (a `DeprecationWarning`, not a `QueryGuardWarning`),
+work with pytest's usual warning filters. For example, to turn the findings
+of `warn` mode back into failures for one job:
 
 ```toml
 [tool.pytest.ini_options]
@@ -79,4 +81,4 @@ Command-line options:
 | `max_queries(n)` | Fails the test if it runs more than `n` SQL statements. See [Budgets and timing](budgets.md). |
 | `max_db_time(seconds)` | Fails the test if its statements take more than that many seconds in total. |
 | `allow_nplusone(*labels, kind=..., file=..., function=...)` | Leaves out findings: all of them without arguments, or only those that match the `fnmatch` patterns. See [Ignoring findings](ignoring.md). |
-| `allow_missing_index(*tables)` | Skips the missing-index check for the test, or only for the given tables. `allow_nplusone` does not affect the index check. |
+| `allow_missing_index(*tables)` | Skips the missing-index check for the test, or only for the given tables. `allow_nplusone` without arguments does not affect the index check; with patterns it also matches missing-index findings, as in `allow_nplusone("public.audit_log", kind="missing-index")`. |

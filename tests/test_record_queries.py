@@ -595,6 +595,7 @@ def test_public_names() -> None:
         "NPlusOneDetected",
         "Query",
         "QueryBudgetExceeded",
+        "QueryGuardDeprecationWarning",
         "QueryGuardInternalWarning",
         "QueryGuardWarning",
         "QueryLog",
