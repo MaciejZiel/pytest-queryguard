@@ -37,3 +37,23 @@ def skip_prefix(sql: str, start: int = 0) -> int | None:
         else:
             break
     return i
+
+
+_WRITE_VERBS = frozenset(("INSERT", "UPDATE", "DELETE"))
+
+
+def is_write(sql: str) -> bool:
+    """Whether the statement is an INSERT, UPDATE or DELETE.
+
+    Leading comments (sqlcommenter tags, a note in a ``text()``) and
+    whitespace are skipped, as for the index check.
+    """
+    if sql[:1] in _PREFIX_STARTS or sql[:1].isspace():
+        start = skip_prefix(sql)
+        if start is None:
+            return False
+        return sql[start : start + 6].upper() in _WRITE_VERBS
+    return sql[:6].upper() in _WRITE_VERBS
+
+
+_PREFIX_STARTS = frozenset("-/(")

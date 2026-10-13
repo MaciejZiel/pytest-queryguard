@@ -118,6 +118,108 @@ def test_deeply_nested_json_is_an_error_not_a_crash(tmp_path: Path) -> None:
         baseline.load(path)
 
 
+def test_dumps_writes_two_space_indented_utf8_text() -> None:
+    text = baseline.dumps([("write-loop", "Zażółć", "a.py", None)])
+    assert text == (
+        "{\n"
+        '  "version": 1,\n'
+        '  "findings": [\n'
+        "    {\n"
+        '      "kind": "write-loop",\n'
+        '      "label": "Zażółć",\n'
+        '      "file": "a.py",\n'
+        '      "function": null\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+    )
+
+
+def test_identities_sort_by_file_then_function_with_missing_values_first() -> None:
+    assert baseline.sorted_identities(
+        [("k", "l", "a.py", "f"), ("k", "l", "A.py", "f"), ("k", "l", None, "f")]
+    ) == [("k", "l", None, "f"), ("k", "l", "A.py", "f"), ("k", "l", "a.py", "f")]
+    assert baseline.sorted_identities(
+        [("k", "l", "a.py", "f"), ("k", "l", "a.py", "A"), ("k", "l", "a.py", None)]
+    ) == [("k", "l", "a.py", None), ("k", "l", "a.py", "A"), ("k", "l", "a.py", "f")]
+
+
+def test_functions_of_one_file_are_sorted_by_name() -> None:
+    names = [f"test_{c}" for c in "hgfedcba"]
+    identities = [("k", "l", "a.py", name) for name in names]
+    assert baseline.sorted_identities(identities) == sorted(identities)
+
+
+def test_an_empty_file_name_sorts_before_a_missing_one() -> None:
+    assert baseline.sorted_identities([("k", "l", None, "f"), ("k", "l", "", "f")]) == [
+        ("k", "l", "", "f"),
+        ("k", "l", None, "f"),
+    ]
+    assert baseline.sorted_identities([("k", "l", "f", None), ("k", "l", "f", "")]) == [
+        ("k", "l", "f", ""),
+        ("k", "l", "f", None),
+    ]
+
+
+def test_unknown_keys_are_all_listed_in_order() -> None:
+    text = '{"version": 1, "findings": [{"kind": "k", "label": "l", "b": 1, "a": 2}]}'
+    with pytest.raises(BaselineError, match=r"has unknown keys: a, b$"):
+        baseline.parse(text, Path("b.json"))
+
+
+def test_a_function_that_is_not_a_string_is_rejected() -> None:
+    text = '{"version": 1, "findings": [{"kind": "k", "label": "l", "function": 7}]}'
+    with pytest.raises(BaselineError, match="'function' must be a string or null"):
+        baseline.parse(text, Path("b.json"))
+
+
+def test_entry_errors_name_the_file_and_the_entry() -> None:
+    text = '{"version": 1, "findings": [{"kind": "k", "label": "l"}, 5]}'
+    with pytest.raises(BaselineError) as caught:
+        baseline.parse(text, Path("some") / "b.json")
+    assert str(caught.value).startswith(f"{Path('some') / 'b.json'}: findings[1] must")
+
+
+def test_a_file_without_a_version_says_how_to_regenerate_it() -> None:
+    with pytest.raises(BaselineError) as caught:
+        baseline.parse("{}", Path("b.json"))
+    assert str(caught.value).endswith(
+        "(no 'version' field); regenerate it with --queryguard-update-baseline"
+    )
+
+
+def test_a_file_of_another_version_says_how_to_regenerate_it() -> None:
+    with pytest.raises(BaselineError) as caught:
+        baseline.parse('{"version": 9, "findings": []}', Path("b.json"))
+    assert str(caught.value).endswith(
+        "upgrade the plugin or regenerate the file with --queryguard-update-baseline"
+    )
+
+
+def test_a_missing_file_ends_with_the_option_that_creates_it(tmp_path: Path) -> None:
+    with pytest.raises(BaselineError) as caught:
+        baseline.load(tmp_path / "nope.json")
+    assert str(caught.value).endswith(
+        "does not exist; create it with --queryguard-update-baseline"
+    )
+
+
+def test_the_file_is_read_as_utf8_whatever_the_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = ("write-loop", "Zażółć", "a.py", None)
+    path = tmp_path / "baseline.json"
+    baseline.write(path, [identity])
+    real_read_text = Path.read_text
+
+    def read_text(self: Path, encoding: str | None = None, **kwargs: object) -> str:
+        # Stand in for a locale whose default encoding is not UTF-8.
+        return real_read_text(self, encoding=encoding or "latin-1")
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert baseline.load(path) == {identity}
+
+
 # --- the plugin ---
 
 
