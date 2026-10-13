@@ -141,6 +141,7 @@ def _set_pending(
     session: Any,
     name: str | None,
     column_load: ColumnLoadEvent | None = None,
+    lazy: bool = False,
 ) -> None:
     """Park the attribution of the ORM execution of ``session``.
 
@@ -154,6 +155,7 @@ def _set_pending(
             collector.generation(),
             name,
             column_load,
+            lazy,
         )
     except (AttributeError, TypeError):
         pass
@@ -173,8 +175,13 @@ def _latest(conn: Any) -> tuple[Any, Any]:
     return owner, best
 
 
-def _take_pending(conn: Any) -> tuple[str | None, ColumnLoadEvent | None]:
-    """(relationship, column load) of the ORM execution that ``conn`` serves.
+def _take_pending(
+    conn: Any,
+) -> tuple[str | None, ColumnLoadEvent | None, bool]:
+    """(relationship, column load, lazy) of the ORM execution that ``conn`` serves.
+
+    ``lazy`` is True for a lazy load, False for the query of an eager loader such
+    as selectinload, which carries the same relationship label.
 
     Only the Sessions that began on the connection are asked; a statement on
     any other connection leaves every parked attribution alone.
@@ -182,13 +189,13 @@ def _take_pending(conn: Any) -> tuple[str | None, ColumnLoadEvent | None]:
     try:
         session, entry = _latest(conn)
         if entry is None or (entry[2] is None and entry[3] is None):
-            return None, None
-        session.__dict__[_PENDING_ATTR] = (entry[0], entry[1], None, None)
+            return None, None, False
+        session.__dict__[_PENDING_ATTR] = (entry[0], entry[1], None, None, False)
     except (AttributeError, TypeError):
-        return None, None
+        return None, None, False
     if entry[1] == collector.generation():
-        return entry[2], entry[3]
-    return None, None
+        return entry[2], entry[3], entry[4]
+    return None, None, False
 
 
 # Code of the method that opens a Session's connection: it runs the engine's
@@ -288,7 +295,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             key = parent.identity_key
             if key is None:
                 key = id(parent)
-        _set_pending(state.session, name)
+        _set_pending(state.session, name, lazy=parent is not None)
         site = find_callsite()
         load = RelationshipLoadEvent(
             name, key, site, scalar, scope_of_session(state.session)
@@ -332,14 +339,14 @@ def _on_cursor_execute(
         # So is a BEGIN, SAVEPOINT or SET that a begin listener runs, and so is
         # a statement on the connection of another Session.
         write = _is_write(statement)
-        relationship, column_load = None, None
+        relationship, column_load, lazy = None, None, False
         if (
             not write
             and _has_pending(conn)
             and _is_read(statement)
             and not _inside_begin()
         ):
-            relationship, column_load = _take_pending(conn)
+            relationship, column_load, lazy = _take_pending(conn)
         if column_load is not None:
             column_load.sql = statement
         stmt = StatementEvent(
@@ -347,6 +354,7 @@ def _on_cursor_execute(
             find_callsite(),
             relationship,
             column_load=column_load is not None,
+            lazy_load=lazy,
             parameters=None if executemany else parameters,
             executemany=bool(executemany),
             flush=find_flush() if write else None,

@@ -31,7 +31,8 @@ class IgnoreRule:
     """One pattern for findings to leave out of the report.
 
     ``kind``, ``label``, ``file`` and ``function`` are ``fnmatch`` patterns
-    (case-sensitive) for the fields of a ``Finding`` of the same names; None
+    (case-sensitive) for the fields of a ``Finding`` of the same names, and a
+    label also matches itself written out exactly; None
     for ``file`` or ``function`` means any value, including an unknown one.
     """
 
@@ -43,7 +44,9 @@ class IgnoreRule:
     def matches(self, finding: Finding) -> bool:
         if not fnmatchcase(finding.kind, self.kind):
             return False
-        if not fnmatchcase(finding.label, self.label):
+        # A label copied from the report matches even when it holds [ or ],
+        # which fnmatch reads as a character class (ARRAY[?, ?], [dbo].[t]).
+        if finding.label != self.label and not fnmatchcase(finding.label, self.label):
             return False
         if self.file is not None and not (
             finding.file is not None and fnmatchcase(finding.file, self.file)
