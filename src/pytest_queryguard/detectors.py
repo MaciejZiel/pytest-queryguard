@@ -342,6 +342,53 @@ def _write_loop_findings(
     return sorted(found, key=lambda f: -f.count)
 
 
+# Statements the database's own catalogs answer, which SQLAlchemy and Alembic
+# run for schema reflection. The application cannot batch them, so the repeat
+# rules do not count them (budgets and the report still do):
+#   - a PRAGMA (SQLite: table_info, index_list, foreign_key_list, ...);
+#   - a read of a SQLite catalog table: sqlite_master, sqlite_schema,
+#     sqlite_temp_master or sqlite_temp_schema, with or without main./temp.;
+#   - a read of anything in the pg_catalog or information_schema schema
+#     (PostgreSQL; information_schema also exists in MySQL and MariaDB).
+# Matched on the normalized text, where string literals are already gone, so a
+# value 'sqlite_master' in a WHERE clause does not hide a statement; nor do
+# comments, CTEs or aliases (_SHADOWS_CATALOG). A statement that joins an
+# application table with a real catalog is excluded too.
+# Not excluded: MySQL's SHOW and DESCRIBE, and PostgreSQL catalog tables read
+# without the pg_catalog schema (pg_class on the search path).
+_CATALOG = re.compile(
+    r"""
+      \A[\s(]*PRAGMA\b
+    | (?<![\w$.])(?:"?(?:main|temp)"?\s*\.\s*)?"?sqlite_(?:temp_)?(?:master|schema)"?(?![\w$])
+    | (?<![\w$.])"?(?:pg_catalog|information_schema)"?\s*\.
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+# Comments can name anything, and a statement may define a CTE or an alias with
+# a catalog's name (WITH sqlite_master AS (...), FROM orders AS pg_catalog);
+# neither makes the statement a catalog read.
+_SQL_COMMENT = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
+_SHADOWS_CATALOG = re.compile(
+    r"""
+      (?:\bWITH(?:\s+RECURSIVE)?|,)\s*"?(?:sqlite_(?:temp_)?(?:master|schema)
+          |pg_catalog|information_schema)"?\s*(?:\([^()]*\)\s*)?AS\b
+    | \bAS\s+"?(?:sqlite_(?:temp_)?(?:master|schema)|pg_catalog|information_schema)
+          "?(?![\w$])
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def is_catalog_statement(sql: str) -> bool:
+    """True for schema reflection that the repeat rules do not count."""
+    sql = _SQL_COMMENT.sub(" ", sql)
+    if _SHADOWS_CATALOG.search(sql):
+        return False
+    return _CATALOG.search(sql) is not None
+
+
 def _paginates(sql: str) -> bool:
     if _OFFSET.search(sql):
         return True
@@ -626,7 +673,7 @@ def _repeat_groups(collector: QueryCollector) -> dict[str, list[StatementEvent]]
         if is_write(stmt.sql):
             continue
         groups.setdefault(normalize(stmt.sql), []).append(stmt)
-    return groups
+    return {key: g for key, g in groups.items() if not is_catalog_statement(key)}
 
 
 def _small_repeat_findings(
