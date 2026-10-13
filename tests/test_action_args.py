@@ -27,7 +27,10 @@ def splitting_snippet() -> str:
     text = ACTION.read_text(encoding="utf-8")
     match = re.search(r"^ *args=\(\)\n.*?^ *fi\n", text, re.MULTILINE | re.DOTALL)
     assert match, "the args splitting block is missing from action.yml"
-    assert "eval" not in text.split("run: |", 2)[-1].split("Find the SARIF")[0]
+    run_pytest = text.split("- name: Run pytest", 1)[1].split("- name: Find the SARIF")[
+        0
+    ]
+    assert not re.search(r"\beval\b", run_pytest)
     return match.group(0)
 
 
@@ -74,3 +77,60 @@ def test_command_substitution_and_backticks_are_not_executed(tmp_path: Path) -> 
         "$HOME",
     ]
     assert stderr == ""
+
+
+def install_snippet() -> str:
+    """The shell of the real action's install step."""
+    text = ACTION.read_text(encoding="utf-8")
+    match = re.search(
+        r"- name: Install pytest-queryguard\n.*?run: \|\n(.*?)\n\n    - name:",
+        text,
+        re.DOTALL,
+    )
+    assert match, "the install step is missing from action.yml"
+    return "\n".join(line[8:] for line in match.group(1).splitlines())
+
+
+def run_install(tmp_path: Path, package: str, action_path: Path) -> list[str]:
+    """Run the install step with a `python` that only records its arguments."""
+    link = tmp_path / "bin"
+    link.mkdir()
+    fake = link / "python"
+    fake.write_text('#!/bin/sh\nfor a in "$@"; do echo "$a"; done\n')
+    fake.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", install_snippet()],
+        env={
+            **os.environ,
+            "PATH": f"{link}{os.pathsep}{os.environ['PATH']}",
+            "QG_PACKAGE": package,
+            "QG_ACTION_PATH": str(action_path),
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.splitlines()
+
+
+def test_default_package_is_the_checkout_of_the_action(tmp_path: Path) -> None:
+    # The default must not be a name pip resolves on its own: an older release
+    # has no --queryguard-sarif (issue 106).
+    assert re.search(r"^    default: \"\"$", package_input(), re.MULTILINE)
+    action_path = ACTION.parent
+    words = run_install(tmp_path, "", action_path)
+    assert words[:4] == ["-m", "pip", "install", "--disable-pip-version-check"]
+    installed = Path(words[4]).resolve()
+    assert installed == action_path.parent.resolve()
+    assert (installed / "pyproject.toml").is_file()
+    assert (installed / "src" / "pytest_queryguard" / "__init__.py").is_file()
+
+
+def test_an_explicit_package_is_installed_as_given(tmp_path: Path) -> None:
+    words = run_install(tmp_path, "pytest-queryguard==0.4.0", ACTION.parent)
+    assert words[4:] == ["pytest-queryguard==0.4.0"]
+
+
+def package_input() -> str:
+    text = ACTION.read_text(encoding="utf-8")
+    return text.split("  package:", 1)[1].split("\n  baseline:", 1)[0]

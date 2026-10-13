@@ -34,7 +34,8 @@ def test_sqlite():
 """
 
 SQLITE_NOTICE = (
-    "oracle statements were not checked: the index check needs PostgreSQL 16 or newer"
+    "oracle statements were not checked: the index check supports "
+    "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)"
 )
 
 
@@ -563,8 +564,8 @@ def test_pg_primary_key_order_scan_is_reported(
     result.stdout.fnmatch_lines(
         [
             (
-                "  orders is read in full: Index Scan using orders_pkey with filter "
-                "(orders.customer_id = $1)"
+                "  orders scans the whole index orders_pkey: the filter "
+                "(orders.customer_id = $1) does not match the start of any index"
             ),
         ]
     )
@@ -900,8 +901,8 @@ def test_pg_equality_behind_order_by_limit_is_reported(
     result.assert_outcomes(failed=2)
     lines = [
         (
-            "  items is read in full: Index Scan using items_pkey with filter "
-            "(items.owner_id = $1)"
+            "  items scans the whole index items_pkey: the filter "
+            "(items.owner_id = $1) does not match the start of any index"
         ),
         "*",
         "*",
@@ -929,8 +930,8 @@ def test_pg_trailing_column_of_a_multicolumn_index_is_reported(
     result.stdout.fnmatch_lines(
         [
             (
-                "  items is read in full: *Index Scan using items_tenant_status "
-                "with index condition (items.status = $1)"
+                "  items scans the whole index items_tenant_status: the index "
+                "condition (items.status = $1) does not match the start of any index"
             ),
             "*",
             "*",
@@ -1174,7 +1175,7 @@ def test_pg_temporary_table_reports_the_trailing_column(
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "  pg_temp.tmp_items is read in full: *Index Scan using *",
+            "  pg_temp.tmp_items scans the whole index *",
             "*",
             "*",
             "  fix: CREATE INDEX ON pg_temp.tmp_items (status)",
@@ -1288,13 +1289,13 @@ def test_pg_whole_include_index_is_reported_with_and_without_statistics(
         [
             "*test_note?no-stats?*",
             (
-                "  notes is read in full: Bitmap Heap Scan using notes_inc with filter "
-                "(notes.note = $1)"
+                "  notes scans the whole index notes_inc: the filter "
+                "(notes.note = $1) does not match the start of any index"
             ),
             "*test_note?analyzed?*",
             (
-                "  notes is read in full: Index Only Scan using notes_inc with filter "
-                "(notes.note = $1)"
+                "  notes scans the whole index notes_inc: the filter "
+                "(notes.note = $1) does not match the start of any index"
             ),
         ]
     )
@@ -1354,16 +1355,16 @@ def test_pg_whole_partial_index_is_reported_with_and_without_statistics(
         [
             "*test_live_user?no-stats?*",
             (
-                "  users is read in full: Bitmap Heap Scan using users_live "
-                "with filter (users.email = $1)"
+                "  users scans the whole index users_live: the filter "
+                "(users.email = $1) does not match the start of any index"
             ),
             "*",
             "*",
             "  fix: CREATE INDEX ON users (email)",
             "*test_live_user?analyzed?*",
             (
-                "  users is read in full: Index Scan using users_live "
-                "with filter (users.email = $1)"
+                "  users scans the whole index users_live: the filter "
+                "(users.email = $1) does not match the start of any index"
             ),
             "*",
             "*",
@@ -1514,19 +1515,19 @@ def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
         [
             "*_ test_redefined_in_a_fixture _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
             "*_ test_redefinition_rolled_back _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
             f"  first at test_a.py:{_line(path)} in test_redefinition_rolled_back",
             "*_ test_same_statement_after_rollback _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
         ]
     )
@@ -1670,3 +1671,61 @@ def test_pg_dropping_the_partial_index_makes_the_statement_reportable_again(
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*queryguard: missing index*", "*t1 is read in full*"])
+
+
+BROKEN_FIND_SCANS = """
+
+
+@pytest.fixture(autouse=True)
+def broken_find_scans(monkeypatch):
+    from pytest_queryguard import indexes
+
+    def broken(*args):
+        raise RuntimeError("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+"""
+
+
+SAVEPOINT_SCENARIOS = {
+    "autocommit": """
+        from sqlalchemy import text
+
+
+        def test_autocommit_write_is_committed(engine):
+            auto = engine.execution_options(isolation_level="AUTOCOMMIT")
+            with auto.connect() as conn:
+                conn.execute(text("SELECT * FROM orders WHERE customer_id = 1")).all()
+                conn.execute(text("INSERT INTO orders (id, customer_id) VALUES (99, 1)"))
+            with engine.connect() as other:
+                count = other.execute(text("SELECT count(*) FROM orders WHERE id = 99"))
+                assert count.scalar() == 1
+        """,
+    "transaction": """
+        from sqlalchemy import text
+
+
+        def test_transaction_settings_are_unchanged(engine):
+            with engine.connect() as conn:
+                conn.execute(text("SELECT * FROM orders WHERE customer_id = 1")).all()
+                assert conn.execute(text("SHOW enable_seqscan")).scalar() == "on"
+                conn.rollback()
+        """,
+}
+
+
+@needs_pg
+@pytest.mark.parametrize("scenario", sorted(SAVEPOINT_SCENARIOS))
+def test_pg_a_bug_inside_the_savepoint_leaves_the_connection_as_it_was(
+    project: pytest.Pytester, pg16: Postgres, scenario: str
+) -> None:
+    # The bug stops the plugin; the user's connection must not keep the
+    # plugin's transaction (autocommit) or its savepoint and enable_seqscan =
+    # off (inside the user's transaction).
+    _pg_project(project, pg16)
+    conftest = project.path / "conftest.py"
+    conftest.write_text(conftest.read_text() + BROKEN_FIND_SCANS)
+    project.makepyfile(test_a=SAVEPOINT_SCENARIOS[scenario])
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1, warnings=1)
+    result.stdout.fnmatch_lines(["*QueryGuardInternalWarning*find_scans broke*"])

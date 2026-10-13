@@ -14,6 +14,9 @@ changes by accident.
   attributes and methods of the classes in it (`QueryLog`, `Query`,
   `CallSite`, the exceptions and the warning classes). A new keyword argument
   with a default, or a new attribute, is not a breaking change.
+  Each of these reports `pytest_queryguard` as its `__module__`, so tracebacks,
+  reprs, pickles and `filterwarnings` entries use the documented import path
+  (`pytest_queryguard.NPlusOneDetected`, not the submodule it lives in).
 - The pytest integration: the ini options (`queryguard_*`), the command-line
   flags (`--queryguard-*`, `--no-queryguard-*`), their defaults and accepted
   values, and the markers (`max_queries`, `max_db_time`, `allow_nplusone`,
@@ -40,7 +43,7 @@ changes by accident.
 - Which statements SQLAlchemy emits for a given ORM call; that depends on the
   SQLAlchemy version.
 - The index check beyond what the documentation promises: it is documented
-  for PostgreSQL 16 and newer and for SQLite, and on older PostgreSQL servers
+  for PostgreSQL 16 and newer, SQLite, MySQL and MariaDB, and on older PostgreSQL servers
   it only prints a notice. It is tested on PostgreSQL 16 to 18; on a newer
   server it runs and prints a notice that the version is untested.
 
