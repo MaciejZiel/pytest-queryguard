@@ -37,12 +37,6 @@
 - Tests that use `pytester` to run pytest in-process are also measured by the
   outer test, which sees the inner run's queries. Mark such tests with
   `allow_nplusone` or use `pytester.runpytest_subprocess()`.
-- On SQLAlchemy 2.0.20 to 2.0.49, a query with `yield_per` and
-  `selectinload` (or `immediateload`) raises "Can't use the ORM yield_per
-  feature in conjunction with unique()" once any `do_orm_execute` hook is
-  registered, and the plugin registers one. This is SQLAlchemy issue 13301,
-  fixed in 2.0.50; upgrade SQLAlchemy if a test that streams rows with
-  `yield_per` fails only with the plugin installed.
 - unittest `setUp` and `tearDown` run inside the test call, so their queries
   are counted, unlike pytest fixtures.
 - A non-strict `xfail` test that has an N+1 is reported as xfailed rather

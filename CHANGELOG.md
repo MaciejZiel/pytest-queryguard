@@ -32,12 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   triggers the same issue without the plugin
   ([#169](https://github.com/MaciejZiel/pytest-queryguard/issues/169)).
 
-- `docs/limitations.md` notes that on SQLAlchemy 2.0.20 to 2.0.49 a
-  `yield_per` query with `selectinload` raises once any `do_orm_execute` hook
-  exists, the plugin's included (SQLAlchemy issue 13301, fixed in 2.0.50). The
-  accuracy corpus skips its `yield_per` scenario there and now checks that a
-  scenario never fails without a finding in every run, not only in the
-  pytest-xdist worker that happened to measure it.
+- Tests: the accuracy corpus now checks that a scenario never fails without a
+  finding in every run, not only in the pytest-xdist worker that happened to
+  measure it.
 
 - On SQLAlchemy 2.0.13 to 2.0.29 the column load of a joined-inheritance
   subclass (reading `manager.budget` after `select(Employee)`) was not
