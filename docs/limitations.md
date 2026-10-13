@@ -56,7 +56,9 @@
   a flush each) or a per-row insert with its own error handling from a write
   loop in the code under test. It is off by default for that reason.
 - The PostgreSQL index check needs PostgreSQL 16 or newer, and a sync engine or an
-  async engine on asyncpg. Other async drivers, such as psycopg's async
+  async engine on asyncpg. It is tested on 16, 17 and 18; a newer server is
+  checked, with one notice that it is untested (see
+  [PostgreSQL versions](index-check.md#postgresql-versions)). Other async drivers, such as psycopg's async
   mode, are skipped with a notice. The test suite uses pg8000 and asyncpg.
   psycopg2 and psycopg 3 were checked by hand during review and give the
   same findings for plain statements, `%` in SQL, expanding `IN`,

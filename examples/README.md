@@ -14,11 +14,11 @@ test that passes after the fix, so you can see a finding and its cure.
 | [action-sample](action-sample) | A project the GitHub Action is tested on in CI |
 
 Run one from its own directory, with pytest-queryguard installed from this
-repository (the baseline, SARIF and SQLite features are not in the 0.3.0
-release on PyPI):
+repository or the 0.4.0rc2 release candidate from PyPI (the baseline, SARIF
+and SQLite features are not in the stable 0.3.0):
 
 ```console
-$ pip install ../..            # or: pip install pytest-queryguard
+$ pip install ../..            # or: pip install "pytest-queryguard>=0.4.0rc2"
 $ pytest tests/test_orders.py        # fails: the finding
 $ pytest tests/test_orders_fixed.py  # passes: the fix
 ```
