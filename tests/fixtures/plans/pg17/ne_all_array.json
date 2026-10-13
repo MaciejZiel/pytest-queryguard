@@ -55,17 +55,5 @@
    ]
   ]
  },
- "live": [
-  {
-   "schema": "public",
-   "table": "orders",
-   "node": "Seq Scan",
-   "kind": "filter",
-   "column": null,
-   "expression": false,
-   "create_sql": null,
-   "skipped": null,
-   "partial_skipped": false
-  }
- ]
+ "live": []
 }

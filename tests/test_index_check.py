@@ -427,6 +427,75 @@ def test_pg_seq_scan_fails_with_table_condition_sql_site_and_hint(
 
 
 @needs_pg
+def test_pg_not_equal_filter_is_not_reported_even_on_an_indexed_column(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # orders.id is the primary key; no btree index serves <>, so the sequential
+    # scan is what the planner must do and there is nothing to add.
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import select
+
+        from qgmodels import Order
+
+
+        def test_not_equal(session):
+            session.scalars(select(Order).where(Order.id != 10)).all()
+            session.scalars(select(Order).where(Order.id.not_in([10, 11]))).all()
+            session.scalars(select(Order).where(Order.customer_id != 1)).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+
+
+@needs_pg
+def test_pg_not_equal_next_to_an_equality_is_still_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import select
+
+        from qgmodels import Order
+
+
+        def test_mixed(session):
+            stmt = select(Order).where(Order.customer_id == 1, Order.id != 10)
+            session.scalars(stmt).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*orders is read in full: Seq Scan with filter*"])
+
+
+@needs_pg
+def test_pg_not_equal_to_a_constant_in_the_sql_is_still_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # A partial index WHERE customer_id <> 1 serves this statement, so it is
+    # advice the user can follow, unlike a not-equal against a parameter.
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import literal_column, select
+
+        from qgmodels import Order
+
+
+        def test_constant(session):
+            stmt = select(Order).where(Order.customer_id != literal_column("1"))
+            session.scalars(stmt).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        ["*orders is read in full: Seq Scan with filter (orders.customer_id <> 1)"]
+    )
+
+
+@needs_pg
 def test_pg_passes_once_the_index_exists(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:
@@ -738,6 +807,39 @@ def test_pg_autocommit_connection(project: pytest.Pytester, pg16: Postgres) -> N
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["  orders is read in full: Seq Scan with filter*"])
     result.stdout.no_fnmatch_line("*AssertionError*")
+
+
+@needs_pg
+def test_pg_manual_transaction_on_an_autocommit_connection_survives_the_check(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+        from conftest import make_engine
+
+
+        def test_manual_begin(engine):
+            auto = make_engine(isolation_level="AUTOCOMMIT")
+            try:
+                with auto.connect() as conn:
+                    conn.exec_driver_sql("BEGIN")
+                    conn.exec_driver_sql("INSERT INTO orders VALUES (100, 1)")
+                    sql = "SELECT id FROM orders WHERE customer_id = %s"
+                    assert len(conn.exec_driver_sql(sql, (1,)).all()) == 3
+                    conn.exec_driver_sql("COMMIT")
+                with engine.connect() as conn:
+                    count = conn.scalar(text("SELECT count(*) FROM orders WHERE id = 100"))
+                assert count == 1, f"the committed row is gone: count={count}"
+            finally:
+                auto.dispose()
+        """
+    )
+    project.makeini("[pytest]\nqueryguard_index_ignore_tables = orders\n")
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*the index check stopped*")
 
 
 @needs_pg
