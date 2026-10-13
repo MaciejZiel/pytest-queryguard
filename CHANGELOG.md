@@ -52,6 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   these loops are no longer reported a second time as a repeated statement.
   Fixes #97 and #99.
 
+- The relationship-load finding shows a lazy load as its sample SQL. It used the
+  first statement with the relationship's label, which was the `selectinload`
+  query when that ran first; that query is now used only when no lazy load was
+  recorded ([#131](https://github.com/MaciejZiel/pytest-queryguard/issues/131)).
+
 - The SARIF level of an unused-eager-load finding now follows the test outcome:
   with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
   Fixes #98.
