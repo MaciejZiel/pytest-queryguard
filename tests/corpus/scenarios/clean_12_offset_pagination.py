@@ -1,6 +1,8 @@
 """CLEAN: walking all orders with ``LIMIT`` and ``OFFSET`` pages of four.
 
-Six pages are the same statement with other offsets, which is what paging is.
+Seven statements (six pages and a final empty one) are the same statement with
+other offsets, which is what paging is. The repeat rule recognises the walk from
+the parameters: only the offset changes, by at least the page size.
 """
 
 from sqlalchemy import select
@@ -11,9 +13,6 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-KNOWN = {
-    "*": "five or more pages are the same statement five times; only the small-repeat rule leaves pagination alone (issue #60)"
-}
 setup = shop.setup
 
 

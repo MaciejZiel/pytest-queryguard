@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sqlalchemy==2.0.13`, the declared minimum, instead of the latest 2.0.x.
   Fixes #161.
 
+- The index check notice for a database it cannot check (SQL Server, Oracle)
+  said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
+  supported. It now lists every supported database, and the help texts of
+  `--queryguard-index-check` and `queryguard_index_check` name MySQL and
+  MariaDB too. Fixes #154.
+
 - PostgreSQL index check: a finding for an index the plan walks end to end (a
   filter on the trailing column of a composite key, a whole index with a filter,
   a whole-index bitmap) now says `t scans the whole index ix: the ... does not
@@ -59,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commented single-row `INSERT`s was reported as a repeated statement with the
   advice to fetch the rows in one query, and the write-loop rule never saw it.
   Fixes #96.
+
+- The MySQL and MariaDB index check no longer fails on a literal `%` in a
+  statement that was run with the `no_parameters` execution option: the
+  `EXPLAIN` was formatted by PyMySQL (`query % args`) although the statement
+  itself was not, so it was reported as "could not be explained" (a literal
+  `%%` was sent as `%`). Fixes #116.
 
 - `--queryguard-update-baseline` no longer rewrites the baseline, and
   `--queryguard-sarif` no longer writes the file, after an interrupted run (a
@@ -95,6 +107,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `nextval()`) are not rolled back with the savepoint. Fixes #92.
 
 ### Changed
+
+- The repeated-statement rules no longer report pagination and chunked `IN`
+  loads when the bound parameters show them: only the `OFFSET` or an integer
+  keyset bound changes, in one direction, by at least a page of more than one
+  row (the walk may be repeated once); or one `IN` list of at least 50 values
+  changes, the lists share no value and all but one have the same length.
+  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
+  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
+  loop and identical repeats are still reported. Closes #60.
+  The accuracy corpus has five more CLEAN scenarios for these shapes and five
+  more BUG scenarios that imitate them; on its 141 scenarios the default
+  repeated-statement precision goes from 80% to 97% (90% to 97% without the
+  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
+  configuration, and the release gate's minimum precision for the kind is now
+  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
 
 - `docs/stability.md` has an "Experimental" section: the
   `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind

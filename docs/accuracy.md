@@ -1,7 +1,7 @@
 # Accuracy on a corpus of realistic code
 
 How often does pytest-queryguard report code that is fine, and how often does it
-miss code that is not? This page measures that on a corpus of 133 small
+miss code that is not? This page measures that on a corpus of 143 small
 scenarios, publishes the numbers, and lists every disagreement. The scenarios
 were written by the author of the plugin, so read the numbers as a regression
 baseline and a list of known limits, not as a benchmark of how the plugin does on
@@ -9,8 +9,8 @@ your code.
 
 ## Method
 
-- The corpus is in `tests/corpus/scenarios`: one module per scenario, 63 marked
-  **BUG** (an N+1 or a row-by-row write that a reviewer would ask to fix) and 70
+- The corpus is in `tests/corpus/scenarios`: one module per scenario, 68 marked
+  **BUG** (an N+1 or a row-by-row write that a reviewer would ask to fix) and 75
   marked **CLEAN** (code that is fine, including the fixes: `selectinload`,
   `joinedload`, `contains_eager`, bulk statements, pagination, caches). The
   docstring of each module says which, and why. The verdict is mine, from reading
@@ -51,26 +51,34 @@ your code.
   `scripts/accuracy_report.py` prints the tables below.
 
 Measured on 2026-10-13 on Linux 7.0.0 (x86_64, 13th Gen Intel Core i5-13500H, 16
-threads), Python 3.13.13, SQLAlchemy 2.1.1, pytest 9.1.1, Flask-SQLAlchemy 3.1.1,
+threads), Python 3.14.4, SQLAlchemy 2.1.1, pytest 9.1.1, Flask-SQLAlchemy 3.1.1,
 FastAPI 0.141.1, pytest-queryguard 0.4.0rc2 at the head of `main`, with
 `uv run python scripts/accuracy_report.py --compare <python>`. SQLModel was not
 installed (it needs SQLAlchemy below 2.1 and is only installed in the SQLAlchemy
-2.0 CI job), so 131 of the 133 scenarios ran: 62 BUG and 69 CLEAN. All numbers on
-this page are for those 131. PostgreSQL was not run: the numbers are SQLite only.
+2.0 CI job), so 141 of the 143 scenarios ran: 67 BUG and 74 CLEAN. All numbers on
+this page are for those 141 and SQLite. The corpus was also run once on
+PostgreSQL 17.11 (docker, pg8000 and asyncpg) to check that the rule for
+pagination and chunks reads those drivers' parameters: every pagination and chunk
+scenario agreed with its verdict there too. That run was before the keyset step
+and the 50-value chunk minimum were added, and before `bug_64` to `bug_68`; it
+was not repeated since. Two other scenarios fail on
+PostgreSQL for an unrelated reason in the corpus seed
+([#120](https://github.com/MaciejZiel/pytest-queryguard/issues/120)), so no
+PostgreSQL numbers are published.
 
 ## Results, default configuration
 
-54 of the 57 BUG scenarios that the default rules can report are flagged (the other
-5 BUG scenarios are write loops and an unused eager load, which are opt-in), and 4 of
-the 74 scenarios without an expected default kind are flagged.
+59 of the 62 BUG scenarios that the default rules can report are flagged (the other
+5 BUG scenarios are write loops and an unused eager load, which are opt-in), and 1 of
+the 79 scenarios without an expected default kind is flagged.
 
 | kind | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|
 | relationship-load | 19 | 0 | 0 | 100% | 100% |
-| repeated-statement | 31 | 4 | 2 | 89% | 94% |
+| repeated-statement | 36 | 1 | 2 | 97% | 95% |
 | column-load | 4 | 0 | 1 | 100% | 80% |
 
-The small counts (19, 31, 4) mean that one scenario moves a percentage by several
+The small counts (19, 36, 4) mean that one scenario moves a percentage by several
 points. The relationship-load row is 19 scenarios, not a claim about every ORM
 pattern.
 
@@ -80,18 +88,51 @@ positives against 12 more true positives. That is a change of the corpus, not of
 the plugin. The 12 new repeated-statement BUG scenarios include shapes chosen to
 look like batching or pagination (`LIMIT 1 OFFSET n` per row, the first page of
 each customer's orders, `IN` lists of one id or built from each item) and a
-loop-invariant query with the same parameters on every run.
+loop-invariant query with the same parameters on every run. Five more BUG
+scenarios, `bug_64` to `bug_68`, were added while reviewing the rule for
+pagination and chunks: loops that it first left alone (an `IN` list of each
+customer's ten orders, `WHERE id > :row_id LIMIT 3` per row, the same on a
+string column, a paginated loop-invariant lookup per order) and a moving
+window read with `LIMIT 3 OFFSET i`.
+
+### Before and after the rule for pagination and chunks
+
+On 2026-10-13 the repeat rules learned to leave pagination and chunked `IN`
+loads alone when their parameters show them (see "Pagination and chunks" in
+[How detection works](how-detection-works.md)). The same 141 scenarios, before
+and after:
+
+| configuration | repeated-statement before | after |
+|---|---|---|
+| default | 36 TP, 9 FP, 2 FN (80%, 95%) | 36 TP, 1 FP, 2 FN (97%, 95%) |
+| small-repeat = 2 | 38 TP, 11 FP, 0 FN (78%, 100%) | 38 TP, 2 FP, 0 FN (95%, 100%) |
+| repeat scope `session` | 32 TP, 8 FP, 6 FN (80%, 84%) | 32 TP, 1 FP, 6 FN (97%, 84%) |
+
+No BUG scenario was lost in any configuration: the findings of every BUG
+scenario are the same before and after in all seven configurations, and the
+BUG scenarios that look like pagination or batching (`bug_58` to `bug_60`,
+`bug_63` to `bug_68`) are still reported.
+Read the "before" column with care: five of the CLEAN scenarios
+(`clean_62_dataloader_max_batch_size`, `clean_69_celery_batch_task_chunks`,
+`clean_72_keyset_pagination_desc`, `clean_73_paginate_twice`,
+`clean_74_chunked_in_string_keys`) were written together with the rule, to test
+it, so they are false positives before it by construction. Without them, on the
+136 scenarios without them, the default row goes from 36 TP, 4 FP (90%) to
+36 TP, 1 FP (97%): the three false positives removed are
+`clean_12_offset_pagination`, `clean_13_keyset_pagination` and
+`clean_15_chunked_in_six_chunks`. `clean_14_chunked_in_three_chunks` is no longer
+reported by the small-repeat rule either.
 
 ## Results with the opt-in rules
 
 | configuration | kind | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|---|
-| small-repeat = 2 | repeated-statement | 33 | 6 | 0 | 85% | 100% |
+| small-repeat = 2 | repeated-statement | 38 | 2 | 0 | 95% | 100% |
 | write-loop = 2 | write-loop | 7 | 2 | 0 | 78% | 100% |
 | column-load threshold 2 | column-load | 5 | 1 | 0 | 83% | 100% |
 | unused-eager-load = fail | unused-eager-load | 1 | 0 | 0 | 100% | 100% |
-| repeat scope `session` | repeated-statement | 27 | 4 | 6 | 87% | 82% |
-| all four rules | repeated-statement | 33 | 6 | 0 | 85% | 100% |
+| repeat scope `session` | repeated-statement | 32 | 1 | 6 | 97% | 84% |
+| all four rules | repeated-statement | 38 | 2 | 0 | 95% | 100% |
 | all four rules | column-load | 5 | 1 | 0 | 83% | 100% |
 | all four rules | write-loop | 7 | 2 | 0 | 78% | 100% |
 | all four rules | unused-eager-load | 1 | 0 | 0 | 100% | 100% |
@@ -99,15 +140,15 @@ loop-invariant query with the same parameters on every run.
 `relationship-load` stays at 19 TP, 0 FP, 0 FN in every configuration. The
 unused-eager-load row is one BUG scenario and nothing else, so it says only that
 the rule works on its textbook case. With all rules on, every BUG scenario is
-flagged, and 9 of 69 CLEAN scenarios are.
+flagged, and 5 of 74 CLEAN scenarios are.
 
 **Effect of `queryguard_repeat_scope = session`** (added after the first run of this
 corpus): the scenarios that run each lookup in its own `Session`
 (`bug_47_session_per_item`, `bug_48_threadpool_lookups`,
 `bug_52_async_gather_session_per_task`, `bug_53_celery_task_per_id`) are no longer
 reported, which is what the option is for; they were reported before, and the four
-false negatives are the price. No false positive was removed, because every CLEAN scenario that is
-reported repeats one statement inside one `Session`.
+false negatives are the price. In both scopes the only CLEAN scenario the default
+rules report is the polling loop, which repeats one statement inside one `Session`.
 
 ## Every disagreement
 
@@ -116,10 +157,9 @@ reported repeats one statement inside one `Session`.
 | `bug_42_small_get_loop_below_threshold`, `bug_45_async_session_get_small` | BUG: 4 and 3 `get` calls | not reported | The repeat threshold is 5. The small-repeat rule reports both. |
 | `bug_44_expired_after_commit_three` | BUG: 3 objects reload after a commit | not reported | The column-load threshold is 5. Threshold 2 reports it. |
 | `bug_50_cascade_delete_loop` | BUG: delete cascade loads per parent | `relationship-load` and also `repeated-statement` (before the fix) | Bug [#59](https://github.com/MaciejZiel/pytest-queryguard/issues/59), fixed: an autoflush before the lazy load took over its relationship attribution. After the fix the repeated-statement false positive of this scenario is gone, and the repeated-statement rows on this page were re-measured. |
-| `clean_12_offset_pagination`, `clean_13_keyset_pagination` | CLEAN: 6 and 7 pages | `repeated-statement` | Five or more pages are one statement five times; only the small-repeat rule skips pagination. [#60](https://github.com/MaciejZiel/pytest-queryguard/issues/60). |
-| `clean_15_chunked_in_six_chunks` | CLEAN: 3000 ids in chunks of 500 | `repeated-statement` | The chunks share one shape. |
-| `clean_16_polling_loop` | CLEAN: polling a status on purpose | `repeated-statement` | A deliberate repeat looks like a loop. Use `allow_nplusone`. |
-| `clean_14_chunked_in_three_chunks`, `clean_20_cached_lookup` | CLEAN | `repeated-statement` with small-repeat on | Two or three statements of one shape from one line are what the rule reports. |
+| `clean_12_offset_pagination`, `clean_13_keyset_pagination`, `clean_15_chunked_in_six_chunks` | CLEAN: pages and chunks | `repeated-statement` before 2026-10-13, nothing after | Fixed by the rule for pagination and chunks ([#60](https://github.com/MaciejZiel/pytest-queryguard/issues/60)). `clean_14_chunked_in_three_chunks` was reported by the small-repeat rule before it. |
+| `clean_16_polling_loop` | CLEAN: polling a status on purpose | `repeated-statement` | Every run has the same parameters, like the loop-invariant query of `bug_55_loop_invariant_query`, which is a bug. The statements cannot tell them apart. Use `allow_nplusone`. |
+| `clean_20_cached_lookup` | CLEAN | `repeated-statement` with small-repeat on | Two statements of one shape from one line are what the rule reports. |
 | `clean_22_expire_on_commit_two_objects` | CLEAN | `column-load` with threshold 2 | Two reloads after a commit are the threshold. |
 | `clean_18_factory_boy_seed_in_body`, `clean_30_savepoint_per_row_insert` | CLEAN: seeding and per-row inserts with their own error handling | `write-loop` with the rule on | The rule cannot tell them from a write loop. |
 | `bug_47_session_per_item`, `bug_48_threadpool_lookups`, `bug_52_async_gather_session_per_task`, `bug_53_celery_task_per_id` | BUG | not reported with scope `session` | By design of the option. |
@@ -137,14 +177,19 @@ dynamic relationships, threads and a session per item, GraphQL-style resolvers, 
 DataLoader awaited key by key, `asyncio.gather` and Celery-style fan-out, caching
 repositories that miss, `with_for_update` per row, `yield_per` with a query per row,
 `LIMIT 1 OFFSET n` walks, a first page per customer, `IN` lists of one id or built
-per item, a loop-invariant query and per-row upserts (with the write-loop rule on);
+per item (also ten ids per customer), a keyset-shaped query per row on an integer
+and on a string column, a paginated lookup per order, a moving window with
+`LIMIT 3 OFFSET i`, a loop-invariant query and per-row upserts (with the write-loop rule on);
 and, as CLEAN, all the eager loading fixes, loader options on the mapping,
 `raiseload`, identity-map hits, new objects, backref assignment, executemany,
 multi-row `VALUES`, `add_all`, streaming, savepoints, recursive CTEs, bulk updates,
 a batching DataLoader, `selectinload` two levels deep over 1500 parents, `yield_per`
 with `selectinload`, ORM bulk `UPDATE` and `INSERT` with a list of rows, a multi-row
 upsert, one `FOR UPDATE` for a batch, a nested transaction around a batch, a
-prefetching repository and `asyncio.gather` over different statements.
+prefetching repository, `asyncio.gather` over different statements, and pagination
+and chunked loads: offset and keyset pages (also newest first, and the same walk
+twice), `IN` chunks of ids and of string keys, a DataLoader with a maximum batch
+size, and Celery-style tasks per chunk.
 
 ## Release thresholds
 
@@ -152,28 +197,26 @@ A release does not go out when the corpus gets worse. The release gate
 (`scripts/release_gate.py accuracy`, see "Releasing" in `CONTRIBUTING.md`) runs
 the corpus with the default configuration and fails when the precision or the
 recall of a finding kind is below the minimum recorded in
-`scripts/accuracy_thresholds.json`, when fewer than 131 scenarios ran, or when a
+`scripts/accuracy_thresholds.json`, when fewer than 141 scenarios ran, or when a
 disagreement with a verdict is not documented in the scenario. The minimums are
-the values measured on `main` on 2026-10-12 (SQLAlchemy 2.1.1, pytest 9.1.1,
-SQLModel not installed), rounded down to a multiple of 10%; the scenario count
-and the measured column are from 2026-10-13 (131 of the 133 scenarios):
+the values measured on 2026-10-13 (SQLAlchemy 2.1.1, pytest 9.1.1, SQLModel not
+installed, 141 of the 143 scenarios), rounded down to a multiple of 10%:
 
 | kind | minimum precision | minimum recall | measured |
 |---|---|---|---|
 | `relationship-load` | 100% | 100% | 19 TP, 0 FP, 0 FN |
-| `repeated-statement` | 80% | 90% | 31 TP, 4 FP, 2 FN (89% and 94%) |
+| `repeated-statement` | 90% | 90% | 36 TP, 1 FP, 2 FN (97% and 95%) |
 | `column-load` | 100% | 80% | 4 TP, 0 FP, 1 FN |
 
-The repeated-statement minimums were not raised when the 2026-10-13 scenarios
-pushed the measured precision from 83% to 89%: the plugin did not change, and
-rounded down the new values give the same minimums. The minimums
+The repeated-statement minimum precision went from 80% to 90% with the rule for
+pagination and chunks, in the same change. The minimums
 are a floor against regressions, not a goal. Raise one in the same pull request
 that improves the corpus result; lower one only with a reason in that pull
 request, because every lowered minimum is a release that detects less.
 
 ## Comparison with queryspy and pytest-querycount
 
-The same 131 scenarios, each tool with its defaults plus the switch that makes it
+The same 141 scenarios, each tool with its defaults plus the switch that makes it
 fail a test without a per-test marker (`--queryspy-strict`; the `no_n_plus_one` marker
 added to every scenario for pytest-querycount). A scenario counts as "flagged" when
 the test failed. Whether a tool reports the right kind is not compared.
@@ -185,10 +228,10 @@ pytest 9.1.1, the corpus's other dependencies at the versions above) and passed 
 
 | tool | BUG flagged | BUG missed | CLEAN passed | CLEAN flagged |
 |---|---|---|---|---|
-| pytest-queryguard, defaults | 54 | 8 | 65 | 4 |
-| pytest-queryguard, all opt-in rules | 62 | 0 | 60 | 9 |
-| queryspy 0.5.0 | 52 | 10 | 57 | 12 |
-| pytest-querycount 0.4.0 | 57 | 5 | 57 | 12 |
+| pytest-queryguard, defaults | 59 | 8 | 73 | 1 |
+| pytest-queryguard, all opt-in rules | 67 | 0 | 69 | 5 |
+| queryspy 0.5.0 | 57 | 10 | 57 | 17 |
+| pytest-querycount 0.4.0 | 62 | 5 | 57 | 17 |
 
 - Of the BUG scenarios the defaults of pytest-queryguard miss, five are write loops
   or an unused eager load (opt-in here, not reported by the other two either) and
@@ -197,12 +240,16 @@ pytest 9.1.1, the corpus's other dependencies at the versions above) and passed 
   loop and the f-string SQL loop, nor the thread-pool lookups; pytest-querycount
   flagged them. This agrees with the earlier comparison, where queryspy missed Core
   loops.
-- Both other tools flagged twelve CLEAN scenarios: the pagination, chunk, polling, cache and
-  commit scenarios (pytest-queryguard reports some of them only with its opt-in rules on), a `session.refresh()` of a
+- Both other tools flagged seventeen CLEAN scenarios: the pagination, chunk, polling, cache and
+  commit scenarios (pytest-queryguard reports the polling loop by default, and the
+  cache and commit ones only with its opt-in rules on), a `session.refresh()` of a
   single object, a selectin-loaded tree, a `selectinload` over 3000 parents, a
   `selectinload` two levels deep over 1500 parents and `yield_per` with
   `selectinload`. A tool that treats every repeated shape as a finding will do
   that; the choice is between catching small loops and flagging batching.
+- Five of those seventeen are the pagination and chunk scenarios written together
+  with pytest-queryguard's rule for them (listed above), which makes this table
+  favour pytest-queryguard even more than the rest of the corpus does.
 - The scenarios were written by the author of pytest-queryguard, so the table
   favours it. Each of the other tools has
   options I did not tune (budgets, thresholds, ignore blocks).
@@ -211,13 +258,19 @@ pytest 9.1.1, the corpus's other dependencies at the versions above) and passed 
 
 See also [Limitations](limitations.md).
 
-- Pagination of five or more pages, chunked `IN` loads and deliberate polling are
-  reported by the default repeat rule.
+- Deliberate polling is reported by the default repeat rule, and so are the
+  pagination and chunk shapes the rule for them does not read (composite keyset
+  conditions, string or date keyset bounds, MySQL's `LIMIT offset, count`,
+  `IN` lists shorter than 50 values, the same keys loaded twice).
+- The rule for pagination and chunks reads parameters only, so a loop that
+  looks exactly like paging or chunks is not reported: 50 or more keys per item,
+  the same number for every item, or an integer keyset bound per row whose rows
+  are at least a page apart. No scenario in the corpus has that shape.
 - Below its thresholds a loop is not reported by default; the opt-in rules that
   lower them report legitimate code too (a cache, two objects after a commit).
 - The write-loop rule cannot tell seeding or per-row inserts with error handling
   from a write loop.
 - The corpus is small, written by one person, and SQLite only; precision and recall
-  from 133 scenarios have wide error bars. PostgreSQL, MySQL and other drivers were
+  from 143 scenarios have wide error bars. PostgreSQL, MySQL and other drivers were
   not run.
 - The SQLModel scenarios run only where SQLModel is installed.
