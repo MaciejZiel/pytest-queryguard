@@ -464,10 +464,14 @@ def test_pg_async_joinedload_reports_the_joined_table(
 # The DO block must give the plan a plain EXPLAIN gives: compare both, on
 # the same tables, for statements of every shape the rules look at.
 EQUAL_PLANS_SETUP = [
-    "CREATE TABLE owners (id int PRIMARY KEY, name text)",
+    (
+        "CREATE TABLE owners (id int PRIMARY KEY, name text) "
+        "WITH (autovacuum_enabled = off)"
+    ),
     (
         "CREATE TABLE items (id serial PRIMARY KEY, owner_id int, tenant_id int, "
-        "status text, label varchar(20), total numeric, deleted_at timestamp)"
+        "status text, label varchar(20), total numeric, deleted_at timestamp) "
+        "WITH (autovacuum_enabled = off)"
     ),
     "CREATE INDEX items_tenant_status ON items (tenant_id, status)",
     "CREATE INDEX items_live ON items (id) WHERE deleted_at IS NULL",
