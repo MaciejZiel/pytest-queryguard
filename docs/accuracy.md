@@ -249,8 +249,8 @@ See also [Limitations](limitations.md).
 
 - Deliberate polling is reported by the default repeat rule, and so are the
   pagination and chunk shapes the rule for them does not read (composite keyset
-  conditions, MySQL's `LIMIT offset, count`, `IN` lists shorter than 10 values,
-  the same keys loaded twice).
+  conditions, string or date keyset bounds, MySQL's `LIMIT offset, count`,
+  `IN` lists shorter than 50 values, the same keys loaded twice).
 - Below its thresholds a loop is not reported by default; the opt-in rules that
   lower them report legitimate code too (a cache, two objects after a commit).
 - The write-loop rule cannot tell seeding or per-row inserts with error handling

@@ -41,8 +41,11 @@
 - The repeat rules leave pagination and chunked `IN` loads alone only when the
   bound parameters show them (see "Pagination and chunks" in
   [How detection works](how-detection-works.md)). Composite keyset conditions,
-  MySQL's `LIMIT offset, count`, literal `IN` lists, `IN` lists shorter than 10
-  values and the same keys loaded twice in one test are still reported. Neither
+  keyset walks on a string or date column, MySQL's `LIMIT offset, count`,
+  literal `IN` lists, `IN` lists shorter than 50 values and the same keys
+  loaded twice in one test are still reported. A loop that sends 50 or more
+  keys per item, each item's own and the same number for every item, looks
+  like chunks and is not reported. Neither
   rule can tell a polling loop that repeats a statement on purpose from a
   loop-invariant query inside a loop: both repeat one statement with the same
   parameters, so both are reported. Raise `queryguard_repeat_threshold` or mark

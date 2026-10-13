@@ -82,26 +82,35 @@ The runs of one shape are **pagination** when all of these hold:
   reads a table one row per statement and is still reported, which answers the
   concern in [#60](https://github.com/MaciejZiel/pytest-queryguard/issues/60);
 - the cursor moves the same way (up or down) from run to run and never repeats,
-  and an offset moves by at least the page size, so pages do not overlap. The
-  walk may start again from its first cursor (a test that reads the same list
-  twice); a restart anywhere else is reported.
+  and an offset moves by at least the page size, so pages do not overlap;
+- a keyset bound is an integer and moves by at least the page size: the next
+  cursor is the last key of a full page. A loop that passes each row's own key
+  (`WHERE id > :row_id LIMIT 3` for every row) moves it by one row and is
+  reported. String and date bounds cannot be measured, so their walks are
+  reported as before;
+- the walk may start again from its first cursor once (a test that reads the
+  same list twice). The same walk run three or more times is a loop-invariant
+  query inside a loop and is reported, and so is a restart anywhere else.
 
 The runs are a **chunked `IN` load** when all of these hold:
 
 - one `IN` list changes from run to run and everything else is the same;
 - the lists share no value: together they partition one list of keys;
-- every list has the same length, at least 10 values, except one shorter list
+- every list has the same length, at least 50 values, except one shorter list
   (the remainder, in any position).
 
-The minimum of 10 is there because per-item lists are short: the two
-addresses of an order, the lines of one order. A list of one id per run is
-reported.
+The minimum of 50 is there because per-item lists are short: the two
+addresses of an order, a customer's ten orders. A helper called with each
+customer's own orders sends equal-sized lists that share no value, which only
+their length tells apart from chunks. Batch sizes of loaders and ORMs are
+larger (`selectinload` uses 500). A list of one id per run is reported.
 
 What these rules cannot see, and so still report: a polling loop and a
 loop-invariant query, which both repeat one statement with the same
 parameters (the first is fine, the second is a bug, and the statements are the
 same); composite keyset conditions such as `a < ? OR (a = ? AND b < ?)`, where
-the bound is also a plain value; MySQL's `LIMIT offset, count`; `IN` lists
+the bound is also a plain value; keyset walks on a string or date column;
+MySQL's `LIMIT offset, count`; `IN` lists
 written as literals; and two chunked loads of the same keys in one test (the
 lists overlap). A parameter that cannot be read (an unknown placeholder
 style, values that do not compare) means the statements are reported as
