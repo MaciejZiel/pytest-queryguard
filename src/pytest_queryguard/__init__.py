@@ -10,7 +10,11 @@ from .api import (
     record_queries,
 )
 from .events import CallSite
-from .warnings import QueryGuardInternalWarning, QueryGuardWarning
+from .warnings import (
+    QueryGuardDeprecationWarning,
+    QueryGuardInternalWarning,
+    QueryGuardWarning,
+)
 
 __version__ = "0.4.0rc2"
 
@@ -19,6 +23,7 @@ __all__ = [
     "NPlusOneDetected",
     "Query",
     "QueryBudgetExceeded",
+    "QueryGuardDeprecationWarning",
     "QueryGuardInternalWarning",
     "QueryGuardWarning",
     "QueryLog",
