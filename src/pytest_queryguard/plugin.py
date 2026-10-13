@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import glob
 import importlib.metadata
 import os
+import shlex
 import warnings as std_warnings
 from collections.abc import Generator, Sequence
 from fnmatch import fnmatchcase
@@ -1070,6 +1072,22 @@ def pytest_deselected(items: Sequence[pytest.Item]) -> None:
         record_error(exc, "baseline update")
 
 
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> Generator[None, Any, Any]:
+    """Notice a hook that drops tests without calling ``pytest_deselected``."""
+    before = len(items)
+    result = yield
+    try:
+        settings = config.stash.get(_settings, None)
+        if settings is not None and settings.update_baseline and len(items) < before:
+            settings.deselected = True
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "baseline update")
+    return result
+
+
 def _test_key(item: pytest.Item) -> tuple[str | None, str]:
     """(rootdir-relative file, function) of a test, as a finding names a call site."""
     path = Path(str(item.path))
@@ -1083,25 +1101,55 @@ def _test_key(item: pytest.Item) -> tuple[str | None, str]:
 def _run_is_narrowed(config: pytest.Config, deselected: bool) -> bool:
     """True when the session did not aim at the whole suite.
 
-    That is a deselecting filter, ``--lf``, an ignore option, a node id or a path that is
-    narrower than ``testpaths`` (or the rootdir without it).
+    That is a deselecting filter, ``--lf``, ``--sw``, ``--pyargs``, an ``--ignore``
+    given on the command line, or file and node arguments that do not cover every
+    ``testpaths`` entry (or the rootdir without it).
     """
     if deselected:
         return True
     # --lf skips whole files at collection without calling pytest_deselected
-    for option in ("ignore", "ignore_glob", "lf", "stepwise", "pyargs"):
+    for option in ("lf", "stepwise", "pyargs"):
         if config.getoption(option, None):
             return True
+    if _ignores_on_command_line(config):
+        return True
+    suite = _suite_paths(config)
+    invocation = config.invocation_params.dir
+    given = [
+        Path(os.path.abspath(Path(invocation, str(arg))))
+        for arg in config.args
+        if "::" not in str(arg)
+    ]
+    # the run covers the suite when every default path is one of the
+    # arguments or below one of them; a node id covers nothing
+    return not all(any(arg == p or arg in p.parents for arg in given) for p in suite)
+
+
+def _suite_paths(config: pytest.Config) -> list[Path]:
+    """The paths a bare ``pytest`` in the rootdir collects."""
     root = config.rootpath
-    testpaths = config.getini("testpaths") or []
-    defaults = [Path(root, t) for t in testpaths] or [root]
-    for arg in config.args:
-        if "::" in str(arg):
-            return True
-        path = Path(str(arg))
-        if not any(path == d or path in d.parents for d in defaults):
-            return True
-    return False
+    found: list[Path] = []
+    for entry in config.getini("testpaths") or []:
+        found.extend(
+            Path(os.path.abspath(Path(root, match)))
+            for match in glob.glob(str(entry), root_dir=root, recursive=True)
+        )
+    return found or [root]
+
+
+def _ignores_on_command_line(config: pytest.Config) -> bool:
+    """An ``--ignore`` or ``--ignore-glob`` on the command line or in PYTEST_ADDOPTS.
+
+    One in the ini ``addopts`` is part of how the suite is defined, like
+    ``collect_ignore``, so a run with it still covers the whole suite.
+    """
+    tokens = [str(arg) for arg in config.invocation_params.args]
+    tokens += shlex.split(os.environ.get("PYTEST_ADDOPTS", ""))
+    return any(
+        token in ("--ignore", "--ignore-glob")
+        or token.startswith(("--ignore=", "--ignore-glob="))
+        for token in tokens
+    )
 
 
 def _identity(raw: Any) -> Identity:
@@ -1195,6 +1243,9 @@ def _update_baseline(
         settings.baseline_failed = (
             "not updated: the run stopped early or measurement failed"
         )
+        return
+    if session.config.getoption("collectonly", False):
+        settings.baseline_failed = "not updated: --collect-only runs no tests"
         return
     before = settings.baseline or frozenset()
     after = frozenset(settings.seen)
@@ -1319,7 +1370,10 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         # for a bad option), so there is nothing to measure with.
         return (yield)
     if settings.update_baseline:
-        settings.executed.add(_test_key(item))
+        try:
+            settings.executed.add(_test_key(item))
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "baseline update")
     limit = _budget(item)
     time_limit = _time_budget(item)
     if settings.mode == "off" and limit is None and time_limit is None:
