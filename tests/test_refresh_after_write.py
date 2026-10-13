@@ -12,6 +12,8 @@ write are still counted.
 from __future__ import annotations
 
 import asyncio
+import gc
+import weakref
 from collections.abc import Iterator
 from typing import Any
 
@@ -21,7 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 from sqlalchemy.pool import StaticPool
 
-from pytest_queryguard import NPlusOneDetected, record_queries
+from pytest_queryguard import (
+    NPlusOneDetected,
+    QueryGuardInternalWarning,
+    listeners,
+    record_queries,
+)
 
 pytestmark = pytest.mark.allow_nplusone
 
@@ -203,3 +210,48 @@ def test_a_refresh_loop_after_flushes_that_wrote_nothing_is_reported(
     assert not any(q.sql.startswith("UPDATE") for q in log.queries)
     report = _report(log)
     assert f"Team was reloaded with session.refresh() {ROWS} times" in report
+
+
+def test_the_flush_record_keeps_no_object_alive(engine: Any) -> None:
+    with Session(engine) as session, record_queries():
+        team = Team(name="t")
+        session.add(team)
+        session.flush()
+        assert session.__dict__[listeners._WRITTEN_ATTR].states
+        ref = weakref.ref(team)
+        session.expunge(team)
+        del team
+        gc.collect()
+        assert ref() is None
+
+
+def test_a_newer_flush_replaces_the_record(engine: Any) -> None:
+    # the record holds one flush, so it does not grow over a long test
+    with Session(engine) as session, record_queries():
+        session.add_all([Team(name=f"t{i}") for i in range(ROWS)])
+        session.flush()
+        assert len(session.__dict__[listeners._WRITTEN_ATTR].states) == ROWS
+        session.add(Team(name="last"))
+        session.flush()
+        assert len(session.__dict__[listeners._WRITTEN_ATTR].states) == 1
+
+
+def test_a_bug_in_the_after_flush_listener_is_reported_not_raised() -> None:
+    class Broken:
+        @property
+        def new(self) -> Any:
+            raise RuntimeError("boom")
+
+        dirty = ()
+        __dict__: dict[str, Any] = {}
+
+    saved = listeners.swap_error(None)
+    try:
+        with pytest.warns(QueryGuardInternalWarning), record_queries():
+            listeners._on_after_flush(Broken(), None)  # type: ignore[arg-type]
+        assert isinstance(listeners._error, RuntimeError)
+        failure = listeners.internal_failure()
+        assert failure is not None
+        assert "after_flush" in failure.source
+    finally:
+        listeners.swap_error(saved)
