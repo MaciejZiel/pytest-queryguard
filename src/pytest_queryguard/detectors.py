@@ -410,6 +410,7 @@ class _Run:
     limits: tuple[object, ...]
     cursor: tuple[Any, ...]  # OFFSET values, then range bounds, in text order
     offsets: tuple[Any, ...]
+    bounds: tuple[Any, ...]  # the range bounds (keyset cursors) alone
     lists: tuple[tuple[str, ...], ...]  # the values of each IN list (repr)
 
 
@@ -438,6 +439,7 @@ def _run(stmt: StatementEvent) -> _Run | None:
     limits: list[object] = []
     cursor: list[Any] = []
     offsets: list[Any] = []
+    bounds: list[Any] = []
     lists: dict[int, list[str]] = {}
     for role, key, in_list in slots:
         value = _value(stmt.parameters, key)
@@ -452,6 +454,7 @@ def _run(stmt: StatementEvent) -> _Run | None:
             cursor.append(value)
         elif role == _RANGE_ROLE:
             cursor.append(value)
+            bounds.append(value)
         else:
             plain.append(repr(value))
     return _Run(
@@ -459,6 +462,7 @@ def _run(stmt: StatementEvent) -> _Run | None:
         tuple(limits),
         tuple(cursor),
         tuple(offsets),
+        tuple(bounds),
         tuple(tuple(lists[i]) for i in sorted(lists)),
     )
 
@@ -472,10 +476,11 @@ def _walks(runs: Sequence[_Run]) -> bool:
     """Pagination: the runs walk through one result, page by page.
 
     Everything but the cursor (the ``OFFSET`` or the keyset bound) is the same
-    in every run, the cursor moves the same way from page to page, and a page
-    holds more than one row. The walk may start again from its first cursor
-    (a test that reads the same list twice). ``LIMIT 1 OFFSET n``, one row per
-    statement, is a loop, not pagination.
+    in every run, the cursor moves the same way from page to page by at least
+    a page (an integer keyset bound included), and a page holds more than one
+    row. The walk may start again from its first cursor once (a test that
+    reads the same list twice); the same walk run more often is a loop.
+    ``LIMIT 1 OFFSET n``, one row per statement, is a loop, not pagination.
     """
     first = runs[0]
     if not first.cursor:
@@ -490,7 +495,7 @@ def _walks(runs: Sequence[_Run]) -> bool:
     if any(size <= 1 for size in sizes):
         return False
     page = min(sizes, default=None)
-    direction, length = 0, 1
+    direction, length, restarts = 0, 1, 0
     for before, after in itertools.pairwise(runs):
         step = _step(before.cursor, after.cursor)
         if step == 0:
@@ -499,6 +504,9 @@ def _walks(runs: Sequence[_Run]) -> bool:
             # A new walk: it must start where the first one did.
             if after.cursor != first.cursor:
                 return False
+            restarts += 1
+            if restarts > 1:
+                return False  # the same walk in a loop: a loop-invariant query
             direction, length = 0, 1
             continue
         if page is not None and before.offsets != after.offsets:
@@ -509,8 +517,35 @@ def _walks(runs: Sequence[_Run]) -> bool:
             ]
             if any(m < page for m in moved):
                 return False  # pages overlap: a sliding window, not paging
+        if before.bounds != after.bounds and not _keyset_step(
+            before.bounds, after.bounds, page
+        ):
+            return False
         direction, length = step, length + 1
     return length > 1
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _keyset_step(before: Sequence[Any], after: Sequence[Any], page: int | None) -> bool:
+    """A keyset cursor moved past a whole page.
+
+    The next cursor of a keyset walk is the last key of a full page, so on a
+    unique integer key it moves by at least the page size. A bound that moves
+    by less (each row of a loop, ``WHERE id > :row_id LIMIT 3``), or one that
+    cannot be measured (a string, a date, an unknown page size), is not read
+    as paging.
+    """
+    if page is None:
+        return False
+    for a, b in zip(before, after, strict=True):
+        if a == b:
+            continue
+        if not (_is_int(a) and _is_int(b)) or abs(b - a) < page:
+            return False
+    return True
 
 
 def _partitions(runs: Sequence[_Run]) -> bool:

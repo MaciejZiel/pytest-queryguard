@@ -80,10 +80,25 @@ def test_descending_keyset_pagination_is_not_reported() -> None:
     assert _repeats(_collector(runs)) == []
 
 
-def test_keyset_on_a_date_column_is_not_reported() -> None:
+def test_keyset_on_a_date_column_is_reported() -> None:
+    # How far a date cursor moved says nothing about the page: a loop that
+    # passes each row's own date looks the same, so it is reported as before.
     sql = "SELECT id FROM t WHERE created >= ? ORDER BY created LIMIT ?"
     days = [f"2026-10-{d:02d}" for d in range(1, 8)]
-    assert _repeats(_collector([(sql, (d, 50)) for d in days])) == []
+    assert len(_repeats(_collector([(sql, (d, 50)) for d in days]))) == 1
+
+
+def test_a_growing_keyset_bound_per_row_is_reported() -> None:
+    # WHERE id > :row_id LIMIT 4 for each row in id order: the bound only grows,
+    # but by one row, not by a page.
+    runs = [(KEYSET_SQL, (last, 4, 0)) for last in range(1, 9)]
+    assert len(_repeats(_collector(runs))) == 1
+
+
+def test_a_growing_string_keyset_bound_is_reported() -> None:
+    sql = "SELECT id FROM t WHERE name > ? ORDER BY name LIMIT ?"
+    names = [f"customer{i}" for i in range(1, 9)]
+    assert len(_repeats(_collector([(sql, (n, 2)) for n in names]))) == 1
 
 
 def test_pyformat_parameters_are_read_by_name() -> None:
@@ -109,6 +124,13 @@ def test_literal_limit_and_offset_are_read_from_the_text() -> None:
 def test_the_same_walk_twice_is_not_reported() -> None:
     walk = [(OFFSET_SQL, (8, offset)) for offset in (0, 8, 16, 24)]
     assert _repeats(_collector(walk + walk)) == []
+
+
+def test_the_same_walk_in_a_loop_is_reported() -> None:
+    # A loop-invariant paginated lookup called once per item.
+    walk = [(KEYSET_SQL, (last, 2, 0)) for last in (0, 2, 4)]
+    [finding] = _repeats(_collector(walk * 8))
+    assert finding.count == 24
 
 
 def test_a_second_walk_from_another_start_is_reported() -> None:
