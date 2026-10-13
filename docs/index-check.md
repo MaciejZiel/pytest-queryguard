@@ -196,7 +196,10 @@ production. Exclude such tables with `queryguard_index_ignore_tables`, one
 test with `@pytest.mark.allow_missing_index`, or only some tables in one
 test with `@pytest.mark.allow_missing_index("countries", "currencies")`.
 Findings follow `queryguard_mode`: `warn` turns them into warnings and
-`off` turns the check off. `allow_nplusone` does not affect the index check.
+`off` turns the check off. `allow_nplusone` without arguments does not
+affect the index check, but `allow_nplusone` with patterns matches
+missing-index findings the same way `queryguard_ignore` does
+(`@pytest.mark.allow_nplusone("audit_log", kind="missing-index")`).
 
 ## PostgreSQL versions
 

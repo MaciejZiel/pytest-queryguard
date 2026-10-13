@@ -13,6 +13,7 @@ import dataclasses
 import importlib.metadata
 import inspect
 import re
+import warnings
 from typing import Any
 
 import pytest
@@ -24,6 +25,7 @@ EXPECTED_ALL = [
     "NPlusOneDetected",
     "Query",
     "QueryBudgetExceeded",
+    "QueryGuardDeprecationWarning",
     "QueryGuardInternalWarning",
     "QueryGuardWarning",
     "QueryLog",
@@ -44,6 +46,7 @@ EXPECTED_BASES = {
     "NPlusOneDetected": "AssertionError",
     "Query": "object",
     "QueryBudgetExceeded": "AssertionError",
+    "QueryGuardDeprecationWarning": "DeprecationWarning",
     "QueryGuardInternalWarning": "UserWarning",
     "QueryGuardWarning": "UserWarning",
     "QueryLog": "object",
@@ -119,6 +122,19 @@ def test_all_is_the_documented_list() -> None:
     assert sorted(pytest_queryguard.__all__) == EXPECTED_ALL
     for name in pytest_queryguard.__all__:
         assert hasattr(pytest_queryguard, name), name
+
+
+def test_deprecation_warning_is_apart_from_the_finding_warnings() -> None:
+    """``error::QueryGuardWarning`` must not turn a deprecation into an error."""
+    deprecation = pytest_queryguard.QueryGuardDeprecationWarning
+    assert not issubclass(deprecation, pytest_queryguard.QueryGuardWarning)
+    assert not issubclass(deprecation, pytest_queryguard.QueryGuardInternalWarning)
+    assert not issubclass(deprecation, UserWarning)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("error", category=pytest_queryguard.QueryGuardWarning)
+        warnings.warn("old name, use new", deprecation, stacklevel=1)
+    assert [w.category for w in caught] == [deprecation]
 
 
 def test_version_is_a_release_number() -> None:
