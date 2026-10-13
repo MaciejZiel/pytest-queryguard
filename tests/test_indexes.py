@@ -1875,3 +1875,36 @@ def test_rows_read_before_a_clear_are_not_written_after_it(text_cast: bool) -> N
     assert varchar == ({("public", "t"): frozenset({"s"})} if text_cast else {})
     assert entry.leading == {}
     assert entry.varchar == {}
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "((orders.status)::text <> ($1)::text)",
+        "(orders.customer_id <> $1)",
+        "(orders.customer_id <> ALL ('{1,2}'::integer[]))",
+        "(NOT (orders.customer_id = ANY ($1)))",
+        "((orders.customer_id <> $1) AND (orders.id <> $2))",
+    ],
+)
+def test_a_seq_scan_that_filters_only_with_not_equal_is_not_reported(
+    condition: str,
+) -> None:
+    # No btree index serves <>, so there is no index to add, indexed or not.
+    assert find_scans(_seq(Filter=condition)) == []
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "((orders.customer_id = $1) AND (orders.id <> $2))",
+        "((orders.id <> $1) AND (orders.customer_id > $2))",
+        "((orders.id <> $1) OR (orders.id <> $2))",
+        "(orders.id <> $1 AND orders.note ~~ 'a%')",
+    ],
+)
+def test_a_seq_scan_with_one_servable_condition_is_still_reported(
+    condition: str,
+) -> None:
+    [issue] = find_scans(_seq(Filter=condition))
+    assert issue.node == "Seq Scan"

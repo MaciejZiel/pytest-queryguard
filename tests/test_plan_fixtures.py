@@ -52,8 +52,9 @@ EXPECTED: dict[str, list[tuple[str, str, str, str | None, bool]]] = {
     "coalesce": [("orders", SEQ, "filter", None, True)],
     "like": [("customers", SEQ, "filter", None, False)],
     "is_null": [("orders", SEQ, "filter", None, False)],
-    "not_equal": [("orders", SEQ, "filter", None, False)],
-    "not_condition": [("orders", SEQ, "filter", None, False)],
+    # no btree index serves <>, so a filter of only not-equal is not reported
+    "not_equal": [],
+    "not_condition": [],
     "array_any": [("orders", SEQ, "filter", None, False)],
     "json_arrow": [("orders", SEQ, "filter", None, False)],
     "or_two_columns": [("orders", SEQ, "filter", None, False)],

@@ -426,6 +426,50 @@ def test_pg_seq_scan_fails_with_table_condition_sql_site_and_hint(
 
 
 @needs_pg
+def test_pg_not_equal_filter_is_not_reported_even_on_an_indexed_column(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # orders.id is the primary key; no btree index serves <>, so the sequential
+    # scan is what the planner must do and there is nothing to add.
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import select
+
+        from qgmodels import Order
+
+
+        def test_not_equal(session):
+            session.scalars(select(Order).where(Order.id != 10)).all()
+            session.scalars(select(Order).where(Order.id.not_in([10, 11]))).all()
+            session.scalars(select(Order).where(Order.customer_id != 1)).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+
+
+@needs_pg
+def test_pg_not_equal_next_to_an_equality_is_still_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import select
+
+        from qgmodels import Order
+
+
+        def test_mixed(session):
+            stmt = select(Order).where(Order.customer_id == 1, Order.id != 10)
+            session.scalars(stmt).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*orders is read in full: Seq Scan with filter*"])
+
+
+@needs_pg
 def test_pg_passes_once_the_index_exists(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:
