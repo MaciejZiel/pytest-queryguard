@@ -330,6 +330,45 @@ def test_fallback_to_text_matching_for_unparsed_conditions() -> None:
     assert indexes.condition_columns(condition, "o") == {"x", "y"}
 
 
+@pytest.mark.parametrize(
+    ("condition", "alias", "expected"),
+    [
+        ("(ev_1.a = $1)", "ev_1", "( @ . a = $1 )"),
+        # the alias inside a string literal is text, not a qualifier
+        ("(ev_1.a = 'ev_1.x')", "ev_1", "( @ . a = 'ev_1.x' )"),
+        # quoted aliases, with a space or upper case, are compared unquoted
+        ('("Ev x_2".a = $1)', "Ev x_2", "( @ . a = $1 )"),
+        ('("EV_1".a = $1)', "EV_1", "( @ . a = $1 )"),
+        ('("ev_1".a = $1)', "ev_1", "( @ . a = $1 )"),
+        # a longer name that contains the alias is another name
+        ("(xev_1.a = ev_1.a)", "ev_1", "( xev_1 . a = @ . a )"),
+        # a schema-qualified name: the alias after a dot is not a qualifier, and
+        # the schema of a function is left alone
+        ("(public.ev_1.a = $1)", "ev_1", "( public . ev_1 . a = $1 )"),
+        ("(ev_1.a = public.f(ev_1.b))", "ev_1", "( @ . a = public . f ( @ . b ) )"),
+        # a field of a composite column
+        ("((ev_1.payload).f = $1)", "ev_1", "( ( @ . payload ) . f = $1 )"),
+        # a column named like the alias is not followed by a dot
+        ("(ev_1.ev_1 = $1)", "ev_1", "( @ . ev_1 = $1 )"),
+    ],
+)
+def test_without_qualifier(condition: str, alias: str, expected: str) -> None:
+    assert predicates.without_qualifier(condition, alias) == expected
+
+
+def test_without_qualifier_makes_partition_conditions_equal() -> None:
+    first = predicates.without_qualifier("((ev_1.a = $1) AND (ev_1.b > $2))", "ev_1")
+    second = predicates.without_qualifier(
+        '(("Ev x_2".a = $1) AND ("Ev x_2".b > $2))', "Ev x_2"
+    )
+    assert first is not None and first == second
+
+
+@pytest.mark.parametrize("condition", ["(ev_1.a = `x`)", "(ev_1.a = 'unterminated)"])
+def test_without_qualifier_is_none_outside_the_tokens(condition: str) -> None:
+    assert predicates.without_qualifier(condition, "ev_1") is None
+
+
 def test_unquote() -> None:
     assert predicates.unquote('"a""b"') == 'a"b'
     assert predicates.unquote("abc") == "abc"
