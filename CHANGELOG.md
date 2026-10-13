@@ -74,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
   for file-based SQLite or PostgreSQL).
 
+- `allow_nplusone` with patterns now also applies to missing-index findings.
+  `kind="missing-index"` was accepted but never matched anything and was then
+  reported as a stale ignore; it now works like the same pattern in
+  `queryguard_ignore`. The marker without arguments still leaves the index
+  check alone (`allow_missing_index` skips it).
+
 - The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
   resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
   caching repositories, `with_for_update`, nested transactions, `yield_per`,
