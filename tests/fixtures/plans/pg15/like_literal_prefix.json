@@ -1,0 +1,61 @@
+{
+ "query": "SELECT * FROM customers WHERE name LIKE 'n1%'",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "customers",
+    "Schema": "public",
+    "Alias": "customers",
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 10000000001.62,
+    "Plan Rows": 10,
+    "Plan Width": 17,
+    "Output": [
+     "id",
+     "email",
+     "name"
+    ],
+    "Filter": "((customers.name)::text ~~ 'n1%'::text)"
+   },
+   "JIT": {
+    "Functions": 2,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "customers",
+    [
+     "email",
+     "name"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
+}

@@ -74,6 +74,15 @@ def test_parse_rejects_a_kind_that_matches_nothing() -> None:
         parse_rule("relationshipload Order.customer")
 
 
+def test_the_unknown_kind_error_lists_every_kind_comma_separated() -> None:
+    with pytest.raises(ValueError) as caught:
+        parse_rule("relationshipload Order.customer")
+    assert str(caught.value).endswith(
+        "(kinds: relationship-load, repeated-statement, column-load, "
+        "write-loop, unused-eager-load, missing-index)"
+    )
+
+
 def test_parse_accepts_kind_globs() -> None:
     assert parse_rule("* Order.customer").kind == "*"
     assert parse_rule("relationship-* Order.customer").kind == "relationship-*"

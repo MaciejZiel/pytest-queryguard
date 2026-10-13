@@ -1,0 +1,146 @@
+{
+ "query": "SELECT * FROM customers c WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.total > $1)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Hash Join",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Inner",
+    "Startup Cost": 16.91,
+    "Total Cost": 30.35,
+    "Plan Rows": 50,
+    "Plan Width": 17,
+    "Disabled": false,
+    "Output": [
+     "c.id",
+     "c.email",
+     "c.name"
+    ],
+    "Inner Unique": true,
+    "Hash Cond": "(c.id = o.customer_id)",
+    "Plans": [
+     {
+      "Node Type": "Index Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Scan Direction": "Forward",
+      "Index Name": "customers_pkey",
+      "Relation Name": "customers",
+      "Schema": "public",
+      "Alias": "c",
+      "Startup Cost": 0.14,
+      "Total Cost": 12.89,
+      "Plan Rows": 50,
+      "Plan Width": 17,
+      "Disabled": false,
+      "Output": [
+       "c.id",
+       "c.email",
+       "c.name"
+      ]
+     },
+     {
+      "Node Type": "Hash",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 16.16,
+      "Total Cost": 16.16,
+      "Plan Rows": 49,
+      "Plan Width": 4,
+      "Disabled": false,
+      "Output": [
+       "o.customer_id"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Aggregate",
+        "Strategy": "Hashed",
+        "Partial Mode": "Simple",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 15.67,
+        "Total Cost": 16.16,
+        "Plan Rows": 49,
+        "Plan Width": 4,
+        "Disabled": false,
+        "Output": [
+         "o.customer_id"
+        ],
+        "Group Key": [
+         "o.customer_id"
+        ],
+        "Planned Partitions": 0,
+        "Plans": [
+         {
+          "Node Type": "Seq Scan",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "orders",
+          "Schema": "public",
+          "Alias": "o",
+          "Startup Cost": 0.0,
+          "Total Cost": 15.25,
+          "Plan Rows": 167,
+          "Plan Width": 4,
+          "Disabled": true,
+          "Output": [
+           "o.customer_id"
+          ],
+          "Filter": "(o.total > $1)"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "total",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (total)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}
