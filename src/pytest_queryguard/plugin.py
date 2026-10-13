@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import glob
 import importlib.metadata
 import os
@@ -122,6 +123,8 @@ class _Settings:
         self.deselected = False
         # the run is incomplete: a worker crashed or stopped measuring
         self.baseline_incomplete = False
+        # a collection error was reported (by this process or an xdist worker)
+        self.collection_failed = False
         self.baseline_previous_error: str | None = None
         self.baseline_written: str | None = None
         self.baseline_failed: str | None = None
@@ -624,6 +627,10 @@ def _configure(config: pytest.Config) -> None:
     catalog.reset()
     settings = _read_settings(config)
     config.stash[_settings] = settings
+    if settings.baselining or settings.sarif_path:
+        config.pluginmanager.register(
+            _CollectionErrors(settings), "queryguard-collection-errors"
+        )
     if config.getoption("queryguard_report"):
         config.stash[_report] = []
     if settings.mode != "off":
@@ -633,6 +640,20 @@ def _configure(config: pytest.Config) -> None:
         if settings.unused_eager != "off":
             config.stash[_eager_enabled] = True  # set first: undone even if it fails
             eager.enable()
+
+
+class _CollectionErrors:
+    """Notes a collection error, also one that a pytest-xdist worker reports."""
+
+    def __init__(self, settings: _Settings) -> None:
+        self._settings = settings
+
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        try:
+            if report.failed:
+                self._settings.collection_failed = True
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "collection report")
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
@@ -1108,7 +1129,11 @@ def _is_worker(config: pytest.Config) -> bool:
 @pytest.hookimpl(optionalhook=True)
 def pytest_testnodedown(node: Any, error: object) -> None:
     """pytest-xdist, on the controller: collect what a worker found."""
-    settings = node.config.stash.get(_settings, None)
+    try:
+        settings = node.config.stash.get(_settings, None)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "merging the results of a pytest-xdist worker")
+        return
     if settings is None or not (settings.baselining or settings.sarif_path):
         return
     try:
@@ -1262,7 +1287,12 @@ def pytest_sessionfinish(
     try:
         if internal_error() is not None:
             settings.baseline_incomplete = True
-        interrupted = exitstatus in _ABNORMAL_EXIT
+        # A collection error also counts when the run went on: pytest-xdist
+        # without -x ends it with "tests failed", a serial run is interrupted.
+        interrupted = settings.collection_failed or (
+            exitstatus in _ABNORMAL_EXIT
+            and not _xdist_maxfail_stop(session, settings, exitstatus)
+        )
         if settings.update_baseline:
             _update_baseline(session, settings, interrupted)
         if settings.sarif_path is not None:
@@ -1277,6 +1307,23 @@ def pytest_sessionfinish(
                 _write_sarif(settings)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "writing the baseline or SARIF file")
+
+
+def _xdist_maxfail_stop(
+    session: pytest.Session, settings: _Settings, exitstatus: int | pytest.ExitCode
+) -> bool:
+    """A pytest-xdist run that -x or --maxfail stopped, not a real interruption.
+
+    pytest-xdist ends such a run with the "interrupted" exit status where a
+    serial run ends with "tests failed"; it is then treated as the serial run.
+    A collection error under -x sets the same flags and stays an interruption.
+    """
+    return (
+        exitstatus == pytest.ExitCode.INTERRUPTED
+        and bool(session.shouldstop or session.shouldfail)
+        and not settings.collection_failed
+        and session.config.pluginmanager.has_plugin("dsession")
+    )
 
 
 def _write_sarif(settings: _Settings) -> None:
@@ -1452,6 +1499,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
+    # A finding escalated by ``filterwarnings = error`` is raised from this frame;
+    # keep the plugin's own source out of that failure, as in fail mode. Any other
+    # exception (a user test failure, a plugin bug) keeps this frame visible.
+    __tracebackhide__ = _hide_escalated_warning
     settings = item.config.stash.get(_settings, None)
     if settings is None:
         # pytest_configure did not complete (for example it raised a UsageError
@@ -1463,12 +1514,22 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             record_error(exc, "baseline update")
     # Marker errors fail the test on purpose (pytest.fail), before it runs.
-    limit = _budget(item)
-    time_limit = _time_budget(item)
+    try:
+        limit = _budget(item)
+        time_limit = _time_budget(item)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "start of the measurement")
+        _report_internal_error(item.config)
+        return (yield)
     if settings.mode == "off" and limit is None and time_limit is None:
         return (yield)
     index_check = settings.mode != "off" and settings.index_check
-    exempt_all, exempt = _index_exemption(item) if index_check else (False, ())
+    try:
+        exempt_all, exempt = _index_exemption(item) if index_check else (False, ())
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "start of the measurement")
+        _report_internal_error(item.config)
+        return (yield)
     try:
         collector, tracker = _start_measuring(
             settings,
@@ -1482,7 +1543,16 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     try:
         result = yield
     finally:
-        _stop_measuring(item, collector, settings, tracker)
+        try:
+            _stop_measuring(item, collector, settings, tracker)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "end of the measurement")
+            _discard(collector, tracker)
+        except BaseException:
+            # a signal (KeyboardInterrupt, SystemExit) goes on, but leaves
+            # no collector on the stack and no tracker behind
+            _discard(collector, tracker)
+            raise
     try:
         parts, warn_texts = _results(
             item, collector, settings, tracker, limit, time_limit, exempt
@@ -1492,17 +1562,30 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         parts, warn_texts = [], []
     _report_internal_error(item.config)
     if not parts:
-        path, line, _ = item.reportinfo()
-        for text in warn_texts:
-            std_warnings.warn_explicit(
-                QueryGuardWarning(text),
-                QueryGuardWarning,
-                str(path),
-                (line or 0) + 1,
-            )
+        _emit_warnings(item, warn_texts)
     if parts:
         pytest.fail("\n\n".join(parts), pytrace=False)
     return result
+
+
+def _hide_escalated_warning(
+    excinfo: pytest.ExceptionInfo[BaseException] | None,
+) -> bool:
+    """Hide a plugin frame only when a ``QueryGuardWarning`` was raised as an error."""
+    return excinfo is not None and excinfo.errisinstance(QueryGuardWarning)
+
+
+def _emit_warnings(item: pytest.Item, texts: list[str]) -> None:
+    """Emit each finding as a ``QueryGuardWarning`` located at the test."""
+    __tracebackhide__ = _hide_escalated_warning
+    path, line, _ = item.reportinfo()
+    for text in texts:
+        std_warnings.warn_explicit(
+            QueryGuardWarning(text),
+            QueryGuardWarning,
+            str(path),
+            (line or 0) + 1,
+        )
 
 
 def _start_measuring(
@@ -1547,6 +1630,16 @@ def _stop_measuring(
         _note_index_check(item.config, collector)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "end of the measurement")
+
+
+def _discard(collector: QueryCollector, tracker: eager.Tracker | None) -> None:
+    """Best effort: take the collector and the tracker off after a failed stop."""
+    # the error is already recorded; nothing here may add another
+    if tracker is not None:
+        with contextlib.suppress(Exception):
+            eager.stop(tracker)
+    with contextlib.suppress(Exception):
+        pop(collector)
 
 
 def _results(

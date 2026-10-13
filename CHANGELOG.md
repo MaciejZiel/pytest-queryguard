@@ -28,6 +28,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `session.refresh(obj, ["name"])` in a loop was labelled as an expired load
   with an `expire_on_commit=False` hint; it is now a refresh (`Book (refresh)`)
   with the refresh hint.
+- In `warn` mode, a finding turned into an error by `filterwarnings`
+  (`error::pytest_queryguard.QueryGuardWarning` or a blanket `error`) no longer
+  prints about 50 lines of the plugin's hook wrapper source before the finding;
+  the failure shows the finding message, as in `fail` mode.
+- Under pytest-xdist, a collection error without `-x` no longer rewrites the
+  baseline or writes the `--queryguard-sarif` file: the run is handled as the
+  interrupted run a serial run is, with the same reason. Closes #194.
+- **Behavior change:** a serial run with `--continue-on-collection-errors`
+  and a collection error also no longer rewrites the baseline or writes the
+  `--queryguard-sarif` file, where it did before. The tests of the module that
+  did not collect never ran: a rewritten baseline would drop their entries and
+  an uploaded report would close their alerts. The summary gives the
+  interrupted-run reason; the GitHub Action skips the upload with a warning.
+- An internal error in the budget markers, the `allow_missing_index` check or
+  the end of a measurement in the `pytest_runtest_call` hook no longer fails
+  the user's test: it ends measurement with a `QueryGuardInternalWarning` and
+  the "queryguard: measurement stopped" section, as other internal errors do.
+  The collection-report and pytest-xdist worker hooks are guarded the same
+  way. A `KeyboardInterrupt` or `SystemExit` at the end of a measurement still
+  stops the run, and leaves no collector or eager-load tracker behind.
+  Closes #197.
+- Under pytest-xdist, a run stopped by `-x` or `--maxfail` is handled as in a
+  serial run instead of as an interrupted one: the baseline is not updated
+  because the run stopped early (it no longer blames a collection error,
+  Ctrl-C or an internal error), and the `--queryguard-sarif` file is written.
+  A collection error under `-x`, serial or with pytest-xdist, is still
+  reported as an interrupted run. Closes #187.
+- The GitHub Action example in `docs/ci.md` no longer fails on a first run:
+  the `baseline` input is commented out until the file exists. The examples
+  use `actions/checkout@v7` and `actions/setup-python@v7` (Node 24) and run
+  on `push` to `main` plus `pull_request`, so a pull request does not run
+  twice.
 - A table name in a missing-index finding is now matched the same way in
   `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
   and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`
