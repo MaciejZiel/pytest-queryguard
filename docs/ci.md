@@ -50,8 +50,8 @@ You do not need to set `package`. Left empty, the action installs the plugin
 from its own checkout, so the plugin version is the one that ref ships: pin the
 action to a release tag or a commit and you get the plugin of that release. A
 fixed default such as `pytest-queryguard` would let pip pick an older release
-(for example a stable 0.3.0 while 0.4 is a release candidate), which has no
-`--queryguard-sarif`, and pytest would stop with `unrecognized arguments`. Set
+(for example 0.3.0, which has no `--queryguard-sarif`), and pytest would stop
+with `unrecognized arguments`. Set
 `package` only to install something else, such as `pytest-queryguard==0.4.0`
 or a path.
 

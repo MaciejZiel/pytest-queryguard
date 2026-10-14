@@ -6,7 +6,7 @@ A project adopts pytest-queryguard when it already has findings.
 code with another one.
 
 ```console
-$ pip install "pytest-queryguard>=0.4.0rc4"
+$ pip install pytest-queryguard
 $ pytest tests -o queryguard_baseline=
 3 failed
 ```

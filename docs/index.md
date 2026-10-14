@@ -23,12 +23,11 @@ queryguard: N+1 detected
 ```
 
 ```bash
-pip install "pytest-queryguard>=0.4.0rc4"
+pip install pytest-queryguard
 ```
 
 It is on by default: there is nothing to import or configure. These pages
-describe 0.4.0rc4; the stable 0.3.0 (`pip install pytest-queryguard`) lacks
-most of the adoption features, see [Getting started](getting-started.md#install).
+describe 0.4.0, see [Getting started](getting-started.md#install).
 
 ## Where to go
 
