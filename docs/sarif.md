@@ -44,10 +44,20 @@ computes itself when it is missing. pytest-queryguard sets it from the finding
 identity instead, because a finding here is a pattern over many statements and
 not one line, and a hash of the line would change with every edit near it. The
 `:1` suffix is only the occurrence index that GitHub's format expects; it is
-not a real count. This follows the format of the value, but whether GitHub code
-scanning accepts and de-duplicates by an identity digest in that field has not
-been verified. If it does not, the alert would be matched by location as for any
-SARIF without the field.
+not a real count. GitHub code scanning keeps the value and matches alerts by it:
+in a test repository, moving a finding five lines down kept its alert (the
+location was updated), and changing the text of the finding's own line on a pull
+request kept the alert instead of opening a new one.
+
+One side effect: `github/codeql-action/upload-sarif` calculates its own hash of
+the source line, compares it with the value in the file, and prints one
+`##[warning]` per result, for example `Calculated fingerprint of 14fb6813ff23b590:1
+for file app/orders.py line 11, but found existing inconsistent fingerprint value
+...`. These show up as annotations on the workflow run, once per finding, on every
+run. They are noise, not an error: the upload succeeds and the alerts are correct.
+There is no input of the upload step that silences them. The alternative, leaving
+the field out so that GitHub computes it, would make an alert change identity
+whenever the line it points to is edited, which is why it is not done.
 
 ## Paths and the repository root
 

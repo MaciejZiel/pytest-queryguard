@@ -112,6 +112,10 @@ A typical rollout: run once with `fail: "false"` to see the alerts, create a
           category: pytest-queryguard
 ```
 
+The upload step prints one warning per finding (`Calculated fingerprint ... but found
+existing inconsistent fingerprint value`). It is noise: the upload succeeds and alerts
+are matched correctly. See [SARIF output](sarif.md) for why.
+
 ## How this repository tests the action
 
 The `action` job in `.github/workflows/ci.yml` runs the local action
