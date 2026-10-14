@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- `docs/sarif.md` and `docs/ci.md` now state what was verified about GitHub's handling of
+  `primaryLocationLineHash` (alerts keep their identity when code moves) and explain the
+  per-finding `Calculated fingerprint ... inconsistent fingerprint value` warning that
+  `upload-sarif` prints. Closes #189.
+
 ## [0.4.0] - 2026-10-14
 
 The notes of the four release candidates (0.4.0rc1 to 0.4.0rc4) are merged
