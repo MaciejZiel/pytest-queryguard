@@ -42,10 +42,18 @@ ran. The log is also sized, iterable and indexable (`len(log)`,
   first frame outside SQLAlchemy, pytest, the standard library,
   `site-packages` and the plugin, or `None`;
 - `relationship`: the relationship the statement loaded, lazily or as the
-  extra query of `selectinload`, such as `"Order.customer"`, or `None`.
+  extra query of `selectinload`, such as `"Order.customer"`, or `None`;
+- `duration`: seconds spent in the database and driver, measured around the
+  cursor call, or `None` if the statement is still running or raised an error.
 
 `log.count` is the number of statements. Both grow inside the block and
 stay fixed after it. Statements from other threads are recorded too.
+
+`log.db_time` is the total recorded database time. It grows as statements
+finish inside the block and stays fixed after it, like the query details.
+A statement still running when the block ends keeps `duration=None` in that
+log; finishing later does not change the log's total. Join worker threads
+inside the block to include their completed timings.
 
 `QueryLog` is not constructible by users: `record_queries()` is the only way
 to get one, and its constructor may change in any release. Use the class for
