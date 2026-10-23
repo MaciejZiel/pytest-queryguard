@@ -241,7 +241,7 @@ def test_in_app_example() -> None:
             "WARNING pytest_queryguard.app: queryguard: GET /orders/3 "
             "(route /orders/{order_id}): 2 statements"
         ),
-        "queryguard: expected at most 1 queries, got 2",
+        "queryguard: expected at most 1 query, got 2",
         "GET /orders/3 200 2 statements budget 1 []",
         "GET /orders-fixed 200 2 statements budget None []",
         "GET /orders 200 6 statements budget None ['Order.customer']",

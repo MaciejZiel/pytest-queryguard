@@ -58,6 +58,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/main.py:48 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -68,7 +69,7 @@ queryguard: N+1 detected
 ```text
 WARNING pytest_queryguard.app: queryguard: GET /orders/3 (route /orders/{order_id}): 2 statements
 
-queryguard: expected at most 1 queries, got 2
+queryguard: expected at most 1 query, got 2
 
   1. SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:64 in get_order)
   2. SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:65 in get_order)
@@ -120,6 +121,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/flask_app.py:41 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

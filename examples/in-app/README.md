@@ -28,7 +28,7 @@ The route over its budget of one statement:
 ```text
 WARNING pytest_queryguard.app: queryguard: GET /orders/3 (route /orders/{order_id}): 2 statements
 
-queryguard: expected at most 1 queries, got 2
+queryguard: expected at most 1 query, got 2
 ```
 
 The panel's JSON, newest first:
