@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- An in-application mode, `pytest_queryguard.app`, that runs the N+1 rules
-  and per-route query budgets on every HTTP request of a running
+- An experimental in-application mode, `pytest_queryguard.app`, that runs the
+  N+1 rules and per-route query budgets on every HTTP request of a running
   application, for development and staging: `watch(engine)` and
   `unwatch(engine)` for an `Engine` or `AsyncEngine`, `QueryGuardASGI` (pure
   ASGI, for FastAPI and Starlette), `QueryGuardWSGI` (Flask and other WSGI
@@ -21,26 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context, a thread pool needs `copy_context().run` per task for that; see
   `docs/in-app.md`). An optional development panel (`panel=True`, off by
   default) serves the last requests as JSON and as a self-contained HTML
-  page. Importing it registers nothing; the pytest plugin is unchanged. Not
-  yet part of the public API. See `docs/in-app.md` and the new
-  `examples/in-app`; `scripts/bench_overhead.py --app` times it.
-
-### Fixed
-
-- In-app WSGI reports include queries from response iterator initialization
-  and close callbacks. Exhausting a body now closes it before finalizing the
-  report, and later closes do not repeat cleanup or resume iteration.
-  Found and fixed by @Muguett-DBY (#203).
-
-- Tests: the in-app concurrency test assumed a plain thread never inherits
-  the request's context, which is false on free-threaded Python 3.14. It now
-  checks the behavior of the running interpreter, a new test covers pool
-  tasks submitted with `copy_context().run`, and CI runs the in-app tests on
-  3.14t.
-
-- In-app: a thread that keeps a finished request's context (a pool worker on
-  builds where threads inherit it) no longer adds its statements to that
-  request's collector; they are dropped.
+  page. Importing it registers nothing; the pytest plugin is unchanged. It is
+  listed under "Experimental" in `docs/stability.md`: its names may change in
+  a minor release. See `docs/in-app.md` and the new `examples/in-app`;
+  `scripts/bench_overhead.py --app` times it. Thanks to @Muguett-DBY for
+  reviewing it before release and for the WSGI response lifecycle fix (#203).
 
 ## [0.4.1] - 2026-10-23
 
