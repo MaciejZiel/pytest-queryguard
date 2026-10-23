@@ -125,13 +125,16 @@ queryguard: N+1 detected
        select(Order).options(joinedload(Order.customer))
 ```
 
-A WSGI request ends when its response body has been read to the end or
-closed, as every WSGI server does. Iterator initialization and response cleanup
-run in that request's context. When the body is exhausted, the middleware
-closes it before finalizing the report, so queries in cleanup callbacks (such
-as Flask's `Response.call_on_close`) count too. A later `close()` does not run
-those callbacks again. The Flask test client does neither on its
-own: read the body (`response.data`, `response.get_json()`), use
+A WSGI request ends when its response body has been read to the end or closed,
+as every WSGI server does. Iterator initialization and response cleanup run in
+that request's context. When the body is exhausted, the middleware closes it
+before finalizing the report, so queries in cleanup callbacks (such as Flask's
+`Response.call_on_close`) count too. A later `close()` does not run those
+callbacks again. Because of that early close, an exception raised by the
+application's `close()` reaches the server from the last step of iteration
+instead of from the server's own `close()` call; the report is finalized either
+way. The Flask test client does neither on its own: read the body
+(`response.data`, `response.get_json()`), use
 `with client.get(...) as response:`, or pass `buffered=True`.
 
 ## Outside HTTP
@@ -242,6 +245,22 @@ starts with an empty context: its statements are not counted for any request,
 unless you run it with `contextvars.copy_context().run(...)`. Starlette
 background tasks run before the ASGI call returns, so their statements count
 for the request that scheduled them.
+
+Python 3.14 can start threads with a copy of the creating thread's context
+instead. That is the default on free-threaded builds (3.14t) and can be turned
+on with `-X thread_inherit_context=1` or `PYTHON_THREAD_INHERIT_CONTEXT=1`;
+`sys.flags.thread_inherit_context` tells which applies. Then a thread you start
+inside a request counts for that request. A pool's worker keeps the context of
+the request whose `submit()` created it (workers start lazily, so a pool
+created at import time is affected too), for every later task: while that
+request is still running, statements from other requests' tasks are counted for
+it, and once it has ended they are not counted at all. To attribute pool work
+correctly on every build, submit each task in a copy of the current context:
+
+```python
+ctx = contextvars.copy_context()
+pool.submit(ctx.run, work, arg)
+```
 
 `tests/inapp/` checks this with 50 requests in `asyncio.gather`, through
 `httpx.AsyncClient`, in a thread pool, and with tasks and threads mixed in one

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -13,11 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import Session
 
 from pytest_queryguard import app as queryguard
-from pytest_queryguard.app import RequestReport
+from pytest_queryguard.app import RequestReport, _core
 
 from .conftest import Order
 
 UNITS = 50
+
+# Python 3.14 can start threads with a copy of the caller's context: the
+# default on free-threaded builds, or -X thread_inherit_context=1. Then a plain
+# thread, and a pool worker, keep the context of the code that created them.
+THREADS_INHERIT_CONTEXT = bool(getattr(sys.flags, "thread_inherit_context", 0))
 
 
 def _marker(unit: int, step: int) -> str:
@@ -107,7 +113,8 @@ def test_thread_pool_of_50_units(watched: Engine) -> None:
 def test_mixed_tasks_threads_and_a_thread_without_the_context(
     watched: Engine, async_engine: AsyncEngine
 ) -> None:
-    """A unit's threads count when they copy the context; a bare thread never."""
+    """A unit's threads count when they copy the context; a bare thread only
+    where threads inherit it, and then for its own unit."""
     queryguard.watch(async_engine)
 
     def sync_part(n: int, steps: range) -> None:
@@ -121,7 +128,8 @@ def test_mixed_tasks_threads_and_a_thread_without_the_context(
                 await session.execute(select(literal_column(str(1000 + n))))
             # asyncio.to_thread copies the context: these count for the unit.
             await asyncio.to_thread(sync_part, n, range(1, 3))
-            # A plain thread starts with an empty context: never attributed.
+            # A plain thread starts with an empty context and is never
+            # attributed, unless threads inherit the context (see above).
             bare = threading.Thread(target=sync_part, args=(n + 500, range(1)))
             bare.start()
             bare.join()
@@ -139,7 +147,39 @@ def test_mixed_tasks_threads_and_a_thread_without_the_context(
             await async_engine.dispose()
 
     reports = asyncio.run(main())
-    _check({n: r for n, r in enumerate(reports)}, dict.fromkeys(range(UNITS), 4))
+    if not THREADS_INHERIT_CONTEXT:
+        _check({n: r for n, r in enumerate(reports)}, dict.fromkeys(range(UNITS), 4))
+        return
+    # The plain thread inherited its unit's context, so it counts for that
+    # unit and still for no other.
+    for n, report in enumerate(reports):
+        mine = {_marker(n, step) for step in range(4)} | {_marker(n + 500, 0)}
+        assert report.statement_count == 5, n
+        assert {q.sql.split(" AS ")[0] for q in report.statements} == mine, n
+
+
+def test_a_pool_task_run_in_a_copied_context_counts_for_its_unit(
+    watched: Engine,
+) -> None:
+    """copy_context().run per task attributes it right, inherited context or not.
+
+    The worker is created inside unit 0. Where threads inherit the context it
+    keeps unit 0's, so a plain submit() from a later unit would not count for
+    that unit; running each task in a copy of the submitter's context does.
+    """
+
+    def sync_part(n: int) -> None:
+        with Session(watched) as session:
+            session.execute(select(literal_column(str(1000 + n))))
+
+    reports: dict[int, RequestReport] = {}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        for n in range(3):
+            with queryguard.track(f"unit {n}", report=[]) as report:
+                ctx = contextvars.copy_context()
+                pool.submit(ctx.run, sync_part, n).result(timeout=10)
+            reports[n] = report
+    _check(reports, dict.fromkeys(range(3), 1))
 
 
 def test_nested_track_takes_the_statements_of_its_block(watched: Engine) -> None:
@@ -150,3 +190,26 @@ def test_nested_track_takes_the_statements_of_its_block(watched: Engine) -> None
         session.execute(select(literal_column("3")))
     assert outer.statement_count == 2
     assert inner.statement_count == 1
+
+
+def test_a_finished_units_context_records_nothing(watched: Engine) -> None:
+    """A thread that keeps a finished unit's context adds nothing to it.
+
+    This is what a pool worker created inside a request does on builds where
+    threads inherit the context; copy_context() reproduces it on every build.
+    """
+    with queryguard.track("unit", report=[]) as report:
+        with Session(watched) as session:
+            session.execute(select(literal_column("1001")))
+        kept = contextvars.copy_context()
+
+    def late() -> int:
+        with Session(watched) as session:
+            session.execute(select(literal_column("2001")))
+        active = _core.current.get()
+        assert active is not None
+        return active.collector.statement_count
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        assert pool.submit(kept.run, late).result(timeout=10) == 1
+    assert report.statement_count == 1

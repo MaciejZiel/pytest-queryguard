@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   apps) and `track()` for other units of work. Findings are reported through
   `logging`, `QueryGuardWarning` or a callback. Statements are collected per
   request in a `contextvars.ContextVar`, so concurrent requests, tasks and
-  threads never mix. An optional development panel (`panel=True`, off by
+  threads never mix (on Python 3.14 builds where threads inherit the
+  context, a thread pool needs `copy_context().run` per task for that; see
+  `docs/in-app.md`). An optional development panel (`panel=True`, off by
   default) serves the last requests as JSON and as a self-contained HTML
   page. Importing it registers nothing; the pytest plugin is unchanged. Not
   yet part of the public API. See `docs/in-app.md` and the new
@@ -28,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In-app WSGI reports include queries from response iterator initialization
   and close callbacks. Exhausting a body now closes it before finalizing the
   report, and later closes do not repeat cleanup or resume iteration.
+  Found and fixed by @Muguett-DBY (#203).
+
+- Tests: the in-app concurrency test assumed a plain thread never inherits
+  the request's context, which is false on free-threaded Python 3.14. It now
+  checks the behavior of the running interpreter, a new test covers pool
+  tasks submitted with `copy_context().run`, and CI runs the in-app tests on
+  3.14t.
+
+- In-app: a thread that keeps a finished request's context (a pool worker on
+  builds where threads inherit it) no longer adds its statements to that
+  request's collector; they are dropped.
 
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records

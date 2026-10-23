@@ -28,7 +28,9 @@ one test runs at a time, but it cannot run inside a development server:
    loads, optional small repeats and write loops) on every HTTP request of a
    running ASGI or WSGI application, and report findings through `logging`,
    `warnings` or a callback, with optional per-route query budgets.
-2. Statements of concurrent requests, tasks and threads never mix.
+2. Statements of concurrent requests, tasks and threads never mix. The one
+   exception is a thread pool on builds where threads inherit the context,
+   used without `copy_context().run` (see the context-local collector below).
 3. Opt in per engine: `watch(engine)` and `unwatch(engine)`, for `Engine`
    and `AsyncEngine`.
 4. No cost when not enabled: importing the module registers nothing.
@@ -77,7 +79,14 @@ with queryguard.track("nightly-job") as report:  # any unit of work
   `run_in_threadpool` calls see its collector while concurrent requests do
   not. A plain `threading.Thread` or `ThreadPoolExecutor` without
   `contextvars.copy_context()` starts empty, so its statements are not
-  attributed to any request: missing, never mixed.
+  attributed to any request: missing, never mixed. Where threads inherit the
+  creator's context (Python 3.14 free-threaded builds, or
+  `-X thread_inherit_context=1`), a pool worker keeps the context of the
+  request that created it, so other requests' tasks can be attributed to that
+  request while it runs. Once that request has finished, the listeners see
+  its tracker as finished and drop the worker's statements (`_core.live()`).
+  Submitting each task with `copy_context().run` avoids both on every build;
+  `docs/in-app.md` says so.
 
 - **Separate listeners, per engine.** The in-app handlers live in
   `app/_listeners.py` and are registered with `event.listen(engine, ...)` on

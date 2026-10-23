@@ -73,7 +73,7 @@ def _column_load(state: ORMExecuteState) -> ColumnLoadEvent | None:
 
 
 def _on_orm_execute(state: ORMExecuteState) -> None:
-    active = _core.current.get()
+    active = _core.live()
     if active is None or _core._error is not None:
         return
     try:
@@ -107,7 +107,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
 
 def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
     """Tag the connection with its Session, for repeat_scope="session"."""
-    if _core.current.get() is None or _core._error is not None:
+    if _core.live() is None or _core._error is not None:
         return
     try:
         scope = scope_of_session(session)
@@ -125,7 +125,7 @@ def _on_before_cursor_execute(
     context: Any,
     executemany: bool,
 ) -> None:
-    active = _core.current.get()
+    active = _core.live()
     if active is None or _core._error is not None:
         return
     try:
