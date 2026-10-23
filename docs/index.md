@@ -27,7 +27,7 @@ pip install pytest-queryguard
 ```
 
 It is on by default: there is nothing to import or configure. These pages
-describe 0.4.0, see [Getting started](getting-started.md#install).
+describe 0.4.1, see [Getting started](getting-started.md#install).
 
 ## Where to go
 

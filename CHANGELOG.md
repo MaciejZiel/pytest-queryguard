@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-23
+
+A patch release with two fixes to the database time of `record_queries()`,
+`max_queries()` and `max_db_time()` when a statement finishes in another thread
+after the block. Thanks to @Muguett-DBY, who found and fixed the first one.
+
 ### Fixed
 - `QueryLog.db_time` now stays fixed after its recording or budget block ends,
   matching the recorded query details. A query finishing in another thread
@@ -1596,7 +1602,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc4...v0.4.0
 [0.4.0rc4]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc3...v0.4.0rc4
 [0.4.0rc3]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc2...v0.4.0rc3
