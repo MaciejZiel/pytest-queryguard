@@ -111,6 +111,11 @@ defaults, labels or messages, or remove them, with a changelog entry under
   [Unused eager loads](unused-eager-load.md).
 - The missing-index check on MySQL and MariaDB (tested by hand, not in CI; see
   [the MySQL and MariaDB page](index-check-mysql.md)).
+- The in-application mode: every name in `pytest_queryguard.app` (`watch`,
+  `unwatch`, `is_watched`, `QueryGuardASGI`, `QueryGuardWSGI`, `track`,
+  `set_route`, `Settings`, `RequestReport`, `Finding`, `Query`, `CallSite`,
+  `internal_error`) and the panel's JSON. See
+  [In-application mode](in-app.md).
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini option and its

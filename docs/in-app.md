@@ -10,9 +10,9 @@ server or a staging environment.
 > reach it. Never enable either in production. The examples below switch it
 > on only when `APP_ENV` is `development`.
 
-It is new and not yet part of the public API listed in
-[Stability and versioning](stability.md): names in `pytest_queryguard.app` may
-still change in a minor release.
+It is experimental (see [Stability and versioning](stability.md#experimental)):
+names in `pytest_queryguard.app`, their settings and the panel's JSON may still
+change in a minor release, without a deprecation period.
 
 ## FastAPI and Starlette
 
