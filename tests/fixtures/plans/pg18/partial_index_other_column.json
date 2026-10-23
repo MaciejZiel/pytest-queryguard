@@ -22,5 +22,60 @@
     "Filter": "(archive.owner_id = $1)"
    }
   }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [
+   [
+    "public",
+    "archive",
+    "archive_live",
+    "(deleted_at IS NULL)",
+    [
+     "deleted_at",
+     "id",
+     "owner_id"
+    ]
+   ]
+  ],
+  "indexes": [
+   [
+    "public",
+    "archive",
+    "archive_id",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "archive",
+    "archive_live",
+    "btree",
+    true,
+    [
+     "owner_id"
+    ],
+    "(deleted_at IS NULL)"
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "archive",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "owner_id",
+   "expression": false,
+   "create_sql": null,
+   "skipped": "index archive_live on (owner_id) is partial (WHERE (deleted_at IS NULL)) and serves only statements that include that condition: add it to the query, or create a full index if the query must not have it",
+   "partial_skipped": false
+  }
  ]
 }

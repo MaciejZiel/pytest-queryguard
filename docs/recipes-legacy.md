@@ -4,28 +4,51 @@ A suite that has never been checked will have findings. Turning the plugin
 on in its default mode fails them all at once, which is not an adoption plan.
 This one has three steps. The project is
 [examples/sync-n-plus-one](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples/sync-n-plus-one)
-plus one more module, so that there is a "new" finding at the end. The output
-is from real runs (paths shortened, SQLAlchemy 2.1.4).
+without its `*_fixed.py` files (`app/orders_fixed.py`,
+`app/customers_fixed.py`, `tests/test_orders_fixed.py`), plus one more module,
+added in step 3, so that there is a "new" finding at the end. The output is
+from real runs (SQLAlchemy 2.1.4, pytest 9.1; paths shortened, and the source
+line pytest prints under each warning left out).
+
+`test_rename_customers` has a `max_queries(2)` budget and runs 4 statements.
+Budgets fail in every mode and are never baselined, so it would fail every run
+below; the runs leave it out with
+`--deselect tests/test_orders.py::test_rename_customers`. In your own suite,
+fix such a test or raise its budget first.
 
 ## 1. Warn, and read
 
-```toml
-[tool.pytest.ini_options]
-queryguard_mode = "warn"
+The settings below go wherever the project's pytest configuration lives. For
+this project that is its `pytest.ini`, which pytest reads instead of a
+`pyproject.toml` next to it (pytest uses the first configuration file it
+finds, and `pytest.ini` comes first), so add the line there:
+
+```ini
+[pytest]
+pythonpath = .
+addopts = -p no:cacheprovider
+queryguard_mode = warn
 ```
+
+In a project that configures pytest in `pyproject.toml`, the same option is
+`queryguard_mode = "warn"` under `[tool.pytest.ini_options]`.
 
 Nothing fails because of a finding. Each one is a `QueryGuardWarning` in
-pytest's warning summary (`test_rename_customers`, which has a budget, is left
-out of this run, see below):
+pytest's warning summary:
+
+```console
+$ pytest -q --deselect tests/test_orders.py::test_rename_customers
+```
 
 ```
-...                                                                      [100%]
+..                                                                       [100%]
 =============================== warnings summary ===============================
 tests/test_orders.py::test_list_orders
   tests/test_orders.py:6: QueryGuardWarning: queryguard: N+1 detected
   
     Order.customer was lazy-loaded 50 times
     first at app/orders.py:10 in list_orders
+    kind: relationship-load  label: Order.customer
     sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
     fix: load it with the parent query, e.g.
          select(Order).options(joinedload(Order.customer))
@@ -35,19 +58,11 @@ tests/test_orders.py::test_fetch_customers
   
     the same statement ran 50 times
     first at app/customers.py:9 in fetch_customers
-    SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
-    fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
-
-tests/test_new.py::test_customer_ids_by_name
-  tests/test_new.py:4: QueryGuardWarning: queryguard: N+1 detected
-  
-    the same statement ran 10 times
-    first at app/reports.py:11 in customer_ids_by_name
-    SELECT customer.id FROM customer WHERE customer.name = ?
+    kind: repeated-statement  label: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
     fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-3 passed, 1 deselected, 3 warnings in 0.06s
+2 passed, 1 deselected, 2 warnings in 0.05s
 ```
 
 Budgets (`max_queries`, `max_db_time`) still fail in `warn` mode: a budget is
@@ -57,16 +72,21 @@ only that kind fails, the rest warn.
 
 ## 2. Baseline
 
-Record what exists today, over the whole suite:
+Record what exists today. In your own suite, run the whole suite for this, so
+that the file lists every test's findings. The command below deselects
+`test_rename_customers`, which makes it a partial run (see
+[Baseline](baseline.md#partial-runs)), and it says so:
 
 ```console
-$ pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline
+$ pytest -q --deselect tests/test_orders.py::test_rename_customers \
+    --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline
 ```
 
 ```
 ..                                                                       [100%]
 ========================= queryguard: baseline updated =========================
 queryguard-baseline.json: 2 entries (2 added, 0 removed)
+this run did not cover the whole suite: 0 entries kept because their tests did not run
 2 passed, 1 deselected in 0.05s
 ```
 
@@ -93,12 +113,17 @@ moving code does not invalidate it:
 }
 ```
 
-Commit it and turn it on, and go back to the default mode:
+Commit it and turn it on, and go back to the default mode: in `pytest.ini`,
+remove the `queryguard_mode` line and add the baseline:
 
-```toml
-[tool.pytest.ini_options]
-queryguard_baseline = "queryguard-baseline.json"
+```ini
+[pytest]
+pythonpath = .
+addopts = -p no:cacheprovider
+queryguard_baseline = queryguard-baseline.json
 ```
+
+(In `pyproject.toml`: `queryguard_baseline = "queryguard-baseline.json"`.)
 
 ## 3. Fail on anything new
 
@@ -122,23 +147,44 @@ def customer_ids_by_name(session: Session, names: list[str]) -> list[int]:
     return ids
 ```
 
+Its test, in `tests/test_new.py`:
+
+```python
+from app.reports import customer_ids_by_name
+
+
+def test_customer_ids_by_name(session):
+    names = [f"customer {i}" for i in range(1, 11)]
+    assert customer_ids_by_name(session, names) == list(range(1, 11))
 ```
-..F                                                                      [100%]
+
+```console
+$ pytest -q --deselect tests/test_orders.py::test_rename_customers
+```
+
+```
+F..                                                                      [100%]
 =================================== FAILURES ===================================
 __________________________ test_customer_ids_by_name ___________________________
 queryguard: N+1 detected
 
   the same statement ran 10 times
   first at app/reports.py:11 in customer_ids_by_name
-  SELECT customer.id FROM customer WHERE customer.name = ?
+  kind: repeated-statement  label: SELECT customer.id FROM customer WHERE customer.name = ?
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 =========================== short test summary info ============================
 FAILED tests/test_new.py::test_customer_ids_by_name - Failed: queryguard: N+1...
-1 failed, 2 passed, 1 deselected in 0.06s
+1 failed, 2 passed, 1 deselected in 0.09s
 ```
 
 As the old code gets fixed, entries stop matching. A run that matches none
-of them lists the stale ones, so the file can shrink:
+of them lists the stale ones, so the file can shrink. Here, after copying the
+fixed code from the example in the repository (`app/orders_fixed.py` over
+`app/orders.py`, `app/customers_fixed.py` over `app/customers.py`):
+
+```console
+$ pytest -q tests/test_orders.py
+```
 
 ```
 ...                                                                      [100%]

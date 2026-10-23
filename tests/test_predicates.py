@@ -6,7 +6,7 @@ import random
 
 import pytest
 
-from pytest_queryguard import indexes, predicates
+from pytest_queryguard import advisor, indexes, predicates
 from pytest_queryguard.predicates import (
     Bool,
     Call,
@@ -56,7 +56,6 @@ CONDITIONS = [
     ("(o.customer_id = $0)", "o"),
     ("((COALESCE(o.status, 'x'::character varying))::text = $1)", "o"),
     ("(o.id = ANY ('{1,2,3}'::integer[]))", "o"),
-    ("(NOT (o.id = $1))", "o"),
 ]
 
 
@@ -111,6 +110,156 @@ def test_parse_reads_postfix_not_and_calls() -> None:
 
 
 @pytest.mark.parametrize(
+    ("text", "tree"),
+    [
+        (
+            "(CASE WHEN (a.x = 'n'::text) THEN 1 ELSE 0 END = $1)",
+            Op(
+                "=",
+                Call(
+                    "case",
+                    (
+                        Op("=", Col("a", "x"), Cast(Lit("'n'"), "text")),
+                        Lit("1"),
+                        Lit("0"),
+                    ),
+                ),
+                Lit("$1"),
+            ),
+        ),
+        (
+            "CASE a.x WHEN 1 THEN true WHEN 2 THEN false END",
+            Call(
+                "case",
+                (Col("a", "x"), Lit("1"), Lit("true"), Lit("2"), Lit("false")),
+            ),
+        ),
+        (
+            "((a.t AT TIME ZONE 'UTC'::text) > $1)",
+            Op(
+                ">",
+                Call("timezone", (Cast(Lit("'UTC'"), "text"), Col("a", "t"))),
+                Lit("$1"),
+            ),
+        ),
+        ("(a.t AT LOCAL)", Call("timezone", (Col("a", "t"),))),
+        (
+            "(EXTRACT(year FROM a.t) = $1)",
+            Op("=", Call("extract", (Lit("year"), Col("a", "t"))), Lit("$1")),
+        ),
+        (
+            "(SUBSTRING(a.x FROM 1 FOR 2) = $1)",
+            Op(
+                "=",
+                Call("substring", (Col("a", "x"), Lit("1"), Lit("2"))),
+                Lit("$1"),
+            ),
+        ),
+        (
+            "(TRIM(BOTH ' '::text FROM a.x) = $1)",
+            Op(
+                "=",
+                Call("trim", (Cast(Lit("' '"), "text"), Col("a", "x"))),
+                Lit("$1"),
+            ),
+        ),
+        ("(count(*) > $1)", Op(">", Call("count", (Lit("*"),)), Lit("$1"))),
+        (
+            "(count(DISTINCT a.x) > 1)",
+            Op(">", Call("count", (Col("a", "x"),)), Lit("1")),
+        ),
+        (
+            "((a.tags)[1] = $1)",
+            Op("=", Call("subscript", (Col("a", "tags"), Lit("1"))), Lit("$1")),
+        ),
+        (
+            '((a.x)::text = ($1)::text COLLATE "C")',
+            Op(
+                "=",
+                Cast(Col("a", "x"), "text"),
+                Call("collate", (Cast(Lit("$1"), "text"),)),
+            ),
+        ),
+        (
+            '(a.x COLLATE pg_catalog."default" = $1)',
+            Op("=", Call("collate", (Col("a", "x"),)), Lit("$1")),
+        ),
+        (
+            "(ROW(a.x, a.y) > ROW($1, $2))",
+            Op(
+                ">",
+                Call("row", (Col("a", "x"), Col("a", "y"))),
+                Call("row", (Lit("$1"), Lit("$2"))),
+            ),
+        ),
+    ],
+)
+def test_parse_reads_case_time_zones_keyword_arguments_and_subscripts(
+    text: str, tree: object
+) -> None:
+    assert parse(text) == tree
+
+
+# Condition texts from real plans (tests/fixtures/plans) whose meaning the text
+# matching gets wrong; the parsed tree decides for them.
+@pytest.mark.parametrize(
+    ("condition", "alias", "column", "expression"),
+    [
+        # #83: NOT IN (subquery) as PostgreSQL 17 and 18 print it
+        (
+            "(NOT (ANY (customers.id = (hashed SubPlan 1).col1)))",
+            "customers",
+            None,
+            False,
+        ),
+        ("(NOT (o.id = $1))", "o", None, False),
+        # #84: CASE, AT TIME ZONE and EXTRACT hide the column from an index
+        (
+            "(CASE WHEN ((orders.status)::text = 'new'::text) THEN 1 ELSE 0 END = $1)",
+            "orders",
+            None,
+            True,
+        ),
+        (
+            "((orders.created_at AT TIME ZONE 'UTC'::text) > $1)",
+            "orders",
+            None,
+            True,
+        ),
+        ("(EXTRACT(year FROM orders.created_at) = $1)", "orders", None, True),
+        ("((orders.tags)[1] = $1)", "orders", None, True),
+        # #85: a btree on (customer_id, total) serves a row comparison
+        (
+            "(ROW(orders.customer_id, orders.total) > ROW($1, $2))",
+            "orders",
+            None,
+            False,
+        ),
+    ],
+)
+def test_the_parsed_tree_decides_where_the_text_matching_is_wrong(
+    condition: str, alias: str, column: str | None, expression: bool
+) -> None:
+    assert parse(condition) is not None
+    assert indexes.hint_column(condition, alias, VARCHAR) == column
+    assert indexes.equality_column(condition, alias, VARCHAR) == column
+    assert indexes._needs_expression(condition, alias, VARCHAR) is expression
+
+
+def test_syntax_calls_are_not_rendered_into_an_index_definition() -> None:
+    for text in (
+        "CASE WHEN (a.x = 1) THEN 1 ELSE 0 END",
+        "(a.t AT TIME ZONE 'UTC'::text)",
+        "EXTRACT(year FROM a.t)",
+        "(a.tags)[1]",
+    ):
+        tree = parse(text)
+        assert tree is not None
+        with pytest.raises(advisor._Unrenderable):
+            advisor.render(tree, "a")
+
+
+@pytest.mark.parametrize(
     ("text", "type_name"),
     [
         ("(a.x)::text", "text"),
@@ -146,14 +295,20 @@ def test_string_literals_hide_their_content() -> None:
         "(a.x = $1))",
         "a.x $1",
         "(a.x = $1) AND",
-        "CASE WHEN a.x THEN 1 END",
+        "CASE WHEN a.x THEN 1",  # no END
+        "CASE a.x END",  # no WHEN
+        "CASE WHEN a.x 1 END",  # no THEN
         "(a.x = 1 + 2 * 3)",  # two operators without parentheses
         "(alternatives: SubPlan 1 or hashed SubPlan 2)",
         "(a.x)::",
         "E'a\\nb'",
-        '(a.x COLLATE "C" = $1)',
+        "(a.x COLLATE)",
+        "(a.x COLLATE 1)",
+        "(a.x AT TIME $1)",
         "a.b.c.d",
-        "(a.x)[1]",
+        "((a.x)[1:2] = $1)",
+        "(a.x IS DOCUMENT)",
+        "(count(*) FILTER (WHERE (a.x = 1)) > 1)",
         "(a.x = ¬)",
     ],
 )
@@ -167,12 +322,51 @@ def test_deep_nesting_is_not_parsed_instead_of_overflowing() -> None:
 
 
 def test_fallback_to_text_matching_for_unparsed_conditions() -> None:
-    # CASE is outside the grammar: the text matching still answers
-    condition = "(CASE WHEN true THEN o.x ELSE o.y END = $1)"
+    # an array slice is outside the grammar: the text matching still answers
+    condition = "(((o.x)[1:2] = $1) OR (o.y = $2))"
     assert parse(condition) is None
     assert indexes.hint_column("(o.total < $1)", "o") == "total"
     assert indexes.hint_column(condition, "o") is None
     assert indexes.condition_columns(condition, "o") == {"x", "y"}
+
+
+@pytest.mark.parametrize(
+    ("condition", "alias", "expected"),
+    [
+        ("(ev_1.a = $1)", "ev_1", "( @ . a = $1 )"),
+        # the alias inside a string literal is text, not a qualifier
+        ("(ev_1.a = 'ev_1.x')", "ev_1", "( @ . a = 'ev_1.x' )"),
+        # quoted aliases, with a space or upper case, are compared unquoted
+        ('("Ev x_2".a = $1)', "Ev x_2", "( @ . a = $1 )"),
+        ('("EV_1".a = $1)', "EV_1", "( @ . a = $1 )"),
+        ('("ev_1".a = $1)', "ev_1", "( @ . a = $1 )"),
+        # a longer name that contains the alias is another name
+        ("(xev_1.a = ev_1.a)", "ev_1", "( xev_1 . a = @ . a )"),
+        # a schema-qualified name: the alias after a dot is not a qualifier, and
+        # the schema of a function is left alone
+        ("(public.ev_1.a = $1)", "ev_1", "( public . ev_1 . a = $1 )"),
+        ("(ev_1.a = public.f(ev_1.b))", "ev_1", "( @ . a = public . f ( @ . b ) )"),
+        # a field of a composite column
+        ("((ev_1.payload).f = $1)", "ev_1", "( ( @ . payload ) . f = $1 )"),
+        # a column named like the alias is not followed by a dot
+        ("(ev_1.ev_1 = $1)", "ev_1", "( @ . ev_1 = $1 )"),
+    ],
+)
+def test_without_qualifier(condition: str, alias: str, expected: str) -> None:
+    assert predicates.without_qualifier(condition, alias) == expected
+
+
+def test_without_qualifier_makes_partition_conditions_equal() -> None:
+    first = predicates.without_qualifier("((ev_1.a = $1) AND (ev_1.b > $2))", "ev_1")
+    second = predicates.without_qualifier(
+        '(("Ev x_2".a = $1) AND ("Ev x_2".b > $2))', "Ev x_2"
+    )
+    assert first is not None and first == second
+
+
+@pytest.mark.parametrize("condition", ["(ev_1.a = `x`)", "(ev_1.a = 'unterminated)"])
+def test_without_qualifier_is_none_outside_the_tokens(condition: str) -> None:
+    assert predicates.without_qualifier(condition, "ev_1") is None
 
 
 def test_unquote() -> None:
@@ -193,6 +387,9 @@ _PIECES = [
     "(", ")", "a.x", "b.y", '"Q".c', "$1", "$2", "=", "<", ">=", "<>", "->>", "~~",
     "AND", "OR", "NOT", "IS", "NULL", "ANY", "ARRAY[", "]", ",", "::text", "::int",
     "'s'", "'a''b'", "1", "2.5", "lower(", "COALESCE(", "(SubPlan 1)", ".", " ", "::",
+    "CASE", "WHEN", "THEN", "ELSE", "END", "AT", "TIME", "ZONE", "LOCAL", "COLLATE",
+    '"C"', "[", "EXTRACT(", "FROM", "FOR", "IN", "DISTINCT", "BOTH", "*", "count(*)",
+    "ROW(",
 ]  # fmt: skip
 
 
@@ -203,10 +400,23 @@ def test_random_token_soup_never_raises() -> None:
         parse.__wrapped__(text)  # bypass the cache: every input is parsed afresh
 
 
+# Real condition texts with the syntax added for #84 and #85, for mutation.
+_NEW_SYNTAX = [
+    ("(CASE WHEN ((orders.status)::text = 'new'::text) THEN 1 ELSE 0 END = $1)", "orders"),
+    ("((orders.created_at AT TIME ZONE 'UTC'::text) > $1)", "orders"),
+    ("(EXTRACT(year FROM orders.created_at) = $1)", "orders"),
+    ("(count(*) > $1)", "orders"),
+    ("(ROW(orders.customer_id, orders.total) > ROW($1, $2))", "orders"),
+    ("(NOT (ANY (customers.id = (hashed SubPlan 1).col1)))", "customers"),
+    ('((o.name)::text = ($1)::text COLLATE "C")', "o"),
+    ("((o.tags)[1] = $1)", "o"),
+]  # fmt: skip
+
+
 def test_mutated_real_conditions_never_raise() -> None:
     rng = random.Random(7)
     alphabet = "()[]'\",.:$ =<>-+*aZ09"
-    for condition, alias in CONDITIONS:
+    for condition, alias in [*CONDITIONS, *_NEW_SYNTAX]:
         for _ in range(60):
             chars = list(condition)
             for _ in range(rng.randint(1, 4)):

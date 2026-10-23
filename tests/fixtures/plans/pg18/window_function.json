@@ -1,0 +1,108 @@
+{
+ "query": "SELECT id, row_number() OVER (PARTITION BY customer_id ORDER BY created_at) FROM orders WHERE status = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "WindowAgg",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 37.68,
+    "Total Cost": 47.66,
+    "Plan Rows": 500,
+    "Plan Width": 24,
+    "Disabled": false,
+    "Output": [
+     "id",
+     "row_number() OVER w1",
+     "created_at",
+     "customer_id"
+    ],
+    "Window": "w1 AS (PARTITION BY orders.customer_id ORDER BY orders.created_at ROWS UNBOUNDED PRECEDING)",
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 37.66,
+      "Total Cost": 38.91,
+      "Plan Rows": 500,
+      "Plan Width": 16,
+      "Disabled": false,
+      "Output": [
+       "created_at",
+       "customer_id",
+       "id"
+      ],
+      "Sort Key": [
+       "orders.customer_id",
+       "orders.created_at"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 0.0,
+        "Total Cost": 15.25,
+        "Plan Rows": 500,
+        "Plan Width": 16,
+        "Disabled": true,
+        "Output": [
+         "created_at",
+         "customer_id",
+         "id"
+        ],
+        "Filter": "((orders.status)::text = $1)"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "status",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (status, customer_id, created_at)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

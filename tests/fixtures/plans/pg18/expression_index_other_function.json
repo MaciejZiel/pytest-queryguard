@@ -1,0 +1,125 @@
+{
+ "query": "SELECT * FROM posts WHERE upper(title) = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "posts",
+    "Schema": "public",
+    "Alias": "posts",
+    "Startup Cost": 0.0,
+    "Total Cost": 8.5,
+    "Plan Rows": 2,
+    "Plan Width": 69,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "author_id",
+     "title",
+     "status",
+     "draft",
+     "score",
+     "published_at",
+     "tags"
+    ],
+    "Filter": "(upper(posts.title) = $1)"
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [
+   [
+    "public",
+    "posts",
+    "posts_published_score",
+    "(status = 'published'::text)",
+    [
+     "author_id",
+     "draft",
+     "id",
+     "published_at",
+     "score",
+     "status",
+     "tags",
+     "title"
+    ]
+   ]
+  ],
+  "indexes": [
+   [
+    "public",
+    "posts",
+    "posts_author_published",
+    "btree",
+    true,
+    [
+     "author_id",
+     "published_at"
+    ],
+    null
+   ],
+   [
+    "public",
+    "posts",
+    "posts_lower_title",
+    "btree",
+    true,
+    [
+     null
+    ],
+    null
+   ],
+   [
+    "public",
+    "posts",
+    "posts_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "posts",
+    "posts_published_score",
+    "btree",
+    true,
+    [
+     "score"
+    ],
+    "(status = 'published'::text)"
+   ],
+   [
+    "public",
+    "posts",
+    "posts_tags",
+    "gin",
+    true,
+    [
+     "tags"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "posts",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": true,
+   "create_sql": null,
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

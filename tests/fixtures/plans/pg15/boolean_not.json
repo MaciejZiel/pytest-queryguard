@@ -1,0 +1,132 @@
+{
+ "query": "SELECT * FROM posts WHERE NOT draft AND author_id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Bitmap Heap Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "posts",
+    "Schema": "public",
+    "Alias": "posts",
+    "Startup Cost": 4.22,
+    "Total Cost": 8.35,
+    "Plan Rows": 5,
+    "Plan Width": 69,
+    "Output": [
+     "id",
+     "author_id",
+     "title",
+     "status",
+     "draft",
+     "score",
+     "published_at",
+     "tags"
+    ],
+    "Recheck Cond": "(posts.author_id = $1)",
+    "Filter": "(NOT posts.draft)",
+    "Plans": [
+     {
+      "Node Type": "Bitmap Index Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Index Name": "posts_author_published",
+      "Startup Cost": 0.0,
+      "Total Cost": 4.22,
+      "Plan Rows": 10,
+      "Plan Width": 0,
+      "Index Cond": "(posts.author_id = $1)"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [
+   [
+    "public",
+    "posts_author_published",
+    "author_id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [
+   [
+    "public",
+    "posts",
+    "posts_published_score",
+    "(status = 'published'::text)",
+    [
+     "author_id",
+     "draft",
+     "id",
+     "published_at",
+     "score",
+     "status",
+     "tags",
+     "title"
+    ]
+   ]
+  ],
+  "indexes": [
+   [
+    "public",
+    "posts",
+    "posts_author_published",
+    "btree",
+    true,
+    [
+     "author_id",
+     "published_at"
+    ],
+    null
+   ],
+   [
+    "public",
+    "posts",
+    "posts_lower_title",
+    "btree",
+    true,
+    [
+     null
+    ],
+    null
+   ],
+   [
+    "public",
+    "posts",
+    "posts_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "posts",
+    "posts_published_score",
+    "btree",
+    true,
+    [
+     "score"
+    ],
+    "(status = 'published'::text)"
+   ],
+   [
+    "public",
+    "posts",
+    "posts_tags",
+    "gin",
+    true,
+    [
+     "tags"
+    ],
+    null
+   ]
+  ]
+ }
+}

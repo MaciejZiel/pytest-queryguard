@@ -266,6 +266,18 @@ def test_session_refresh_in_a_loop_gets_a_refresh_hint(session: Session) -> None
     assert "populate_existing=True" in report
 
 
+def test_a_named_session_refresh_in_a_loop_is_a_refresh(session: Session) -> None:
+    # refresh(obj, names) expires the names first; it is still a refresh
+    def work(s: Session) -> None:
+        for book in s.scalars(select(Book)).all():
+            s.refresh(book, ["title"])
+
+    report = _report(session, work)
+    assert "Book was reloaded with session.refresh() 6 times" in report
+    assert "label: Book (refresh)" in report
+    assert "expire_on_commit" not in report
+
+
 # ------------------------------------------------------ relationship hints
 
 

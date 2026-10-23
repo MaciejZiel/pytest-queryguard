@@ -1,0 +1,103 @@
+{
+ "query": "SELECT * FROM \"Mixed Case\" WHERE \"customerId\" = $1 ORDER BY \"Name\" LIMIT 3",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Limit",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000002.38,
+    "Total Cost": 10000000002.39,
+    "Plan Rows": 3,
+    "Plan Width": 10,
+    "Output": [
+     "id",
+     "\"customerId\"",
+     "\"Name\""
+    ],
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000002.38,
+      "Total Cost": 10000000002.4,
+      "Plan Rows": 10,
+      "Plan Width": 10,
+      "Output": [
+       "id",
+       "\"customerId\"",
+       "\"Name\""
+      ],
+      "Sort Key": [
+       "\"Mixed Case\".\"Name\""
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "Mixed Case",
+        "Schema": "public",
+        "Alias": "Mixed Case",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000002.25,
+        "Plan Rows": 10,
+        "Plan Width": 10,
+        "Output": [
+         "id",
+         "\"customerId\"",
+         "\"Name\""
+        ],
+        "Filter": "(\"Mixed Case\".\"customerId\" = $1)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 3,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "Mixed Case",
+    "Mixed Case_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "Mixed Case",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "\"customerId\"",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON \"Mixed Case\" (\"customerId\", \"Name\")",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

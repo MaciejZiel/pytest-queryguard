@@ -1,0 +1,59 @@
+{
+ "query": "SELECT * FROM orders WHERE id = ANY ($1::int[])",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Index Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Scan Direction": "Forward",
+    "Index Name": "orders_pkey",
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 0.27,
+    "Total Cost": 12.72,
+    "Plan Rows": 10,
+    "Plan Width": 93,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Index Cond": "(orders.id = ANY ($1))"
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [
+   [
+    "public",
+    "orders_pkey",
+    "id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}

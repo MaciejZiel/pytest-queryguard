@@ -29,7 +29,6 @@ instances through attribute access, which rules out code that reads
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,7 +39,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from .callsite import find_callsite
 from .events import CallSite
 from .findings import KIND_UNUSED_EAGER_LOAD, Finding
-from .warnings import QueryGuardInternalWarning
+from .warnings import QueryGuardInternalWarning, warn_internal
 
 LOADERS = {
     "joined": "joinedload",
@@ -89,8 +88,11 @@ _warned = False
 
 def _tracked_get(self: Any, instance: Any, owner: Any) -> Any:
     tracker = _current
-    if tracker is not None and instance is not None:
-        tracker.reads.add((type(instance), self.key))
+    if tracker is not None and instance is not None and not _broken:
+        try:
+            tracker.reads.add((type(instance), self.key))
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _broke(exc, "the attribute read hook")
     return _original(self, instance, owner)
 
 
@@ -100,12 +102,11 @@ def _broke(exc: Exception, where: str) -> None:
     _broken = True
     if not _warned:
         _warned = True
-        warnings.warn(
+        warn_internal(
             QueryGuardInternalWarning(
                 "pytest-queryguard disabled the unused eager-load check after an "
                 f"internal error in {where}: {exc!r}"
-            ),
-            stacklevel=1,
+            )
         )
 
 
@@ -261,6 +262,8 @@ def findings(tracker: Tracker, *, cwd: Path | None = None) -> list[Finding]:
     if _broken:
         return []
     try:
+        from .messages import kind_line
+
         result: list[Finding] = []
         for load in unused(tracker):
             site = load.callsite
@@ -270,6 +273,7 @@ def findings(tracker: Tracker, *, cwd: Path | None = None) -> list[Finding]:
                 [
                     f"  {load.label} was loaded with {load.loader} and never read",
                     where,
+                    kind_line(KIND_UNUSED_EAGER_LOAD, load.label),
                     f"  fix: remove {option} from the query, or load it only where used",
                     "  (experimental: if it is read later, or by code the plugin",
                     "  cannot see, ignore it with allow_nplusone(kind=KIND) or",

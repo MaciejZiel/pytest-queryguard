@@ -112,3 +112,57 @@ def test_workers_use_the_workspace_prefix(
         for r in results
     }
     assert uris == {f"{project.path.name}/test_loops.py"}
+
+
+@pytest.mark.parametrize("stop", ["-x", "--maxfail=1"])
+def test_a_stop_by_maxfail_writes_the_file_as_a_serial_run_does(
+    project: pytest.Pytester, stop: str
+) -> None:
+    project.makepyfile(test_fail="def test_fail():\n    assert False\n")
+    path = project.path / "out.sarif"
+    path.write_text("previous")
+    result = _run(project, "-n", "2", stop, "--queryguard-sarif=out.sarif")
+    assert json.loads(path.read_text())["version"] == "2.1.0"
+    result.stdout.no_fnmatch_line("*queryguard SARIF not written*")
+
+
+def test_a_collection_error_under_x_leaves_the_file_alone(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = project.path / "out.sarif"
+    path.write_text("previous")
+    result = _run(project, "-n", "2", "-x", "--queryguard-sarif=out.sarif")
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == "previous"
+    result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])
+
+
+# A report without the tests of a module that did not collect would close
+# their alerts. That holds also when the run goes on, with
+# --continue-on-collection-errors or under pytest-xdist without -x.
+COLLECTION_ERROR_RUNS = pytest.mark.parametrize(
+    "args",
+    [
+        (),
+        ("--continue-on-collection-errors",),
+        ("-n", "2"),
+        ("-n", "2", "--continue-on-collection-errors"),
+    ],
+    ids=["serial", "serial-continue", "xdist", "xdist-continue"],
+)
+
+
+@COLLECTION_ERROR_RUNS
+def test_a_collection_error_leaves_the_file_alone_without_x(
+    project: pytest.Pytester, args: tuple[str, ...]
+) -> None:
+    project.makepyfile(test_broken="import no_such_module_anywhere\n")
+    path = project.path / "out.sarif"
+    path.write_text("previous")
+    result = _run(project, *args, "--queryguard-sarif=out.sarif")
+    if args:  # the run went on: the other tests ran
+        assert result.ret == pytest.ExitCode.TESTS_FAILED
+        assert result.parseoutcomes()["passed"] > 0
+    assert path.read_text() == "previous"
+    result.stdout.fnmatch_lines(["*queryguard SARIF not written: the run was*"])

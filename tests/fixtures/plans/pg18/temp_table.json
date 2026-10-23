@@ -1,0 +1,45 @@
+{
+ "query": "SELECT * FROM scratch WHERE ref = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "scratch",
+    "Schema": "pg_temp",
+    "Alias": "scratch",
+    "Startup Cost": 0.0,
+    "Total Cost": 2.25,
+    "Plan Rows": 10,
+    "Plan Width": 8,
+    "Disabled": true,
+    "Output": [
+     "id",
+     "ref"
+    ],
+    "Filter": "(scratch.ref = $1)"
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": []
+ },
+ "live": [
+  {
+   "schema": "pg_temp",
+   "table": "scratch",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "ref",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON pg_temp.scratch (ref)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

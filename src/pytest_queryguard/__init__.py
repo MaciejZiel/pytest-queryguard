@@ -10,15 +10,20 @@ from .api import (
     record_queries,
 )
 from .events import CallSite
-from .warnings import QueryGuardInternalWarning, QueryGuardWarning
+from .warnings import (
+    QueryGuardDeprecationWarning,
+    QueryGuardInternalWarning,
+    QueryGuardWarning,
+)
 
-__version__ = "0.4.0rc2"
+__version__ = "0.4.1"
 
 __all__ = [
     "CallSite",
     "NPlusOneDetected",
     "Query",
     "QueryBudgetExceeded",
+    "QueryGuardDeprecationWarning",
     "QueryGuardInternalWarning",
     "QueryGuardWarning",
     "QueryLog",
@@ -27,3 +32,13 @@ __all__ = [
     "max_queries",
     "record_queries",
 ]
+
+# The names above are defined in submodules that are free to move. Report the
+# package as their module, so that tracebacks, reprs and pickles show the
+# documented import path (``pytest_queryguard.NPlusOneDetected``) and stay the
+# same when a class moves to another file.
+for _name in __all__:
+    _obj = globals()[_name]
+    if isinstance(getattr(_obj, "__module__", None), str):
+        _obj.__module__ = __name__
+del _name, _obj

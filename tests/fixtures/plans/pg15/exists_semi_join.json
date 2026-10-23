@@ -1,0 +1,117 @@
+{
+ "query": "SELECT * FROM customers c WHERE EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id AND o.total > $1)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Hash Join",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Semi",
+    "Startup Cost": 10000000017.48,
+    "Total Cost": 10000000031.16,
+    "Plan Rows": 50,
+    "Plan Width": 17,
+    "Output": [
+     "c.id",
+     "c.email",
+     "c.name"
+    ],
+    "Inner Unique": false,
+    "Hash Cond": "(c.id = o.customer_id)",
+    "Plans": [
+     {
+      "Node Type": "Index Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Scan Direction": "Forward",
+      "Index Name": "customers_pkey",
+      "Relation Name": "customers",
+      "Schema": "public",
+      "Alias": "c",
+      "Startup Cost": 0.14,
+      "Total Cost": 12.89,
+      "Plan Rows": 50,
+      "Plan Width": 17,
+      "Output": [
+       "c.id",
+       "c.email",
+       "c.name"
+      ]
+     },
+     {
+      "Node Type": "Hash",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 10000000015.25,
+      "Total Cost": 10000000015.25,
+      "Plan Rows": 167,
+      "Plan Width": 4,
+      "Output": [
+       "o.customer_id"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "o",
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 10000000015.25,
+        "Plan Rows": 167,
+        "Plan Width": 4,
+        "Output": [
+         "o.customer_id"
+        ],
+        "Filter": "(o.total > $1)"
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 12,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
+}

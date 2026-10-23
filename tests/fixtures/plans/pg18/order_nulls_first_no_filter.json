@@ -1,0 +1,102 @@
+{
+ "query": "SELECT * FROM orders ORDER BY created_at NULLS FIRST LIMIT 5",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Limit",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 22.3,
+    "Total Cost": 22.32,
+    "Plan Rows": 5,
+    "Plan Width": 93,
+    "Disabled": false,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 22.3,
+      "Total Cost": 23.55,
+      "Plan Rows": 500,
+      "Plan Width": 93,
+      "Disabled": false,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ],
+      "Sort Key": [
+       "orders.created_at NULLS FIRST"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 0.0,
+        "Total Cost": 14.0,
+        "Plan Rows": 500,
+        "Plan Width": 93,
+        "Disabled": true,
+        "Output": [
+         "id",
+         "customer_id",
+         "status",
+         "total",
+         "created_at",
+         "tags",
+         "data",
+         "note",
+         "kind"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}

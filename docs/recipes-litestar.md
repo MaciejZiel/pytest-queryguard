@@ -6,6 +6,45 @@ uses a plain async session dependency (`Provide`), not Litestar's SQLAlchemy
 plugin from advanced-alchemy, which was not run. Versions: Litestar 2.24.0,
 SQLAlchemy 2.1.4, aiosqlite.
 
+The layout is `app/__init__.py` (an empty file), `app/models.py`,
+`app/main.py`, `tests/conftest.py` and `tests/test_orders.py`.
+
+`pytest.ini` puts the project directory on `sys.path`, so that the tests can
+`import app` (see [getting started](getting-started.md)):
+
+```ini
+[pytest]
+pythonpath = .
+```
+
+`app/models.py`. The models use SQLAlchemy's `AsyncAttrs` mixin, which gives
+`awaitable_attrs` for the lazy load in the broken handler:
+
+```python
+from sqlalchemy import ForeignKey
+from sqlalchemy.ext.asyncio import AsyncAttrs
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(AsyncAttrs, DeclarativeBase):
+    pass
+
+
+class Customer(Base):
+    __tablename__ = "customer"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"))
+    customer: Mapped[Customer] = relationship()
+```
+
 `app/main.py`; `create_app()` takes the session provider so that tests can
 pass their own:
 
@@ -91,6 +130,8 @@ def client():
         yield test_client
 ```
 
+`tests/test_orders.py`:
+
 ```python
 def test_orders(client):
     response = client.get("/orders")
@@ -112,6 +153,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/main.py:27 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

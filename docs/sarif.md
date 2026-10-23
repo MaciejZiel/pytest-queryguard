@@ -13,8 +13,10 @@ was started from.
 
 - One rule per finding kind (`queryguard/relationship-load`,
   `queryguard/repeated-statement`, `queryguard/column-load`,
-  `queryguard/write-loop`, `queryguard/missing-index`), each with a
-  description and a fix hint. All five rules are always listed.
+  `queryguard/write-loop`, `queryguard/unused-eager-load`,
+  `queryguard/missing-index`), each with a description and a fix hint. All six
+  rules are always listed, `queryguard/unused-eager-load` too when
+  `queryguard_unused_eager_load` is `off`.
 - One result per finding identity (kind, label, file, function), so the same
   finding from several tests is one result, with its counts added up and the
   earliest line.
@@ -42,10 +44,20 @@ computes itself when it is missing. pytest-queryguard sets it from the finding
 identity instead, because a finding here is a pattern over many statements and
 not one line, and a hash of the line would change with every edit near it. The
 `:1` suffix is only the occurrence index that GitHub's format expects; it is
-not a real count. This follows the format of the value, but whether GitHub code
-scanning accepts and de-duplicates by an identity digest in that field has not
-been verified. If it does not, the alert would be matched by location as for any
-SARIF without the field.
+not a real count. GitHub code scanning keeps the value and matches alerts by it:
+in a test repository, moving a finding five lines down kept its alert (the
+location was updated), and changing the text of the finding's own line on a pull
+request kept the alert instead of opening a new one.
+
+One side effect: `github/codeql-action/upload-sarif` calculates its own hash of
+the source line, compares it with the value in the file, and prints one
+`##[warning]` per result, for example `Calculated fingerprint of 14fb6813ff23b590:1
+for file app/orders.py line 11, but found existing inconsistent fingerprint value
+...`. These show up as annotations on the workflow run, once per finding, on every
+run. They are noise, not an error: the upload succeeds and the alerts are correct.
+There is no input of the upload step that silences them. The alternative, leaving
+the field out so that GitHub computes it, would make an alert change identity
+whenever the line it points to is edited, which is why it is not done.
 
 ## Paths and the repository root
 
@@ -83,13 +95,35 @@ and the location has not been verified here.
   not say what it does with suppressed results, and leaving them out cannot
   produce an alert. A baselined finding that GitHub already knows then closes
   as fixed, and opens again if it leaves the baseline.
-- Findings without a location inside the rootdir (an unknown call site, or a
-  file outside the project). GitHub shows a result only when it has a
-  location. The terminal summary says how many were left out.
+- Findings without a location inside the rootdir (a call site in a file
+  outside the project). GitHub shows a result only when it has a location. The
+  terminal summary says how many were left out.
+
+A finding whose call site is unknown is not left out: its result is located at
+the test (the test's file and the line of its `def`, with the test's name as
+the function), and its message says `reported at the test`. The call site is
+unknown when no application frame is on the stack, for example when
+`session.execute` itself is handed to a worker thread (see
+[Limitations](limitations.md)). Only the SARIF result moves: the terminal text
+still says `<unknown location>`, and the baseline and the ignore rules see the
+finding as before. One result per test then, because the test is part of the
+result's identity.
 
 The file is written at the end of every run, also when no finding was made,
 so an upload step always has something to upload. With pytest-xdist, the
 workers send their findings to the controller, which writes the file once.
+
+After an interrupted run (a collection error, Ctrl-C, a usage error or an
+internal pytest error) the file is not written and an existing one is left as
+it was: a report from the tests that did run would close the alerts of the
+tests that did not. The summary says so.
+
+A collection error counts as an interrupted run also when the run goes on,
+with `--continue-on-collection-errors` or under pytest-xdist, so such a run
+writes no file either. The [GitHub Action](ci.md) then skips the upload with
+a warning; an `upload-sarif` step of your own fails because the file is
+missing, unless a file from an earlier step is still there. Fix the module
+that does not collect to get a report again.
 
 An excerpt:
 

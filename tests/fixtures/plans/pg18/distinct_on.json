@@ -1,0 +1,116 @@
+{
+ "query": "SELECT DISTINCT ON (customer_id) * FROM orders WHERE total > $1 ORDER BY customer_id, created_at DESC",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Unique",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 21.42,
+    "Total Cost": 22.25,
+    "Plan Rows": 49,
+    "Plan Width": 93,
+    "Disabled": false,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 21.42,
+      "Total Cost": 21.83,
+      "Plan Rows": 167,
+      "Plan Width": 93,
+      "Disabled": false,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ],
+      "Sort Key": [
+       "orders.customer_id",
+       "orders.created_at DESC"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Seq Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 0.0,
+        "Total Cost": 15.25,
+        "Plan Rows": 167,
+        "Plan Width": 93,
+        "Disabled": true,
+        "Output": [
+         "id",
+         "customer_id",
+         "status",
+         "total",
+         "created_at",
+         "tags",
+         "data",
+         "note",
+         "kind"
+        ],
+        "Filter": "(orders.total > $1)"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "total",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (total)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

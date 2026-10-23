@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import contextlib
+import glob
 import importlib.metadata
 import os
+import shlex
 import warnings as std_warnings
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Sequence
+from dataclasses import replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, cast
@@ -40,7 +44,7 @@ from .messages import (
     make_index_finding,
     swap_root,
 )
-from .warnings import QueryGuardInternalWarning, QueryGuardWarning
+from .warnings import QueryGuardInternalWarning, QueryGuardWarning, warn_internal
 
 _MODES = ("fail", "warn", "off")
 _EAGER_MODES = ("off", "warn", "fail")
@@ -112,8 +116,15 @@ class _Settings:
         self.baseline = baseline
         # identities of the findings the run made (after ignores), baselined or not
         self.seen: set[Identity] = set()
+        # (rootdir-relative file, function) of every test that ran its call
+        # phase, and whether this session deselected any test (-k, -m, --lf,
+        # --deselect); both feed a partial baseline update
+        self.executed: set[tuple[str | None, str]] = set()
+        self.deselected = False
         # the run is incomplete: a worker crashed or stopped measuring
         self.baseline_incomplete = False
+        # a collection error was reported (by this process or an xdist worker)
+        self.collection_failed = False
         self.baseline_previous_error: str | None = None
         self.baseline_written: str | None = None
         self.baseline_failed: str | None = None
@@ -169,7 +180,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_const",
         const=True,
         default=None,
-        help="Check statements for a missing index (PostgreSQL 16 or newer, or SQLite); "
+        help="Check statements for a missing index (PostgreSQL 16 or newer, SQLite, MySQL or MariaDB); "
         "overrides queryguard_index_check.",
     )
     group.addoption(
@@ -193,7 +204,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="Write the findings of this run to the baseline file instead of "
-        "reporting them. Run the whole suite to avoid dropping entries.",
+        "reporting them. On a partial run (-k, -m, --lf, a path) only the "
+        "entries of tests that ran are replaced.",
     )
     group.addoption(
         "--queryguard-sarif",
@@ -285,7 +297,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addini(
         "queryguard_index_check",
-        "Check statements for a missing index (PostgreSQL 16 or newer, or SQLite)",
+        "Check statements for a missing index (PostgreSQL 16 or newer, SQLite, MySQL or MariaDB)",
         type="bool",
         default=False,
     )
@@ -348,20 +360,42 @@ def _small_repeat(config: pytest.Config, repeat: int) -> int | None:
     return value
 
 
-def _repeat_scope(config: pytest.Config) -> str:
-    name = "queryguard_repeat_scope"
-    try:
-        raw: Any = config.getini(name)
-    except (TypeError, ValueError) as exc:
-        raise pytest.UsageError(
-            f"{name} must be one of {', '.join(SCOPES)}: {exc}"
-        ) from None
+def _choice(
+    config: pytest.Config,
+    name: str,
+    choices: tuple[str, ...],
+    *,
+    flag: str | None = None,
+) -> str:
+    """Read an option with a fixed set of values; case and edge spaces are ignored.
+
+    ``flag`` is the command-line option that overrides the ini option, if any.
+    Every enum-valued option goes through here so that they agree on case.
+    """
+    source = name
+    raw: Any = None
+    if flag is not None:
+        raw = config.getoption(name)
+        if raw is not None:
+            source = flag
+    if raw is None:
+        try:
+            raw = config.getini(name)
+        except (TypeError, ValueError) as exc:
+            # pytest 9 rejects a non-string value from native TOML on its own.
+            raise pytest.UsageError(
+                f"{name} must be one of {', '.join(choices)}: {exc}"
+            ) from None
     value = str(raw).strip().lower()
-    if value not in SCOPES:
+    if value not in choices:
         raise pytest.UsageError(
-            f"{name} must be one of {', '.join(SCOPES)}, got {raw!r}"
+            f"{source} must be one of {', '.join(choices)}, got {raw!r}"
         )
     return value
+
+
+def _repeat_scope(config: pytest.Config) -> str:
+    return _choice(config, "queryguard_repeat_scope", SCOPES)
 
 
 def _write_loop(config: pytest.Config) -> int | None:
@@ -428,16 +462,7 @@ def _ignore_rules(config: pytest.Config) -> tuple[IgnoreRule, ...]:
 
 
 def _unused_eager(config: pytest.Config) -> str:
-    name = "queryguard_unused_eager_load"
-    try:
-        value = str(config.getini(name)).strip().lower()
-    except (TypeError, ValueError) as exc:
-        raise pytest.UsageError(f"{name} must be off, warn or fail: {exc}") from None
-    if value not in _EAGER_MODES:
-        raise pytest.UsageError(
-            f"{name} must be one of {', '.join(_EAGER_MODES)}, got {value!r}"
-        )
-    return value
+    return _choice(config, "queryguard_unused_eager_load", _EAGER_MODES)
 
 
 def _index_check(config: pytest.Config) -> bool:
@@ -464,16 +489,7 @@ def _index_advisor(config: pytest.Config) -> bool:
 
 
 def _hypopg(config: pytest.Config) -> str:
-    name = "queryguard_hypopg"
-    try:
-        raw: Any = config.getini(name)
-    except (TypeError, ValueError) as exc:
-        raise pytest.UsageError(f"{name} must be one of auto, on, off: {exc}") from None
-    if raw not in hypopg.MODES:
-        raise pytest.UsageError(
-            f"{name} must be one of {', '.join(hypopg.MODES)}, got {raw!r}"
-        )
-    return str(raw)
+    return _choice(config, "queryguard_hypopg", tuple(hypopg.MODES))
 
 
 def _ignore_tables(config: pytest.Config) -> tuple[str, ...]:
@@ -517,22 +533,7 @@ def _sarif_path(config: pytest.Config) -> Path | None:
 
 
 def _read_settings(config: pytest.Config) -> _Settings:
-    cli_mode = config.getoption("queryguard_mode")
-    if cli_mode is not None:
-        mode, source = cli_mode, "--queryguard-mode"
-    else:
-        source = "queryguard_mode"
-        try:
-            mode = config.getini(source)
-        except (TypeError, ValueError) as exc:
-            # pytest 9 rejects a non-string value from native TOML on its own.
-            raise pytest.UsageError(
-                f"{source} must be one of {', '.join(_MODES)}: {exc}"
-            ) from None
-    if mode not in _MODES:
-        raise pytest.UsageError(
-            f"{source} must be one of {', '.join(_MODES)}, got {mode!r}"
-        )
+    mode = _choice(config, "queryguard_mode", _MODES, flag="--queryguard-mode")
     repeat = _threshold(config, "queryguard_repeat_threshold")
     baseline_path = _baseline_path(config)
     update = bool(config.getoption("queryguard_update_baseline"))
@@ -546,7 +547,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
     if update and mode == "off":
         raise pytest.UsageError(
             "--queryguard-update-baseline cannot run with measurement off "
-            f"({source} = off)"
+            "(the queryguard mode is off)"
         )
     if baseline_path is not None:
         try:
@@ -589,7 +590,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers",
-        "max_queries(n): fail the test if it runs more than n SQL statements.",
+        "max_queries(limit): fail the test if it runs more than limit SQL statements.",
     )
     config.addinivalue_line(
         "markers",
@@ -608,6 +609,16 @@ def pytest_configure(config: pytest.Config) -> None:
         "test, or only for the given tables.",
     )
     config.stash[_outer_error] = swap_error(None)
+    try:
+        _configure(config)
+    except pytest.UsageError:
+        raise
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        # Measurement stays off; the terminal summary says so.
+        record_error(exc, "pytest_configure")
+
+
+def _configure(config: pytest.Config) -> None:
     config.stash[_outer_stopped] = indexes.swap_stopped(None)
     config.stash[_outer_catalog_error] = indexes.swap_catalog_error(None)
     config.stash[_outer_no_plpgsql] = indexes.swap_no_plpgsql(indexes.EngineSet())
@@ -616,6 +627,10 @@ def pytest_configure(config: pytest.Config) -> None:
     catalog.reset()
     settings = _read_settings(config)
     config.stash[_settings] = settings
+    if settings.baselining or settings.sarif_path:
+        config.pluginmanager.register(
+            _CollectionErrors(settings), "queryguard-collection-errors"
+        )
     if config.getoption("queryguard_report"):
         config.stash[_report] = []
     if settings.mode != "off":
@@ -623,20 +638,55 @@ def pytest_configure(config: pytest.Config) -> None:
         if settings.index_check:
             install_index_check()
         if settings.unused_eager != "off":
+            config.stash[_eager_enabled] = True  # set first: undone even if it fails
             eager.enable()
-            config.stash[_eager_enabled] = True
+
+
+class _CollectionErrors:
+    """Notes a collection error, also one that a pytest-xdist worker reports."""
+
+    def __init__(self, settings: _Settings) -> None:
+        self._settings = settings
+
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        try:
+            if report.failed:
+                self._settings.collection_failed = True
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "collection report")
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
+    stash = config.stash
+    # Every step runs, so a nested session (pytester) always gives the outer
+    # session its state back.
+    steps: tuple[Callable[[], object], ...] = (
+        lambda: _disable_eager(config),
+        lambda: swap_error(stash.get(_outer_error, None)),
+        lambda: indexes.swap_stopped(stash.get(_outer_stopped, None)),
+        lambda: indexes.swap_catalog_error(stash.get(_outer_catalog_error, None)),
+        lambda: indexes.swap_no_plpgsql(
+            stash.get(_outer_no_plpgsql, indexes.EngineSet())
+        ),
+        lambda: swap_root(stash.get(_outer_root, None)),
+        catalog.reset,
+    )
+    for step in steps:
+        try:
+            step()
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            # After the summary: printed by Python's default warning handler.
+            warn_internal(
+                QueryGuardInternalWarning(
+                    f"pytest-queryguard could not clean up after the session: {exc!r}"
+                )
+            )
+
+
+def _disable_eager(config: pytest.Config) -> None:
     if config.stash.get(_eager_enabled, False):
         config.stash[_eager_enabled] = False
         eager.disable()
-    swap_error(config.stash.get(_outer_error, None))
-    indexes.swap_stopped(config.stash.get(_outer_stopped, None))
-    indexes.swap_catalog_error(config.stash.get(_outer_catalog_error, None))
-    indexes.swap_no_plpgsql(config.stash.get(_outer_no_plpgsql, indexes.EngineSet()))
-    swap_root(config.stash.get(_outer_root, None))
-    catalog.reset()
 
 
 def _report_internal_error(config: pytest.Config) -> None:
@@ -646,12 +696,11 @@ def _report_internal_error(config: pytest.Config) -> None:
     config.stash[_internal_reported] = True
     failure = internal_failure()
     where = f" ({failure.source})" if failure is not None else ""
-    std_warnings.warn(
+    warn_internal(
         QueryGuardInternalWarning(
             f"pytest-queryguard disabled itself after an internal error: {error!r}"
             f"{where}"
-        ),
-        stacklevel=1,
+        )
     )
 
 
@@ -742,7 +791,7 @@ def _analyse(
             findings.extend(eager.findings(tracker, cwd=root))
         if settings.ignore or marker_rules:
             findings = _drop_ignored(item, settings, findings, marker_rules)
-        findings = _apply_baseline(settings, findings)
+        findings = _apply_baseline(settings, findings, item)
         failing = [f for f in findings if _fails(settings, f)]
         warning = [f for f in findings if not _fails(settings, f)]
         note = ""
@@ -757,7 +806,38 @@ def _analyse(
         return None, None
 
 
-def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Finding]:
+def _at_the_test(finding: Finding, item: pytest.Item) -> Finding:
+    """The finding located at the test, for SARIF, when its call site is unknown.
+
+    The call site is unknown when no application frame was on the stack, for
+    example when ``session.execute`` itself is handed to a worker thread. GitHub
+    shows a result only with a location, so the test stands in for it. Only
+    the SARIF copy changes: the terminal text, the baseline and the ignore
+    rules keep the finding as it was.
+    """
+    if finding.file is not None or finding.function is not None:
+        return finding
+    try:
+        path, line, _ = item.reportinfo()
+        file = item.nodeid.split("::", 1)[0]
+        if not file or Path(str(path)).name != Path(file).name:
+            return finding
+        return replace(
+            finding,
+            file=file,
+            function=getattr(item, "originalname", None) or item.name,
+            line=(line or 0) + 1,
+            message=finding.message.replace(
+                "<unknown location>", "<unknown location>, reported at the test"
+            ),
+        )
+    except Exception:  # noqa: BLE001  # a plugin bug must never break the user suite
+        return finding
+
+
+def _apply_baseline(
+    settings: _Settings, findings: list[Finding], item: pytest.Item
+) -> list[Finding]:
     """The findings that still count: not in the baseline, and no update run.
 
     Records every finding it gets, for the stale-entry report and for an update.
@@ -771,11 +851,9 @@ def _apply_baseline(settings: _Settings, findings: list[Finding]) -> list[Findin
     if settings.sarif_path is not None:
         for finding in findings:
             level = (
-                sarif.LEVEL_ERROR
-                if settings.fails(finding.kind)
-                else sarif.LEVEL_WARNING
+                sarif.LEVEL_ERROR if _fails(settings, finding) else sarif.LEVEL_WARNING
             )
-            sarif.add(settings.reported, finding, level)
+            sarif.add(settings.reported, _at_the_test(finding, item), level)
     return findings
 
 
@@ -784,13 +862,27 @@ def _drop_ignored(
     settings: _Settings,
     findings: list[Finding],
     marker_rules: tuple[IgnoreRule, ...],
+    *,
+    indexes: bool = False,
 ) -> list[Finding]:
-    """The findings the ini patterns and the test's markers do not ignore."""
+    """The findings the ini patterns and the test's markers do not ignore.
+
+    A marker pattern is stale when it matched neither an N+1 finding nor an
+    index finding of the test: the N+1 pass (``indexes=False``) lists every
+    unmatched pattern, the index pass then takes back those it matched.
+    """
     kept, used = apply_rules(findings, (*settings.ignore, *marker_rules))
     settings.ignore_used.update(used)
-    settings.stale_markers.extend(
-        (item.nodeid, rule) for rule in marker_rules if rule not in used
-    )
+    if indexes:
+        settings.stale_markers[:] = [
+            (nodeid, rule)
+            for nodeid, rule in settings.stale_markers
+            if nodeid != item.nodeid or rule not in used
+        ]
+    else:
+        settings.stale_markers.extend(
+            (item.nodeid, rule) for rule in marker_rules if rule not in used
+        )
     return kept
 
 
@@ -820,14 +912,19 @@ def _analyse_indexes(
     """The missing-index report for the finished test, or None; never raises."""
     if internal_error() is not None or not collector.scans:
         return None
+    _, marker_rules = _nplusone_ignores(item)
     try:
         root = item.config.rootpath
         scans = select_findings(collector.scans, (*settings.ignore_tables, *exempt))
-        if (settings.ignore or settings.baselining or settings.sarif_path) and scans:
+        if (
+            settings.ignore
+            or marker_rules
+            or settings.baselining
+            or settings.sarif_path
+        ) and scans:
             findings = [make_index_finding(scan, cwd=root) for scan in scans]
-            kept, used = apply_rules(findings, settings.ignore)
-            settings.ignore_used.update(used)
-            kept = _apply_baseline(settings, kept)
+            kept = _drop_ignored(item, settings, findings, marker_rules, indexes=True)
+            kept = _apply_baseline(settings, kept, item)
             keep_ids = {id(f) for f in kept}
             scans = [
                 scan
@@ -859,17 +956,23 @@ def _budget(item: pytest.Item) -> int | None:
     marker = item.get_closest_marker("max_queries")
     if marker is None:
         return None
-    if len(marker.args) > 1 or set(marker.kwargs) - {"n"}:
+    # ``n`` is the spelling of 0.1 to 0.3; it stays accepted, without a warning,
+    # until a deprecation period (docs/stability.md) says otherwise.
+    if len(marker.args) > 1 or set(marker.kwargs) - {"limit", "n"}:
         pytest.fail(
             f"max_queries on {item.nodeid} takes a single argument, the limit",
             pytrace=False,
         )
-    if marker.args and "n" in marker.kwargs:
+    keywords = [name for name in ("limit", "n") if name in marker.kwargs]
+    if len(marker.args) + len(keywords) > 1:
         pytest.fail(
-            f"max_queries on {item.nodeid} got the limit twice, positionally and as n=",
+            f"max_queries on {item.nodeid} got the limit more than once "
+            "(positionally, as limit= or as n=)",
             pytrace=False,
         )
-    limit = marker.args[0] if marker.args else marker.kwargs.get("n")
+    limit = marker.kwargs[keywords[0]] if keywords else None
+    if marker.args:
+        limit = marker.args[0]
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         pytest.fail(
             f"max_queries on {item.nodeid} needs a non-negative integer "
@@ -1026,15 +1129,119 @@ def _is_worker(config: pytest.Config) -> bool:
 @pytest.hookimpl(optionalhook=True)
 def pytest_testnodedown(node: Any, error: object) -> None:
     """pytest-xdist, on the controller: collect what a worker found."""
-    settings = node.config.stash.get(_settings, None)
+    try:
+        settings = node.config.stash.get(_settings, None)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "merging the results of a pytest-xdist worker")
+        return
     if settings is None or not (settings.baselining or settings.sarif_path):
         return
-    output = getattr(node, "workeroutput", None) or {}
-    if error is not None or output.get("queryguard_incomplete", True):
+    try:
+        output = getattr(node, "workeroutput", None) or {}
+        if error is not None or output.get("queryguard_incomplete", True):
+            settings.baseline_incomplete = True
+        for identity in output.get("queryguard_seen", []):
+            settings.seen.add(_identity(identity))
+        for file, function in output.get("queryguard_executed", []):
+            settings.executed.add((file, function))
+        if output.get("queryguard_deselected", False):
+            settings.deselected = True
+        sarif.merge_wire(settings.reported, output.get("queryguard_reported", []))
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.baseline_incomplete = True
-    for identity in output.get("queryguard_seen", []):
-        settings.seen.add(_identity(identity))
-    sarif.merge_wire(settings.reported, output.get("queryguard_reported", []))
+        record_error(exc, "merging the results of a pytest-xdist worker")
+
+
+def pytest_deselected(items: Sequence[pytest.Item]) -> None:
+    """Remember that a filter (-k, -m, --lf, --deselect) left tests out."""
+    if not items:
+        return
+    try:
+        settings = items[0].config.stash.get(_settings, None)
+        if settings is not None and settings.update_baseline:
+            settings.deselected = True
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "baseline update")
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> Generator[None, Any, Any]:
+    """Notice a hook that drops tests without calling ``pytest_deselected``."""
+    before = len(items)
+    result = yield
+    try:
+        settings = config.stash.get(_settings, None)
+        if settings is not None and settings.update_baseline and len(items) < before:
+            settings.deselected = True
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "baseline update")
+    return result
+
+
+def _test_key(item: pytest.Item) -> tuple[str | None, str]:
+    """(rootdir-relative file, function) of a test, as a finding names a call site."""
+    path = Path(str(item.path))
+    try:
+        file: str | None = path.relative_to(item.config.rootpath).as_posix()
+    except ValueError:
+        file = str(path)
+    return file, getattr(item, "originalname", None) or item.name
+
+
+def _run_is_narrowed(config: pytest.Config, deselected: bool) -> bool:
+    """True when the session did not aim at the whole suite.
+
+    That is a deselecting filter, ``--lf``, ``--sw``, ``--pyargs``, an ``--ignore``
+    given on the command line, or file and node arguments that do not cover every
+    ``testpaths`` entry (or the rootdir without it).
+    """
+    if deselected:
+        return True
+    # --lf skips whole files at collection without calling pytest_deselected
+    for option in ("lf", "stepwise", "pyargs"):
+        if config.getoption(option, None):
+            return True
+    if _ignores_on_command_line(config):
+        return True
+    suite = _suite_paths(config)
+    invocation = config.invocation_params.dir
+    given = [
+        Path(os.path.abspath(Path(invocation, str(arg))))
+        for arg in config.args
+        if "::" not in str(arg)
+    ]
+    # the run covers the suite when every default path is one of the
+    # arguments or below one of them; a node id covers nothing
+    return not all(any(arg == p or arg in p.parents for arg in given) for p in suite)
+
+
+def _suite_paths(config: pytest.Config) -> list[Path]:
+    """The paths a bare ``pytest`` in the rootdir collects."""
+    root = config.rootpath
+    found: list[Path] = []
+    for entry in config.getini("testpaths") or []:
+        found.extend(
+            Path(os.path.abspath(Path(root, match)))
+            for match in glob.glob(str(entry), root_dir=root, recursive=True)
+        )
+    return found or [root]
+
+
+def _ignores_on_command_line(config: pytest.Config) -> bool:
+    """An ``--ignore`` or ``--ignore-glob`` on the command line or in PYTEST_ADDOPTS.
+
+    One in the ini ``addopts`` is part of how the suite is defined, like
+    ``collect_ignore``, so a run with it still covers the whole suite.
+    """
+    tokens = [str(arg) for arg in config.invocation_params.args]
+    tokens += shlex.split(os.environ.get("PYTEST_ADDOPTS", ""))
+    return any(
+        token in ("--ignore", "--ignore-glob")
+        or token.startswith(("--ignore=", "--ignore-glob="))
+        for token in tokens
+    )
 
 
 def _identity(raw: Any) -> Identity:
@@ -1042,7 +1249,18 @@ def _identity(raw: Any) -> Identity:
     return (kind, label, file, function)
 
 
-def pytest_sessionfinish(session: pytest.Session) -> None:
+_ABNORMAL_EXIT = frozenset(
+    (
+        pytest.ExitCode.INTERRUPTED,
+        pytest.ExitCode.USAGE_ERROR,
+        pytest.ExitCode.INTERNAL_ERROR,
+    )
+)
+
+
+def pytest_sessionfinish(
+    session: pytest.Session, exitstatus: int | pytest.ExitCode
+) -> None:
     config = session.config
     settings = config.stash.get(_settings, None)
     if settings is None or not (settings.baselining or settings.sarif_path):
@@ -1050,18 +1268,62 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     if _is_worker(config):
         # sent to the controller when the worker finishes
         output = cast(Any, config).workeroutput
-        output["queryguard_seen"] = [
-            list(identity) for identity in sorted_identities(settings.seen)
-        ]
-        output["queryguard_reported"] = sarif.to_wire(settings.reported)
+        output["queryguard_incomplete"] = True  # until the results are in
+        try:
+            output["queryguard_seen"] = [
+                list(identity) for identity in sorted_identities(settings.seen)
+            ]
+            output["queryguard_reported"] = sarif.to_wire(settings.reported)
+            output["queryguard_executed"] = sorted(
+                settings.executed, key=lambda key: (key[0] or "", key[1])
+            )
+            output["queryguard_deselected"] = settings.deselected
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "sending the results to the pytest-xdist controller")
+            output["queryguard_seen"] = []
+            output["queryguard_reported"] = []
         output["queryguard_incomplete"] = internal_error() is not None
         return
-    if internal_error() is not None:
-        settings.baseline_incomplete = True
-    if settings.update_baseline:
-        _update_baseline(session, settings)
-    if settings.sarif_path is not None:
-        _write_sarif(settings)
+    try:
+        if internal_error() is not None:
+            settings.baseline_incomplete = True
+        # A collection error also counts when the run went on: pytest-xdist
+        # without -x ends it with "tests failed", a serial run is interrupted.
+        interrupted = settings.collection_failed or (
+            exitstatus in _ABNORMAL_EXIT
+            and not _xdist_maxfail_stop(session, settings, exitstatus)
+        )
+        if settings.update_baseline:
+            _update_baseline(session, settings, interrupted)
+        if settings.sarif_path is not None:
+            if interrupted:
+                # a partial report would close the alerts of the tests that never ran
+                settings.sarif_failed = (
+                    "not written: the run was interrupted or did not finish "
+                    "(collection error, Ctrl-C or internal error); "
+                    "an existing file is left as it was"
+                )
+            else:
+                _write_sarif(settings)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "writing the baseline or SARIF file")
+
+
+def _xdist_maxfail_stop(
+    session: pytest.Session, settings: _Settings, exitstatus: int | pytest.ExitCode
+) -> bool:
+    """A pytest-xdist run that -x or --maxfail stopped, not a real interruption.
+
+    pytest-xdist ends such a run with the "interrupted" exit status where a
+    serial run ends with "tests failed"; it is then treated as the serial run.
+    A collection error under -x sets the same flags and stays an interruption.
+    """
+    return (
+        exitstatus == pytest.ExitCode.INTERRUPTED
+        and bool(session.shouldstop or session.shouldfail)
+        and not settings.collection_failed
+        and session.config.pluginmanager.has_plugin("dsession")
+    )
 
 
 def _write_sarif(settings: _Settings) -> None:
@@ -1088,26 +1350,57 @@ def _write_sarif(settings: _Settings) -> None:
     settings.sarif_result = text
 
 
-def _update_baseline(session: pytest.Session, settings: _Settings) -> None:
+def _update_baseline(
+    session: pytest.Session, settings: _Settings, interrupted: bool = False
+) -> None:
     path = settings.baseline_path
     if path is None:
+        return
+    if interrupted:
+        settings.baseline_failed = (
+            "not updated: the run was interrupted or did not finish "
+            "(collection error, Ctrl-C or internal error)"
+        )
         return
     if session.shouldstop or session.shouldfail or settings.baseline_incomplete:
         settings.baseline_failed = (
             "not updated: the run stopped early or measurement failed"
         )
         return
+    if session.config.getoption("collectonly", False):
+        settings.baseline_failed = "not updated: --collect-only runs no tests"
+        return
     before = settings.baseline or frozenset()
     after = frozenset(settings.seen)
+    narrowed = _run_is_narrowed(session.config, settings.deselected)
+    kept: frozenset[Identity] = frozenset()
+    if narrowed:
+        # only tests that ran may replace their entries; an entry whose
+        # (file, function) is no test that ran stays, whether its test was
+        # left out or deleted (a full run prunes it)
+        kept = frozenset(
+            entry
+            for entry in before - after
+            if (entry[2], entry[3]) not in settings.executed
+        )
+        after = after | kept
     try:
         baselines.write(path, after)
-    except OSError as exc:
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.baseline_failed = f"could not write {path}: {exc}"
         return
-    settings.baseline_written = (
+    text = (
         f"{path}: {len(after)} entries ({len(after - before)} added, "
         f"{len(before - after)} removed)"
     )
+    if narrowed:
+        reason = "its test did not run" if len(kept) == 1 else "their tests did not run"
+        noun = "entry" if len(kept) == 1 else "entries"
+        text += (
+            f"\nthis run did not cover the whole suite: {len(kept)} {noun} kept "
+            f"because {reason}"
+        )
+    settings.baseline_written = text
 
 
 def _write_baseline_summary(
@@ -1157,12 +1450,24 @@ def _write_sarif_summary(
     elif settings.sarif_result is not None:
         terminalreporter.write_sep("=", "queryguard: SARIF written")
         terminalreporter.write_line(settings.sarif_result)
+        if settings.baseline_incomplete:
+            terminalreporter.write_line(
+                "incomplete: measurement stopped in this process or in a "
+                "pytest-xdist worker, so findings may be missing"
+            )
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     config = terminalreporter.config
     settings = config.stash.get(_settings, None)
     if settings is None:
+        # pytest_configure failed: a usage error (then nothing was recorded)
+        # or a bug, which is reported here.
+        _report_internal_error(config)
+        try:
+            _write_internal_failure(terminalreporter)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "failure summary")
         return
     try:
         _write_index_notes(terminalreporter)
@@ -1194,35 +1499,159 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
+    # A finding escalated by ``filterwarnings = error`` is raised from this frame;
+    # keep the plugin's own source out of that failure, as in fail mode. Any other
+    # exception (a user test failure, a plugin bug) keeps this frame visible.
+    __tracebackhide__ = _hide_escalated_warning
     settings = item.config.stash.get(_settings, None)
     if settings is None:
         # pytest_configure did not complete (for example it raised a UsageError
         # for a bad option), so there is nothing to measure with.
         return (yield)
-    limit = _budget(item)
-    time_limit = _time_budget(item)
+    if settings.update_baseline:
+        try:
+            settings.executed.add(_test_key(item))
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "baseline update")
+    # Marker errors fail the test on purpose (pytest.fail), before it runs.
+    try:
+        limit = _budget(item)
+        time_limit = _time_budget(item)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "start of the measurement")
+        _report_internal_error(item.config)
+        return (yield)
     if settings.mode == "off" and limit is None and time_limit is None:
         return (yield)
     index_check = settings.mode != "off" and settings.index_check
-    exempt_all, exempt = _index_exemption(item) if index_check else (False, ())
-    if limit is not None or time_limit is not None:
-        install()  # idempotent; budgets also work when the mode is off
-    collector = QueryCollector()
-    collector.max_events = settings.max_events
-    collector.index_check = index_check and not exempt_all
-    collector.index_advisor = settings.index_advisor
-    collector.hypopg = settings.hypopg
-    push(collector)
-    tracker = eager.start() if settings.mode != "off" and eager.is_enabled() else None
+    try:
+        exempt_all, exempt = _index_exemption(item) if index_check else (False, ())
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "start of the measurement")
+        _report_internal_error(item.config)
+        return (yield)
+    try:
+        collector, tracker = _start_measuring(
+            settings,
+            budgets=limit is not None or time_limit is not None,
+            index_check=index_check and not exempt_all,
+        )
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "start of the measurement")
+        _report_internal_error(item.config)
+        return (yield)
     try:
         result = yield
     finally:
+        try:
+            _stop_measuring(item, collector, settings, tracker)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "end of the measurement")
+            _discard(collector, tracker)
+        except BaseException:
+            # a signal (KeyboardInterrupt, SystemExit) goes on, but leaves
+            # no collector on the stack and no tracker behind
+            _discard(collector, tracker)
+            raise
+    try:
+        parts, warn_texts = _results(
+            item, collector, settings, tracker, limit, time_limit, exempt
+        )
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "end of the measurement")
+        parts, warn_texts = [], []
+    _report_internal_error(item.config)
+    if not parts:
+        _emit_warnings(item, warn_texts)
+    if parts:
+        pytest.fail("\n\n".join(parts), pytrace=False)
+    return result
+
+
+def _hide_escalated_warning(
+    excinfo: pytest.ExceptionInfo[BaseException] | None,
+) -> bool:
+    """Hide a plugin frame only when a ``QueryGuardWarning`` was raised as an error."""
+    return excinfo is not None and excinfo.errisinstance(QueryGuardWarning)
+
+
+def _emit_warnings(item: pytest.Item, texts: list[str]) -> None:
+    """Emit each finding as a ``QueryGuardWarning`` located at the test."""
+    __tracebackhide__ = _hide_escalated_warning
+    path, line, _ = item.reportinfo()
+    for text in texts:
+        std_warnings.warn_explicit(
+            QueryGuardWarning(text),
+            QueryGuardWarning,
+            str(path),
+            (line or 0) + 1,
+        )
+
+
+def _start_measuring(
+    settings: _Settings, *, budgets: bool, index_check: bool
+) -> tuple[QueryCollector, eager.Tracker | None]:
+    """A collector on the stack and, when it is on, the eager-load tracker."""
+    if budgets:
+        install()  # idempotent; budgets also work when the mode is off
+    collector = QueryCollector()
+    collector.max_events = settings.max_events
+    collector.index_check = index_check
+    collector.index_advisor = settings.index_advisor
+    collector.hypopg = settings.hypopg
+    tracker = eager.start() if settings.mode != "off" and eager.is_enabled() else None
+    try:
+        push(collector)
+    except BaseException:
         if tracker is not None:
             eager.stop(tracker)
-        pop(collector)
+        raise
+    return collector, tracker
+
+
+def _stop_measuring(
+    item: pytest.Item,
+    collector: QueryCollector,
+    settings: _Settings,
+    tracker: eager.Tracker | None,
+) -> None:
+    """Take the collector off the stack, whatever happens; never raises an Exception.
+
+    Runs in a finally block: an error here would replace the test's own.
+    """
+    try:
+        try:
+            if tracker is not None:
+                eager.stop(tracker)
+        finally:
+            pop(collector)
         _report_internal_error(item.config)
         _record(item, collector, settings)  # failing tests are reported too
         _note_index_check(item.config, collector)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "end of the measurement")
+
+
+def _discard(collector: QueryCollector, tracker: eager.Tracker | None) -> None:
+    """Best effort: take the collector and the tracker off after a failed stop."""
+    # the error is already recorded; nothing here may add another
+    if tracker is not None:
+        with contextlib.suppress(Exception):
+            eager.stop(tracker)
+    with contextlib.suppress(Exception):
+        pop(collector)
+
+
+def _results(
+    item: pytest.Item,
+    collector: QueryCollector,
+    settings: _Settings,
+    tracker: eager.Tracker | None,
+    limit: int | None,
+    time_limit: float | None,
+    exempt: tuple[str, ...],
+) -> tuple[list[str], list[str]]:
+    """(texts that fail the test, texts that only warn); the first wins when set."""
     parts: list[str] = []
     if limit is not None:
         budget = _budget_report(item, collector, limit)
@@ -1245,21 +1674,8 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
             fail_texts.insert(0, failing)
         if warning is not None:
             warn_texts.insert(0, warning)
-    _report_internal_error(item.config)
     if parts or fail_texts:
         # one failure: budgets first, then N+1 and index findings, then the
         # findings of kinds that would only have warned
-        parts.extend(fail_texts)
-        parts.extend(warn_texts)
-    else:
-        path, line, _ = item.reportinfo()
-        for text in warn_texts:
-            std_warnings.warn_explicit(
-                QueryGuardWarning(text),
-                QueryGuardWarning,
-                str(path),
-                (line or 0) + 1,
-            )
-    if parts:
-        pytest.fail("\n\n".join(parts), pytrace=False)
-    return result
+        return [*parts, *fail_texts, *warn_texts], []
+    return [], warn_texts

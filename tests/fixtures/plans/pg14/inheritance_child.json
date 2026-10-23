@@ -1,0 +1,42 @@
+{
+ "query": "SELECT * FROM cars WHERE seats = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "cars",
+    "Schema": "public",
+    "Alias": "cars",
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 10000000002.25,
+    "Plan Rows": 100,
+    "Plan Width": 15,
+    "Output": [
+     "id",
+     "owner_id",
+     "plate",
+     "seats"
+    ],
+    "Filter": "(cars.seats = $1)"
+   },
+   "JIT": {
+    "Functions": 2,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": []
+ }
+}

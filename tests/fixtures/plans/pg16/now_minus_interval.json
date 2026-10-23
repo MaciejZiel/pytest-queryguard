@@ -1,0 +1,72 @@
+{
+ "query": "SELECT * FROM orders WHERE created_at > now() - interval '1 day'",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Seq Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "orders",
+    "Schema": "public",
+    "Alias": "orders",
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 10000000017.75,
+    "Plan Rows": 500,
+    "Plan Width": 93,
+    "Output": [
+     "id",
+     "customer_id",
+     "status",
+     "total",
+     "created_at",
+     "tags",
+     "data",
+     "note",
+     "kind"
+    ],
+    "Filter": "(orders.created_at > (now() - '1 day'::interval))"
+   },
+   "JIT": {
+    "Functions": 2,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "created_at",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (created_at)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

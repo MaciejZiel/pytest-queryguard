@@ -9,8 +9,8 @@ fix at once. A baseline file records them, so that:
   pruned as the code gets fixed.
 
 The baseline applies to the pytest plugin and to every finding kind
-(`relationship-load`, `repeated-statement`, `column-load`, `write-loop` and
-`missing-index`). `QueryLog.assert_no_nplusone()` does not read it.
+(`relationship-load`, `repeated-statement`, `column-load`, `write-loop`,
+`unused-eager-load` and `missing-index`). `QueryLog.assert_no_nplusone()` does not read it.
 
 ## Create it
 
@@ -21,9 +21,60 @@ pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseli
 The run writes the file and does not fail on findings. Budgets
 (`max_queries`, `max_db_time`) are not findings: a test over its budget still
 fails on this run and is never recorded, so fix the code or raise the budget.
-Run the whole suite:
-the file holds what this run found, so a partial run drops the entries of the
-tests it did not run. Commit the file.
+Run the whole suite to create the file, and again to prune it. Commit the file.
+
+### Partial runs
+
+An update run is either full or partial, and only a full run removes every
+entry nothing produced any more.
+
+A run is **full** when it collects the whole suite and keeps every test: no
+arguments, or path arguments that cover every `testpaths` entry (`pytest`,
+`pytest tests`, `pytest tests/`, `pytest .`), or the rootdir when `testpaths`
+is not set. An `--ignore` in the ini `addopts` is part of how the suite is
+defined, like `collect_ignore`, so a run with it is still full.
+
+A run is **partial** when any of these applies:
+
+- `-k`, `-m` or `--deselect` left a test out, including a `-m` in `addopts`;
+- a plugin or a `conftest.py` hook removed tests from the collected items;
+- `--lf`, `--sw` or `--pyargs` is given;
+- `--ignore` or `--ignore-glob` is on the command line or in `PYTEST_ADDOPTS`;
+- the arguments are node ids, or paths that leave out part of `testpaths`
+  (`pytest tests/api` with `testpaths = tests`, or `pytest tests` with
+  `testpaths = tests other`), or pytest runs from a subdirectory that does
+  not hold the whole suite.
+
+A partial run only replaces the entries of the tests that ran:
+
+- a test that ran and produced a finding adds its entry;
+- a test that ran and no longer produces a finding loses its entry;
+- an entry whose test did not run is kept as it was.
+
+The summary says how many entries were kept:
+
+```
+queryguard-baseline.json: 3 entries (0 added, 0 removed)
+this run did not cover the whole suite: 2 entries kept because their tests did not run
+```
+
+A test is identified by the file and function of the entry, so the rule
+applies to an entry whose call site is inside a test function that ran. An
+entry for code outside a test (a helper or application module, or an entry
+with no file) is kept on a partial run unless a finding of the same identity
+shows up again; a full run prunes it. The same holds for a deleted or renamed
+test: a partial run cannot tell it from one that did not run, so its entry is
+removed on the next full run. Tests skipped before their call phase count as
+not run. If the summary of your usual full run says it did not cover the whole
+suite (a `-m` in `addopts`, for example), run once without that option to
+prune the file.
+
+Runs that stop early (`-x`, `--maxfail`, Ctrl-C, a crashed xdist worker),
+runs with a collection error and `--collect-only` do not write the file at
+all. A collection error counts also when the run goes on, with
+`--continue-on-collection-errors` or under pytest-xdist: the tests of the
+module that did not collect never ran, and a rewrite would drop their
+entries. Fix the module, then update.
 
 Then turn it on for everyone, in `pyproject.toml`:
 
@@ -62,6 +113,12 @@ An entry is the identity of a finding: kind, label, file and function.
   finding and is reported.
 - `file` and `function` are `null` when the call site is unknown (some
   missing-index findings).
+- A missing-index finding on a partitioned table names the partitioned table,
+  not its partitions. A baseline recorded before that change, with a partition's
+  name in the label, no longer matches: the finding is reported once under the
+  table's name until the baseline is updated. Run once with
+  `--queryguard-update-baseline`, or replace the partitions' entries in the
+  file by one entry with the partitioned table's name in the label.
 - Findings that `queryguard_ignore` or `allow_nplusone` leave out are not
   written to the baseline.
 - Two parts of an entry depend on the environment. The label of a
@@ -97,8 +154,11 @@ off, or after an internal error or a crashed worker.
 A missing file, invalid JSON, an unknown `version` or an entry with the wrong
 shape stops pytest with a usage error that names the file and the problem.
 `--queryguard-update-baseline` replaces a missing or unreadable file. It does
-not write after `-x`/`--maxfail` stopped the run, after an internal error, or
-after a worker crashed, and says so in the summary.
+not write after `-x`/`--maxfail` stopped the run, after an internal error, after
+a worker crashed, or after an interrupted run (a collection error, Ctrl-C, a
+usage error or an internal pytest error), and says so in the summary. A
+collection error counts as an interrupted run also with
+`--continue-on-collection-errors`.
 
 ## pytest-xdist
 

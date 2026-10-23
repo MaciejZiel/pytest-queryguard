@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -102,7 +103,7 @@ def test_stale_pending_tag_does_not_cross_measurements(
 ) -> None:
     first = collector.QueryCollector()
     collector.push(first)
-    listeners._set_pending("Order.customer")
+    listeners._set_pending(session, "Order.customer")
     collector.pop(first)
 
     second = collector.QueryCollector()
@@ -164,6 +165,7 @@ def test_listener_error_is_swallowed_and_disables(
 def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
     class State:
         is_column_load = True
+        session = object()
         load_options = object()  # no _refresh_state: an unknown SQLAlchemy shape
 
     target = collector.QueryCollector()
@@ -174,7 +176,7 @@ def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
         collector.pop(target)
     assert listeners.internal_error() is None
     assert target.column_loads == []
-    assert listeners._take_pending() == (None, None)
+    assert listeners._take_pending(object()) == (None, None, False)
 
 
 @pytest.mark.filterwarnings(
@@ -237,3 +239,156 @@ def test_is_write_matches_the_plain_definition(statement: str) -> None:
 
     expected = statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE")
     assert _is_write(statement) is expected
+
+
+def test_a_from_statement_column_load_is_recognised_before_sqlalchemy_2_0_30(
+    session: Session, rec: collector.QueryCollector
+) -> None:
+    """Joined-inheritance subclass columns load through ``from_statement()``.
+
+    Before SQLAlchemy 2.0.30 such an execution reports ``is_select`` and
+    ``is_column_load`` as False and ``load_options`` raises; the refresh state
+    is still in the execution options and the compile options.
+    """
+    from types import SimpleNamespace
+
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import InvalidRequestError
+
+    customer = session.scalars(select(Customer)).first()
+    assert customer is not None
+
+    class OldFromStatementState(SimpleNamespace):
+        @property
+        def load_options(self) -> None:
+            raise InvalidRequestError("not against a SELECT statement")
+
+    state = OldFromStatementState(
+        session=session,
+        is_column_load=False,
+        is_select=False,
+        execution_options={
+            "_sa_orm_load_options": SimpleNamespace(_refresh_state=inspect(customer))
+        },
+        statement=SimpleNamespace(
+            _compile_options=SimpleNamespace(
+                _for_refresh_state=True, _only_load_props=frozenset({"name"})
+            )
+        ),
+    )
+    listeners._on_orm_execute(state)  # type: ignore[arg-type]
+    assert listeners.internal_error() is None
+    assert [load.owner for load in rec.column_loads] == ["Customer"]
+
+
+def _from_statement_state(
+    session: Session, *, load_options: object, compile_options: object
+) -> object:
+    """A pre-2.0.30 ``from_statement()`` state with chosen private attributes."""
+    from types import SimpleNamespace
+
+    from sqlalchemy.exc import InvalidRequestError
+
+    class OldFromStatementState(SimpleNamespace):
+        @property
+        def load_options(self) -> None:
+            raise InvalidRequestError("not against a SELECT statement")
+
+        @property
+        def is_relationship_load(self) -> bool:
+            return False
+
+    execution_options = {}
+    if load_options is not None:
+        execution_options["_sa_orm_load_options"] = load_options
+    return OldFromStatementState(
+        session=session,
+        is_column_load=False,
+        is_select=False,
+        execution_options=execution_options,
+        statement=SimpleNamespace(_compile_options=compile_options),
+    )
+
+
+@pytest.mark.parametrize(
+    "load_options, compile_options",
+    [
+        # SQLAlchemy drops the refresh flag: an ordinary statement again.
+        (None, None),
+        (None, object()),
+        # The flag is there but the load options are not: nothing to attribute.
+        (None, SimpleNamespace(_for_refresh_state=True)),
+        (object(), SimpleNamespace(_for_refresh_state=True)),
+    ],
+)
+def test_a_from_statement_load_without_the_private_attributes_fails_open(
+    session: Session,
+    rec: collector.QueryCollector,
+    load_options: object,
+    compile_options: object,
+) -> None:
+    """Missing private attributes record nothing and raise nothing."""
+    state = _from_statement_state(
+        session, load_options=load_options, compile_options=compile_options
+    )
+    listeners._on_orm_execute(state)  # type: ignore[arg-type]
+    assert listeners.internal_error() is None
+    assert rec.column_loads == []
+
+
+def test_sample_sql_of_a_relationship_finding_is_the_lazy_load(
+    session: Session, rec: collector.QueryCollector
+) -> None:
+    from sqlalchemy.orm import selectinload
+
+    from pytest_queryguard.detectors import RelationshipFinding, detect
+
+    # eager: one IN query for the first order, labelled "Order.customer" too
+    session.scalars(
+        select(Order).options(selectinload(Order.customer)).order_by(Order.id).limit(1)
+    ).all()
+    # lazy: one query per customer not loaded yet (the N+1)
+    for order in session.scalars(select(Order).order_by(Order.id).offset(2)).all():
+        _ = order.customer
+    tagged = [s for s in rec.statements if s.relationship == "Order.customer"]
+    assert [s.lazy_load for s in tagged] == [False, True, True]
+    found = [
+        f
+        for f in detect(rec, relationship_threshold=2, repeat_threshold=50)
+        if isinstance(f, RelationshipFinding)
+    ]
+    assert len(found) == 1
+    sample = found[0].sample_sql
+    assert sample is not None and " IN (" not in sample.upper()
+
+
+@pytest.mark.filterwarnings(
+    "ignore::pytest_queryguard.warnings.QueryGuardInternalWarning"
+)
+def test_after_begin_error_is_swallowed_and_disables(
+    session: Session,
+    rec: collector.QueryCollector,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Any error, not only the AttributeError and TypeError of an object that
+    # cannot carry the scope tag: the user's transaction must still begin.
+    def boom(owner: object) -> int:
+        raise RuntimeError("scope broke")
+
+    monkeypatch.setattr(listeners, "scope_of_session", boom)
+    assert len(session.execute(select(Customer)).all()) == 3
+    error = listeners.internal_error()
+    assert isinstance(error, RuntimeError)
+    failure = listeners.internal_failure()
+    assert failure is not None
+    assert failure.source == "after_begin listener (session scopes)"
+
+
+def test_after_begin_does_nothing_after_an_internal_error(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(listeners, "scope_of_session", calls.append)
+    listeners.record_error(RuntimeError("earlier"))
+    session.execute(select(Customer)).all()
+    assert calls == []

@@ -20,11 +20,14 @@ inputs:
   package:
     description: >-
       What to pip install for the plugin: a requirement such as
-      "pytest-queryguard>=0.4" or a path to a checkout. pytest and SQLAlchemy
-      come with it. Your own project and its test dependencies must be
-      installed before this action runs.
+      "pytest-queryguard>=0.4" or a path to a checkout. Empty (the default):
+      install the plugin from the checkout of this action, so the plugin
+      version is the one the action's own ref ships (the action passes
+      --queryguard-sarif, which older plugin versions reject). pytest and
+      SQLAlchemy come with it. Your own project and its test dependencies must
+      be installed before this action runs.
     required: false
-    default: pytest-queryguard
+    default: ""
   baseline:
     description: >-
       Path of a baseline file (--queryguard-baseline). Findings in it are
@@ -79,7 +82,15 @@ runs:
       shell: bash
       env:
         QG_PACKAGE: ${{ inputs.package }}
-      run: python -m pip install --disable-pip-version-check "$QG_PACKAGE"
+        QG_ACTION_PATH: ${{ github.action_path }}
+      run: |
+        # No package given: install the plugin from this action's own checkout
+        # (the repository root, one level above action/), so the plugin always
+        # matches the ref the workflow pinned and understands --queryguard-sarif.
+        if [ -z "$QG_PACKAGE" ]; then
+          QG_PACKAGE="$QG_ACTION_PATH/.."
+        fi
+        python -m pip install --disable-pip-version-check "$QG_PACKAGE"
 
     - name: Run pytest
       id: pytest

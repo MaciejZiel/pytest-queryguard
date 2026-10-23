@@ -1,0 +1,75 @@
+{
+ "query": "SELECT customer_id, count(*) FROM orders GROUP BY customer_id HAVING count(*) > $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Aggregate",
+    "Strategy": "Hashed",
+    "Partial Mode": "Simple",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 16.5,
+    "Total Cost": 17.12,
+    "Plan Rows": 17,
+    "Plan Width": 12,
+    "Disabled": false,
+    "Output": [
+     "customer_id",
+     "count(*)"
+    ],
+    "Group Key": [
+     "orders.customer_id"
+    ],
+    "Filter": "(count(*) > $1)",
+    "Planned Partitions": 0,
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "orders",
+      "Schema": "public",
+      "Alias": "orders",
+      "Startup Cost": 0.0,
+      "Total Cost": 14.0,
+      "Plan Rows": 500,
+      "Plan Width": 4,
+      "Disabled": true,
+      "Output": [
+       "id",
+       "customer_id",
+       "status",
+       "total",
+       "created_at",
+       "tags",
+       "data",
+       "note",
+       "kind"
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}

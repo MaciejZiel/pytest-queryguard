@@ -85,5 +85,41 @@
     }
    }
   }
- ]
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [
+   [
+    "public",
+    "customers_pkey",
+    "id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
 }

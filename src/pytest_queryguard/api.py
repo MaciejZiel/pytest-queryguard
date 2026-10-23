@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -17,7 +16,7 @@ from .messages import (
     format_time_budget,
     make_findings,
 )
-from .warnings import QueryGuardInternalWarning
+from .warnings import QueryGuardInternalWarning, warn_internal
 
 
 class QueryBudgetExceeded(AssertionError):
@@ -29,45 +28,57 @@ class NPlusOneDetected(AssertionError):
 
 
 @contextmanager
-def _measure(limit: int | None, time_limit: float | None) -> Iterator[QueryCollector]:
+def _measure(limit: int | None, time_limit: float | None) -> Iterator[QueryLog]:
     # The budget failure is raised here; pytest should show the user's with block.
     __tracebackhide__ = True
     install()
     collector = QueryCollector()
+    log = QueryLog(collector)
+    earlier = internal_error()  # recording is already off if this is set
     push(collector)
     try:
-        yield collector
+        yield log
     finally:
         pop(collector)
+        log._finish(earlier)  # however the block ends, the log is fixed
+    # The verdict uses the log's fixed total: a statement still running in
+    # another thread may finish after the block and grow the collector's.
+    db_time = log.db_time
     if limit is not None and len(collector.statements) > limit:
         raise QueryBudgetExceeded(
             format_budget(
                 limit,
                 collector.statements,
                 cwd=display_root(),
-                db_time=collector.db_time,
+                db_time=db_time,
             )
         )
-    if time_limit is not None and collector.db_time > time_limit:
+    if time_limit is not None and db_time > time_limit:
         raise QueryBudgetExceeded(
             format_time_budget(
                 time_limit,
                 collector.statements,
                 cwd=display_root(),
-                db_time=collector.db_time,
+                db_time=db_time,
             )
         )
 
 
-def max_queries(limit: int) -> AbstractContextManager[QueryCollector]:
-    """Fail when the block runs more than ``limit`` SQL statements."""
+def max_queries(limit: int) -> AbstractContextManager[QueryLog]:
+    """Fail when the block runs more than ``limit`` SQL statements.
+
+    Yields the same ``QueryLog`` as ``record_queries()``: ``with max_queries(3)
+    as log:`` gives ``log.count``, ``log.queries`` and the other members.
+    """
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
         raise ValueError(f"limit must be a non-negative integer, got {limit!r}")
     return _measure(limit, None)
 
 
-def max_db_time(seconds: float) -> AbstractContextManager[QueryCollector]:
+def max_db_time(seconds: float) -> AbstractContextManager[QueryLog]:
     """Fail when the statements of the block take more than ``seconds`` in total.
+
+    Yields the same ``QueryLog`` as ``record_queries()``.
 
     The time is what the database and the driver took for each statement,
     measured around the cursor call; it does not include the time the code in
@@ -130,7 +141,7 @@ class QueryLog:
     one. Its constructor takes an internal type and may change in any release.
     """
 
-    __slots__ = ("_collector", "_done", "_error", "_frozen")
+    __slots__ = ("_collector", "_done", "_error", "_frozen", "_frozen_db_time")
 
     def __init__(self, collector: QueryCollector) -> None:
         # Not for direct use: only record_queries() creates a QueryLog.
@@ -140,10 +151,12 @@ class QueryLog:
         self._done = False
         self._error: BaseException | None = None
         self._frozen: tuple[Query, ...] = ()
+        self._frozen_db_time = 0.0
 
     def _finish(self, earlier: BaseException | None) -> BaseException | None:
         self._error = internal_error() or earlier
         self._frozen = self._snapshot()  # built once; the log no longer changes
+        self._frozen_db_time = self._collector.db_time
         self._done = True
         return self._error
 
@@ -193,8 +206,10 @@ class QueryLog:
         """Seconds the recorded statements took in total, as ``Query.duration``.
 
         Counts every statement, including those beyond ``queryguard_max_events``
-        that are not stored.
+        that are not stored. Fixed when the block ends, like ``queries``.
         """
+        if self._done:
+            return self._frozen_db_time
         return self._collector.db_time
 
     def slowest(self, n: int = 5) -> tuple[Query, ...]:
@@ -219,7 +234,9 @@ class QueryLog:
         The rules, and the defaults of the thresholds, are the plugin's: one
         relationship lazy-loaded for ``relationship_threshold`` different
         parent objects, or one ``SELECT``, without its literals and
-        parameters, run ``repeat_threshold`` times, or ``column_load_threshold``
+        parameters, run ``repeat_threshold`` times (pagination and chunked
+        ``IN`` loads, recognised by their parameters, do not count), or
+        ``column_load_threshold``
         instances of one class each loading deferred or expired columns on
         their own. With ``small_repeat_threshold`` (an integer, at least 2 and
         below ``repeat_threshold``), a statement that ran that many times or
@@ -316,7 +333,7 @@ def _record() -> Iterator[QueryLog]:
         # normal exit only: it must not replace the exception that ended it.
         error = log._finish(earlier)
     if error is not None:
-        warnings.warn(
+        warn_internal(
             QueryGuardInternalWarning(
                 "the QueryLog of this block may be incomplete: pytest-queryguard "
                 f"stopped recording after an internal error: {error!r}"

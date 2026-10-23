@@ -1,6 +1,6 @@
 # Third-party licenses
 
-Every third-party component of this repository: the text of the Code of Conduct (CC-BY-4.0, attribution in `CODE_OF_CONDUCT.md`), the direct and transitive dependencies in `uv.lock` (runtime, `dev` and `docs` groups), the build-time dependencies of hatchling, the PostgreSQL extension used in CI, and the GitHub Actions used by its workflows and by `action/action.yml`. One row per component. `certifi` and `pathspec` are MPL-2.0 and were already in the lock file as transitive dependencies of the `dev` group; they are recorded here and are not part of the installed package.
+Every third-party component of this repository: the text of the Code of Conduct (CC-BY-4.0, attribution in `CODE_OF_CONDUCT.md`), the direct and transitive dependencies in `uv.lock` (runtime, `dev`, `docs` and `plugins` groups), the build-time dependencies of hatchling, the PostgreSQL extension used in CI, and the GitHub Actions used by its workflows and by `action/action.yml`. One row per component. `certifi` and `pathspec` are MPL-2.0 and were already in the lock file as transitive dependencies of the `dev` group; they are recorded here and are not part of the installed package.
 
 | source | name | license type | license link |
 |---|---|---|---|
@@ -75,3 +75,7 @@ Every third-party component of this repository: the text of the Code of Conduct 
 | https://github.com/pallets-eco/blinker | blinker (transitive dependency of flask) | MIT | https://github.com/pallets-eco/blinker/blob/main/LICENSE.txt |
 | https://github.com/fastapi/sqlmodel | sqlmodel (not in uv.lock: it requires SQLAlchemy below 2.1, so only the SQLAlchemy 2.0 CI job installs it; used by the accuracy corpus) | MIT | https://github.com/fastapi/sqlmodel/blob/main/LICENSE |
 | https://github.com/EthicalSource/contributor_covenant/blob/b1b0a0f28b68717456ef4f93566356d14730cb82/content/version/2/1/code_of_conduct.md | Contributor Covenant 2.1 (text of CODE_OF_CONDUCT.md, adapted: contact method filled in; the repository's LICENSE at that commit is CC BY 4.0, later releases of the upstream repository changed its license, so the text was taken from this commit) | CC-BY-4.0 | https://creativecommons.org/licenses/by/4.0/legalcode |
+| https://github.com/pytest-dev/pytest-timeout | pytest-timeout (dev group, timeout interplay tests; MIT text verified in the 2.4.0 sdist) | MIT | https://github.com/pytest-dev/pytest-timeout/blob/main/LICENSE |
+| https://github.com/pytest-dev/pytest-randomly | pytest-randomly (plugins group, interplay tests; MIT text verified in the 5.0.0 sdist) | MIT | https://github.com/pytest-dev/pytest-randomly/blob/main/LICENSE |
+| https://github.com/pytest-dev/pytest-asyncio | pytest-asyncio (plugins group, async mode tests; Apache-2.0 text verified in the 1.4.0 sdist) | Apache-2.0 | https://github.com/pytest-dev/pytest-asyncio/blob/main/LICENSE |
+| https://github.com/samypr100/backports.asyncio.runner | backports-asyncio-runner (dependency of pytest-asyncio below Python 3.11; PSF-2.0 text verified in the 1.2.0 sdist) | PSF-2.0 | https://github.com/samypr100/backports.asyncio.runner/blob/main/LICENSE.md |

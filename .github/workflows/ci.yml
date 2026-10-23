@@ -10,6 +10,14 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run for its previous head. Pushes
+# to main share one group: the running run finishes and only the newest
+# waiting run is kept, since it tests every earlier merge as well. The release
+# gate calls this workflow under its own name, so it is never in these groups.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -49,6 +57,12 @@ jobs:
           - python-version: "3.10"
             sqlalchemy: "2.0"
             pytest: "8.0"
+          # the last SQLAlchemy that leaks the outer statement's load options
+          # (yield_per, autoflush) into selectinload when a do_orm_execute
+          # listener exists (fixed in 2.0.50); see tests/test_yield_per_leak.py
+          - python-version: "3.12"
+            sqlalchemy: "2.0.49"
+            pytest: "latest"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -60,6 +74,9 @@ jobs:
         # SQLModel requires SQLAlchemy below 2.1, so it is not in uv.lock; the
         # corpus scenarios that use it run only here.
         run: uv pip install "sqlalchemy==2.0.*" sqlmodel
+      - name: Pin SQLAlchemy to 2.0.49
+        if: matrix.sqlalchemy == '2.0.49'
+        run: uv pip install "sqlalchemy==2.0.49" sqlmodel
       - name: Pin pytest to the oldest supported series
         if: matrix.pytest == '8.0'
         run: uv pip install "pytest==8.0.*"
@@ -97,7 +114,30 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync
       - run: uv run --no-sync pytest tests/test_xdist.py -v
+      # 500 generated tests on 4 workers: baseline, SARIF, no leakage
+      - run: uv run --no-sync pytest tests/test_stress_xdist.py tests/test_stress_memory.py -v
+        env:
+          QUERYGUARD_STRESS: "1"
       - run: uv run --no-sync pytest -n 2 --ignore=tests/test_xdist.py
+
+  # Third-party plugins that change how every test runs (the "plugins"
+  # dependency group: pytest-randomly, pytest-asyncio). Only the tests written
+  # for them run here; installed, they would reorder the whole suite. The
+  # documentation projects run here too, so that the pytest-asyncio recipe,
+  # which the other jobs skip, is run in CI.
+  plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.12"
+      - run: uv sync --group plugins
+      - run: >-
+          uv run --no-sync pytest -v -p no:randomly
+          -o asyncio_default_fixture_loop_scope=function
+          tests/test_plugin_interplay.py tests/test_concurrency.py
+          tests/test_doc_examples.py
 
   # Per-statement overhead of the measurement against the stored baseline in
   # scripts/bench_baseline.json (relative overhead, generous margin). Linux

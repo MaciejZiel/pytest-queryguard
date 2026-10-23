@@ -3,26 +3,29 @@
 ## Install
 
 ```bash
-pip install "pytest-queryguard>=0.4.0rc2"
+pip install pytest-queryguard
 ```
 
-This documentation describes 0.4.0rc2, a release candidate. A plain
-`pip install pytest-queryguard` installs the last stable release, 0.3.0, which
-finds the same N+1 queries and enforces the same `max_queries` budgets, but
-has none of the baseline, SARIF, GitHub Action, ignore patterns, timing,
-column-load, write-loop or SQLite and MySQL index checks described here
-(on 0.3.0, `--queryguard-baseline` stops with
-`pytest: error: unrecognized arguments`), and
-suggests `selectinload` where 0.4 suggests `joinedload`. The version
-specifier above opts into the release candidate (pip and uv install a
-pre-release when the specifier names one) and keeps working once 0.4.0 is
-out. `pytest -VV` lists the installed version (`pytest-queryguard-0.4.0rc2`),
-and so does the `plugins:` line at the top of every run.
-
 It needs Python 3.10 or newer, pytest 8 or newer and SQLAlchemy 2.0.13 or
-newer; pip installs pytest and SQLAlchemy with it if they are missing. The
-plugin registers itself with pytest. There is nothing to import or configure.
+newer; pip installs pytest and SQLAlchemy with it. The plugin registers itself
+with pytest: there is nothing to import or configure. `pytest -VV` lists it
+(`pytest-queryguard-0.4.1`).
 
+!!! note "Free-threaded Python"
+    The free-threaded builds (CPython 3.13t and 3.14t, no GIL) are not in the
+    CI matrix and not in the package classifiers, so they are not a supported
+    configuration. The test suite was run once on CPython 3.14.4t with
+    SQLAlchemy 2.1.1 and passed; 3.13t was not tried. On those builds the
+    counters of a measurement (statements, loads and database time) are
+    updated under a lock, so statements from several threads are all counted
+    and budgets hold; on a build with the GIL no lock is taken. The stored
+    events are list appends and the call-site caches are dictionaries, which
+    CPython keeps consistent without the GIL; the sequence numbers that order
+    Sessions and executions (`itertools.count`) stayed unique from 8 threads
+    on 3.14.4t. The missing-index check and the unused-eager-load tracker
+    check and then update shared sets, so with several threads they may do
+    one step twice; those were not examined further. Every listener fails
+    open, so a race there costs accuracy, not the test run.
 
 ## A first test
 
@@ -172,6 +175,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/orders.py:10 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -180,7 +184,7 @@ queryguard: N+1 detected
 
   the same statement ran 50 times
   first at app/customers.py:9 in fetch_customers
-  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+  kind: repeated-statement  label: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop
 ____________________________ test_rename_customers _____________________________
 queryguard: expected at most 2 queries, got 4
@@ -248,7 +252,29 @@ def rename_customers(session: Session, names: dict[int, str]) -> None:
     session.flush()
 ```
 
-The same three tests, importing the fixed modules, pass:
+`tests/test_orders_fixed.py` is the same three tests, importing the fixed
+modules:
+
+```python
+import pytest
+from app.customers_fixed import fetch_customers, rename_customers
+from app.orders_fixed import list_orders
+
+
+def test_list_orders(session):
+    assert len(list_orders(session)) == 50
+
+
+def test_fetch_customers(session):
+    assert len(fetch_customers(session, list(range(1, 51)))) == 50
+
+
+@pytest.mark.max_queries(2)
+def test_rename_customers(session):
+    rename_customers(session, {1: "Ada", 2: "Grace"})
+```
+
+They pass:
 
 ```
 tests/test_orders_fixed.py ...                                           [100%]
@@ -294,6 +320,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/main.py:37 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

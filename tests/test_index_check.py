@@ -6,6 +6,7 @@ example ``postgresql+pg8000://postgres:pg@localhost:5432/postgres``.
 
 from __future__ import annotations
 
+import json
 import os
 import textwrap
 import uuid
@@ -34,7 +35,8 @@ def test_sqlite():
 """
 
 SQLITE_NOTICE = (
-    "oracle statements were not checked: the index check needs PostgreSQL 16 or newer"
+    "oracle statements were not checked: the index check supports "
+    "PostgreSQL 16 or newer, SQLite, MySQL (tested on 8.4) and MariaDB (tested on 11.8)"
 )
 
 
@@ -426,6 +428,75 @@ def test_pg_seq_scan_fails_with_table_condition_sql_site_and_hint(
 
 
 @needs_pg
+def test_pg_not_equal_filter_is_not_reported_even_on_an_indexed_column(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # orders.id is the primary key; no btree index serves <>, so the sequential
+    # scan is what the planner must do and there is nothing to add.
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import select
+
+        from qgmodels import Order
+
+
+        def test_not_equal(session):
+            session.scalars(select(Order).where(Order.id != 10)).all()
+            session.scalars(select(Order).where(Order.id.not_in([10, 11]))).all()
+            session.scalars(select(Order).where(Order.customer_id != 1)).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+
+
+@needs_pg
+def test_pg_not_equal_next_to_an_equality_is_still_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import select
+
+        from qgmodels import Order
+
+
+        def test_mixed(session):
+            stmt = select(Order).where(Order.customer_id == 1, Order.id != 10)
+            session.scalars(stmt).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*orders is read in full: Seq Scan with filter*"])
+
+
+@needs_pg
+def test_pg_not_equal_to_a_constant_in_the_sql_is_still_reported(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # A partial index WHERE customer_id <> 1 serves this statement, so it is
+    # advice the user can follow, unlike a not-equal against a parameter.
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import literal_column, select
+
+        from qgmodels import Order
+
+
+        def test_constant(session):
+            stmt = select(Order).where(Order.customer_id != literal_column("1"))
+            session.scalars(stmt).all()
+        """
+    )
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        ["*orders is read in full: Seq Scan with filter (orders.customer_id <> 1)"]
+    )
+
+
+@needs_pg
 def test_pg_passes_once_the_index_exists(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:
@@ -563,8 +634,8 @@ def test_pg_primary_key_order_scan_is_reported(
     result.stdout.fnmatch_lines(
         [
             (
-                "  orders is read in full: Index Scan using orders_pkey with filter "
-                "(orders.customer_id = $1)"
+                "  orders scans the whole index orders_pkey: the filter "
+                "(orders.customer_id = $1) does not match the start of any index"
             ),
         ]
     )
@@ -648,7 +719,7 @@ def test_pg_budget_nplusone_and_index_findings_share_one_failure(
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "*queryguard: expected at most 1 queries, got 6",
+            "*queryguard: expected at most 1 query, got 6",
             "*queryguard: N+1 detected",
             "*queryguard: missing index",
         ]
@@ -740,6 +811,39 @@ def test_pg_autocommit_connection(project: pytest.Pytester, pg16: Postgres) -> N
 
 
 @needs_pg
+def test_pg_manual_transaction_on_an_autocommit_connection_survives_the_check(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(
+        test_a="""
+        from sqlalchemy import text
+
+        from conftest import make_engine
+
+
+        def test_manual_begin(engine):
+            auto = make_engine(isolation_level="AUTOCOMMIT")
+            try:
+                with auto.connect() as conn:
+                    conn.exec_driver_sql("BEGIN")
+                    conn.exec_driver_sql("INSERT INTO orders VALUES (100, 1)")
+                    sql = "SELECT id FROM orders WHERE customer_id = %s"
+                    assert len(conn.exec_driver_sql(sql, (1,)).all()) == 3
+                    conn.exec_driver_sql("COMMIT")
+                with engine.connect() as conn:
+                    count = conn.scalar(text("SELECT count(*) FROM orders WHERE id = 100"))
+                assert count == 1, f"the committed row is gone: count={count}"
+            finally:
+                auto.dispose()
+        """
+    )
+    project.makeini("[pytest]\nqueryguard_index_ignore_tables = orders\n")
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*the index check stopped*")
+
+
+@needs_pg
 def test_pg_fixture_queries_are_not_checked(
     project: pytest.Pytester, pg16: Postgres
 ) -> None:
@@ -781,6 +885,143 @@ def test_pg_before_16_gets_one_notice(
             )
         ]
     )
+
+
+EVENTS = """
+from sqlalchemy import text
+
+
+def test_events(session):
+    for statement in [
+        "CREATE TABLE events (id int, kind text, created_at timestamp NOT NULL) "
+        "PARTITION BY RANGE (created_at)",
+        "CREATE TABLE events_2025 PARTITION OF events "
+        "FOR VALUES FROM ('2025-01-01') TO ('2026-01-01')",
+        "CREATE TABLE events_2026 PARTITION OF events "
+        "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+    ]:
+        session.execute(text(statement))
+    session.execute(text("SELECT * FROM events WHERE kind = :k"), {"k": "a"}).all()
+"""
+
+
+ORDERS_ON_A_NEWER_SERVER = """
+import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from qgmodels import Order
+
+
+@pytest.fixture
+def session(engine):
+    # what SQLAlchemy reads from a server newer than the tested ones
+    engine.dialect.server_version_info = (19, 0)
+    with Session(engine) as session:
+        yield session
+
+
+def test_orders(session):
+    stmt = select(Order).where(Order.customer_id == 1)
+    assert len(session.scalars(stmt).all()) == 2
+
+
+def test_more_orders(session):
+    stmt = select(Order).where(Order.customer_id == 2)
+    assert len(session.scalars(stmt).all()) == 2
+"""
+
+
+@needs_pg
+def test_pg_a_partitioned_table_is_one_finding_on_the_table(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    # #86: not one finding per partition, and the fix names the partitioned
+    # table, which creates the index on every partition.
+    _pg_project(project, pg16).makepyfile(test_a=EVENTS)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=1)
+    out = result.stdout.str()
+    # On CI pytest repeats the whole message in the short summary; count once.
+    assert out.split("short test summary info")[0].count("is read in full") == 1
+    result.stdout.fnmatch_lines(
+        [
+            "  events is read in full: Seq Scan with filter (events_*.kind = $1)",
+            "*fix: CREATE INDEX ON events (kind)",
+        ]
+    )
+    assert "events_20" not in out
+
+
+@needs_pg
+def test_pg_a_partitioned_table_is_ignored_by_its_own_name(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(test_a=EVENTS)
+    project.makeini("[pytest]\nqueryguard_index_ignore_tables = events\n")
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1)
+
+
+@needs_pg
+@pytest.mark.parametrize(
+    ("marker", "outcome"),
+    [
+        ('allow_missing_index("events_2025", "events_2026")', "failed"),
+        ('allow_missing_index("events")', "passed"),
+        ('allow_nplusone("events_2025", kind="missing-index")', "failed"),
+        ('allow_nplusone("events", kind="missing-index")', "passed"),
+    ],
+)
+def test_pg_a_partitioned_table_is_allowed_by_its_own_name_only(
+    project: pytest.Pytester, pg16: Postgres, marker: str, outcome: str
+) -> None:
+    # #86: entries that named a partition stop matching after the change.
+    source = EVENTS.replace(
+        "def test_events", f"import pytest\n\n\n@pytest.mark.{marker}\ndef test_events"
+    )
+    _pg_project(project, pg16).makepyfile(test_a=source)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(**{outcome: 1})
+
+
+@needs_pg
+def test_pg_a_baseline_records_the_partitioned_table_and_not_its_partitions(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(test_a=EVENTS)
+    args = ("--queryguard-index-check", "--queryguard-baseline=qg.json")
+    project.runpytest(*args, "--queryguard-update-baseline")
+    path = project.path / "qg.json"
+    data = json.loads(path.read_text())
+    assert [e["label"] for e in data["findings"]] == ["events"]
+    project.runpytest(*args).assert_outcomes(passed=1)
+    # a baseline recorded before #86 named each partition: it no longer matches
+    data["findings"] = [
+        dict(entry, label=f"events_{year}")
+        for entry in data["findings"]
+        for year in (2025, 2026)
+    ]
+    path.write_text(json.dumps(data))
+    result = project.runpytest(*args)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*events is read in full*"])
+
+
+@needs_pg
+def test_pg_newer_than_tested_is_checked_with_one_notice(
+    project: pytest.Pytester, pg16: Postgres
+) -> None:
+    _pg_project(project, pg16).makepyfile(test_a=ORDERS_ON_A_NEWER_SERVER)
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(failed=2)
+    notice = (
+        "PostgreSQL 19.0 is newer than the versions the index check is tested "
+        "on (16 to 18): its statements are checked, but a finding may be wrong "
+        "or missing; please report one that is"
+    )
+    assert result.stdout.str().count(notice) == 1
+    result.stdout.fnmatch_lines(["*orders is read in full: Seq Scan*"])
 
 
 # A table with columns for the pagination and cast cases, created inside the
@@ -857,8 +1098,8 @@ def test_pg_equality_behind_order_by_limit_is_reported(
     result.assert_outcomes(failed=2)
     lines = [
         (
-            "  items is read in full: Index Scan using items_pkey with filter "
-            "(items.owner_id = $1)"
+            "  items scans the whole index items_pkey: the filter "
+            "(items.owner_id = $1) does not match the start of any index"
         ),
         "*",
         "*",
@@ -886,8 +1127,8 @@ def test_pg_trailing_column_of_a_multicolumn_index_is_reported(
     result.stdout.fnmatch_lines(
         [
             (
-                "  items is read in full: *Index Scan using items_tenant_status "
-                "with index condition (items.status = $1)"
+                "  items scans the whole index items_tenant_status: the index "
+                "condition (items.status = $1) does not match the start of any index"
             ),
             "*",
             "*",
@@ -1131,7 +1372,7 @@ def test_pg_temporary_table_reports_the_trailing_column(
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
         [
-            "  pg_temp.tmp_items is read in full: *Index Scan using *",
+            "  pg_temp.tmp_items scans the whole index *",
             "*",
             "*",
             "  fix: CREATE INDEX ON pg_temp.tmp_items (status)",
@@ -1245,13 +1486,13 @@ def test_pg_whole_include_index_is_reported_with_and_without_statistics(
         [
             "*test_note?no-stats?*",
             (
-                "  notes is read in full: Bitmap Heap Scan using notes_inc with filter "
-                "(notes.note = $1)"
+                "  notes scans the whole index notes_inc: the filter "
+                "(notes.note = $1) does not match the start of any index"
             ),
             "*test_note?analyzed?*",
             (
-                "  notes is read in full: Index Only Scan using notes_inc with filter "
-                "(notes.note = $1)"
+                "  notes scans the whole index notes_inc: the filter "
+                "(notes.note = $1) does not match the start of any index"
             ),
         ]
     )
@@ -1311,16 +1552,16 @@ def test_pg_whole_partial_index_is_reported_with_and_without_statistics(
         [
             "*test_live_user?no-stats?*",
             (
-                "  users is read in full: Bitmap Heap Scan using users_live "
-                "with filter (users.email = $1)"
+                "  users scans the whole index users_live: the filter "
+                "(users.email = $1) does not match the start of any index"
             ),
             "*",
             "*",
             "  fix: CREATE INDEX ON users (email)",
             "*test_live_user?analyzed?*",
             (
-                "  users is read in full: Index Scan using users_live "
-                "with filter (users.email = $1)"
+                "  users scans the whole index users_live: the filter "
+                "(users.email = $1) does not match the start of any index"
             ),
             "*",
             "*",
@@ -1471,19 +1712,19 @@ def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
         [
             "*_ test_redefined_in_a_fixture _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
             "*_ test_redefinition_rolled_back _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
             f"  first at test_a.py:{_line(path)} in test_redefinition_rolled_back",
             "*_ test_same_statement_after_rollback _*",
             (
-                "  events is read in full: *Index * using events_ab "
-                "with index condition (events.a = $1)"
+                "  events scans the whole index events_ab: the index condition "
+                "(events.a = $1) does not match the start of any index"
             ),
         ]
     )
@@ -1627,3 +1868,61 @@ def test_pg_dropping_the_partial_index_makes_the_statement_reportable_again(
     result = project.runpytest("--queryguard-index-check")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*queryguard: missing index*", "*t1 is read in full*"])
+
+
+BROKEN_FIND_SCANS = """
+
+
+@pytest.fixture(autouse=True)
+def broken_find_scans(monkeypatch):
+    from pytest_queryguard import indexes
+
+    def broken(*args):
+        raise RuntimeError("find_scans broke")
+
+    monkeypatch.setattr(indexes, "find_scans", broken)
+"""
+
+
+SAVEPOINT_SCENARIOS = {
+    "autocommit": """
+        from sqlalchemy import text
+
+
+        def test_autocommit_write_is_committed(engine):
+            auto = engine.execution_options(isolation_level="AUTOCOMMIT")
+            with auto.connect() as conn:
+                conn.execute(text("SELECT * FROM orders WHERE customer_id = 1")).all()
+                conn.execute(text("INSERT INTO orders (id, customer_id) VALUES (99, 1)"))
+            with engine.connect() as other:
+                count = other.execute(text("SELECT count(*) FROM orders WHERE id = 99"))
+                assert count.scalar() == 1
+        """,
+    "transaction": """
+        from sqlalchemy import text
+
+
+        def test_transaction_settings_are_unchanged(engine):
+            with engine.connect() as conn:
+                conn.execute(text("SELECT * FROM orders WHERE customer_id = 1")).all()
+                assert conn.execute(text("SHOW enable_seqscan")).scalar() == "on"
+                conn.rollback()
+        """,
+}
+
+
+@needs_pg
+@pytest.mark.parametrize("scenario", sorted(SAVEPOINT_SCENARIOS))
+def test_pg_a_bug_inside_the_savepoint_leaves_the_connection_as_it_was(
+    project: pytest.Pytester, pg16: Postgres, scenario: str
+) -> None:
+    # The bug stops the plugin; the user's connection must not keep the
+    # plugin's transaction (autocommit) or its savepoint and enable_seqscan =
+    # off (inside the user's transaction).
+    _pg_project(project, pg16)
+    conftest = project.path / "conftest.py"
+    conftest.write_text(conftest.read_text() + BROKEN_FIND_SCANS)
+    project.makepyfile(test_a=SAVEPOINT_SCENARIOS[scenario])
+    result = project.runpytest("--queryguard-index-check")
+    result.assert_outcomes(passed=1, warnings=1)
+    result.stdout.fnmatch_lines(["*QueryGuardInternalWarning*find_scans broke*"])
