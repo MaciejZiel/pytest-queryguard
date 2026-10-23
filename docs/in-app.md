@@ -183,8 +183,10 @@ the request path keeps it.
 **Reports.** `report` is used only for requests with findings or over their
 budget. `"log"` writes one WARNING record. `"warn"` issues
 `QueryGuardWarning`, which follows Python's warning filters: with
-`-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception. A
-callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
+`-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception,
+raised when the request ends, and only when the application did not raise
+its own: the application's exception always wins, and the other targets
+still run. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and
 `duration`), `statement_count`, `db_time`, `duration`, `findings`, `budget`,
 `over_budget` and `message`:
