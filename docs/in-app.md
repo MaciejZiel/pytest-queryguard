@@ -243,6 +243,21 @@ unless you run it with `contextvars.copy_context().run(...)`. Starlette
 background tasks run before the ASGI call returns, so their statements count
 for the request that scheduled them.
 
+Python 3.14 can start threads with a copy of the creating thread's context
+instead. That is the default on free-threaded builds (3.14t) and can be turned
+on with `-X thread_inherit_context=1`; `sys.flags.thread_inherit_context` tells
+which applies. Then a thread you start inside a request counts for that
+request. A pool's worker keeps the context of the request that created it, for
+every later task: while that request is still running, statements from other
+requests' tasks are counted for it, and once it has ended they are not counted
+at all. To attribute pool work correctly on every build, submit each task in a
+copy of the current context:
+
+```python
+ctx = contextvars.copy_context()
+pool.submit(ctx.run, work, arg)
+```
+
 `tests/inapp/` checks this with 50 requests in `asyncio.gather`, through
 `httpx.AsyncClient`, in a thread pool, and with tasks and threads mixed in one
 request.

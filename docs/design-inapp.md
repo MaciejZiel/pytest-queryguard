@@ -77,7 +77,12 @@ with queryguard.track("nightly-job") as report:  # any unit of work
   `run_in_threadpool` calls see its collector while concurrent requests do
   not. A plain `threading.Thread` or `ThreadPoolExecutor` without
   `contextvars.copy_context()` starts empty, so its statements are not
-  attributed to any request: missing, never mixed.
+  attributed to any request: missing, never mixed. Where threads inherit the
+  creator's context (Python 3.14 free-threaded builds, or
+  `-X thread_inherit_context=1`), a pool worker keeps the context of the
+  request that created it, so other requests' tasks can be attributed to that
+  request while it runs. Submitting each task with `copy_context().run` avoids
+  this on every build; `docs/in-app.md` says so.
 
 - **Separate listeners, per engine.** The in-app handlers live in
   `app/_listeners.py` and are registered with `event.listen(engine, ...)` on
