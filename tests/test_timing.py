@@ -166,6 +166,48 @@ def test_a_late_completion_does_not_change_a_finished_logs_db_time(
         engine.dispose()
 
 
+def test_the_time_budget_judges_the_total_fixed_at_the_blocks_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A statement started in another thread finishes right after the log is
+    # fixed and before the verdict. Its time must not decide the budget.
+    started = Event()
+    release = Event()
+    engine = create_engine("sqlite://", poolclass=NullPool)
+
+    @event.listens_for(engine, "connect")
+    def register(dbapi_connection: Any, record: Any) -> None:
+        def slow_after_release() -> int:
+            started.set()
+            if not release.wait(timeout=10):
+                raise TimeoutError("the test did not release the query")
+            time.sleep(0.2)
+            return 1
+
+        dbapi_connection.create_function("slow_after_release", 0, slow_after_release)
+
+    finish = QueryLog._finish
+
+    def finish_then_complete(
+        self: QueryLog, earlier: BaseException | None
+    ) -> BaseException | None:
+        result = finish(self, earlier)
+        release.set()
+        pending.result(timeout=10)
+        return result
+
+    monkeypatch.setattr(QueryLog, "_finish", finish_then_complete)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with max_db_time(0.1) as log:
+                pending = pool.submit(_run, engine, "select slow_after_release()")
+                assert started.wait(timeout=10)
+            assert log.db_time < 0.1
+    finally:
+        release.set()
+        engine.dispose()
+
+
 def test_executemany_is_timed_once(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("create table t (a integer)"))
