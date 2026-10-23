@@ -295,6 +295,19 @@ current: contextvars.ContextVar[Active | None] = contextvars.ContextVar(
 _ids = itertools.count(1)
 
 
+def live() -> Active | None:
+    """The current unit's ``Active``, or None outside one or once it finished.
+
+    A thread can keep a finished unit's context: a pool worker on builds where
+    threads inherit the creator's context. Its statements are dropped then,
+    not stored in the finished unit's collector.
+    """
+    active = current.get()
+    if active is None or active.tracker.finished:
+        return None
+    return active
+
+
 class Tracker:
     """One measured unit (a request): starts, stops and reports it."""
 
