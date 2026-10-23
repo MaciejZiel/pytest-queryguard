@@ -119,7 +119,14 @@ def test_a_custom_path_and_root_path(watched: Engine) -> None:
 def test_the_json_url_is_escaped() -> None:
     page = html_body('/x"><script>alert(1)</script>').decode()
     assert "<script>alert(1)" not in page
-    assert "&quot;&gt;&lt;script&gt;" in page
+    assert "</script>" not in page.split("const url = ", 1)[1].split(";", 1)[0]
+    assert 'const url = "/x\\"\\u003e\\u003cscript\\u003e' in page
+
+
+def test_the_json_url_keeps_an_ampersand() -> None:
+    # A root_path or SCRIPT_NAME with "&" must reach fetch() unchanged.
+    page = html_body("/a&b/_queryguard/requests.json").decode()
+    assert 'const url = "/a&b/_queryguard/requests.json";' in page
 
 
 @pytest.mark.parametrize("path", ["", "/", "relative", None])
@@ -177,4 +184,6 @@ def test_loopback_clients(host: str, loopback: bool) -> None:
     assert is_loopback(host) is loopback
     assert allowed(host, loopback_only=True) is loopback
     assert allowed(host, loopback_only=False)
-    assert allowed(None, loopback_only=True)  # a Unix socket peer
+    # A Unix socket peer has no address; behind a proxy it may be anyone.
+    assert not allowed(None, loopback_only=True)
+    assert allowed(None, loopback_only=False)

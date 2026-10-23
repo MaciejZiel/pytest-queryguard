@@ -215,9 +215,12 @@ An exception in a callable is logged and does not reach the request.
 - `/_queryguard/requests.json`: the same data as JSON, newest first.
 
 `panel_path` moves both. By default the panel answers only loopback clients
-(`127.0.0.0/8`, `::1`); `panel_loopback_only=False` lifts that. This guards
-against exposing it by accident and is not access control: behind a reverse
-proxy every client is the proxy. The responses carry a strict
+(`127.0.0.0/8`, `::1`); a peer without an address, such as a connection on a
+Unix socket, is refused too. `panel_loopback_only=False` lifts that. This
+guards against exposing it by accident and is not access control: behind a
+reverse proxy on the same machine every client is the proxy. The panel
+answers on `scope["path"]`, so under an ASGI `root_path` (for example
+`uvicorn --root-path`) it is not reachable; serve it without one. The responses carry a strict
 `Content-Security-Policy` and `Cache-Control: no-store`, and the page writes
 every value as text, never as HTML. Bound parameter values are never stored
 in the panel, but the SQL text is, including any literal the application puts
