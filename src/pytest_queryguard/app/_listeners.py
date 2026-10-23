@@ -182,7 +182,7 @@ def _on_after_cursor_execute(
         setattr(context, _TIMING_ATTR, None)
         stmt, collector, started = timing
         stmt.duration = now - started
-        collector.db_time += stmt.duration
+        collector.add_db_time(stmt.duration)
     except Exception as exc:  # noqa: BLE001  # never break the application
         _core.fail(exc, "the after_cursor_execute listener")
 
