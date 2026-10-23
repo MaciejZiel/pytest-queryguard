@@ -138,7 +138,7 @@ class QueryLog:
     one. Its constructor takes an internal type and may change in any release.
     """
 
-    __slots__ = ("_collector", "_done", "_error", "_frozen")
+    __slots__ = ("_collector", "_done", "_error", "_frozen", "_frozen_db_time")
 
     def __init__(self, collector: QueryCollector) -> None:
         # Not for direct use: only record_queries() creates a QueryLog.
@@ -148,10 +148,12 @@ class QueryLog:
         self._done = False
         self._error: BaseException | None = None
         self._frozen: tuple[Query, ...] = ()
+        self._frozen_db_time = 0.0
 
     def _finish(self, earlier: BaseException | None) -> BaseException | None:
         self._error = internal_error() or earlier
         self._frozen = self._snapshot()  # built once; the log no longer changes
+        self._frozen_db_time = self._collector.db_time
         self._done = True
         return self._error
 
@@ -201,8 +203,10 @@ class QueryLog:
         """Seconds the recorded statements took in total, as ``Query.duration``.
 
         Counts every statement, including those beyond ``queryguard_max_events``
-        that are not stored.
+        that are not stored. Fixed when the block ends, like ``queries``.
         """
+        if self._done:
+            return self._frozen_db_time
         return self._collector.db_time
 
     def slowest(self, n: int = 5) -> tuple[Query, ...]:

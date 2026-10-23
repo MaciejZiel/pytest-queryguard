@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 from pytest_queryguard import (
     QueryBudgetExceeded,
+    QueryLog,
     max_db_time,
     max_queries,
     record_queries,
@@ -114,6 +119,51 @@ def test_nested_logs_both_count_the_time(engine: Engine) -> None:
         _run(engine, "select 1")
     assert inner.db_time >= SLEEP * 0.9
     assert outer.db_time >= inner.db_time
+
+
+@pytest.mark.parametrize(
+    "make_log", [record_queries, lambda: max_queries(2), lambda: max_db_time(60)]
+)
+def test_a_late_completion_does_not_change_a_finished_logs_db_time(
+    make_log: Callable[[], AbstractContextManager[QueryLog]],
+) -> None:
+    started = Event()
+    release = Event()
+    engine = create_engine("sqlite://", poolclass=NullPool)
+
+    @event.listens_for(engine, "connect")
+    def register(dbapi_connection: Any, record: Any) -> None:
+        def wait_for_release() -> int:
+            started.set()
+            if not release.wait(timeout=10):
+                raise TimeoutError("the test did not release the query")
+            return 1
+
+        dbapi_connection.create_function("wait_for_release", 0, wait_for_release)
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool, record_queries() as outer:
+            try:
+                with make_log() as inner:
+                    _run(engine, "select 1")
+                    completed_time = inner.db_time
+                    assert completed_time > 0
+                    pending = pool.submit(_run, engine, "select wait_for_release()")
+                    assert started.wait(timeout=10)
+                    assert inner.count == 2
+                    assert inner[-1].duration is None
+                assert inner.db_time == completed_time
+            finally:
+                release.set()
+            pending.result(timeout=10)
+            # The outer recording is still live and sees the completion; the
+            # inner log must keep the timing snapshot from its block's exit.
+            assert outer.db_time > completed_time
+            assert inner.db_time == completed_time
+            assert inner[-1].duration is None
+        assert outer.db_time == pytest.approx(sum(q.duration or 0 for q in outer))
+    finally:
+        engine.dispose()
 
 
 def test_executemany_is_timed_once(engine: Engine) -> None:

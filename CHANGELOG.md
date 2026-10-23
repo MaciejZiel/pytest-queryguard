@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `QueryLog.db_time` now stays fixed after its recording or budget block ends,
+  matching the recorded query details. A query finishing in another thread
+  after the block no longer changes the finished log's total.
+
 ### Documentation
 - `docs/sarif.md` and `docs/ci.md` now state what was verified about GitHub's handling of
   `primaryLocationLineHash` (alerts keep their identity when code moves) and explain the
