@@ -6,6 +6,7 @@ import logging
 import subprocess
 import sys
 import warnings
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
@@ -295,3 +296,25 @@ def test_an_error_at_the_end_of_a_unit_is_contained(
             _lazy_loop(watched)
     assert report.error == "RuntimeError: detector bug"
     assert isinstance(queryguard.internal_error(), RuntimeError)
+
+
+def test_a_load_on_an_unwatched_engine_is_not_credited_to_a_watched_one(
+    watched: Engine, tmp_path: Path
+) -> None:
+    other = create_engine(f"sqlite:///{tmp_path / 'other.sqlite'}")
+    seed(other)
+    try:
+        with (
+            queryguard.track(report=[]) as report,
+            Session(other) as session,
+            watched.connect() as conn,
+        ):
+            for order in session.scalars(select(Order)):
+                _ = order.customer  # a lazy load, run on the unwatched engine
+                conn.execute(text("SELECT 1")).scalar()
+    finally:
+        other.dispose()
+    # Only the watched engine's SELECT 1 per order (two orders per customer).
+    assert report.statement_count == CUSTOMERS * 2
+    assert {q.relationship for q in report.statements} == {None}
+    assert "relationship-load" not in {f.kind for f in report.findings}

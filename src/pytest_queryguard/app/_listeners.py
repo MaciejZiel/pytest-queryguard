@@ -31,9 +31,16 @@ from ..listeners import _is_write, scope_of_connection, scope_of_session
 from . import _core
 
 # The relationship or column load of the ORM execution whose statement comes
-# next, with the collector it was seen for. Context-local, so concurrent
-# tasks of one request cannot take each other's.
-_Pending = tuple[QueryCollector, RelationshipLoadEvent | None, ColumnLoadEvent | None]
+# next, with the collector it was seen for and the engine it will run on (None
+# if unknown). Context-local, so concurrent tasks of one request cannot take
+# each other's; the engine keeps a load on an unwatched engine from being
+# credited to the next statement on a watched one.
+_Pending = tuple[
+    QueryCollector,
+    RelationshipLoadEvent | None,
+    ColumnLoadEvent | None,
+    Engine | None,
+]
 _pending: contextvars.ContextVar[_Pending | None] = contextvars.ContextVar(
     "queryguard_app_pending", default=None
 )
@@ -72,6 +79,16 @@ def _column_load(state: ORMExecuteState) -> ColumnLoadEvent | None:
     )
 
 
+def _bind_engine(state: ORMExecuteState) -> Engine | None:
+    """The engine this ORM execution will run on, or None if it cannot tell."""
+    try:
+        bind = state.session.get_bind(**state.bind_arguments)
+    except Exception:  # noqa: BLE001  # unknown: match any engine, as before
+        return None
+    engine = getattr(bind, "engine", None)
+    return engine if isinstance(engine, Engine) else None
+
+
 def _on_orm_execute(state: ORMExecuteState) -> None:
     active = _core.live()
     if active is None or _core._error is not None:
@@ -80,7 +97,11 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         collector = active.collector
         if state.is_column_load:
             load = _column_load(state)
-            _pending.set((collector, None, load) if load is not None else None)
+            _pending.set(
+                (collector, None, load, _bind_engine(state))
+                if load is not None
+                else None
+            )
             return
         if not state.is_relationship_load:
             if _pending.get() is not None:
@@ -100,7 +121,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             getattr(prop, "uselist", None) is False,
             scope_of_session(state.session),
         )
-        _pending.set((collector, rel, None))
+        _pending.set((collector, rel, None, _bind_engine(state)))
     except Exception as exc:  # noqa: BLE001  # never break the application
         _core.fail(exc, "the do_orm_execute listener")
 
@@ -139,7 +160,10 @@ def _on_before_cursor_execute(
             pending = _pending.get()
             if pending is not None:
                 _pending.set(None)
-                if pending[0] is collector:
+                engine = pending[3]
+                if pending[0] is collector and (
+                    engine is None or engine is getattr(conn, "engine", None)
+                ):
                     rel, col = pending[1], pending[2]
         # Loads are kept only when their statement reaches a watched engine.
         if rel is not None:
