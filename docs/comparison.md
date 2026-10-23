@@ -74,7 +74,7 @@ not work.
   the installed package), and fastapi-nplusone is a FastAPI middleware.
   nplusone and django-zeal run inside Django, Flask and WSGI apps.
   pytest-queryguard's in-application mode (see [In-application mode](in-app.md))
-  is not in a release yet.
+  is experimental and first ships in the 0.5.0rc1 pre-release.
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI uses
