@@ -126,7 +126,11 @@ queryguard: N+1 detected
 ```
 
 A WSGI request ends when its response body has been read to the end or
-closed, as every WSGI server does. The Flask test client does neither on its
+closed, as every WSGI server does. Iterator initialization and response cleanup
+run in that request's context. When the body is exhausted, the middleware
+closes it before finalizing the report, so queries in cleanup callbacks (such
+as Flask's `Response.call_on_close`) count too. A later `close()` does not run
+those callbacks again. The Flask test client does neither on its
 own: read the body (`response.data`, `response.get_json()`), use
 `with client.get(...) as response:`, or pass `buffered=True`.
 

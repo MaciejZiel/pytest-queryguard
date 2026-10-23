@@ -140,21 +140,23 @@ class _Body:
         self._iter: Iterator[bytes] | None = None
         self._tracker = tracker
         self._owner = owner
+        self._closed = False
 
     def __iter__(self) -> Iterator[bytes]:
         return self
 
     def __next__(self) -> bytes:
-        if self._iter is None:
-            self._iter = iter(self._result)
+        if self._closed:
+            raise StopIteration
         token = _core.current.set(self._tracker.active)
         try:
+            if self._iter is None:
+                self._iter = iter(self._result)
             chunk = next(self._iter)
         except StopIteration:
-            # The body is complete. Servers close it next; a test client may
-            # not, so the request ends here already.
+            # Include response cleanup before finalizing the report.
             _core.current.reset(token)
-            self._owner._finish(self._tracker)
+            self.close()
             raise
         except BaseException:
             _core.current.reset(token)
@@ -163,6 +165,9 @@ class _Body:
         return chunk
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             close = getattr(self._result, "close", None)
             if close is not None:

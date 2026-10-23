@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- In-app WSGI reports include queries from response iterator initialization
+  and close callbacks. Exhausting a body now closes it before finalizing the
+  report, and later closes do not repeat cleanup or resume iteration.
+
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
