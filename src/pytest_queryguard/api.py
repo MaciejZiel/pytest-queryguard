@@ -41,22 +41,25 @@ def _measure(limit: int | None, time_limit: float | None) -> Iterator[QueryLog]:
     finally:
         pop(collector)
         log._finish(earlier)  # however the block ends, the log is fixed
+    # The verdict uses the log's fixed total: a statement still running in
+    # another thread may finish after the block and grow the collector's.
+    db_time = log.db_time
     if limit is not None and len(collector.statements) > limit:
         raise QueryBudgetExceeded(
             format_budget(
                 limit,
                 collector.statements,
                 cwd=display_root(),
-                db_time=collector.db_time,
+                db_time=db_time,
             )
         )
-    if time_limit is not None and collector.db_time > time_limit:
+    if time_limit is not None and db_time > time_limit:
         raise QueryBudgetExceeded(
             format_time_budget(
                 time_limit,
                 collector.statements,
                 cwd=display_root(),
-                db_time=collector.db_time,
+                db_time=db_time,
             )
         )
 

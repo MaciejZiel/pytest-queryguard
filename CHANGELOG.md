@@ -10,7 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `QueryLog.db_time` now stays fixed after its recording or budget block ends,
   matching the recorded query details. A query finishing in another thread
-  after the block no longer changes the finished log's total.
+  after the block no longer changes the finished log's total. Found and
+  fixed by @Muguett-DBY (#202).
+- `max_db_time()` and the `max_queries()` failure message use that fixed
+  total too, so a statement finishing in another thread just after the block
+  can no longer fail the time budget or change the reported time.
 
 ### Documentation
 - `docs/sarif.md` and `docs/ci.md` now state what was verified about GitHub's handling of
