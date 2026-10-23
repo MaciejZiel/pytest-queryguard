@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tasks submitted with `copy_context().run`, and CI runs the in-app tests on
   3.14t.
 
+- In-app: a thread that keeps a finished request's context (a pool worker on
+  builds where threads inherit it) no longer adds its statements to that
+  request's collector; they are dropped.
+
 - Tests: the public API snapshot recorded a wrong return type for
   `QueryLog.slowest()` and did not assert it. It now records
   `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
