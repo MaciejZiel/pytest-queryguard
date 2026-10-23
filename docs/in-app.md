@@ -33,7 +33,7 @@ sessions = async_sessionmaker(engine, expire_on_commit=False)
 app = FastAPI()
 
 # Development only: never in production.
-if os.environ.get("APP_ENV", "development") == "development":
+if os.environ.get("APP_ENV") == "development":
     queryguard.watch(engine)
     app.add_middleware(
         queryguard.QueryGuardASGI,
@@ -99,7 +99,7 @@ engine = create_engine("sqlite:///app.db")
 app = Flask(__name__)
 
 # Development only: never in production.
-if os.environ.get("APP_ENV", "development") == "development":
+if os.environ.get("APP_ENV") == "development":
     queryguard.watch(engine)
     app.wsgi_app = queryguard.QueryGuardWSGI(
         app.wsgi_app, budgets={"GET /orders/<int:order_id>": 1}

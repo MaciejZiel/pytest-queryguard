@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan)
 
 # Development only: never in production.
-if os.environ.get("APP_ENV", "development") == "development":
+if os.environ.get("APP_ENV") == "development":
     queryguard.watch(engine)
     app.add_middleware(
         queryguard.QueryGuardASGI,

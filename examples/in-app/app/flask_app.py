@@ -20,7 +20,7 @@ with Session(engine) as session:
 app = Flask(__name__)
 
 # Development only: never in production.
-if os.environ.get("APP_ENV", "development") == "development":
+if os.environ.get("APP_ENV") == "development":
     queryguard.watch(engine)
     app.wsgi_app = queryguard.QueryGuardWSGI(
         app.wsgi_app, budgets={"GET /orders/<int:order_id>": 1}

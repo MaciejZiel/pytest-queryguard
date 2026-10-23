@@ -4,7 +4,7 @@ A FastAPI app (`app/main.py`, async SQLAlchemy) and a Flask app
 (`app/flask_app.py`, sync SQLAlchemy) with the in-application mode switched
 on: `watch(engine)` and the ASGI or WSGI middleware, a query budget on one
 route and, for FastAPI, the development panel. Development only: the apps
-switch it on only while `APP_ENV` is `development` (the default here).
+switch it on only while `APP_ENV` is `development`; `demo.py` sets it.
 
 ```console
 $ pip install ../.. fastapi flask aiosqlite httpx
@@ -47,6 +47,7 @@ The Flask view with the same loop:
 ```
 
 To see the panel in a browser, run the FastAPI app with an ASGI server
-(`uvicorn app.main:app`) and open http://127.0.0.1:8000/_queryguard/ after a
+(`APP_ENV=development uvicorn app.main:app`) and open
+http://127.0.0.1:8000/_queryguard/ after a
 few requests. See
 [docs/in-app.md](https://maciejziel.github.io/pytest-queryguard/in-app.html).
