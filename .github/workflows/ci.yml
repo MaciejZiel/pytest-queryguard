@@ -84,6 +84,20 @@ jobs:
       - run: uv run --no-sync coverage run -m pytest
       - run: uv run --no-sync coverage report
 
+  # Free-threaded Python 3.14 starts threads with the creator's context
+  # (sys.flags.thread_inherit_context), which changes how the in-app mode
+  # attributes statements from threads. tests/inapp checks both behaviors.
+  free-threaded:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.14t"
+      - run: uv sync
+      - run: uv run --no-sync python -c "import sys; assert sys.flags.thread_inherit_context"
+      - run: uv run --no-sync pytest tests/inapp
+
   # Real pytest-xdist runs: tests/test_xdist.py starts pytest with -n 2 and
   # -n 4 in subprocesses; the whole suite then runs once more under -n 2,
   # with the plugin measuring its own tests across workers.

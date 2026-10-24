@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An experimental in-application mode, `pytest_queryguard.app`, that runs the
+  N+1 rules and per-route query budgets on every HTTP request of a running
+  application, for development and staging: `watch(engine)` and
+  `unwatch(engine)` for an `Engine` or `AsyncEngine`, `QueryGuardASGI` (pure
+  ASGI, for FastAPI and Starlette), `QueryGuardWSGI` (Flask and other WSGI
+  apps) and `track()` for other units of work. Findings are reported through
+  `logging`, `QueryGuardWarning` or a callback. Statements are collected per
+  request in a `contextvars.ContextVar`, so concurrent requests, tasks and
+  threads never mix (on Python 3.14 builds where threads inherit the
+  context, a thread pool needs `copy_context().run` per task for that; see
+  `docs/in-app.md`). An optional development panel (`panel=True`, off by
+  default) serves the last requests as JSON and as a self-contained HTML
+  page. Importing it registers nothing; the pytest plugin is unchanged. It is
+  listed under "Experimental" in `docs/stability.md`: its names may change in
+  a minor release. See `docs/in-app.md` and the new `examples/in-app`;
+  `scripts/bench_overhead.py --app` times it. Thanks to @Muguett-DBY for
+  reviewing it before release and for the WSGI response lifecycle fix (#203).
+
 ## [0.4.1] - 2026-10-23
 
 A patch release with two fixes to the database time of `record_queries()`,

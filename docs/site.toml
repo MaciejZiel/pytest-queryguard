@@ -40,6 +40,7 @@ pages = [
   { title = "Ignoring findings", file = "ignoring.md", description = "Leave out single findings or whole kinds with the allow_nplusone marker, queryguard_ignore and baselines." },
   { title = "Several sessions or requests", file = "several-sessions.md", description = "Count repeated statements per Session or connection checkout, for tests that make several independent requests." },
   { title = "Reading the queries", file = "python-api.md", description = "Read the SQL statements, durations and call sites of a block in a test with record_queries and QueryLog." },
+  { title = "In-application mode", file = "in-app.md", description = "Run the N+1 rules and query budgets on every request of a running FastAPI, Starlette or Flask app, with an optional development panel." },
 ]
 
 [[section]]
@@ -79,4 +80,5 @@ pages = [
   { title = "Design: missing index (0.2)", file = "design-0.2.md", description = "Design notes for the missing-index check added in pytest-queryguard 0.2." },
   { title = "Design: async index check (0.3)", file = "design-0.3.md", description = "Design notes for the missing-index check on async engines added in pytest-queryguard 0.3." },
   { title = "Design: reading queries (0.3)", file = "design-0.3-api.md", description = "Design notes for reading the measured queries in a test, added in pytest-queryguard 0.3." },
+  { title = "Design: in-application mode", file = "design-inapp.md", description = "Design notes for the in-application mode: a context-local collector, per-engine listeners, ASGI and WSGI middleware and the panel." },
 ]

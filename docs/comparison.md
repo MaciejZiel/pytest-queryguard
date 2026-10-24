@@ -59,7 +59,7 @@ and restricts commercial use. Read it before you adopt it.
 | Unused eager loads | experimental, off by default (v) | no, deliberately (r) | no | yes, for Flask-SQLAlchemy and Django per its README (r) | no (r) | no | no |
 | Row-by-row write loops | opt-in (v) | not reported (v) | not reported (v) | no | no | no | no |
 | Per-finding ignore | marker, ini patterns and baseline (v); no `with` block | marker and an `ignore()` block (v) | `ignore=` for the index check only (r) | whitelist and an `ignore` block (r) | allow-list and an ignore block (r) | no | no |
-| In-app middleware and request panel | no | yes: ASGI and WSGI, optional panel (v: modules present) | no | Django, Flask-SQLAlchemy, WSGI (r) | Django middleware (r) | yes, FastAPI middleware (r) | no |
+| In-app middleware and request panel | yes, experimental since 0.5.0rc1: ASGI and WSGI, optional panel (v) | yes: ASGI and WSGI, optional panel (v: modules present) | no | Django, Flask-SQLAlchemy, WSGI (r) | Django middleware (r) | yes, FastAPI middleware (r) | no |
 | Async SQLAlchemy | yes (v) | yes (v) | yes (v) | no | no | not stated | yes, through `sync_engine` (r) |
 | pytest-xdist | tested in CI | not stated | summary per worker; budgets and N+1 unaffected (r) | not stated | not stated | not stated | not stated |
 | Documentation site | this site | yes (r) | README | README | README | README | README |
@@ -72,8 +72,9 @@ not work.
 - **In your running application.** queryspy ships ASGI and WSGI middleware and
   an optional request panel (modules `queryspy.asgi`, `queryspy.wsgi` are in
   the installed package), and fastapi-nplusone is a FastAPI middleware.
-  nplusone and django-zeal run inside Django, Flask and WSGI apps. pytest-queryguard
-  only runs in tests: its collector is one per process, not one per request.
+  nplusone and django-zeal run inside Django, Flask and WSGI apps.
+  pytest-queryguard's in-application mode (see [In-application mode](in-app.md))
+  is experimental and first ships in the 0.5.0rc1 pre-release.
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI uses
