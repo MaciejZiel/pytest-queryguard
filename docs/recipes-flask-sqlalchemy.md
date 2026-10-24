@@ -5,6 +5,17 @@ queries of a request made with `app.test_client()` run on `db.session` and are
 counted. The code and output on this page were run with Flask 3.1.3 and
 Flask-SQLAlchemy 3.1.1.
 
+The layout is `app/__init__.py`, `tests/conftest.py` and `tests/test_orders.py`.
+
+`pytest.ini` puts the project directory on `sys.path`, so that the tests can
+`import app` (see [getting started](getting-started.md)); without it, pytest
+stops with `ModuleNotFoundError: No module named 'app'`:
+
+```ini
+[pytest]
+pythonpath = .
+```
+
 `app/__init__.py`, an application factory with a broken and a fixed endpoint:
 
 ```python
@@ -105,6 +116,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/__init__.py:38 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

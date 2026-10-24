@@ -40,7 +40,7 @@ def _sync_app(engine: Engine) -> FastAPI:
 
     @app.get("/orders/{order_id}")
     def one(order_id: int, s: Session = Depends(session)) -> str:  # noqa: B008
-        return s.get_one(Order, order_id).customer.name
+        return s.get(Order, order_id).customer.name
 
     @app.get("/boom")
     def boom(s: Session = Depends(session)) -> None:  # noqa: B008
@@ -117,7 +117,7 @@ def test_budgets_match_the_route_template(watched: Engine) -> None:
     assert report.statement_count == 2
     assert report.over_budget
     assert "(route /orders/{order_id})" in report.message
-    assert "expected at most 1 queries, got 2" in report.message
+    assert "expected at most 1 query, got 2" in report.message
 
 
 def test_an_endpoint_error_is_reported_and_propagates(watched: Engine) -> None:

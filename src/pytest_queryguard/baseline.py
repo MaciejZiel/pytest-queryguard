@@ -10,6 +10,7 @@ more rows does not invalidate an entry.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,17 @@ def dumps(identities: Iterable[Identity]) -> str:
         for kind, label, file, function in sorted_identities(identities)
     ]
     document = {"version": SCHEMA_VERSION, "findings": entries}
-    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    text = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        pass
+    else:
+        return text
+    # A path that is not valid UTF-8 reaches an identity as a lone surrogate
+    # (surrogateescape), which UTF-8 cannot encode. \udcXX escapes are plain
+    # ASCII and read back as the same string.
+    return json.dumps(document, indent=2, ensure_ascii=True) + "\n"
 
 
 def write(path: Path, identities: Iterable[Identity]) -> None:
@@ -68,12 +79,41 @@ def _entry_identity(entry: Any, index: int, path: Path) -> Identity:
     return (entry["kind"], entry["label"], entry.get("file"), entry.get("function"))
 
 
+# A baseline is four levels deep; the limit only has to stay far from the
+# interpreter's own recursion limit, which differs per Python version and platform.
+_MAX_NESTING = 100
+_NESTING_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|[\[{]|[\]}]', re.DOTALL)
+
+
+def _too_deep(text: str) -> bool:
+    """Whether arrays or objects nest past the limit, found without recursion."""
+    depth = 0
+    for match in _NESTING_TOKEN.finditer(text):
+        token = match.group()
+        if token in "[{":
+            depth += 1
+            if depth > _MAX_NESTING:
+                return True
+        elif token in "]}":
+            depth -= 1
+    return False
+
+
 def parse(text: str, path: Path) -> frozenset[Identity]:
     """The identities in the file text; raise BaselineError when it is invalid."""
+    if _too_deep(text):
+        # checked first: json would recurse, and the RecursionError it ends in can
+        # surface again later (as an unraisable exception) on some interpreters
+        raise BaselineError(f"{path} is not a queryguard baseline (nested too deep)")
     try:
         document = json.loads(text)
     except ValueError as exc:
         raise BaselineError(f"{path} is not valid JSON: {exc}") from None
+    except RecursionError:
+        # json raises it, not ValueError, for arrays or objects nested too deep
+        raise BaselineError(
+            f"{path} is not a queryguard baseline (nested too deep)"
+        ) from None
     if not isinstance(document, dict) or "version" not in document:
         raise BaselineError(
             f"{path} is not a queryguard baseline (no 'version' field); "

@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- An in-application mode, `pytest_queryguard.app`, that runs the N+1 rules
-  and per-route query budgets on every HTTP request of a running
+- An experimental in-application mode, `pytest_queryguard.app`, that runs the
+  N+1 rules and per-route query budgets on every HTTP request of a running
   application, for development and staging: `watch(engine)` and
   `unwatch(engine)` for an `Engine` or `AsyncEngine`, `QueryGuardASGI` (pure
   ASGI, for FastAPI and Starlette), `QueryGuardWSGI` (Flask and other WSGI
@@ -21,36 +21,363 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context, a thread pool needs `copy_context().run` per task for that; see
   `docs/in-app.md`). An optional development panel (`panel=True`, off by
   default) serves the last requests as JSON and as a self-contained HTML
-  page. Importing it registers nothing; the pytest plugin is unchanged. Not
-  yet part of the public API. See `docs/in-app.md` and the new
-  `examples/in-app`; `scripts/bench_overhead.py --app` times it.
+  page. Importing it registers nothing; the pytest plugin is unchanged. It is
+  listed under "Experimental" in `docs/stability.md`: its names may change in
+  a minor release. See `docs/in-app.md` and the new `examples/in-app`;
+  `scripts/bench_overhead.py --app` times it. Thanks to @Muguett-DBY for
+  reviewing it before release and for the WSGI response lifecycle fix (#203).
+
+## [0.4.1] - 2026-10-23
+
+A patch release with two fixes to the database time of `record_queries()`,
+`max_queries()` and `max_db_time()` when a statement finishes in another thread
+after the block. Thanks to @Muguett-DBY, who found and fixed the first one.
 
 ### Fixed
+- `QueryLog.db_time` now stays fixed after its recording or budget block ends,
+  matching the recorded query details. A query finishing in another thread
+  after the block no longer changes the finished log's total. Found and
+  fixed by @Muguett-DBY (#202).
+- `max_db_time()` and the `max_queries()` failure message use that fixed
+  total too, so a statement finishing in another thread just after the block
+  can no longer fail the time budget or change the reported time.
 
-- In-app WSGI reports include queries from response iterator initialization
-  and close callbacks. Exhausting a body now closes it before finalizing the
-  report, and later closes do not repeat cleanup or resume iteration.
-  Found and fixed by @Muguett-DBY (#203).
+### Documentation
+- `docs/sarif.md` and `docs/ci.md` now state what was verified about GitHub's handling of
+  `primaryLocationLineHash` (alerts keep their identity when code moves) and explain the
+  per-finding `Calculated fingerprint ... inconsistent fingerprint value` warning that
+  `upload-sarif` prints. Closes #189.
 
-- Tests: the in-app concurrency test assumed a plain thread never inherits
-  the request's context, which is false on free-threaded Python 3.14. It now
-  checks the behavior of the running interpreter, a new test covers pool
-  tasks submitted with `copy_context().run`, and CI runs the in-app tests on
-  3.14t.
+## [0.4.0] - 2026-10-14
 
-- In-app: a thread that keeps a finished request's context (a pool worker on
-  builds where threads inherit it) no longer adds its statements to that
-  request's collector; they are dropped.
+The notes of the four release candidates (0.4.0rc1 to 0.4.0rc4) are merged
+below by section; the entries of the candidates follow unchanged.
 
-- Tests: the public API snapshot recorded a wrong return type for
-  `QueryLog.slowest()` and did not assert it. It now records
-  `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+This release adds baselines, SARIF output and a GitHub Action, per-finding
+ignores, new finding kinds (column loads, write loops, unused eager loads), query
+timing and `max_db_time`, an index advisor, and a missing-index check for SQLite,
+MySQL and MariaDB. It also adds a documentation site and runnable examples. Four
+things can change the result or the output of an existing test run without any new
+option: the `column-load` kind is on by default, the index advisor is on by default
+with the index check, and the index check now also runs on SQLite, and on MySQL and
+MariaDB. They are listed first under "Changed" as behavior changes, with how to turn
+them off, as the pre-1.0 clause of the [stability policy](docs/stability.md)
+requires. A few other changes can break code that worked on 0.3.0 (the object
+`max_queries()` yields, the minimum SQLAlchemy, the labels of partitioned-table
+findings, `--continue-on-collection-errors`); they are listed under "Breaking
+changes" after the behavior changes.
+
+### Added
+
+**Missing indexes**
+
+- Missing-index check for SQLite, behind the same switch as PostgreSQL
+  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
+  `SELECT`, `WITH`, `UPDATE` and `DELETE` in a test body is explained with
+  `EXPLAIN QUERY PLAN` and its real bound parameters; the statement is not run,
+  so data and transaction are untouched. A scanned table that the statement
+  filters or joins on, or an automatic index, is a `missing-index` finding with
+  a `CREATE INDEX ix_<table>_<columns> ON <table> (<columns>)` hint. `LIKE`,
+  views, `ORDER BY` without a filter, primary keys and unrecognized plan shapes
+  are left alone. Works with `sqlite3`, aiosqlite, SQLAlchemy ORM and Core, and
+  pytest-xdist; findings honor `queryguard_ignore`, `allow_missing_index`,
+  `queryguard_index_ignore_tables`, the baseline and SARIF. See
+  `docs/index-check-sqlite.md`. `scripts/bench_overhead.py --index-check` times it.
+- Index advisor. Each missing-index finding now suggests an index: a
+  `CREATE INDEX` built from the equality, range and `ORDER BY` columns of the
+  plan node, a partial index when a constant predicate is selective, and the
+  Alembic `op.create_index` call. When the hypopg extension is installed, the
+  suggestion is verified inside the check's savepoint: whether the planner
+  would use the index and the statement's estimated cost before and after;
+  hypothetical indexes are reset, also after errors, on sync drivers and
+  asyncpg. No new index is suggested when the table already has one for these
+  columns (invalid, partial, or valid but unused), and the finding says why.
+  Without hypopg the suggestion stays and one notice says how to install it.
+  New options `queryguard_index_advisor` (default `true`, used with the index
+  check) and `queryguard_hypopg` (`auto`, `on` or `off`). Findings carry the
+  suggestion in an additive `advice` field. See `docs/index-advisor.md`.
+
+- Missing-index check for MySQL and MariaDB, behind the same switch
+  (`queryguard_index_check`, `--queryguard-index-check`). Each distinct
+  `SELECT`, `UPDATE` and `DELETE` is explained with `EXPLAIN` and the real bound
+  parameters (never `ANALYZE`); a table read in full (`type: ALL`, or an index
+  read in full on a column that leads no index) although the statement filters
+  or joins on its columns is a `missing-index` finding with a `CREATE INDEX`
+  hint and an Alembic call. The suggestion is not verified: neither server has
+  hypothetical indexes. Tested with PyMySQL and aiomysql on MySQL 8.4 and
+  MariaDB 11.8 on a developer machine; CI does not run a MySQL or MariaDB
+  server. See `docs/index-check-mysql.md`.
+
+**New findings and rules**
+
+- Column-load detection, a new finding kind `column-load`. Instances that each
+  load a deferred column, or whose attributes were expired by `commit()`,
+  `expire()` or `expire_all()`, on their own are reported with the right
+  advice: `undefer(Model.column)` (or removing `defer()`, `load_only()` or
+  `deferred()`), or `expire_on_commit=False`; `session.refresh()` in a loop
+  gets its own hint. The ini option `queryguard_column_load_threshold`
+  (default 5 instances) and the `column_load_threshold` argument of
+  `QueryLog.assert_no_nplusone()` set the limit. The kind works with
+  `queryguard_ignore` and `allow_nplusone`.
+- Write-loop detection, opt in: `queryguard_write_loop_threshold` (off by
+  default) and the `write_loop_threshold` argument of
+  `QueryLog.assert_no_nplusone()`. The same `INSERT`, `UPDATE` or `DELETE`
+  shape run row by row from one source line is reported as the new finding kind
+  `write-loop`, with a hint to use `session.add_all()`, `executemany` or a bulk
+  statement. `executemany` and multi-row `VALUES` statements are not counted.
+  The statements of one ORM flush count as one write, so `add_all()` and one
+  `flush()` is not reported even where the dialect sends one `INSERT` per row;
+  a `flush()` or `commit()` per row is. The flush is found through SQLAlchemy's
+  `Session._flush` frame; if that changes, the rule counts every statement.
+  The kind works with `queryguard_ignore`, `allow_nplusone` and
+  `queryguard_fail_on`.
+- Experimental detection of unused eager loads, off by default:
+  `queryguard_unused_eager_load` (`off`, `warn` or `fail`). A relationship a
+  test loads with `selectinload()`, `joinedload()`, `subqueryload()` or
+  `immediateload()` and never reads is reported as the new finding kind
+  `unused-eager-load` (label `Class.relationship`), with a hint to remove the
+  option. While the option is `off` nothing is installed. Opt out with
+  `allow_nplusone(kind="unused-eager-load")` or `queryguard_ignore`. See
+  `docs/unused-eager-load.md` for how it works and its limits.
+- `queryguard_small_repeat_threshold`, an ini option (off by default) and the
+  `small_repeat_threshold` argument of `QueryLog.assert_no_nplusone()`: a
+  statement that ran a few times (below `queryguard_repeat_threshold`) from one
+  source line, each time with different parameters, is reported as a repeated
+  statement. Identical parameters, runs from several lines, writes and
+  pagination are left alone. The default threshold of 5 is unchanged, so a batch
+  of two to four statements is not flagged unless this is turned on.
+
+**Adopting it on an existing project**
+
+- Baseline file for existing findings: `queryguard_baseline` (ini) or
+  `--queryguard-baseline=PATH`, and `--queryguard-update-baseline` to write it.
+  A finding whose identity (kind, label, file and function; rootdir-relative
+  paths, no line numbers or counts) is in the file does not fail or warn, for
+  every finding kind. New findings are reported as before, and entries that
+  matched nothing in the run are listed as stale baseline entries. The file is
+  JSON with a `version` field, sorted for clean diffs; a missing, corrupt or
+  unknown-version file is a usage error. Works with pytest-xdist: workers apply
+  the file, the controller merges what they saw and writes it on an update.
+  See `docs/baseline.md`.
+- SARIF output: `--queryguard-sarif=PATH` writes the findings of the run as
+  SARIF 2.1.0 for GitHub code scanning (the `--queryguard-report` flag is
+  unchanged). One rule per finding kind with a fix hint, one result per
+  finding identity with a rootdir-relative location, `partialFingerprints`
+  derived from the identity, and `error` or `warning` level following
+  `queryguard_fail_on`. Ignored and baselined findings are left out. Works with
+  pytest-xdist: workers send their findings to the controller, which writes the
+  file once. See `docs/sarif.md`.
+- A composite GitHub Action in `action/`: installs the plugin, runs pytest with
+  `--queryguard-sarif`, uploads the file with `github/codeql-action/upload-sarif`
+  (pinned by commit SHA) and fails the step when pytest fails. Inputs:
+  `pytest-args`, `python-version`, `package`, `baseline`, `fail`,
+  `working-directory`, `sarif-file`, `upload`, `category`. The upload is skipped
+  for pull requests from forks. A CI job runs the action on
+  `examples/action-sample`. See `docs/ci.md`.
+
+**Ignoring and gating**
+
+- `queryguard_ignore`, an ini option that leaves single findings out of the
+  reports. One pattern per line, `KIND LABEL [file=GLOB] [function=GLOB]`,
+  matched with `fnmatch`. The kinds are `relationship-load`,
+  `repeated-statement`, `column-load`, `write-loop`, `unused-eager-load` and
+  `missing-index`; `file` is relative to the rootdir.
+- `allow_nplusone` takes label patterns and the keywords `kind`, `file` and
+  `function` to ignore only the findings they match. Without arguments it
+  still ignores the whole test.
+- Ignore patterns that matched no finding in the run are listed in the
+  terminal summary as stale ignores (not with pytest-xdist).
+- `queryguard_fail_on`, an ini option with finding kinds (`fnmatch` patterns,
+  one per line). In `fail` mode only these kinds fail a test; the other kinds
+  are reported as `QueryGuardWarning`. Empty means every kind fails, as before.
+  Budgets are not affected.
+
+- `queryguard_repeat_scope` (`test` or `session`, default `test`) and
+  `QueryLog.assert_no_nplusone(repeat_scope=...)` for false positives in tests
+  that make several requests. The repeat, relationship,
+  column-load and write-loop rules counted over the whole test, so a test that
+  made several independent requests (a test client, for example, with one
+  `Session` per request) reported the same authentication or organisation
+  lookup as a loop. With `session`, each `Session`, or each connection checkout
+  for statements no `Session` ran, is counted on its own. The default is
+  unchanged, but a finding whose count spans several Sessions or checkouts now
+  says so and names the option. See `docs/several-sessions.md`.
+
+**Timing and budgets**
+
+- Per-statement timing. `Query.duration` is the time in seconds the database
+  and the driver took for a statement, measured around the cursor call;
+  `QueryLog.db_time` is the total and `QueryLog.slowest(n)` the slowest
+  statements.
+- `max_db_time(seconds)`, a context manager, and the `max_db_time` marker:
+  fail when the statements take longer than the limit in total. The failure
+  lists the slowest statements. A `max_queries` failure now shows the total
+  database time and its slowest statements as well.
+
+**Documentation and examples**
+
+- A documentation site built from `docs/` (`scripts/build_docs.py`, with the new
+  `docs` dependency group: Markdown and Pygments): getting started, how detection
+  works, a configuration reference that a test keeps in step with the options, FAQ,
+  limitations, a comparison with other tools and a migration guide from nplusone.
+  The README is now a short overview that links to it.
+- `examples/` with runnable projects (sync N+1, async FastAPI, PostgreSQL and SQLite
+  missing indexes, baseline and SARIF), each with a README and a smoke test in CI.
+- Community files: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`
+  (Contributor Covenant 2.1), issue forms and a pull request template.
+- The documentation site has a description, canonical URL and Open Graph tags
+  on every page, a favicon, `sitemap.xml`, `robots.txt`, a social preview
+  image, a client-side search (no third-party code), "Edit this page" links
+  and Previous/Next links. Every page needs a `description` in
+  `docs/site.toml`; the strict build fails without one.
+- A "Recipes" section in the documentation: FastAPI (`TestClient` and
+  `httpx.AsyncClient` with dependency-overridden sessions), Flask-SQLAlchemy,
+  SQLModel, Litestar, pytest-asyncio configuration pitfalls, budgets for hot
+  endpoints, adopting the plugin on a legacy codebase and CI. A new example,
+  `examples/fastapi-dependency-override`, is run by the test suite.
+- `QueryGuardDeprecationWarning`, a `DeprecationWarning` subclass exported from
+  `pytest_queryguard`, is the class the deprecation policy uses. It is not a
+  `QueryGuardWarning`, so `filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]`
+  (and `ignore::` for findings) neither turns a deprecation into a failure nor
+  hides it. `docs/stability.md` names it in step 1 of the policy. Nothing is
+  deprecated yet.
 
 ### Changed
+
+**Behavior changes**
+
+- The `column-load` finding kind is on by default (threshold 5, see
+  `queryguard_column_load_threshold`). A test that loops over deferred columns, or
+  over objects expired by `commit()`, passed before and now fails in `fail` mode.
+  To keep such tests green while you fix them, use a baseline, `queryguard_fail_on`
+  without `column-load` (it then only warns), or
+  `queryguard_ignore = ["column-load *"]`.
+- Those loops used to be reported as a `repeated-statement` with the wrong advice
+  (`WHERE id IN (...)`); they are no longer counted by that rule, so a baseline or
+  ignore entry for such a finding has to use the new kind.
+- The index advisor is on by default whenever the index check is on
+  (`queryguard_index_advisor = false` turns it off). Missing-index findings now carry
+  a `fix: CREATE INDEX ...` line and an `alembic:` line, and without the hypopg
+  extension one notice at the end of the session says how to install it
+  (`queryguard_hypopg = off` silences it).
+- `queryguard_index_check` now also checks SQLite. A project that turned the check
+  on and ran its tests on SQLite used to get a "not checked" notice and now gets
+  findings, which fail tests in `fail` mode.
+- `queryguard_index_check` now also checks MySQL and MariaDB. A project that
+  turned the check on and ran its tests on MySQL or MariaDB used to get a "not
+  checked" notice and now gets findings, which fail tests in `fail` mode. Turn the
+  check off again with `queryguard_index_check = false`, skip tables with
+  `queryguard_index_ignore_tables`, or record the findings in a baseline.
+- Durations below one millisecond are printed in microseconds (`37 us`) instead of
+  `0.0 ms` in the report and in budget failures.
+- The hint for a lazy-loaded many-to-one or one-to-one relationship is now
+  `joinedload(...)`; collections still get `selectinload(...)`.
+- A test stores at most 10000 statements and 10000 relationship loads for its
+  reports (`queryguard_max_events`, `0` for no limit). Past the limit they are only
+  counted.
+- When a listener raises, the plugin still stops measuring so that it never breaks
+  the suite, but it warns and prints a "queryguard: measurement stopped" section
+  instead of staying silent (see Fixed).
+
+The other new options are off by default and change nothing until you turn them on:
+`queryguard_small_repeat_threshold`, `queryguard_write_loop_threshold`,
+`queryguard_unused_eager_load`, `queryguard_baseline`, `queryguard_fail_on` (empty:
+every kind fails, as before) and `--queryguard-sarif`.
+
+**Breaking changes**
+
+These can break code or configuration that worked on 0.3.0.
+
+- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
+  object `record_queries()` yields) instead of the internal `QueryCollector`,
+  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
+  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
+  Code that read `.statements` of the yielded object, an undocumented
+  attribute, must use `log.queries` or `log.count`.
 
 - The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
   suite and the async helpers need `AsyncAttrs`, which does not exist in
   earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
+- PostgreSQL index check: a statement on a partitioned table is now one
+  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
+  creates the index on every partition) and its hypopg verification, instead of
+  one finding and one `CREATE INDEX` per partition
+  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
+  ignore or baseline entry that named a partition no longer matches: replace
+  the partition's name with the partitioned table's in
+  `queryguard_index_ignore_tables`, `allow_missing_index` and `missing-index`
+  patterns, and record the baseline again with `--queryguard-update-baseline`
+  (see `docs/index-check.md`). A statement that names a partition itself is
+  reported under the partitioned table too; inheritance children
+  (`INHERITS`) are still reported one by one. Each partition is looked up once
+  per session (`pg_partition_root()`), only for statements with findings. The
+  advisor's reason for an invalid existing index now also names
+  `CREATE INDEX ON ONLY` a partitioned table whose partitions are not all
+  attached.
+
+- A serial run with `--continue-on-collection-errors` and a collection error
+  no longer rewrites the baseline or writes the `--queryguard-sarif` file, as it
+  did before (under pytest-xdist, and in a run with `-x`, this was already so). The tests of the module that
+  did not collect never ran: a rewritten baseline would drop their entries and
+  an uploaded report would close their alerts. The summary gives the
+  interrupted-run reason; the GitHub Action skips the upload with a warning.
+
+**Internals**
+
+- The missing-index check reads the conditions of a plan node with a tokenizer
+  and parser (`pytest_queryguard.predicates`) instead of regular expressions
+  over the text. PostgreSQL's JSON plan has no structured form of a predicate,
+  so the relation, alias, schema and index still come from the plan's fields and
+  the condition text is parsed into a tree; the old text matching stays as the
+  fallback for syntax the parser does not know. Findings do not change. The
+  parsing is tested on real `EXPLAIN (GENERIC_PLAN, VERBOSE, FORMAT JSON)` plans
+  captured from PostgreSQL 14 to 18 (`scripts/capture_plans.py`).
+- The measurement registers one more SQLAlchemy listener (`after_cursor_execute`)
+  to time statements. `scripts/bench_overhead.py` puts the added cost of all the
+  measurement, not of this listener alone, at about 20 to 55 microseconds per
+  statement on in-memory SQLite (roughly +30 to +40 %); against a real database
+  round trip it is small. See the FAQ.
+- Internal: detectors now hand their results to a stable `Finding` model
+  (`kind`, `label`, `file`, `function`, `message`, `severity`) before the
+  report is rendered. The messages and the public API are unchanged.
+- The check that decides whether a stack frame belongs to SQLAlchemy, pytest or
+  the standard library is now cached per file name. Measured with
+  `scripts/bench_overhead.py`, this cuts the per-statement overhead of the
+  measurement by about half.
+- Tests: an accuracy corpus under `tests/corpus`: 110 small scenarios of realistic ORM
+  code (views, serializers, FastAPI, Flask-SQLAlchemy, SQLModel, repositories,
+  pagination, bulk writes, async), each marked BUG or CLEAN, run through the
+  plugin in its default configuration and with each opt-in rule. Limitations it
+  found are in `docs/limitations.md`; `scripts/accuracy_report.py` prints the
+  precision and recall.
+- The repeated-statement rules no longer report pagination and chunked `IN`
+  loads when the bound parameters show them: only the `OFFSET` or an integer
+  keyset bound changes, in one direction, by at least a page of more than one
+  row (the walk may be repeated once); or one `IN` list of at least 50 values
+  changes, the lists share no value and all but one have the same length.
+  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
+  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
+  loop and identical repeats are still reported. Closes #60.
+  The accuracy corpus has five more CLEAN scenarios for these shapes and five
+  more BUG scenarios that imitate them; on its 141 scenarios the default
+  repeated-statement precision goes from 80% to 97% (90% to 97% without the
+  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
+  configuration, and the release gate's minimum precision for the kind is now
+  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
+
+- `docs/stability.md` has an "Experimental" section: the
+  `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
+  and the missing-index check on MySQL and MariaDB are exempt from the
+  deprecation policy and may change or go in a minor release with a changelog
+  entry. The policy had no such tier although the option was labelled
+  experimental.
+
+- The options with a fixed set of values now agree on case. `queryguard_mode`,
+  `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
+  `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
+  accepted any case; all of them now ignore case and surrounding spaces, and
+  unknown values are still a usage error.
 
 - Lower the per-statement overhead by about a sixth in the in-memory SQLite
   micro-benchmark: one shared `CallSite` per source location, one write check
@@ -58,11 +385,812 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
   for file-based SQLite or PostgreSQL).
 
+- `allow_nplusone` with patterns now also applies to missing-index findings.
+  `kind="missing-index"` was accepted but never matched anything and was then
+  reported as a stale ignore; it now works like the same pattern in
+  `queryguard_ignore`. The marker without arguments still leaves the index
+  check alone (`allow_missing_index` skips it).
+
+- The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
+  resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
+  caching repositories, `with_for_update`, nested transactions, `yield_per`,
+  large `selectinload`, ORM bulk statements, upserts, and BUG scenarios that
+  look like pagination, batching or polling. `docs/accuracy.md` and the release
+  gate's minimum scenario count are updated; the plugin is unchanged.
+
 - Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
   `scripts/release_gate.py`) that checks the test matrix, the accuracy
   minimums, the documentation examples, clean installs, the upgrade from the
   previous release, the overhead budget, the package contents and the
   changelog before a release is tagged. See `docs/releasing.md`.
+
+- The classes and functions in `pytest_queryguard.__all__` now report
+  `pytest_queryguard` as their `__module__`. Tracebacks and logs show
+  `pytest_queryguard.NPlusOneDetected` instead of
+  `pytest_queryguard.api.NPlusOneDetected`, so the printed name matches the
+  documented import path and the submodules can move without changing it. A
+  `filterwarnings` entry that names the submodule
+  (`error::pytest_queryguard.warnings.QueryGuardWarning`) keeps working.
+
+- The keyword of the `max_queries` marker is now `limit`, as in the
+  `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The
+  keyword `n=` of earlier releases is still accepted, without a warning. It
+  may be removed in a future minor release, but only after a deprecation
+  period with a warning, as described in `docs/stability.md`. The positional
+  form is unchanged.
+
+- Every finding in a report now has a `kind: ...  label: ...` line, the pair that
+  `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
+  `kind: relationship-load  label: Order.customer`. For a repeated statement or
+  a write loop the line replaces the separate line with the normalized
+  statement (a statement longer than 200 characters is cut and ends with `*`,
+  so the printed label still works as a pattern). An ignore pattern that is
+  the exact label now matches even when the label holds `[` or `]`. The
+  line is in the SARIF message too
+  ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
+
+### Fixed
+
+- The index check no longer reports a missing index, and the advisor no longer
+  recommends a redundant one, for a statement that an existing partial index
+  may serve. The generic plan cannot see bound values, so it could not know
+  that `status = $1` matches `... WHERE status = 'open'`. Such statements are
+  skipped and counted in the session summary. A missing index on them is not
+  found; see the limitations.
+- Loops over deferred or expired columns were reported as a repeated statement
+  with the wrong advice (`WHERE id IN (...)`). They are now a `column-load`
+  finding and no longer count towards the repeated-statement rule.
+- When a listener raises, the plugin still stops measuring so that it never
+  breaks the suite, but it no longer does so silently. The warning names the
+  listener or step that failed, and the end of the session prints a
+  "queryguard: measurement stopped" section with the listener, the error and
+  the line that raised it, once per session, with or without
+  `--queryguard-report`.
+- A lazy load or column load that autoflushed pending changes first was
+  attributed to the flush's write: the UPDATE or DELETE carried the relationship
+  name and the load's SELECT carried none, so one loop was also reported as a
+  repeated statement. Writes no longer take the pending attribution (#59).
+- Documentation: the limitations page, the FAQ and the README now say that a
+  raw `sqlite3` or other DB-API connection and non-SQLAlchemy ORMs (Django ORM,
+  Peewee, Tortoise ORM) are not seen, and that nothing reports it; the
+  limitations page also points to the repeat-scope limits.
+- The SQLite index check no longer says a table "is read in full" when the
+  plan walks an existing index that the filter cannot use (`SCAN INDEX ix_...`).
+  It says the table scans the whole index and that the filter does not match
+  the start of any index; the suggested `CREATE INDEX` is unchanged.
+- A SARIF result merged from several tests no longer shows one test's count in
+  `message.text` next to the total in `properties.count`. The message now
+  starts with `Seen in N tests: T times in total, up to M times in one test`,
+  and `properties` gains `tests` and `peakCount` for such results. `count`,
+  the fingerprints and the baseline identity are unchanged. See
+  `docs/sarif.md`.
+- The `repeated-statement` hint no longer says to fetch the rows with
+  `WHERE id IN (...)` when the statement already uses `IN (...)`. It says the
+  batched query ran several times and should be called once, or the calls
+  combined.
+- SARIF locations are now relative to the repository root when
+  `GITHUB_WORKSPACE` is set and the pytest rootdir is inside it. Before, they
+  were relative to the rootdir, so with the action's `working-directory` set to
+  a subdirectory GitHub created alerts on paths that do not exist and showed no
+  pull request annotations. Fingerprints and baseline identities are
+  unchanged. See `docs/sarif.md`.
+- The action skips the SARIF upload for runs triggered by Dependabot (read-only
+  token), and a refused upload no longer fails the job.
+- On SQLAlchemy 2.0.20 to 2.0.49 (and 2.1.0b1, 2.1.0b2) the plugin's
+  `do_orm_execute` listener triggered SQLAlchemy issue 13301 (fixed in 2.0.50):
+  the outer statement's `yield_per`, `autoflush`, `populate_existing` and
+  `identity_token` options became load options of its `selectinload` and
+  `immediateload` statements. A `yield_per` plus `selectinload` test failed
+  with "Can't use the ORM yield_per feature in conjunction with unique()", and
+  `autoflush=False` stopped the loader statement from flushing, only because
+  the plugin was installed. On those versions the plugin now removes the
+  inherited options from a loader statement before SQLAlchemy reads them, so
+  the statement runs as it does without the plugin. When a `do_orm_execute`
+  listener of your own takes part, the plugin changes nothing: your listener
+  triggers the same issue without the plugin
+  ([#169](https://github.com/MaciejZiel/pytest-queryguard/issues/169)).
+
+- Tests: the accuracy corpus now checks that a scenario never fails without a
+  finding in every run, not only in the pytest-xdist worker that happened to
+  measure it.
+
+- On SQLAlchemy 2.0.13 to 2.0.29 the column load of a joined-inheritance
+  subclass (reading `manager.budget` after `select(Employee)`) was not
+  recognised as a column load and was reported as a repeated statement. Before
+  2.0.30 SQLAlchemy reports `is_select` and `is_column_load` as False for the
+  `from_statement()` execution that loads those columns; the plugin now also
+  reads the refresh state from the statement and the execution options. The
+  oldest-versions job of the release gate now installs exactly
+  `sqlalchemy==2.0.13`, the declared minimum, instead of the latest 2.0.x.
+  Fixes #161.
+
+- Free-threaded CPython (3.14t): statements, relationship and column loads and
+  database time reported from several threads into one collector lost updates
+  (`counted 15839, expected 16000`), which budgets and the truncation flag rely
+  on. The collector now updates them under a lock on a build without the GIL
+  and takes no lock with the GIL (`scripts/bench_overhead.py` shows no change
+  on CPython 3.12). Tests: the memory test measures what the plugin itself
+  allocated, because the whole-process figure on the free-threaded build
+  reflects SQLAlchemy's late freeing, not a leak in the plugin. Free-threaded
+  builds are still not in the CI matrix; `docs/getting-started.md` says so.
+  Fixes #159.
+
+- The repeat rules (repeated statement and small repeat) no longer count
+  transaction-control statements: `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`,
+  `RELEASE`, `START TRANSACTION` and `SET TRANSACTION`. With SQLAlchemy's
+  pysqlite `BEGIN` recipe a loop that commits each pass was reported with
+  `BEGIN` as a repeated statement and the advice to fetch rows in one query.
+  Budgets still count them. A `BEGIN` that opens a block
+  (`BEGIN load_order(:id); END;`) is still counted, and a loop with a
+  `SAVEPOINT` per row is still a write loop. The accuracy corpus gives the
+  same result before and after. Fixes #158.
+
+- Stability: with `-W error` or `filterwarnings = error`, an internal error
+  no longer fails the user's test. `QueryGuardInternalWarning` was raised as
+  an exception from the test call, from the terminal summary (which aborted
+  it), from a `record_queries()` block and, for the unused eager-load check,
+  from inside SQLAlchemy's `do_orm_execute`. Now it is always shown and
+  recorded, never raised, and an "ignore" filter still hides it (#124).
+- Stability: an error inside the `after_begin` listener no longer reaches the
+  user's `Session.begin()`. Like every other listener, it now stops the
+  measurement with a `QueryGuardInternalWarning` (#123).
+- Stability: a baseline file nested too deep for the JSON parser is a usage
+  error instead of an `INTERNALERROR`, and any error while writing the
+  baseline is reported instead of crashing the end of the session (#125).
+- PostgreSQL index check: an internal error after the check opened its
+  savepoint (or, on an autocommit connection, its own transaction) left that
+  savepoint or transaction open on the user's connection. In autocommit mode
+  the user's later writes were then never committed, and inside a transaction
+  `enable_seqscan` stayed `off`. The check now rolls them back before the
+  error stops the plugin (#126).
+- Stability: an error inside `pytest_configure`, the per-test start or end
+  of the measurement, the pytest-xdist hand-over of the findings,
+  `pytest_unconfigure` or the attribute-read hook of the unused eager-load
+  check no longer ends the session with an `INTERNALERROR` or fails every
+  test. It stops the measurement and is reported once, like an error in a
+  listener; an error in the xdist hand-over marks the run incomplete, so the
+  baseline is not rewritten and the SARIF summary says findings may be
+  missing. `KeyboardInterrupt`, `SystemExit` and `asyncio.CancelledError` are
+  still never swallowed. `docs/stability.md` describes the contract under
+  "Failing open" (#127).
+
+- Tests: the accuracy corpus now runs on PostgreSQL
+  (`QUERYGUARD_CORPUS_PG_URL`). Two scenarios (`bug_23_get_or_create_loop`,
+  `bug_30_flush_per_insert`) failed there because seeded rows with explicit ids
+  did not advance the sequences; the corpus moves them after each setup. The
+  results on PostgreSQL 17 match SQLite; see `docs/accuracy.md`. Fixes #120.
+
+- SARIF: a finding whose call site is unknown (for example `session.execute`
+  handed straight to a worker thread) is located at the test instead of being
+  left out of the file, so code scanning shows it. The terminal text, the
+  baseline and the ignore rules are unchanged. `docs/limitations.md` explains
+  the cause and the workaround
+  ([#132](https://github.com/MaciejZiel/pytest-queryguard/issues/132)).
+
+- GitHub Action: the `package` input now defaults to the plugin in the action's
+  own checkout instead of the name `pytest-queryguard`, so the installed plugin
+  matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
+  stable 0.3.0 while 0.4 was a release candidate)
+  ([#106](https://github.com/MaciejZiel/pytest-queryguard/issues/106)).
+
+- The index check notice for a database it cannot check (SQL Server, Oracle)
+  said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
+  supported. It now lists every supported database, and the help texts of
+  `--queryguard-index-check` and `queryguard_index_check` name MySQL and
+  MariaDB too. Fixes #154.
+
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
+
+- A lazy load keeps its relationship when another statement runs between the
+  load and its `SELECT`: statements of other `AsyncSession`s running
+  concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
+  or any statement of a `begin` or `after_begin` listener. The attribution is
+  now parked on the `Session` that issued the load instead of on the thread, so
+  these loops are no longer reported a second time as a repeated statement.
+  Fixes #97 and #99.
+
+- The relationship-load finding shows a lazy load as its sample SQL. It used the
+  first statement with the relationship's label, which was the `selectinload`
+  query when that ran first; that query is now used only when no lazy load was
+  recorded ([#131](https://github.com/MaciejZiel/pytest-queryguard/issues/131)).
+
+- The SARIF level of an unused-eager-load finding now follows the test outcome:
+  with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
+  Fixes #98.
+
+- A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
+  `text()`) is now classified like the statement after the comment. A loop of
+  commented single-row `INSERT`s was reported as a repeated statement with the
+  advice to fetch the rows in one query, and the write-loop rule never saw it.
+  Fixes #96.
+
+- The MySQL and MariaDB index check no longer fails on a literal `%` in a
+  statement that was run with the `no_parameters` execution option: the
+  `EXPLAIN` was formatted by PyMySQL (`query % args`) although the statement
+  itself was not, so it was reported as "could not be explained" (a literal
+  `%%` was sent as `%`). Fixes #116.
+
+- `--queryguard-update-baseline` no longer rewrites the baseline, and
+  `--queryguard-sarif` no longer writes the file, after an interrupted run (a
+  collection error, Ctrl-C, a usage error or an internal pytest error). The
+  summary says why. Fixes #95.
+
+- Tests: the public API snapshot recorded a wrong return type for
+  `QueryLog.slowest()` and did not assert it. It now records
+  `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
+- `--queryguard-update-baseline` writes a usable baseline when a test lives in
+  a directory whose name is not valid UTF-8: such characters are written as
+  `\udcXX` escapes (other text stays readable), so the entry matches on the
+  next run instead of the write failing. Fixes #89.
+
+- PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
+  longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
+  wrong even for a primary key
+  ([#83](https://github.com/MaciejZiel/pytest-queryguard/issues/83)). Plan
+  conditions with `CASE`, `AT TIME ZONE`, `EXTRACT(... FROM ...)`, `count(*)`,
+  `COLLATE` or an array subscript are now parsed instead of matched as text, so a
+  column inside them is no longer suggested as a plain index and gets the
+  expression-index note
+  ([#84](https://github.com/MaciejZiel/pytest-queryguard/issues/84)). A row
+  comparison such as `(a, b) > ($1, $2)` no longer asks for an expression index
+  ([#85](https://github.com/MaciejZiel/pytest-queryguard/issues/85)).
+
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- The index check no longer rolls back a transaction the application opened by
+  hand on an AUTOCOMMIT connection (`exec_driver_sql("BEGIN")`, with pg8000 or
+  asyncpg). The `autocommit` flag is the driver's setting, not the server's
+  state, so the check now tries a savepoint first and starts a transaction of
+  its own only when none is open (SQLSTATE 25P01). Fixes #91.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
+- Documented that PostgreSQL evaluates `IMMUTABLE` functions with constant
+  arguments at plan time, so the index check and the advisor can call such a
+  function again and its non-transactional side effects (for example
+  `nextval()`) are not rolled back with the savepoint. Fixes #92.
+- The repeated-statement and small-repeat rules no longer count schema
+  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
+  their temp variants, and reads of `pg_catalog` or `information_schema`
+  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
+  version-table check). `max_queries` budgets still count them. See
+  `docs/how-detection-works.md` for the exact rule
+  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
+- PostgreSQL index check: a sequential scan whose filter is only not-equal
+  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
+  longer reported as a missing index. No index serves them, so the advice
+  could not be followed, even on an indexed column; the SQLite check never
+  reported them. A filter with one more servable condition, or a not-equal
+  against a constant in the SQL (which a partial index serves), is still
+  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
+
+- Baseline: a file nested more than 100 levels deep is now rejected by a
+  depth check before parsing, so the "nested too deep" usage error no longer
+  depends on the interpreter hitting its recursion limit (which on Python 3.10
+  could surface as a second, unraisable `RecursionError`).
+
+- `--queryguard-update-baseline` on a partial run (`-k`, `-m`, `--deselect`,
+  `--lf`, `--sw`, `--ignore`, a node id or a path narrower than `testpaths`, with
+  or without pytest-xdist) no longer drops the entries of tests that did not
+  run. Only the entries of tests that ran are replaced, the others are kept, and
+  the summary says how many were kept. A deleted test's entries are removed on
+  the next full run. `docs/baseline.md` describes which runs are full
+  and which are partial. Fixes #148.
+
+- `--queryguard-update-baseline` with `--collect-only` emptied the baseline file.
+  It now leaves the file alone and says why.
+- `session.refresh()` of an object whose collection is mapped `lazy="selectin"`
+  or `lazy="subquery"` (also reached through a `lazy="joined"` relationship)
+  was reported as a relationship-load N+1 with a `selectinload` hint for the
+  strategy that is already mapped; two creates followed by a refresh each were
+  enough to fail a test, on sync and async sessions. The loads SQLAlchemy runs
+  for a refresh or an expired reload are no longer counted as lazy loads. A
+  `lazy="select"` collection read per parent and an `immediateload()` option
+  are reported as before.
+- The refresh a repository runs after each create or update (advanced-alchemy's
+  `auto_refresh`) was a column-load finding as soon as a test created five
+  rows. A `session.refresh()` of an object that the latest flush of its
+  Session inserted or changed is no longer counted (one object per class and
+  flush); a write loop itself stays the opt-in write-loop rule's finding. A
+  loop of refreshes of objects that were only read or flushed without a net
+  change, a refresh of every row of one bulk insert and a second refresh of
+  the same write are reported as before.
+  On litestar-fullstack this removes the column-load finding of two tests that
+  create ten tokens each; their repeated-statement findings remain.
+- `session.refresh(obj, ["name"])` in a loop was labelled as an expired load
+  with an `expire_on_commit=False` hint; it is now a refresh (`Book (refresh)`)
+  with the refresh hint.
+- In `warn` mode, a finding turned into an error by `filterwarnings`
+  (`error::pytest_queryguard.QueryGuardWarning` or a blanket `error`) no longer
+  prints about 50 lines of the plugin's hook wrapper source before the finding;
+  the failure shows the finding message, as in `fail` mode.
+- Under pytest-xdist, a collection error without `-x` no longer rewrites the
+  baseline or writes the `--queryguard-sarif` file: the run is handled as the
+  interrupted run a serial run is, with the same reason. Closes #194.
+- An internal error in the budget markers, the `allow_missing_index` check or
+  the end of a measurement in the `pytest_runtest_call` hook no longer fails
+  the user's test: it ends measurement with a `QueryGuardInternalWarning` and
+  the "queryguard: measurement stopped" section, as other internal errors do.
+  The collection-report and pytest-xdist worker hooks are guarded the same
+  way. A `KeyboardInterrupt` or `SystemExit` at the end of a measurement still
+  stops the run, and leaves no collector or eager-load tracker behind.
+  Closes #197.
+- Under pytest-xdist, a run stopped by `-x` or `--maxfail` is handled as in a
+  serial run instead of as an interrupted one: the baseline is not updated
+  because the run stopped early (it no longer blames a collection error,
+  Ctrl-C or an internal error), and the `--queryguard-sarif` file is written.
+  A collection error under `-x`, serial or with pytest-xdist, is still
+  reported as an interrupted run. Closes #187.
+- The GitHub Action example in `docs/ci.md` no longer fails on a first run:
+  the `baseline` input is commented out until the file exists. The examples
+  use `actions/checkout@v7` and `actions/setup-python@v7` (Node 24) and run
+  on `push` to `main` plus `pull_request`, so a pull request does not run
+  twice.
+- A table name in a missing-index finding is now matched the same way in
+  `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
+  and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`
+  (also for a table the report prints without its schema), quoted or unquoted
+  identifiers (unquoted as written, case-sensitive; quoted exactly, may hold
+  dots). The documented
+  `allow_nplusone("public.audit_log", kind="missing-index")` now matches.
+  Every spelling that matched before still does, and the labels in reports and
+  baselines are unchanged. This can leave out missing-index findings that were
+  reported before: in `queryguard_ignore` and `allow_nplusone`, a bare name
+  (`audit_log`) now also matches the table in a schema off the search path
+  (label `audit.audit_log`), `schema.table` matches a table printed without
+  its schema, and an unquoted name matches a table whose label is quoted
+  (`UserAccount` for `"UserAccount"`). Findings of other kinds match as
+  before.
+- `docs/sarif.md` and `docs/baseline.md` listed five finding kinds; the SARIF
+  file lists six rules, `unused-eager-load` included.
+- The budget failure says `expected at most 1 query` (it said `1 queries`);
+  other limits are unchanged.
+- Documentation: the recipes, `python-api.md` and the migration guide now run as
+  written (found in a walk of the 0.4.0rc3 docs); `tests/test_doc_examples.py`
+  runs more of the recipe pages as projects.
+
+## [0.4.0rc4] - 2026-10-13
+
+### Fixed
+
+- `session.refresh()` of an object whose collection is mapped `lazy="selectin"`
+  or `lazy="subquery"` (also reached through a `lazy="joined"` relationship)
+  was reported as a relationship-load N+1 with a `selectinload` hint for the
+  strategy that is already mapped; two creates followed by a refresh each were
+  enough to fail a test, on sync and async sessions. The loads SQLAlchemy runs
+  for a refresh or an expired reload are no longer counted as lazy loads. A
+  `lazy="select"` collection read per parent and an `immediateload()` option
+  are reported as before.
+- The refresh a repository runs after each create or update (advanced-alchemy's
+  `auto_refresh`) was a column-load finding as soon as a test created five
+  rows. A `session.refresh()` of an object that the latest flush of its
+  Session inserted or changed is no longer counted (one object per class and
+  flush); a write loop itself stays the opt-in write-loop rule's finding. A
+  loop of refreshes of objects that were only read or flushed without a net
+  change, a refresh of every row of one bulk insert and a second refresh of
+  the same write are reported as before.
+  On litestar-fullstack this removes the column-load finding of two tests that
+  create ten tokens each; their repeated-statement findings remain.
+- `session.refresh(obj, ["name"])` in a loop was labelled as an expired load
+  with an `expire_on_commit=False` hint; it is now a refresh (`Book (refresh)`)
+  with the refresh hint.
+- In `warn` mode, a finding turned into an error by `filterwarnings`
+  (`error::pytest_queryguard.QueryGuardWarning` or a blanket `error`) no longer
+  prints about 50 lines of the plugin's hook wrapper source before the finding;
+  the failure shows the finding message, as in `fail` mode.
+- Under pytest-xdist, a collection error without `-x` no longer rewrites the
+  baseline or writes the `--queryguard-sarif` file: the run is handled as the
+  interrupted run a serial run is, with the same reason. Closes #194.
+- **Behavior change:** a serial run with `--continue-on-collection-errors`
+  and a collection error also no longer rewrites the baseline or writes the
+  `--queryguard-sarif` file, where it did before. The tests of the module that
+  did not collect never ran: a rewritten baseline would drop their entries and
+  an uploaded report would close their alerts. The summary gives the
+  interrupted-run reason; the GitHub Action skips the upload with a warning.
+- An internal error in the budget markers, the `allow_missing_index` check or
+  the end of a measurement in the `pytest_runtest_call` hook no longer fails
+  the user's test: it ends measurement with a `QueryGuardInternalWarning` and
+  the "queryguard: measurement stopped" section, as other internal errors do.
+  The collection-report and pytest-xdist worker hooks are guarded the same
+  way. A `KeyboardInterrupt` or `SystemExit` at the end of a measurement still
+  stops the run, and leaves no collector or eager-load tracker behind.
+  Closes #197.
+- Under pytest-xdist, a run stopped by `-x` or `--maxfail` is handled as in a
+  serial run instead of as an interrupted one: the baseline is not updated
+  because the run stopped early (it no longer blames a collection error,
+  Ctrl-C or an internal error), and the `--queryguard-sarif` file is written.
+  A collection error under `-x`, serial or with pytest-xdist, is still
+  reported as an interrupted run. Closes #187.
+- The GitHub Action example in `docs/ci.md` no longer fails on a first run:
+  the `baseline` input is commented out until the file exists. The examples
+  use `actions/checkout@v7` and `actions/setup-python@v7` (Node 24) and run
+  on `push` to `main` plus `pull_request`, so a pull request does not run
+  twice.
+- A table name in a missing-index finding is now matched the same way in
+  `queryguard_index_ignore_tables`, `allow_missing_index`, `queryguard_ignore`
+  and `allow_nplusone(..., kind="missing-index")`: a bare name, `schema.table`
+  (also for a table the report prints without its schema), quoted or unquoted
+  identifiers (unquoted as written, case-sensitive; quoted exactly, may hold
+  dots). The documented
+  `allow_nplusone("public.audit_log", kind="missing-index")` now matches.
+  Every spelling that matched before still does, and the labels in reports and
+  baselines are unchanged. This can leave out missing-index findings that were
+  reported before: in `queryguard_ignore` and `allow_nplusone`, a bare name
+  (`audit_log`) now also matches the table in a schema off the search path
+  (label `audit.audit_log`), `schema.table` matches a table printed without
+  its schema, and an unquoted name matches a table whose label is quoted
+  (`UserAccount` for `"UserAccount"`). Findings of other kinds match as
+  before.
+- `docs/sarif.md` and `docs/baseline.md` listed five finding kinds; the SARIF
+  file lists six rules, `unused-eager-load` included.
+- The budget failure says `expected at most 1 query` (it said `1 queries`);
+  other limits are unchanged.
+- Documentation found in a walk of the 0.4.0rc3 docs, each snippet run in a
+  fresh environment: the Flask-SQLAlchemy, SQLModel, Litestar and
+  pytest-asyncio recipes show `pytest.ini` with `pythonpath = .` (copied
+  literally, they failed with `No module named 'app'`) and the models and test
+  files they were missing; `python-api.md` and `migrating-from-queryspy.md`
+  import the fixed modules where they expect the fixed behaviour;
+  `python-api.md` documents `column_load_threshold`, `small_repeat_threshold`
+  and `write_loop_threshold` of `assert_no_nplusone()`; the legacy recipe puts
+  its settings in the example's `pytest.ini`, which pytest reads instead of a
+  `pyproject.toml`; the JUnit XML of the CI recipe, a line number in the
+  budgets recipe, a test file name in the FastAPI recipe, a missing file on the
+  getting-started page and the stale `0.4.0rc2` install lines are corrected.
+  `tests/test_doc_examples.py` now runs the SQLModel, Litestar and
+  pytest-asyncio pages as projects too (skipped where the package is not
+  installed).
+
+## [0.4.0rc3] - 2026-10-13
+
+### Added
+
+- `QueryGuardDeprecationWarning`, a `DeprecationWarning` subclass exported from
+  `pytest_queryguard`, is the class the deprecation policy uses. It is not a
+  `QueryGuardWarning`, so `filterwarnings = ["error::pytest_queryguard.QueryGuardWarning"]`
+  (and `ignore::` for findings) neither turns a deprecation into a failure nor
+  hides it. `docs/stability.md` names it in step 1 of the policy. Nothing is
+  deprecated yet.
+
+### Changed
+
+- The repeated-statement rules no longer report pagination and chunked `IN`
+  loads when the bound parameters show them: only the `OFFSET` or an integer
+  keyset bound changes, in one direction, by at least a page of more than one
+  row (the walk may be repeated once); or one `IN` list of at least 50 values
+  changes, the lists share no value and all but one have the same length.
+  `LIMIT 1 OFFSET n` walks, a page per item, a keyset bound per row, string
+  and date keyset bounds, per-item `IN` lists, a paginated lookup inside a
+  loop and identical repeats are still reported. Closes #60.
+  The accuracy corpus has five more CLEAN scenarios for these shapes and five
+  more BUG scenarios that imitate them; on its 141 scenarios the default
+  repeated-statement precision goes from 80% to 97% (90% to 97% without the
+  five CLEAN ones), recall is unchanged at 95%, no BUG scenario changes in any
+  configuration, and the release gate's minimum precision for the kind is now
+  90%. See "Pagination and chunks" in `docs/how-detection-works.md`.
+
+- `docs/stability.md` has an "Experimental" section: the
+  `queryguard_unused_eager_load` option, the `unused-eager-load` finding kind
+  and the missing-index check on MySQL and MariaDB are exempt from the
+  deprecation policy and may change or go in a minor release with a changelog
+  entry. The policy had no such tier although the option was labelled
+  experimental.
+
+- `max_queries()` and `max_db_time()` now yield the public `QueryLog` (the
+  object `record_queries()` yields) instead of the internal `QueryCollector`,
+  and are annotated `AbstractContextManager[QueryLog]`. `with max_queries(3) as log:`
+  gives `log.count`, `log.queries`, `log.slowest()` and `log.assert_no_nplusone()`.
+  Code that read `.statements` of the yielded object, an undocumented
+  attribute, must use `log.queries` or `log.count`.
+
+- The declared minimum SQLAlchemy is now 2.0.13 (`sqlalchemy>=2.0.13`). The
+  suite and the async helpers need `AsyncAttrs`, which does not exist in
+  earlier 2.0 releases, so the old `>=2.0` bound promised more than was tested.
+
+- The options with a fixed set of values now agree on case. `queryguard_mode`,
+  `queryguard_hypopg` and `--queryguard-mode` used to reject `FAIL`, `ON` and
+  `Warn` while `queryguard_unused_eager_load` and `queryguard_repeat_scope`
+  accepted any case; all of them now ignore case and surrounding spaces, and
+  unknown values are still a usage error.
+
+- Lower the per-statement overhead by about a sixth in the in-memory SQLite
+  micro-benchmark: one shared `CallSite` per source location, one write check
+  per statement and a cache for `normalize()`. Behaviour is unchanged. New
+  `docs/performance.md` and `scripts/bench_suite.py` (a whole-suite benchmark
+  for file-based SQLite or PostgreSQL).
+
+- `allow_nplusone` with patterns now also applies to missing-index findings.
+  `kind="missing-index"` was accepted but never matched anything and was then
+  reported as a stale ignore; it now works like the same pattern in
+  `queryguard_ignore`. The marker without arguments still leaves the index
+  check alone (`allow_missing_index` skips it).
+
+- The accuracy corpus has 23 more scenarios (133 in all): GraphQL-style
+  resolvers and DataLoaders, `asyncio.gather` and Celery-style fan-out,
+  caching repositories, `with_for_update`, nested transactions, `yield_per`,
+  large `selectinload`, ORM bulk statements, upserts, and BUG scenarios that
+  look like pagination, batching or polling. `docs/accuracy.md` and the release
+  gate's minimum scenario count are updated; the plugin is unchanged.
+
+- Tests and CI: a release gate (`.github/workflows/release-gate.yml`,
+  `scripts/release_gate.py`) that checks the test matrix, the accuracy
+  minimums, the documentation examples, clean installs, the upgrade from the
+  previous release, the overhead budget, the package contents and the
+  changelog before a release is tagged. See `docs/releasing.md`.
+
+- PostgreSQL index check: a statement on a partitioned table is now one
+  finding on the partitioned table, with `CREATE INDEX ON <table> (...)` (which
+  creates the index on every partition) and its hypopg verification, instead of
+  one finding and one `CREATE INDEX` per partition
+  ([#86](https://github.com/MaciejZiel/pytest-queryguard/issues/86)). An
+  ignore or baseline entry that named a partition no longer matches: replace
+  the partition's name with the partitioned table's in
+  `queryguard_index_ignore_tables`, `allow_missing_index` and `missing-index`
+  patterns, and record the baseline again with `--queryguard-update-baseline`
+  (see `docs/index-check.md`). A statement that names a partition itself is
+  reported under the partitioned table too; inheritance children
+  (`INHERITS`) are still reported one by one. Each partition is looked up once
+  per session (`pg_partition_root()`), only for statements with findings. The
+  advisor's reason for an invalid existing index now also names
+  `CREATE INDEX ON ONLY` a partitioned table whose partitions are not all
+  attached.
+
+- The classes and functions in `pytest_queryguard.__all__` now report
+  `pytest_queryguard` as their `__module__`. Tracebacks and logs show
+  `pytest_queryguard.NPlusOneDetected` instead of
+  `pytest_queryguard.api.NPlusOneDetected`, so the printed name matches the
+  documented import path and the submodules can move without changing it. A
+  `filterwarnings` entry that names the submodule
+  (`error::pytest_queryguard.warnings.QueryGuardWarning`) keeps working.
+
+- The keyword of the `max_queries` marker is now `limit`, as in the
+  `max_queries(limit)` function: `@pytest.mark.max_queries(limit=3)`. The
+  keyword `n=` of earlier releases is still accepted, without a warning. It
+  may be removed in a future minor release, but only after a deprecation
+  period with a warning, as described in `docs/stability.md`. The positional
+  form is unchanged.
+
+- Every finding in a report now has a `kind: ...  label: ...` line, the pair that
+  `queryguard_ignore`, `allow_nplusone` and the baseline match on, for example
+  `kind: relationship-load  label: Order.customer`. For a repeated statement or
+  a write loop the line replaces the separate line with the normalized
+  statement (a statement longer than 200 characters is cut and ends with `*`,
+  so the printed label still works as a pattern). An ignore pattern that is
+  the exact label now matches even when the label holds `[` or `]`. The
+  line is in the SARIF message too
+  ([#105](https://github.com/MaciejZiel/pytest-queryguard/issues/105)).
+
+### Fixed
+
+- On SQLAlchemy 2.0.20 to 2.0.49 (and 2.1.0b1, 2.1.0b2) the plugin's
+  `do_orm_execute` listener triggered SQLAlchemy issue 13301 (fixed in 2.0.50):
+  the outer statement's `yield_per`, `autoflush`, `populate_existing` and
+  `identity_token` options became load options of its `selectinload` and
+  `immediateload` statements. A `yield_per` plus `selectinload` test failed
+  with "Can't use the ORM yield_per feature in conjunction with unique()", and
+  `autoflush=False` stopped the loader statement from flushing, only because
+  the plugin was installed. On those versions the plugin now removes the
+  inherited options from a loader statement before SQLAlchemy reads them, so
+  the statement runs as it does without the plugin. When a `do_orm_execute`
+  listener of your own takes part, the plugin changes nothing: your listener
+  triggers the same issue without the plugin
+  ([#169](https://github.com/MaciejZiel/pytest-queryguard/issues/169)).
+
+- Tests: the accuracy corpus now checks that a scenario never fails without a
+  finding in every run, not only in the pytest-xdist worker that happened to
+  measure it.
+
+- On SQLAlchemy 2.0.13 to 2.0.29 the column load of a joined-inheritance
+  subclass (reading `manager.budget` after `select(Employee)`) was not
+  recognised as a column load and was reported as a repeated statement. Before
+  2.0.30 SQLAlchemy reports `is_select` and `is_column_load` as False for the
+  `from_statement()` execution that loads those columns; the plugin now also
+  reads the refresh state from the statement and the execution options. The
+  oldest-versions job of the release gate now installs exactly
+  `sqlalchemy==2.0.13`, the declared minimum, instead of the latest 2.0.x.
+  Fixes #161.
+
+- Free-threaded CPython (3.14t): statements, relationship and column loads and
+  database time reported from several threads into one collector lost updates
+  (`counted 15839, expected 16000`), which budgets and the truncation flag rely
+  on. The collector now updates them under a lock on a build without the GIL
+  and takes no lock with the GIL (`scripts/bench_overhead.py` shows no change
+  on CPython 3.12). Tests: the memory test measures what the plugin itself
+  allocated, because the whole-process figure on the free-threaded build
+  reflects SQLAlchemy's late freeing, not a leak in the plugin. Free-threaded
+  builds are still not in the CI matrix; `docs/getting-started.md` says so.
+  Fixes #159.
+
+- The repeat rules (repeated statement and small repeat) no longer count
+  transaction-control statements: `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`,
+  `RELEASE`, `START TRANSACTION` and `SET TRANSACTION`. With SQLAlchemy's
+  pysqlite `BEGIN` recipe a loop that commits each pass was reported with
+  `BEGIN` as a repeated statement and the advice to fetch rows in one query.
+  Budgets still count them. A `BEGIN` that opens a block
+  (`BEGIN load_order(:id); END;`) is still counted, and a loop with a
+  `SAVEPOINT` per row is still a write loop. The accuracy corpus gives the
+  same result before and after. Fixes #158.
+
+- Stability: with `-W error` or `filterwarnings = error`, an internal error
+  no longer fails the user's test. `QueryGuardInternalWarning` was raised as
+  an exception from the test call, from the terminal summary (which aborted
+  it), from a `record_queries()` block and, for the unused eager-load check,
+  from inside SQLAlchemy's `do_orm_execute`. Now it is always shown and
+  recorded, never raised, and an "ignore" filter still hides it (#124).
+- Stability: an error inside the `after_begin` listener no longer reaches the
+  user's `Session.begin()`. Like every other listener, it now stops the
+  measurement with a `QueryGuardInternalWarning` (#123).
+- Stability: a baseline file nested too deep for the JSON parser is a usage
+  error instead of an `INTERNALERROR`, and any error while writing the
+  baseline is reported instead of crashing the end of the session (#125).
+- PostgreSQL index check: an internal error after the check opened its
+  savepoint (or, on an autocommit connection, its own transaction) left that
+  savepoint or transaction open on the user's connection. In autocommit mode
+  the user's later writes were then never committed, and inside a transaction
+  `enable_seqscan` stayed `off`. The check now rolls them back before the
+  error stops the plugin (#126).
+- Stability: an error inside `pytest_configure`, the per-test start or end
+  of the measurement, the pytest-xdist hand-over of the findings,
+  `pytest_unconfigure` or the attribute-read hook of the unused eager-load
+  check no longer ends the session with an `INTERNALERROR` or fails every
+  test. It stops the measurement and is reported once, like an error in a
+  listener; an error in the xdist hand-over marks the run incomplete, so the
+  baseline is not rewritten and the SARIF summary says findings may be
+  missing. `KeyboardInterrupt`, `SystemExit` and `asyncio.CancelledError` are
+  still never swallowed. `docs/stability.md` describes the contract under
+  "Failing open" (#127).
+
+- Tests: the accuracy corpus now runs on PostgreSQL
+  (`QUERYGUARD_CORPUS_PG_URL`). Two scenarios (`bug_23_get_or_create_loop`,
+  `bug_30_flush_per_insert`) failed there because seeded rows with explicit ids
+  did not advance the sequences; the corpus moves them after each setup. The
+  results on PostgreSQL 17 match SQLite; see `docs/accuracy.md`. Fixes #120.
+
+- SARIF: a finding whose call site is unknown (for example `session.execute`
+  handed straight to a worker thread) is located at the test instead of being
+  left out of the file, so code scanning shows it. The terminal text, the
+  baseline and the ignore rules are unchanged. `docs/limitations.md` explains
+  the cause and the workaround
+  ([#132](https://github.com/MaciejZiel/pytest-queryguard/issues/132)).
+
+- GitHub Action: the `package` input now defaults to the plugin in the action's
+  own checkout instead of the name `pytest-queryguard`, so the installed plugin
+  matches the pinned ref and accepts `--queryguard-sarif` (pip used to pick the
+  stable 0.3.0 while 0.4 was a release candidate)
+  ([#106](https://github.com/MaciejZiel/pytest-queryguard/issues/106)).
+
+- The index check notice for a database it cannot check (SQL Server, Oracle)
+  said the check needs PostgreSQL 16, although SQLite, MySQL and MariaDB are
+  supported. It now lists every supported database, and the help texts of
+  `--queryguard-index-check` and `queryguard_index_check` name MySQL and
+  MariaDB too. Fixes #154.
+
+- PostgreSQL index check: a finding for an index the plan walks end to end (a
+  filter on the trailing column of a composite key, a whole index with a filter,
+  a whole-index bitmap) now says `t scans the whole index ix: the ... does not
+  match the start of any index`, as the SQLite check does, instead of saying the
+  table is read in full. The closing note no longer calls such a scan sequential
+  ([#130](https://github.com/MaciejZiel/pytest-queryguard/issues/130)).
+
+- A lazy load keeps its relationship when another statement runs between the
+  load and its `SELECT`: statements of other `AsyncSession`s running
+  concurrently (`asyncio.gather`), the `BEGIN` of SQLAlchemy's pysqlite recipe
+  or any statement of a `begin` or `after_begin` listener. The attribution is
+  now parked on the `Session` that issued the load instead of on the thread, so
+  these loops are no longer reported a second time as a repeated statement.
+  Fixes #97 and #99.
+
+- The relationship-load finding shows a lazy load as its sample SQL. It used the
+  first statement with the relationship's label, which was the `selectinload`
+  query when that ran first; that query is now used only when no lazy load was
+  recorded ([#131](https://github.com/MaciejZiel/pytest-queryguard/issues/131)).
+
+- The SARIF level of an unused-eager-load finding now follows the test outcome:
+  with `queryguard_unused_eager_load = warn` it is `warning`, not `error`.
+  Fixes #98.
+
+- A statement that starts with a comment (sqlcommenter tags, a `-- note` in a
+  `text()`) is now classified like the statement after the comment. A loop of
+  commented single-row `INSERT`s was reported as a repeated statement with the
+  advice to fetch the rows in one query, and the write-loop rule never saw it.
+  Fixes #96.
+
+- The MySQL and MariaDB index check no longer fails on a literal `%` in a
+  statement that was run with the `no_parameters` execution option: the
+  `EXPLAIN` was formatted by PyMySQL (`query % args`) although the statement
+  itself was not, so it was reported as "could not be explained" (a literal
+  `%%` was sent as `%`). Fixes #116.
+
+- `--queryguard-update-baseline` no longer rewrites the baseline, and
+  `--queryguard-sarif` no longer writes the file, after an interrupted run (a
+  collection error, Ctrl-C, a usage error or an internal pytest error). The
+  summary says why. Fixes #95.
+
+- Tests: the public API snapshot recorded a wrong return type for
+  `QueryLog.slowest()` and did not assert it. It now records
+  `tuple[Query, ...]` and checks every member of `QueryLog` the same way.
+
+- `--queryguard-update-baseline` writes a usable baseline when a test lives in
+  a directory whose name is not valid UTF-8: such characters are written as
+  `\udcXX` escapes (other text stays readable), so the entry matches on the
+  next run instead of the write failing. Fixes #89.
+
+- PostgreSQL index check: `NOT IN (subquery)` on PostgreSQL 17 and 18 no
+  longer gets `fix: CREATE INDEX ON t (col)` for the compared column, which was
+  wrong even for a primary key
+  ([#83](https://github.com/MaciejZiel/pytest-queryguard/issues/83)). Plan
+  conditions with `CASE`, `AT TIME ZONE`, `EXTRACT(... FROM ...)`, `count(*)`,
+  `COLLATE` or an array subscript are now parsed instead of matched as text, so a
+  column inside them is no longer suggested as a plain index and gets the
+  expression-index note
+  ([#84](https://github.com/MaciejZiel/pytest-queryguard/issues/84)). A row
+  comparison such as `(a, b) > ($1, $2)` no longer asks for an expression index
+  ([#85](https://github.com/MaciejZiel/pytest-queryguard/issues/85)).
+
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- The index check no longer rolls back a transaction the application opened by
+  hand on an AUTOCOMMIT connection (`exec_driver_sql("BEGIN")`, with pg8000 or
+  asyncpg). The `autocommit` flag is the driver's setting, not the server's
+  state, so the check now tries a savepoint first and starts a transaction of
+  its own only when none is open (SQLSTATE 25P01). Fixes #91.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
+- Documented that PostgreSQL evaluates `IMMUTABLE` functions with constant
+  arguments at plan time, so the index check and the advisor can call such a
+  function again and its non-transactional side effects (for example
+  `nextval()`) are not rolled back with the savepoint. Fixes #92.
+- The repeated-statement and small-repeat rules no longer count schema
+  reflection: `PRAGMA` statements, reads of `sqlite_master`, `sqlite_schema` and
+  their temp variants, and reads of `pg_catalog` or `information_schema`
+  (`MetaData.reflect()`, `Inspector.has_table()`, `create_all()`, Alembic's
+  version-table check). `max_queries` budgets still count them. See
+  `docs/how-detection-works.md` for the exact rule
+  ([#129](https://github.com/MaciejZiel/pytest-queryguard/issues/129)).
+- PostgreSQL index check: a sequential scan whose filter is only not-equal
+  comparisons against parameters (`<> $1`, `NOT IN` with bound values) is no
+  longer reported as a missing index. No index serves them, so the advice
+  could not be followed, even on an indexed column; the SQLite check never
+  reported them. A filter with one more servable condition, or a not-equal
+  against a constant in the SQL (which a partial index serves), is still
+  reported ([#133](https://github.com/MaciejZiel/pytest-queryguard/issues/133)).
+
+- PostgreSQL index check: a server newer than the tested releases (16 to 18)
+  is still checked and now gets one notice in the session summary that its
+  version is untested. Older servers keep their one "not checked" notice. The
+  tested versions are listed in `docs/index-check.md`.
+- Documentation: the index check page was published as raw Markdown from the
+  partial-index paragraph on, including its SQLite section
+  ([#117](https://github.com/MaciejZiel/pytest-queryguard/issues/117)). A test
+  now fails the build for any page left like that.
+- Baseline: a file nested more than 100 levels deep is now rejected by a
+  depth check before parsing, so the "nested too deep" usage error no longer
+  depends on the interpreter hitting its recursion limit (which on Python 3.10
+  could surface as a second, unraisable `RecursionError`).
+
+- `--queryguard-update-baseline` on a partial run (`-k`, `-m`, `--deselect`,
+  `--lf`, `--sw`, `--ignore`, a node id or a path narrower than `testpaths`, with
+  or without pytest-xdist) no longer drops the entries of tests that did not
+  run. Only the entries of tests that ran are replaced, the others are kept, and
+  the summary says how many were kept. A deleted test's entries are removed on
+  the next full run. `docs/baseline.md` describes which runs are full
+  and which are partial. Fixes #148.
+
+- `--queryguard-update-baseline` with `--collect-only` emptied the baseline file.
+  It now leaves the file alone and says why.
 
 ## [0.4.0rc2] - 2026-10-12
 
@@ -494,7 +1622,11 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc2...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc4...v0.4.0
+[0.4.0rc4]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc3...v0.4.0rc4
+[0.4.0rc3]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc2...v0.4.0rc3
 [0.4.0rc2]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc1...v0.4.0rc2
 [0.4.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.3.0...v0.4.0rc1
 [0.3.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.2.0...v0.3.0

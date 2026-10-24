@@ -1,0 +1,126 @@
+{
+ "query": "SELECT * FROM events WHERE created_at >= $1 AND kind = $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Append",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 10000000000.0,
+    "Total Cost": 20000000010.13,
+    "Plan Rows": 26,
+    "Plan Width": 24,
+    "Subplans Removed": 0,
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "events_2025",
+      "Schema": "public",
+      "Alias": "events_1",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000005.19,
+      "Plan Rows": 14,
+      "Plan Width": 24,
+      "Output": [
+       "events_1.id",
+       "events_1.account_id",
+       "events_1.kind",
+       "events_1.created_at",
+       "events_1.payload"
+      ],
+      "Filter": "((events_1.created_at >= $1) AND (events_1.kind = $2))"
+     },
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "events_2026",
+      "Schema": "public",
+      "Alias": "events_2",
+      "Startup Cost": 10000000000.0,
+      "Total Cost": 10000000004.81,
+      "Plan Rows": 12,
+      "Plan Width": 24,
+      "Output": [
+       "events_2.id",
+       "events_2.account_id",
+       "events_2.kind",
+       "events_2.created_at",
+       "events_2.payload"
+      ],
+      "Filter": "((events_2.created_at >= $1) AND (events_2.kind = $2))"
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 4,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [
+   [
+    "public",
+    "events_2025",
+    "public",
+    "events"
+   ],
+   [
+    "public",
+    "events_2026",
+    "public",
+    "events"
+   ]
+  ],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "events_2025",
+    "events_2025_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "events_2026",
+    "events_2026_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "events",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": null,
+   "expression": false,
+   "create_sql": "CREATE INDEX ON events (kind, created_at)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

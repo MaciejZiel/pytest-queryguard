@@ -18,6 +18,17 @@
   is installed non-editable (for example `pip install .` in a Docker CI
   image), its frames are skipped too, and call sites point to the test file
   instead of the application line.
+- A call site is the first stack frame that is not SQLAlchemy, pytest, the
+  standard library or `site-packages`. When a SQLAlchemy callable is handed to
+  a worker thread directly, as in `await asyncio.to_thread(session.execute,
+  stmt)`, `anyio.to_thread.run_sync(session.execute, stmt)` or
+  `loop.run_in_executor(None, session.execute, stmt)`, the worker thread's
+  stack holds only the executor, SQLAlchemy and the driver, so the finding says
+  `first at <unknown location>`. In the SARIF file such a result is located at
+  the test instead of being left out, but the line that issues the statement is
+  not known. To get the call site, wrap the call in a function of your own, so
+  that an application frame runs in the worker thread:
+  `await asyncio.to_thread(lambda: session.execute(stmt))` or a named helper.
 - One measurement is active per process at a time, so tests in one process
   must run sequentially. Under pytest-xdist each worker measures its own
   tests, so detection and budgets work. The report needs a single process,
@@ -38,14 +49,19 @@
   flush count as one write, so `add_all()` plus one `flush()` is not reported
   even when the dialect sends one `INSERT` per row. That relies on finding
   `Session._flush` on the call stack, a SQLAlchemy internal.
-- The repeat rule at its default threshold counts every run of one `SELECT`
-  shape, including the pages of a pagination loop (`LIMIT` and `OFFSET`, or a
-  keyset `WHERE id > :last`) and the chunks of a batched `IN (...)` load. Five
-  or more pages or chunks are reported as a repeated statement. Only the
-  opt-in small-repeat rule leaves pagination alone, and neither rule can tell
-  a polling loop that repeats a statement on purpose from an N+1. Raise
-  `queryguard_repeat_threshold` or mark the test with `allow_nplusone` for such
-  code. The [accuracy page](accuracy.md) lists the scenarios.
+- The repeat rules leave pagination and chunked `IN` loads alone only when the
+  bound parameters show them (see "Pagination and chunks" in
+  [How detection works](how-detection-works.md)). Composite keyset conditions,
+  keyset walks on a string or date column, MySQL's `LIMIT offset, count`,
+  literal `IN` lists, `IN` lists shorter than 50 values and the same keys
+  loaded twice in one test are still reported. A loop that sends 50 or more
+  keys per item, each item's own and the same number for every item, looks
+  like chunks and is not reported. Neither
+  rule can tell a polling loop that repeats a statement on purpose from a
+  loop-invariant query inside a loop: both repeat one statement with the same
+  parameters, so both are reported. Raise `queryguard_repeat_threshold` or mark
+  the test with `allow_nplusone` for such code. The
+  [accuracy page](accuracy.md) lists the scenarios.
 - A few statements below the thresholds are not reported by default: fewer than
   five runs of one statement (`queryguard_small_repeat_threshold` reports them)
   and fewer than five instances that reload columns after a commit
@@ -56,7 +72,9 @@
   a flush each) or a per-row insert with its own error handling from a write
   loop in the code under test. It is off by default for that reason.
 - The PostgreSQL index check needs PostgreSQL 16 or newer, and a sync engine or an
-  async engine on asyncpg. Other async drivers, such as psycopg's async
+  async engine on asyncpg. It is tested on 16, 17 and 18; a newer server is
+  checked, with one notice that it is untested (see
+  [PostgreSQL versions](index-check.md#postgresql-versions)). Other async drivers, such as psycopg's async
   mode, are skipped with a notice. The test suite uses pg8000 and asyncpg.
   psycopg2 and psycopg 3 were checked by hand during review and give the
   same findings for plain statements, `%` in SQL, expanding `IN`,
@@ -67,6 +85,16 @@
   not plan. After the first check, the connection knows the custom setting
   `queryguard.plan`, with an empty value: `current_setting('queryguard.plan')`
   returns `''` there instead of an error.
+- `EXPLAIN` does not run the statement, but PostgreSQL's planner evaluates
+  calls to functions marked `IMMUTABLE` that have constant arguments while it
+  plans. A function that is marked `IMMUTABLE` and still has a side effect
+  therefore runs again for every plan the check asks for: once for the check's
+  `EXPLAIN` and, when the [index advisor](index-advisor.md) verifies its
+  suggestions with hypopg, once more for the plan without them and twice for
+  each hypothetical index it tries (three more for a single suggestion). The savepoint rolls back what is transactional, but not a
+  `nextval()` call, an advisory lock or a write through `dblink` or
+  `COPY ... TO PROGRAM`. A test that sees a sequence advance by more than it
+  expects can look for such a function.
 - The index check looks only at `SELECT` and `WITH` statements and judges
   plans, not data: it says that no index can serve a filter, not that an
   existing index is a good one. A missing index that only a join would use
@@ -80,9 +108,11 @@
   session summary counts them (`N statements skipped: a partial index on
   <table> may serve them; the generic plan cannot tell`). A genuinely
   missing index on such a statement is therefore not found.
-- A partitioned table is reported under the partition's name, and
-  `queryguard_index_ignore_tables` matches partition names, not the parent
-  table's.
+- A partitioned table is reported under its own name, once, and
+  `queryguard_index_ignore_tables` matches that name, not the names of its
+  partitions, also when the statement names a partition itself. An ignore
+  or baseline entry that names a partition no longer matches (see the
+  [index check](index-check.md) for the migration).
 - The index check clears its catalog cache on DDL it sees through
   SQLAlchemy in the same process. DDL run another way while the session
   runs, through a raw DB-API connection, `psql`, another process or a
@@ -97,4 +127,17 @@
   `console_output_style = 3`) stops pytest with an internal error, with or
   without this plugin. Wrong types for this plugin's options are reported
   as usage errors.
-
+- On SQLAlchemy 2.0.20 to 2.0.49 (and 2.1.0b1, 2.1.0b2), any `do_orm_execute`
+  listener makes the outer statement's `yield_per`, `autoflush`,
+  `populate_existing` and `identity_token` options load options of its
+  `selectinload` and `immediateload` statements (SQLAlchemy issue 13301, fixed
+  in 2.0.50). With `yield_per` the loader statement fails with "Can't use the
+  ORM yield_per feature in conjunction with unique()"; with `autoflush=False`
+  it no longer flushes. The plugin installs such a listener, so on those
+  versions it removes the inherited options from the loader statement before
+  SQLAlchemy reads them, and the statement runs as it does without the
+  plugin; the cursor still gets the outer statement's options. This happens
+  only when the plugin's listeners are the only ones: with a
+  `do_orm_execute` listener of your own the plugin changes nothing, because
+  your listener triggers the same issue without the plugin. Upgrade to
+  SQLAlchemy 2.0.50 or later to remove the cause.

@@ -141,6 +141,7 @@ class _Body:
         self._tracker = tracker
         self._owner = owner
         self._closed = False
+        self._failed = False
 
     def __iter__(self) -> Iterator[bytes]:
         return self
@@ -160,6 +161,7 @@ class _Body:
             raise
         except BaseException:
             _core.current.reset(token)
+            self._failed = True
             raise
         _core.current.reset(token)
         return chunk
@@ -178,6 +180,10 @@ class _Body:
                     _core.current.reset(token)
         finally:
             self._owner._finish(self._tracker)
+        warning, self._tracker.warning = self._tracker.warning, None
+        if warning is not None and not self._failed:
+            # "warn" under an "error" filter, and the app itself succeeded.
+            raise warning
 
 
 def _start(settings: Settings, environ: Environ) -> Tracker | None:

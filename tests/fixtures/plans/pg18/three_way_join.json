@@ -1,0 +1,221 @@
+{
+ "query": "SELECT * FROM customers c JOIN orders o ON o.customer_id = c.id JOIN order_items i ON i.order_id = o.id WHERE c.email = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Nested Loop",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Inner",
+    "Startup Cost": 13.58,
+    "Total Cost": 55.7,
+    "Plan Rows": 40,
+    "Plan Width": 122,
+    "Disabled": false,
+    "Output": [
+     "c.id",
+     "c.email",
+     "c.name",
+     "o.id",
+     "o.customer_id",
+     "o.status",
+     "o.total",
+     "o.created_at",
+     "o.tags",
+     "o.data",
+     "o.note",
+     "o.kind",
+     "i.order_id",
+     "i.product_id",
+     "i.qty"
+    ],
+    "Inner Unique": false,
+    "Plans": [
+     {
+      "Node Type": "Hash Join",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Join Type": "Inner",
+      "Startup Cost": 13.3,
+      "Total Cost": 50.22,
+      "Plan Rows": 10,
+      "Plan Width": 110,
+      "Disabled": false,
+      "Output": [
+       "c.id",
+       "c.email",
+       "c.name",
+       "o.id",
+       "o.customer_id",
+       "o.status",
+       "o.total",
+       "o.created_at",
+       "o.tags",
+       "o.data",
+       "o.note",
+       "o.kind"
+      ],
+      "Inner Unique": true,
+      "Hash Cond": "(o.customer_id = c.id)",
+      "Plans": [
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "orders_pkey",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "o",
+        "Startup Cost": 0.27,
+        "Total Cost": 35.77,
+        "Plan Rows": 500,
+        "Plan Width": 93,
+        "Disabled": false,
+        "Output": [
+         "o.id",
+         "o.customer_id",
+         "o.status",
+         "o.total",
+         "o.created_at",
+         "o.tags",
+         "o.data",
+         "o.note",
+         "o.kind"
+        ]
+       },
+       {
+        "Node Type": "Hash",
+        "Parent Relationship": "Inner",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 13.02,
+        "Total Cost": 13.02,
+        "Plan Rows": 1,
+        "Plan Width": 17,
+        "Disabled": false,
+        "Output": [
+         "c.id",
+         "c.email",
+         "c.name"
+        ],
+        "Plans": [
+         {
+          "Node Type": "Index Scan",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "customers_pkey",
+          "Relation Name": "customers",
+          "Schema": "public",
+          "Alias": "c",
+          "Startup Cost": 0.14,
+          "Total Cost": 13.02,
+          "Plan Rows": 1,
+          "Plan Width": 17,
+          "Disabled": false,
+          "Output": [
+           "c.id",
+           "c.email",
+           "c.name"
+          ],
+          "Filter": "((c.email)::text = $1)"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "Node Type": "Index Scan",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Scan Direction": "Forward",
+      "Index Name": "order_items_order_product",
+      "Relation Name": "order_items",
+      "Schema": "public",
+      "Alias": "i",
+      "Startup Cost": 0.28,
+      "Total Cost": 0.51,
+      "Plan Rows": 4,
+      "Plan Width": 12,
+      "Disabled": false,
+      "Output": [
+       "i.order_id",
+       "i.product_id",
+       "i.qty"
+      ],
+      "Index Cond": "(i.order_id = o.id)"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "customers",
+    [
+     "email",
+     "name"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "order_items",
+    "order_items_order_product",
+    "btree",
+    true,
+    [
+     "order_id",
+     "product_id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "customers",
+   "node": "Index Scan using customers_pkey",
+   "kind": "filter",
+   "column": "email",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON customers (email)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

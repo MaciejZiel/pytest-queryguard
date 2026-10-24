@@ -35,5 +35,44 @@
     ]
    }
   }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [
+   [
+    "public",
+    "order_items_order_product",
+    "order_id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "order_items",
+    "order_items_order_product",
+    "btree",
+    true,
+    [
+     "order_id",
+     "product_id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "order_items",
+   "node": "Bitmap Index Scan using order_items_order_product",
+   "kind": "index condition",
+   "column": "product_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON order_items (product_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
  ]
 }

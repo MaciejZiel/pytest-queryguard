@@ -101,6 +101,34 @@ def _first_at(site: CallSite | None, cwd: Path | None) -> str:
     return f"  first at {where}"
 
 
+def kind_line(kind: str, label: str) -> str:
+    """The line that names a finding the way ignore patterns and the baseline do."""
+    return f"  kind: {kind}  label: {label}"
+
+
+def _kind_label(detection: Detection) -> tuple[str, str]:
+    if isinstance(detection, RelationshipFinding):
+        return KIND_RELATIONSHIP, detection.relationship
+    if isinstance(detection, ColumnLoadFinding):
+        return KIND_COLUMN_LOAD, detection.label
+    if isinstance(detection, WriteLoopFinding):
+        return KIND_WRITE_LOOP, detection.sql
+    return KIND_REPEAT, detection.sql
+
+
+def _statement_line(detection: Detection) -> str:
+    """The normalized statement, which is the label of a repeat or a write loop.
+
+    The kind goes in front of it instead of on a line of its own. A statement
+    longer than the report's limit is cut and ends with ``*`` instead of
+    ``...``, so that the label as printed is still a pattern that matches it.
+    """
+    kind, label = _kind_label(detection)
+    if len(label) > _SQL_LIMIT:
+        label = label[:_SQL_LIMIT] + "*"
+    return kind_line(kind, label)
+
+
 def _block(finding: Detection, cwd: Path | None) -> list[str]:
     if isinstance(finding, RelationshipFinding):
         parent = finding.relationship.split(".", 1)[0]
@@ -110,6 +138,7 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
                 f"{_across(finding, 'Sessions')}{_in_one(finding, 'Session')}"
             ),
             _first_at(finding.first, cwd),
+            kind_line(*_kind_label(finding)),
         ]
         if finding.sample_sql is not None:
             lines.append(f"  sql: {_truncate(finding.sample_sql)}")
@@ -131,7 +160,7 @@ def _block(finding: Detection, cwd: Path | None) -> list[str]:
     return [
         f"  the same statement ran {finding.count} times{how}{where}",
         _first_at(finding.first, cwd),
-        f"  {_truncate(finding.sql)}",
+        _statement_line(finding),
         *_scope_hint(finding),
         f"  {_BATCHED_FIX if _IN_LIST in finding.sql else _REPEAT_FIX}",
     ]
@@ -161,7 +190,7 @@ def _write_block(finding: WriteLoopFinding, cwd: Path | None) -> list[str]:
             f"{_in_one(finding, 'Session or connection checkout')}"
         ),
         _first_at(finding.first, cwd),
-        f"  {_truncate(finding.sql)}",
+        _statement_line(finding),
         *_scope_hint(finding),
         *_WRITE_FIX.get(finding.verb, _WRITE_FIX["INSERT"]),
     ]
@@ -205,7 +234,7 @@ def _column_block(finding: ColumnLoadFinding, cwd: Path | None) -> list[str]:
                 "or load the instances again with one query"
             ),
         ]
-    lines = [head, _first_at(finding.first, cwd)]
+    lines = [head, _first_at(finding.first, cwd), kind_line(*_kind_label(finding))]
     if finding.sample_sql is not None:
         lines.append(f"  sql: {_truncate(finding.sample_sql)}")
     return [*lines, *_scope_hint(finding), *fix]
@@ -214,14 +243,7 @@ def _column_block(finding: ColumnLoadFinding, cwd: Path | None) -> list[str]:
 def make_finding(detection: Detection, *, cwd: Path | None = None) -> Finding:
     """The finding for one detector result, its message rendered for ``cwd``."""
     site = detection.first
-    if isinstance(detection, RelationshipFinding):
-        kind, label = KIND_RELATIONSHIP, detection.relationship
-    elif isinstance(detection, ColumnLoadFinding):
-        kind, label = KIND_COLUMN_LOAD, detection.label
-    elif isinstance(detection, WriteLoopFinding):
-        kind, label = KIND_WRITE_LOOP, detection.sql
-    else:
-        kind, label = KIND_REPEAT, detection.sql
+    kind, label = _kind_label(detection)
     return Finding(
         kind=kind,
         label=label,
@@ -314,7 +336,8 @@ def format_budget(
     """
     shown = len(statements)
     got = shown if total is None else total
-    lines = [f"queryguard: expected at most {limit} queries, got {got}", ""]
+    noun = "query" if limit == 1 else "queries"
+    lines = [f"queryguard: expected at most {limit} {noun}, got {got}", ""]
     for number, stmt in enumerate(statements, start=1):
         line = f"  {number}. {_truncate(stmt.sql)}"
         if stmt.callsite is not None:
@@ -417,6 +440,7 @@ def _scan_block(scan: ScanEvent, cwd: Path | None) -> list[str]:
     return [
         head,
         _first_at(scan.callsite, cwd),
+        kind_line(KIND_MISSING_INDEX, table),
         f"  sql: {_truncate(scan.sql)}",
         *fix,
     ]
@@ -452,6 +476,7 @@ def make_index_finding(scan: ScanEvent, *, cwd: Path | None = None) -> Finding:
         message="\n".join(_scan_block(scan, cwd)),
         line=None if site is None else site.lineno,
         advice=_index_advice(scan.issue),
+        table=(scan.issue.schema, scan.issue.table),
     )
 
 
@@ -460,13 +485,14 @@ def format_index_findings(scans: list[ScanEvent], *, cwd: Path | None = None) ->
     for scan in scans:
         lines.append("")
         lines.append(make_index_finding(scan, cwd=cwd).message)
-    lines.extend(
-        [
-            "",
-            "  a sequential scan is fine on a small lookup table:",
-            "  list it in queryguard_index_ignore_tables",
-        ]
+    # A whole index walked is no sequential scan: say what the note is about.
+    walked_only = all(scan.issue.index is not None for scan in scans)
+    note = (
+        "a whole-index scan is fine on a small lookup table:"
+        if walked_only
+        else "a sequential scan is fine on a small lookup table:"
     )
+    lines.extend(["", f"  {note}", "  list it in queryguard_index_ignore_tables"])
     return "\n".join(lines)
 
 

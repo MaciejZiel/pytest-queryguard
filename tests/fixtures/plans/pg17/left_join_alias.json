@@ -102,5 +102,57 @@
     }
    }
   }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "customers",
+    [
+     "email",
+     "name"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "customers",
+   "node": "Index Scan using customers_pkey",
+   "kind": "filter",
+   "column": "email",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON customers (email)",
+   "skipped": null,
+   "partial_skipped": false
+  }
  ]
 }

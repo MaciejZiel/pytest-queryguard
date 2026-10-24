@@ -1,5 +1,9 @@
 # FAQ
 
+The questions below are the ones to ask before adding a test-time check to a
+large suite: what it costs, how often it is wrong, how to silence it, and
+where it does not fit. The answers marked as measured link to how.
+
 ## How does this relate to SQLAlchemy's `raiseload`?
 
 `raiseload` is a loader option (`relationship(lazy="raise")`, or
@@ -33,6 +37,27 @@ queryguard_relationship_threshold = 3
 ```
 
 or silence one place, as in the next question.
+
+## How often is it wrong?
+
+A finding means that a pattern happened in the test: the same relationship
+loaded for several parents, or the same `SELECT` run five times or more. It
+does not measure production latency. The patterns that are reported although
+the code is fine, all listed on the [Limitations](limitations.md) page, are:
+
+- pagination or a batched `IN (...)` load that runs five or more pages or
+  chunks;
+- a test that makes several independent requests, each repeating the same
+  lookup (use `queryguard_repeat_scope = session`, see below);
+- two parent objects that each load a relationship once (the default
+  threshold of 2, see the next question);
+- `IN (...)` queries with lists of different lengths: every length is one
+  statement shape, so five such queries in one test are reported.
+
+What it misses: statements outside SQLAlchemy, statements in fixtures, and a
+self-referential walk up a parent chain. The [accuracy page](accuracy.md)
+measures precision and recall per rule on a corpus of realistic scenarios, and
+the [comparison](comparison.md) runs the same scenarios through other tools.
 
 ## A finding is a false positive. How do I silence it?
 
@@ -152,3 +177,81 @@ Not with Django's ORM, Peewee or Tortoise ORM: only SQLAlchemy 2 is supported (t
 [comparison](comparison.md) lists tools for Django). Raw SQL that
 goes through SQLAlchemy (`text()`, Core) is seen; a raw DB-API connection that
 SQLAlchemy does not manage is not.
+
+## Can it break my test suite?
+
+It is designed not to. If one of its listeners raises, the plugin stops
+measuring for the rest of the session instead of failing your tests, issues a
+`QueryGuardInternalWarning` that names the listener, and prints a
+"queryguard: measurement stopped" section at the end of the session with the
+error and the line that raised it. A test then passes or fails on its own
+assertions. Invalid configuration values are the exception: they stop pytest
+at start-up with a usage error, before any test runs.
+
+On SQLAlchemy 2.0.20 to 2.0.49, every `do_orm_execute` listener, the plugin's
+included, makes the outer statement's `yield_per` and `autoflush` options
+reach its `selectinload` statement (SQLAlchemy issue 13301): `yield_per` then
+fails with "Can't use the ORM yield_per feature in conjunction with unique()".
+The plugin undoes that for its own listeners, so a test does not fail only
+because the plugin is installed. A listener of your own triggers the issue
+with or without the plugin; upgrading to SQLAlchemy 2.0.50 or later fixes the
+cause.
+
+The checks do not change the SQL your code sends. The index check explains
+statements without running them: on PostgreSQL inside a savepoint that is
+rolled back, on SQLite and MySQL with `EXPLAIN`, so data and the test's
+transaction are left as they were.
+
+## How do I turn it off?
+
+- For one run: `pytest -p no:queryguard` does not load the plugin at all
+  (markers such as `max_queries` are then unknown, which pytest reports as a
+  warning, or an error under `--strict-markers`); `pytest --queryguard-mode=off`
+  loads it but stops N+1 detection, while budgets still apply.
+- For one test: `@pytest.mark.allow_nplusone` without arguments.
+- For the suite: `queryguard_mode = "off"` in the configuration.
+
+## Does it work in a monorepo?
+
+Yes. File paths in reports, the baseline and ignore patterns are relative to
+pytest's rootdir, so they depend on where pytest is configured, not on the
+directory you start it from. With one `pytest.ini` at the repository root and
+`pythonpath = services/a services/b`, a finding reads
+`first at services/a/app/orders.py:10` and the baseline stores that path. If
+each service has its own configuration file and its own rootdir, keep one
+baseline file per service: the same finding is `app/orders.py` there.
+
+Call sites skip everything in `site-packages`. Install the monorepo's own
+packages editable (`pip install -e`, `uv sync`), or a finding in a shared
+library points to the test instead of the library line. For GitHub code
+scanning from a service directory, the action's `working-directory` input
+keeps SARIF paths relative to the repository root (see [SARIF](sarif.md)).
+
+## Does it work with async tests?
+
+Yes. `AsyncSession` runs on a sync engine underneath, which the plugin
+watches, so an `async def` test run by pytest-asyncio or anyio is measured like
+any other, and the call site is the `await` in your code. Lazy loads through
+`awaitable_attrs` are reported as relationship loads. The
+[pytest-asyncio recipe](recipes-pytest-asyncio.md) covers configuration
+mistakes that look like database problems (strict mode, async fixtures, event
+loop scopes), and [Getting started](getting-started.md#async-and-fastapi) has
+an async FastAPI example. On SQLAlchemy 2.1 and newer install
+`sqlalchemy[asyncio]` for greenlet.
+
+## When should I not use it?
+
+- Your data access does not go through SQLAlchemy 2: Django ORM, Peewee,
+  Tortoise ORM, raw DB-API connections. The plugin sees nothing there, and
+  says nothing. For Django see [django-zeal](comparison.md).
+- You want to see N+1 queries in a running application or in production: the
+  plugin works only inside pytest. A middleware (see the
+  [comparison](comparison.md)) or an APM tool fits that better.
+- Most of the database work in your suite happens in fixtures, or the tests
+  that matter are end-to-end tests against a deployed service: only the test
+  function body is measured, in the same process.
+- Every relationship already uses `lazy="raise"` and you only need that rule:
+  `raiseload` gives a hard error with no plugin (see the first question).
+  Repeated statements, budgets and the index check are still beyond it.
+- You need to assert the exact SQL a block sends: that is a snapshot tool's
+  job; this plugin looks for patterns.

@@ -1,0 +1,132 @@
+{
+ "query": "SELECT * FROM billing.invoices i JOIN customers c ON c.id = i.customer_id WHERE i.amount > $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Hash Join",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Join Type": "Inner",
+    "Startup Cost": 13.52,
+    "Total Cost": 18.2,
+    "Plan Rows": 67,
+    "Plan Width": 30,
+    "Disabled": false,
+    "Output": [
+     "i.id",
+     "i.customer_id",
+     "i.amount",
+     "c.id",
+     "c.email",
+     "c.name"
+    ],
+    "Inner Unique": true,
+    "Hash Cond": "(i.customer_id = c.id)",
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "invoices",
+      "Schema": "billing",
+      "Alias": "i",
+      "Startup Cost": 0.0,
+      "Total Cost": 4.5,
+      "Plan Rows": 67,
+      "Plan Width": 13,
+      "Disabled": true,
+      "Output": [
+       "i.id",
+       "i.customer_id",
+       "i.amount"
+      ],
+      "Filter": "(i.amount > $1)"
+     },
+     {
+      "Node Type": "Hash",
+      "Parent Relationship": "Inner",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 12.89,
+      "Total Cost": 12.89,
+      "Plan Rows": 50,
+      "Plan Width": 17,
+      "Disabled": false,
+      "Output": [
+       "c.id",
+       "c.email",
+       "c.name"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "customers_pkey",
+        "Relation Name": "customers",
+        "Schema": "public",
+        "Alias": "c",
+        "Startup Cost": 0.14,
+        "Total Cost": 12.89,
+        "Plan Rows": 50,
+        "Plan Width": 17,
+        "Disabled": false,
+        "Output": [
+         "c.id",
+         "c.email",
+         "c.name"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "billing",
+    "invoices",
+    "invoices_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "customers",
+    "customers_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "billing",
+   "table": "invoices",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "amount",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON billing.invoices (amount)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

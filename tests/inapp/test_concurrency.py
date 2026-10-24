@@ -8,6 +8,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from sqlalchemy import literal_column, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
@@ -213,3 +214,31 @@ def test_a_finished_units_context_records_nothing(watched: Engine) -> None:
     with ThreadPoolExecutor(max_workers=1) as pool:
         assert pool.submit(kept.run, late).result(timeout=10) == 1
     assert report.statement_count == 1
+
+
+def test_threads_of_one_unit_add_up_its_counts_and_time(watched: Engine) -> None:
+    """Several threads writing to one unit at once lose no count or time.
+
+    On a free-threaded build an unlocked ``+=`` can drop updates; the collector
+    locks its counters and its database time there.
+    """
+    threads, steps = 8, 50
+
+    def work(n: int) -> None:
+        with Session(watched) as session:
+            for step in range(steps):
+                session.execute(select(literal_column(str(1000 * (step + 1) + n))))
+
+    with (
+        queryguard.track("unit", report=[]) as report,
+        ThreadPoolExecutor(max_workers=threads) as pool,
+    ):
+        futures = [
+            pool.submit(contextvars.copy_context().run, work, n) for n in range(threads)
+        ]
+        for future in futures:
+            future.result(timeout=30)
+    assert report.statement_count == threads * steps
+    assert report.db_time == pytest.approx(
+        sum(q.duration or 0 for q in report.statements)
+    )

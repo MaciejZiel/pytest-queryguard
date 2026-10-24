@@ -90,8 +90,10 @@ overflow-y:auto;background:var(--bg);border:1px solid var(--line);border-radius:
 .search li a{padding:.3rem .5rem}
 .search li small{display:block;color:var(--muted);font-size:.78rem;line-height:1.3}
 .search li.none{padding:.3rem .5rem;color:var(--muted);font-size:.85rem}
+nav.side summary{display:none}
 @media (max-width:48rem){.layout{flex-direction:column}
 nav.side{width:auto;height:auto;position:static;border-right:0;border-bottom:1px solid var(--line)}
+nav.side summary{display:list-item;cursor:pointer;font-weight:600;padding:.3rem 0}
 main{padding:1rem}}
 """
 
@@ -259,7 +261,13 @@ def layout(site: Site, pages: list[Page], index: int) -> str:
         '<div class="search"><input type="search" id="q" placeholder="Search (press /)" '
         'aria-label="Search the documentation" autocomplete="off">'
         '<ul id="results" hidden></ul></div>'
+        # The page list is a disclosure: open on wide screens; the inline script
+        # closes it on narrow ones before the page is painted, so a phone shows
+        # the content first. Without JavaScript it stays open.
+        + '<details class="toc" open><summary>All pages</summary>'
         + "".join(nav)
+        + "</details><script>if(matchMedia('(max-width:48rem)').matches)"
+        "document.currentScript.previousElementSibling.open=false</script>"
         + f'</nav><main>{page.html}<p class="edit"><a href="{edit}">Edit this page on GitHub</a></p>'
         f'<div class="pager">{"".join(pager)}</div></main>'
         '</div><script src="search.js" defer></script></body></html>\n'
@@ -290,7 +298,7 @@ def search_index(pages: list[Page]) -> list[dict[str, str]]:
                     "title": page.title if first else f"{page.title}: {heading}",
                     "url": page.url
                     + (f"#{found.group(1)}" if found and not first else ""),
-                    "text": body[:2000],
+                    "text": body[:8000],
                 }
             )
     return entries

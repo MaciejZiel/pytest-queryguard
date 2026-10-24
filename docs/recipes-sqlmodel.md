@@ -4,6 +4,17 @@ SQLModel models are SQLAlchemy models, and `Session.exec()` runs SQLAlchemy
 statements, so lazy loads and repeated statements are seen like in plain
 SQLAlchemy. Run with SQLModel 0.0.48.
 
+The layout is `app/__init__.py` (an empty file), `app/models.py`,
+`app/orders.py`, `tests/conftest.py` and `tests/test_orders.py`.
+
+`pytest.ini` puts the project directory on `sys.path`, so that the tests can
+`import app` (see [getting started](getting-started.md)):
+
+```ini
+[pytest]
+pythonpath = .
+```
+
 `app/models.py`:
 
 ```python
@@ -41,7 +52,7 @@ def customer_names_fixed(session: Session) -> list[str]:
     return [order.customer.name for order in session.exec(statement)]
 ```
 
-`tests/conftest.py` and `tests/test_orders.py`:
+`tests/conftest.py`:
 
 ```python
 import pytest
@@ -60,6 +71,8 @@ def session():
         session.commit()
         yield session
 ```
+
+`tests/test_orders.py`:
 
 ```python
 from app.orders import customer_names, customer_names_fixed
@@ -81,6 +94,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/orders.py:8 in customer_names
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))

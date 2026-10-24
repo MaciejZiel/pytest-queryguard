@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+import sys
+import threading
 from dataclasses import dataclass, field
 
 from .events import ColumnLoadEvent, RelationshipLoadEvent, ScanEvent, StatementEvent
+
+# Without the GIL (free-threaded CPython) ``count += 1`` from several threads
+# loses updates, so the add_* methods take a lock there. With the GIL the
+# check below is the whole cost. The GIL can be switched on later (a C
+# extension that needs it) but never off, so a build that starts without it
+# keeps the lock, which is only ever redundant.
+_FREE_THREADED = not getattr(sys, "_is_gil_enabled", lambda: True)()
 
 
 @dataclass(slots=True, eq=False)
@@ -30,6 +39,10 @@ class QueryCollector:
     column_load_count: int = 0
     # Seconds the statements took, all of them, stored or only counted.
     db_time: float = 0.0
+    # Guards the counters and the length checks on a free-threaded build.
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False, compare=False
+    )
 
     @property
     def truncated(self) -> bool:
@@ -41,19 +54,49 @@ class QueryCollector:
         )
 
     def add_statement(self, event: StatementEvent) -> None:
+        # The body is written twice, not shared, so the GIL build pays no
+        # extra call for the free-threaded one.
+        if _FREE_THREADED:
+            with self._lock:
+                self.statement_count += 1
+                if self.max_events is None or len(self.statements) < self.max_events:
+                    self.statements.append(event)
+            return
         self.statement_count += 1
         if self.max_events is None or len(self.statements) < self.max_events:
             self.statements.append(event)
 
     def add_relationship_load(self, event: RelationshipLoadEvent) -> None:
+        if _FREE_THREADED:
+            with self._lock:
+                self.relationship_load_count += 1
+                if (
+                    self.max_events is None
+                    or len(self.relationship_loads) < self.max_events
+                ):
+                    self.relationship_loads.append(event)
+            return
         self.relationship_load_count += 1
         if self.max_events is None or len(self.relationship_loads) < self.max_events:
             self.relationship_loads.append(event)
 
     def add_column_load(self, event: ColumnLoadEvent) -> None:
+        if _FREE_THREADED:
+            with self._lock:
+                self.column_load_count += 1
+                if self.max_events is None or len(self.column_loads) < self.max_events:
+                    self.column_loads.append(event)
+            return
         self.column_load_count += 1
         if self.max_events is None or len(self.column_loads) < self.max_events:
             self.column_loads.append(event)
+
+    def add_db_time(self, seconds: float) -> None:
+        if _FREE_THREADED:
+            with self._lock:
+                self.db_time += seconds
+        else:
+            self.db_time += seconds
 
 
 # Process-wide on purpose: the code under test may run in another thread.

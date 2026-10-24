@@ -1,0 +1,69 @@
+{
+ "query": "SELECT * FROM docs WHERE body ? $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Bitmap Heap Scan",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "docs",
+    "Schema": "public",
+    "Alias": "docs",
+    "Startup Cost": 16.02,
+    "Total Cost": 19.14,
+    "Plan Rows": 2,
+    "Plan Width": 65,
+    "Output": [
+     "id",
+     "owner_id",
+     "body"
+    ],
+    "Recheck Cond": "(docs.body ? $1)",
+    "Plans": [
+     {
+      "Node Type": "Bitmap Index Scan",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Index Name": "docs_body",
+      "Startup Cost": 0.0,
+      "Total Cost": 16.02,
+      "Plan Rows": 2,
+      "Plan Width": 0,
+      "Index Cond": "(docs.body ? $1)"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "docs",
+    "docs_body",
+    "gin",
+    true,
+    [
+     "body"
+    ],
+    null
+   ],
+   [
+    "public",
+    "docs",
+    "docs_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ }
+}

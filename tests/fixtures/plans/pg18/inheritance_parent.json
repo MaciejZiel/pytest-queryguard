@@ -1,0 +1,134 @@
+{
+ "query": "SELECT * FROM vehicles WHERE owner_id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Append",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 0.0,
+    "Total Cost": 4.55,
+    "Plan Rows": 11,
+    "Plan Width": 14,
+    "Disabled": false,
+    "Subplans Removed": 0,
+    "Plans": [
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "vehicles",
+      "Schema": "public",
+      "Alias": "vehicles_1",
+      "Startup Cost": 0.0,
+      "Total Cost": 0.0,
+      "Plan Rows": 1,
+      "Plan Width": 40,
+      "Disabled": true,
+      "Output": [
+       "vehicles_1.id",
+       "vehicles_1.owner_id",
+       "vehicles_1.plate"
+      ],
+      "Filter": "(vehicles_1.owner_id = $1)"
+     },
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "cars",
+      "Schema": "public",
+      "Alias": "vehicles_2",
+      "Startup Cost": 0.0,
+      "Total Cost": 2.25,
+      "Plan Rows": 5,
+      "Plan Width": 11,
+      "Disabled": true,
+      "Output": [
+       "vehicles_2.id",
+       "vehicles_2.owner_id",
+       "vehicles_2.plate"
+      ],
+      "Filter": "(vehicles_2.owner_id = $1)"
+     },
+     {
+      "Node Type": "Seq Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "trucks",
+      "Schema": "public",
+      "Alias": "vehicles_3",
+      "Startup Cost": 0.0,
+      "Total Cost": 2.25,
+      "Plan Rows": 5,
+      "Plan Width": 11,
+      "Disabled": true,
+      "Output": [
+       "vehicles_3.id",
+       "vehicles_3.owner_id",
+       "vehicles_3.plate"
+      ],
+      "Filter": "(vehicles_3.owner_id = $1)"
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "vehicles",
+    "vehicles_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "vehicles",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "owner_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON vehicles (owner_id)",
+   "skipped": null,
+   "partial_skipped": false
+  },
+  {
+   "schema": "public",
+   "table": "cars",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "owner_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON cars (owner_id)",
+   "skipped": null,
+   "partial_skipped": false
+  },
+  {
+   "schema": "public",
+   "table": "trucks",
+   "node": "Seq Scan",
+   "kind": "filter",
+   "column": "owner_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON trucks (owner_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

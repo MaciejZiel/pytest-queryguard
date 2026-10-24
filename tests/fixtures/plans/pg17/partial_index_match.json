@@ -23,5 +23,54 @@
     "Index Cond": "(archive.owner_id = $1)"
    }
   }
- ]
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [
+   [
+    "public",
+    "archive_live",
+    "owner_id"
+   ]
+  ],
+  "varchar": [],
+  "partial": [
+   [
+    "public",
+    "archive",
+    "archive_live",
+    "(deleted_at IS NULL)",
+    [
+     "deleted_at",
+     "id",
+     "owner_id"
+    ]
+   ]
+  ],
+  "indexes": [
+   [
+    "public",
+    "archive",
+    "archive_id",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "archive",
+    "archive_live",
+    "btree",
+    true,
+    [
+     "owner_id"
+    ],
+    "(deleted_at IS NULL)"
+   ]
+  ]
+ },
+ "live": []
 }

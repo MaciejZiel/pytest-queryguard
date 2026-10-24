@@ -12,7 +12,9 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import inspect
+import pickle
 import re
+import warnings
 from typing import Any
 
 import pytest
@@ -24,6 +26,7 @@ EXPECTED_ALL = [
     "NPlusOneDetected",
     "Query",
     "QueryBudgetExceeded",
+    "QueryGuardDeprecationWarning",
     "QueryGuardInternalWarning",
     "QueryGuardWarning",
     "QueryLog",
@@ -34,8 +37,8 @@ EXPECTED_ALL = [
 ]
 
 EXPECTED_FUNCTIONS = {
-    "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryCollector]'",
-    "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryCollector]'",
+    "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
+    "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryLog]'",
     "record_queries": "() -> 'AbstractContextManager[QueryLog]'",
 }
 
@@ -44,6 +47,7 @@ EXPECTED_BASES = {
     "NPlusOneDetected": "AssertionError",
     "Query": "object",
     "QueryBudgetExceeded": "AssertionError",
+    "QueryGuardDeprecationWarning": "DeprecationWarning",
     "QueryGuardInternalWarning": "UserWarning",
     "QueryGuardWarning": "UserWarning",
     "QueryLog": "object",
@@ -119,6 +123,19 @@ def test_all_is_the_documented_list() -> None:
     assert sorted(pytest_queryguard.__all__) == EXPECTED_ALL
     for name in pytest_queryguard.__all__:
         assert hasattr(pytest_queryguard, name), name
+
+
+def test_deprecation_warning_is_apart_from_the_finding_warnings() -> None:
+    """``error::QueryGuardWarning`` must not turn a deprecation into an error."""
+    deprecation = pytest_queryguard.QueryGuardDeprecationWarning
+    assert not issubclass(deprecation, pytest_queryguard.QueryGuardWarning)
+    assert not issubclass(deprecation, pytest_queryguard.QueryGuardInternalWarning)
+    assert not issubclass(deprecation, UserWarning)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("error", category=pytest_queryguard.QueryGuardWarning)
+        warnings.warn("old name, use new", deprecation, stacklevel=1)
+    assert [w.category for w in caught] == [deprecation]
 
 
 def test_version_is_a_release_number() -> None:
@@ -209,3 +226,42 @@ def test_entry_point_name() -> None:
     assert [(p.name, p.value) for p in ours] == [
         ("queryguard", "pytest_queryguard.plugin")
     ]
+
+
+def test_exported_names_report_the_package_as_their_module() -> None:
+    """Tracebacks and pickles show ``pytest_queryguard.X``, not a submodule."""
+    for name in pytest_queryguard.__all__:
+        if name == "__version__":
+            continue
+        obj = getattr(pytest_queryguard, name)
+        assert obj.__module__ == "pytest_queryguard", name
+
+
+def test_exceptions_are_named_by_the_package_in_tracebacks() -> None:
+    import traceback
+
+    error = pytest_queryguard.NPlusOneDetected("x")
+    text = "".join(traceback.format_exception(error))
+    assert "pytest_queryguard.NPlusOneDetected: x" in text
+    assert "pytest_queryguard.api" not in text
+
+
+def test_exported_classes_still_pickle() -> None:
+    site = pytest_queryguard.CallSite(filename="a.py", lineno=3, function="f")
+    assert pickle.loads(pickle.dumps(site)) == site
+    error = pickle.loads(pickle.dumps(pytest_queryguard.QueryBudgetExceeded("x")))
+    assert type(error) is pytest_queryguard.QueryBudgetExceeded
+
+
+def test_type_hints_of_exported_names_still_resolve() -> None:
+    """``get_type_hints`` looks names up in ``sys.modules[obj.__module__]``.
+
+    With ``__module__`` set to the package, an annotation that names a type
+    the package does not export would stop resolving for classes.
+    """
+    import typing
+
+    for name in pytest_queryguard.__all__:
+        if name == "__version__":
+            continue
+        typing.get_type_hints(getattr(pytest_queryguard, name))

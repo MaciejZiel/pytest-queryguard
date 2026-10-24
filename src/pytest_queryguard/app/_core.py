@@ -311,7 +311,15 @@ def live() -> Active | None:
 class Tracker:
     """One measured unit (a request): starts, stops and reports it."""
 
-    __slots__ = ("_done", "_started", "_token", "active", "report", "settings")
+    __slots__ = (
+        "_done",
+        "_started",
+        "_token",
+        "active",
+        "report",
+        "settings",
+        "warning",
+    )
 
     def __init__(
         self,
@@ -329,6 +337,9 @@ class Tracker:
         self._token: contextvars.Token[Active | None] | None = None
         self._done = False
         self._started = time.perf_counter()
+        # The QueryGuardWarning a warning filter turned into an error, for the
+        # caller to raise once the unit itself has ended without an exception.
+        self.warning: Warning | None = None
 
     def start(self) -> None:
         self._started = time.perf_counter()
@@ -367,7 +378,7 @@ class Tracker:
             fail(exc, "the end of a request")
             report.error = report.error or f"{type(exc).__name__}: {exc}"
             return report
-        _emit(report, self.settings)
+        self.warning = _emit(report, self.settings)
         return report
 
     def _evaluate(self) -> None:
@@ -419,13 +430,22 @@ class Tracker:
         report._message = "\n\n".join(parts)
 
 
-def _emit(report: RequestReport, settings: Settings) -> None:
+def _emit(report: RequestReport, settings: Settings) -> Warning | None:
+    """Report to every target; return the warning a filter made an error.
+
+    The caller raises it only when the unit itself ended without an exception,
+    so the application's own exception is never replaced.
+    """
     if not report.problems:
-        return
+        return None
+    raised: Warning | None = None
     for target in settings.targets:
         if target == "warn":
             # Follows the warning filters: "error" turns it into an exception.
-            warnings.warn(QueryGuardWarning(report.message), stacklevel=2)
+            try:
+                warnings.warn(QueryGuardWarning(report.message), stacklevel=2)
+            except Warning as exc:
+                raised = exc
             continue
         try:
             if target == "log":
@@ -434,6 +454,7 @@ def _emit(report: RequestReport, settings: Settings) -> None:
                 target(report)
         except Exception:  # a reporter must not break the app
             logger.exception("queryguard: the report callback %r raised", target)
+    return raised
 
 
 def set_route(template: str) -> None:
@@ -462,8 +483,12 @@ def track(
     tracker.start()
     try:
         yield tracker.report
-    finally:
+    except BaseException:
         tracker.finish()
+        raise
+    tracker.finish()
+    if tracker.warning is not None:
+        raise tracker.warning
 
 
 def _settings(settings: Settings | None, options: Mapping[str, Any]) -> Settings:

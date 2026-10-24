@@ -27,6 +27,7 @@ def test_relationship_message_has_fix_hint() -> None:
         "",
         "  Order.customer was lazy-loaded 50 times",
         "  first at app/api/orders.py:42 in list_orders",
+        "  kind: relationship-load  label: Order.customer",
         "  fix: load it with the parent query, e.g.",
         "       select(Order).options(selectinload(Order.customer))",
     ]
@@ -39,8 +40,9 @@ def test_relationship_message_shows_sample_sql_truncated() -> None:
     sql = "SELECT customer.id\nFROM customer\nWHERE customer.id = ?"
     finding = RelationshipFinding("Order.customer", 50, site, sql)
     lines = format_findings([finding], cwd=CWD).splitlines()
-    assert lines[3:5] == [
+    assert lines[3:6] == [
         "  first at app/api/orders.py:42 in list_orders",
+        "  kind: relationship-load  label: Order.customer",
         "  sql: SELECT customer.id FROM customer WHERE customer.id = ?",
     ]
     long_sql = "SELECT " + "x" * 300
@@ -60,9 +62,23 @@ def test_repeat_message() -> None:
         "",
         "  the same statement ran 50 times",
         "  first at app/services/orders.py:18 in fetch_customers",
-        f"  {sql}",
+        f"  kind: repeated-statement  label: {sql}",
         "  fix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop",
     ]
+
+
+@pytest.mark.parametrize(
+    ("limit", "first_line"),
+    [
+        (0, "queryguard: expected at most 0 queries, got 1"),
+        (1, "queryguard: expected at most 1 query, got 1"),
+        (2, "queryguard: expected at most 2 queries, got 1"),
+    ],
+)
+def test_budget_message_noun_agrees_with_the_limit(limit: int, first_line: str) -> None:
+    site = CallSite(filename="/work/project/app/a.py", lineno=7, function="run")
+    statements = [StatementEvent("SELECT 1", site, None)]
+    assert format_budget(limit, statements, cwd=CWD).splitlines()[0] == first_line
 
 
 def test_budget_message_lists_statements() -> None:
@@ -73,7 +89,7 @@ def test_budget_message_lists_statements() -> None:
         StatementEvent(long_sql, None, None),
     ]
     lines = format_budget(1, statements, cwd=CWD).splitlines()
-    assert lines[0] == "queryguard: expected at most 1 queries, got 2"
+    assert lines[0] == "queryguard: expected at most 1 query, got 2"
     assert "  1. SELECT 1  (app/a.py:7 in run)" in lines
     assert f"  2. {long_sql[:200]}..." in lines
 
@@ -81,8 +97,29 @@ def test_budget_message_lists_statements() -> None:
 def test_repeat_message_truncates_long_sql() -> None:
     long_sql = "SELECT " + "x" * 300
     lines = format_findings([RepeatFinding(long_sql, 9, None)]).splitlines()
-    assert f"  {long_sql[:200]}..." in lines
-    assert all(len(line) < 220 for line in lines)
+    assert f"  kind: repeated-statement  label: {long_sql[:200]}*" in lines
+    assert all(len(line) < 250 for line in lines)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT " + ", ".join(f"col{i}" for i in range(60)) + " FROM t WHERE id = ?",
+        "SELECT * FROM t WHERE id = ANY(ARRAY[?, ?])",
+        "SELECT * FROM [dbo].[t] WHERE id = ?",
+        "SELECT x FROM t WHERE id IN (__[POSTCOMPILE_id_1])",
+    ],
+)
+def test_a_long_or_bracketed_statement_label_still_works_as_a_pattern(
+    sql: str,
+) -> None:
+    from pytest_queryguard.ignores import parse_rule
+    from pytest_queryguard.messages import make_finding
+
+    finding = make_finding(RepeatFinding(sql, 6, None), cwd=CWD)
+    text = _kind_line_of(finding.message).removeprefix("  kind: ")
+    kind, _, label = text.partition("  label: ")
+    assert parse_rule(f"{kind} {label}").matches(finding), text
 
 
 def test_missing_callsite_prints_unknown_location() -> None:
@@ -128,6 +165,7 @@ def test_index_message_for_a_filter_with_hint() -> None:
         "",
         "  orders is read in full: Seq Scan with filter (orders.customer_id = $1)",
         "  first at app/orders.py:12 in orders_for",
+        "  kind: missing-index  label: orders",
         "  sql: SELECT orders.id FROM orders WHERE orders.customer_id = %s::INTEGER",
         "  fix: CREATE INDEX ON orders (customer_id)",
         "",
@@ -141,12 +179,13 @@ def test_index_message_without_hint_in_another_schema() -> None:
         "Sales", "order", "Seq Scan", "filter", "((o.a = $1) AND (o.b = $2))", None
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
-    assert lines[2:6] == [
+    assert lines[2:7] == [
         (
             '  "Sales"."order" is read in full: Seq Scan with filter '
             "((o.a = $1) AND (o.b = $2))"
         ),
         "  first at <unknown location>",
+        '  kind: missing-index  label: "Sales"."order"',
         "  sql: SELECT 1",
         "  fix: add an index that matches this condition",
     ]
@@ -164,7 +203,7 @@ def test_index_message_suggests_an_expression_index() -> None:
         expression=True,
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
-    assert lines[5] == (
+    assert lines[6] == (
         "  fix: add an index that matches this condition "
         "(an expression index may be needed)"
     )
@@ -179,13 +218,15 @@ def test_index_message_for_a_trailing_index_column() -> None:
         "(orders.status = $1)",
         "status",
         show_schema=False,
+        index="index orders_tenant_id_status_idx",
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
     assert lines[2] == (
-        "  orders is read in full: Index Scan using orders_tenant_id_status_idx "
-        "with index condition (orders.status = $1)"
+        "  orders scans the whole index orders_tenant_id_status_idx: the index "
+        "condition (orders.status = $1) does not match the start of any index"
     )
-    assert lines[5] == "  fix: CREATE INDEX ON orders (status)"
+    assert "read in full" not in "\n".join(lines)
+    assert lines[6] == "  fix: CREATE INDEX ON orders (status)"
 
 
 def test_index_message_names_the_index_and_quotes_the_hint() -> None:
@@ -197,13 +238,14 @@ def test_index_message_names_the_index_and_quotes_the_hint() -> None:
         '("Order"."customerId" = $1)',
         '"customerId"',
         show_schema=False,
+        index="index Order_pkey",
     )
     lines = format_index_findings([_scan(issue)], cwd=CWD).splitlines()
     assert lines[2] == (
-        '  "Order" is read in full: Index Scan using Order_pkey with filter '
-        '("Order"."customerId" = $1)'
+        '  "Order" scans the whole index Order_pkey: the filter '
+        '("Order"."customerId" = $1) does not match the start of any index'
     )
-    assert lines[5] == '  fix: CREATE INDEX ON "Order" ("customerId")'
+    assert lines[6] == '  fix: CREATE INDEX ON "Order" ("customerId")'
 
 
 def test_index_message_separates_blocks_and_truncates() -> None:
@@ -285,7 +327,7 @@ def test_a_scan_of_an_existing_index_does_not_say_the_table_is_read_in_full() ->
         "users.status = ? does not match the start of any index"
     )
     assert "read in full" not in "\n".join(lines)
-    assert lines[5] == "  fix: CREATE INDEX ON users (status)"
+    assert lines[6] == "  fix: CREATE INDEX ON users (status)"
 
 
 def test_a_join_condition_on_a_walked_index_says_join_condition() -> None:
@@ -329,3 +371,87 @@ def test_a_repeated_statement_that_already_uses_in_says_the_calls_repeat(
     assert "already fetches several rows with IN (...)" in message
     assert "call it once with all the ids, or combine the calls" in message
     assert "fetch all rows in one query" not in message
+
+
+def _kind_line_of(message: str) -> str:
+    (line,) = [line for line in message.splitlines() if line.startswith("  kind: ")]
+    return line
+
+
+def _detections() -> list[object]:
+    from pytest_queryguard.detectors import ColumnLoadFinding, WriteLoopFinding
+    from pytest_queryguard.events import CAUSE_DEFERRED, CAUSE_EXPIRED, CAUSE_REFRESH
+
+    site = CallSite(filename="/work/project/app/a.py", lineno=3, function="run")
+    return [
+        RelationshipFinding("Order.customer", 5, site, None),
+        RepeatFinding("SELECT * FROM t WHERE id = ?", 5, site),
+        WriteLoopFinding("INSERT INTO t (a) VALUES (?)", "INSERT", 5, site),
+        ColumnLoadFinding("Customer", (), CAUSE_EXPIRED, 5, 5, site, None),
+        ColumnLoadFinding("Customer", ("a", "b"), CAUSE_DEFERRED, 5, 5, site, None),
+        ColumnLoadFinding("Customer", (), CAUSE_REFRESH, 5, 5, site, None),
+    ]
+
+
+def test_every_finding_names_its_kind_and_label_on_one_line() -> None:
+    from pytest_queryguard.messages import make_finding
+
+    for detection in _detections():
+        finding = make_finding(detection, cwd=CWD)  # type: ignore[arg-type]
+        assert _kind_line_of(finding.message) == (
+            f"  kind: {finding.kind}  label: {finding.label}"
+        )
+
+
+def test_the_line_gives_a_working_ignore_pattern() -> None:
+    from pytest_queryguard.ignores import parse_rule
+    from pytest_queryguard.messages import make_finding
+
+    for detection in _detections():
+        finding = make_finding(detection, cwd=CWD)  # type: ignore[arg-type]
+        text = _kind_line_of(finding.message).removeprefix("  kind: ")
+        kind, _, label = text.partition("  label: ")
+        assert parse_rule(f"{kind} {label}").matches(finding), text
+
+
+def test_an_index_finding_and_an_unused_eager_load_name_theirs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    issue = ScanIssue(
+        "Sales", "order", "Seq Scan", "filter", "(o.a = $1)", "a", show_schema=True
+    )
+    message = format_index_findings([_scan(issue)], cwd=CWD)
+    assert '  kind: missing-index  label: "Sales"."order"' in message.splitlines()
+
+    from pytest_queryguard import eager
+
+    class Load:
+        label = "Order.customer"
+        loader = "joinedload"
+        callsite = None
+
+    monkeypatch.setattr(eager, "unused", lambda tracker: [Load()])
+    (finding,) = eager.findings(object())  # type: ignore[arg-type]
+    assert "  kind: unused-eager-load  label: Order.customer" in finding.message
+
+
+def test_the_closing_note_names_a_whole_index_scan_when_no_table_was_read() -> None:
+    walked = ScanIssue(
+        "public",
+        "rw_link",
+        "Bitmap Index Scan using rw_link_pkey",
+        "index condition",
+        "(rw_link.hero_id = $1)",
+        "hero_id",
+        show_schema=False,
+        index="index rw_link_pkey",
+    )
+    seq = ScanIssue("public", "a", "Seq Scan", "filter", "(a.x = $1)", "x")
+    only_walked = format_index_findings([_scan(walked)], cwd=CWD)
+    assert "  rw_link scans the whole index rw_link_pkey: the index condition" in (
+        only_walked
+    )
+    assert "a whole-index scan is fine on a small lookup table" in only_walked
+    assert "sequential scan" not in only_walked
+    mixed = format_index_findings([_scan(walked), _scan(seq)], cwd=CWD)
+    assert "a sequential scan is fine on a small lookup table" in mixed

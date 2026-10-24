@@ -84,8 +84,14 @@ def is_loopback(host: str) -> bool:
 
 
 def allowed(client: str | None, loopback_only: bool) -> bool:
-    """Whether the panel answers this client; None is a Unix socket peer."""
-    return not loopback_only or client is None or is_loopback(client)
+    """Whether the panel answers this client.
+
+    None (no address: a Unix socket peer, often a reverse proxy relaying any
+    client) is refused while ``loopback_only`` is on.
+    """
+    if not loopback_only:
+        return True
+    return client is not None and is_loopback(client)
 
 
 def json_body(history: History) -> bytes:
@@ -101,8 +107,13 @@ def json_body(history: History) -> bytes:
     return json.dumps(payload, default=str).encode("utf-8")
 
 
+def _js_string(value: str) -> str:
+    """A JavaScript string literal that cannot end the surrounding <script>."""
+    return json.dumps(value).replace("<", "\\u003c").replace(">", "\\u003e")
+
+
 def html_body(json_url: str) -> bytes:
-    page = _PAGE.replace("__JSON_URL__", html.escape(json_url, quote=True))
+    page = _PAGE.replace("__JSON_URL__", _js_string(json_url))
     return page.replace("__VERSION__", html.escape(version)).encode("utf-8")
 
 
@@ -158,7 +169,7 @@ code{font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 </main>
 <script>
 "use strict";
-const url = "__JSON_URL__";
+const url = __JSON_URL__;
 const expanded = new Set();
 function el(tag, text, cls) {
   const e = document.createElement(tag);

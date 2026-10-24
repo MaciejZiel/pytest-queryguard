@@ -1,0 +1,130 @@
+{
+ "query": "SELECT id FROM orders WHERE status = $1 UNION SELECT id FROM orders WHERE customer_id = $2",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Unique",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 0.56,
+    "Total Cost": 80.43,
+    "Plan Rows": 510,
+    "Plan Width": 4,
+    "Disabled": false,
+    "Output": [
+     "orders.id"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Merge Append",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 0.56,
+      "Total Cost": 79.16,
+      "Plan Rows": 510,
+      "Plan Width": 4,
+      "Disabled": false,
+      "Sort Key": [
+       "orders.id"
+      ],
+      "Subplans Removed": 0,
+      "Plans": [
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Member",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "orders_pkey",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders",
+        "Startup Cost": 0.27,
+        "Total Cost": 37.02,
+        "Plan Rows": 500,
+        "Plan Width": 4,
+        "Disabled": false,
+        "Output": [
+         "orders.id"
+        ],
+        "Filter": "((orders.status)::text = $1)"
+       },
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Member",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "orders_pkey",
+        "Relation Name": "orders",
+        "Schema": "public",
+        "Alias": "orders_1",
+        "Startup Cost": 0.27,
+        "Total Cost": 37.02,
+        "Plan Rows": 10,
+        "Plan Width": 4,
+        "Disabled": false,
+        "Output": [
+         "orders_1.id"
+        ],
+        "Filter": "(orders_1.customer_id = $2)"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Index Scan using orders_pkey",
+   "kind": "filter",
+   "column": "status",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (status)",
+   "skipped": null,
+   "partial_skipped": false
+  },
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Index Scan using orders_pkey",
+   "kind": "filter",
+   "column": "customer_id",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (customer_id)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

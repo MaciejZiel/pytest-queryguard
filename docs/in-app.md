@@ -10,9 +10,9 @@ server or a staging environment.
 > reach it. Never enable either in production. The examples below switch it
 > on only when `APP_ENV` is `development`.
 
-It is new and not yet part of the public API listed in
-[Stability and versioning](stability.md): names in `pytest_queryguard.app` may
-still change in a minor release.
+It is experimental (see [Stability and versioning](stability.md#experimental)):
+names in `pytest_queryguard.app`, their settings and the panel's JSON may still
+change in a minor release, without a deprecation period.
 
 ## FastAPI and Starlette
 
@@ -33,7 +33,7 @@ sessions = async_sessionmaker(engine, expire_on_commit=False)
 app = FastAPI()
 
 # Development only: never in production.
-if os.environ.get("APP_ENV", "development") == "development":
+if os.environ.get("APP_ENV") == "development":
     queryguard.watch(engine)
     app.add_middleware(
         queryguard.QueryGuardASGI,
@@ -58,6 +58,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/main.py:48 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -68,7 +69,7 @@ queryguard: N+1 detected
 ```text
 WARNING pytest_queryguard.app: queryguard: GET /orders/3 (route /orders/{order_id}): 2 statements
 
-queryguard: expected at most 1 queries, got 2
+queryguard: expected at most 1 query, got 2
 
   1. SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:64 in get_order)
   2. SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:65 in get_order)
@@ -98,7 +99,7 @@ engine = create_engine("sqlite:///app.db")
 app = Flask(__name__)
 
 # Development only: never in production.
-if os.environ.get("APP_ENV", "development") == "development":
+if os.environ.get("APP_ENV") == "development":
     queryguard.watch(engine)
     app.wsgi_app = queryguard.QueryGuardWSGI(
         app.wsgi_app, budgets={"GET /orders/<int:order_id>": 1}
@@ -120,6 +121,7 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 5 times
   first at app/flask_app.py:41 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
@@ -181,8 +183,10 @@ the request path keeps it.
 **Reports.** `report` is used only for requests with findings or over their
 budget. `"log"` writes one WARNING record. `"warn"` issues
 `QueryGuardWarning`, which follows Python's warning filters: with
-`-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception. A
-callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
+`-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception,
+raised when the request ends, and only when the application did not raise
+its own: the application's exception always wins, and the other targets
+still run. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and
 `duration`), `statement_count`, `db_time`, `duration`, `findings`, `budget`,
 `over_budget` and `message`:
@@ -211,9 +215,12 @@ An exception in a callable is logged and does not reach the request.
 - `/_queryguard/requests.json`: the same data as JSON, newest first.
 
 `panel_path` moves both. By default the panel answers only loopback clients
-(`127.0.0.0/8`, `::1`); `panel_loopback_only=False` lifts that. This guards
-against exposing it by accident and is not access control: behind a reverse
-proxy every client is the proxy. The responses carry a strict
+(`127.0.0.0/8`, `::1`); a peer without an address, such as a connection on a
+Unix socket, is refused too. `panel_loopback_only=False` lifts that. This
+guards against exposing it by accident and is not access control: behind a
+reverse proxy on the same machine every client is the proxy. The panel
+answers on `scope["path"]`, so under an ASGI `root_path` (for example
+`uvicorn --root-path`) it is not reachable; serve it without one. The responses carry a strict
 `Content-Security-Policy` and `Cache-Control: no-store`, and the page writes
 every value as text, never as HTML. Bound parameter values are never stored
 in the panel, but the SQL text is, including any literal the application puts

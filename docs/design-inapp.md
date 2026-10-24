@@ -5,7 +5,7 @@
 | Status | Proposed |
 | Author | Maciej Zieliński |
 | Date | 2026-10-13 |
-| Target release | unreleased |
+| Target release | 0.5.0 (experimental from 0.5.0rc1) |
 | Extends | [design.md](design.md), [design-0.3-api.md](design-0.3-api.md) |
 
 ## 1. Problem

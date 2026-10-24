@@ -1,0 +1,154 @@
+{
+ "query": "SELECT * FROM events WHERE kind = $1 ORDER BY created_at DESC LIMIT 5",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Limit",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 20000000010.73,
+    "Total Cost": 20000000010.74,
+    "Plan Rows": 5,
+    "Plan Width": 24,
+    "Output": [
+     "events.id",
+     "events.account_id",
+     "events.kind",
+     "events.created_at",
+     "events.payload"
+    ],
+    "Plans": [
+     {
+      "Node Type": "Sort",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Startup Cost": 20000000010.73,
+      "Total Cost": 20000000010.93,
+      "Plan Rows": 80,
+      "Plan Width": 24,
+      "Output": [
+       "events.id",
+       "events.account_id",
+       "events.kind",
+       "events.created_at",
+       "events.payload"
+      ],
+      "Sort Key": [
+       "events.created_at DESC"
+      ],
+      "Plans": [
+       {
+        "Node Type": "Append",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 10000000000.0,
+        "Total Cost": 20000000009.4,
+        "Plan Rows": 80,
+        "Plan Width": 24,
+        "Subplans Removed": 0,
+        "Plans": [
+         {
+          "Node Type": "Seq Scan",
+          "Parent Relationship": "Member",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "events_2025",
+          "Schema": "public",
+          "Alias": "events_1",
+          "Startup Cost": 10000000000.0,
+          "Total Cost": 10000000004.66,
+          "Plan Rows": 43,
+          "Plan Width": 24,
+          "Output": [
+           "events_1.id",
+           "events_1.account_id",
+           "events_1.kind",
+           "events_1.created_at",
+           "events_1.payload"
+          ],
+          "Filter": "(events_1.kind = $1)"
+         },
+         {
+          "Node Type": "Seq Scan",
+          "Parent Relationship": "Member",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Relation Name": "events_2026",
+          "Schema": "public",
+          "Alias": "events_2",
+          "Startup Cost": 10000000000.0,
+          "Total Cost": 10000000004.34,
+          "Plan Rows": 37,
+          "Plan Width": 24,
+          "Output": [
+           "events_2.id",
+           "events_2.account_id",
+           "events_2.kind",
+           "events_2.created_at",
+           "events_2.payload"
+          ],
+          "Filter": "(events_2.kind = $1)"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "JIT": {
+    "Functions": 5,
+    "Options": {
+     "Inlining": true,
+     "Optimization": true,
+     "Expressions": true,
+     "Deforming": true
+    }
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [
+   [
+    "public",
+    "events_2025",
+    "public",
+    "events"
+   ],
+   [
+    "public",
+    "events_2026",
+    "public",
+    "events"
+   ]
+  ],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "events_2025",
+    "events_2025_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "events_2026",
+    "events_2026_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ]
+  ]
+ }
+}

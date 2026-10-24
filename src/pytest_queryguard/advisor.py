@@ -113,6 +113,8 @@ def render(expr: Expr, alias: str) -> str:
         return f"(NOT {render(expr.operand, alias)})"
     if isinstance(expr, Bool):
         return "(" + f" {expr.op} ".join(render(i, alias) for i in expr.items) + ")"
+    if expr.name in predicates.SYNTAX_CALLS:
+        raise _Unrenderable  # CASE, AT TIME ZONE, ... are not printed back
     args = ", ".join(render(a, alias) for a in expr.args)
     return f"{expr.name}({args})" if expr.name != "ARRAY" else f"ARRAY[{args}]"
 
@@ -264,7 +266,8 @@ def blocking_index(
         if not index.valid:
             invalid = invalid or (
                 f"index {where} exists but is marked invalid (a CREATE INDEX "
-                "CONCURRENTLY that failed?): drop it and create it again"
+                "CONCURRENTLY that failed, or CREATE INDEX ON ONLY a partitioned "
+                "table with partitions not attached?): drop it and create it again"
             )
         elif index.predicate is not None:
             partial = partial or (

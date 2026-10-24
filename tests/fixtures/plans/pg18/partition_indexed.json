@@ -1,0 +1,138 @@
+{
+ "query": "SELECT * FROM events WHERE account_id = $1",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "Append",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Startup Cost": 4.18,
+    "Total Cost": 12.54,
+    "Plan Rows": 10,
+    "Plan Width": 24,
+    "Disabled": false,
+    "Subplans Removed": 0,
+    "Plans": [
+     {
+      "Node Type": "Bitmap Heap Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "events_2025",
+      "Schema": "public",
+      "Alias": "events_1",
+      "Startup Cost": 4.18,
+      "Total Cost": 6.25,
+      "Plan Rows": 5,
+      "Plan Width": 24,
+      "Disabled": false,
+      "Output": [
+       "events_1.id",
+       "events_1.account_id",
+       "events_1.kind",
+       "events_1.created_at",
+       "events_1.payload"
+      ],
+      "Recheck Cond": "(events_1.account_id = $1)",
+      "Plans": [
+       {
+        "Node Type": "Bitmap Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Index Name": "events_2025_account_id_idx",
+        "Startup Cost": 0.0,
+        "Total Cost": 4.18,
+        "Plan Rows": 5,
+        "Plan Width": 0,
+        "Disabled": false,
+        "Index Cond": "(events_1.account_id = $1)"
+       }
+      ]
+     },
+     {
+      "Node Type": "Bitmap Heap Scan",
+      "Parent Relationship": "Member",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Relation Name": "events_2026",
+      "Schema": "public",
+      "Alias": "events_2",
+      "Startup Cost": 4.18,
+      "Total Cost": 6.25,
+      "Plan Rows": 5,
+      "Plan Width": 24,
+      "Disabled": false,
+      "Output": [
+       "events_2.id",
+       "events_2.account_id",
+       "events_2.kind",
+       "events_2.created_at",
+       "events_2.payload"
+      ],
+      "Recheck Cond": "(events_2.account_id = $1)",
+      "Plans": [
+       {
+        "Node Type": "Bitmap Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Index Name": "events_2026_account_id_idx",
+        "Startup Cost": 0.0,
+        "Total Cost": 4.18,
+        "Plan Rows": 5,
+        "Plan Width": 0,
+        "Disabled": false,
+        "Index Cond": "(events_2.account_id = $1)"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [
+   [
+    "public",
+    "events_2025",
+    "public",
+    "events"
+   ],
+   [
+    "public",
+    "events_2026",
+    "public",
+    "events"
+   ]
+  ],
+  "leading": [],
+  "varchar": [],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "events_2025",
+    "events_2025_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "events_2026",
+    "events_2026_account_id_idx",
+    "btree",
+    true,
+    [
+     "account_id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": []
+}

@@ -1,8 +1,9 @@
 # pytest-queryguard
 
 A pytest plugin that fails tests with N+1 queries and enforces query budgets
-for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer
-and on SQLite it can also fail tests whose queries have no index to use.
+for SQLAlchemy 2, in sync, async and FastAPI code. On PostgreSQL 16 and newer,
+SQLite, MySQL and MariaDB it can also fail tests whose queries have no index
+to use.
 
 ORM code that looks correct can send one query per row instead of one query
 per page. The tests pass, because a test database holds a handful of rows. In
@@ -15,18 +16,18 @@ queryguard: N+1 detected
 
   Order.customer was lazy-loaded 50 times
   first at app/orders.py:10 in list_orders
+  kind: relationship-load  label: Order.customer
   sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
   fix: load it with the parent query, e.g.
        select(Order).options(joinedload(Order.customer))
 ```
 
 ```bash
-pip install "pytest-queryguard>=0.4.0rc2"
+pip install pytest-queryguard
 ```
 
 It is on by default: there is nothing to import or configure. These pages
-describe 0.4.0rc2; the stable 0.3.0 (`pip install pytest-queryguard`) lacks
-most of the adoption features, see [Getting started](getting-started.md#install).
+describe 0.4.1, see [Getting started](getting-started.md#install).
 
 ## Where to go
 

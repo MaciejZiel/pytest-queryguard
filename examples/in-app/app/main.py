@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(lifespan=lifespan)
 
 # Development only: never in production.
-if os.environ.get("APP_ENV", "development") == "development":
+if os.environ.get("APP_ENV") == "development":
     queryguard.watch(engine)
     app.add_middleware(
         queryguard.QueryGuardASGI,
@@ -61,6 +61,6 @@ async def list_orders_fixed() -> list[str]:
 @app.get("/orders/{order_id}")
 async def get_order(order_id: int) -> str:
     async with sessions() as session:
-        order = await session.get_one(Order, order_id)
+        order = await session.get(Order, order_id)
         customer = await order.awaitable_attrs.customer
         return customer.name

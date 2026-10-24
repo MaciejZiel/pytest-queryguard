@@ -1,0 +1,148 @@
+{
+ "query": "DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE status = $1)",
+ "plan": [
+  {
+   "Plan": {
+    "Node Type": "ModifyTable",
+    "Operation": "Delete",
+    "Parallel Aware": false,
+    "Async Capable": false,
+    "Relation Name": "order_items",
+    "Schema": "public",
+    "Alias": "order_items",
+    "Startup Cost": 43.55,
+    "Total Cost": 157.8,
+    "Plan Rows": 0,
+    "Plan Width": 0,
+    "Plans": [
+     {
+      "Node Type": "Hash Join",
+      "Parent Relationship": "Outer",
+      "Parallel Aware": false,
+      "Async Capable": false,
+      "Join Type": "Inner",
+      "Startup Cost": 43.55,
+      "Total Cost": 157.8,
+      "Plan Rows": 2000,
+      "Plan Width": 12,
+      "Output": [
+       "order_items.ctid",
+       "orders.ctid"
+      ],
+      "Inner Unique": true,
+      "Hash Cond": "(order_items.order_id = orders.id)",
+      "Plans": [
+       {
+        "Node Type": "Index Scan",
+        "Parent Relationship": "Outer",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Scan Direction": "Forward",
+        "Index Name": "order_items_order_product",
+        "Relation Name": "order_items",
+        "Schema": "public",
+        "Alias": "order_items",
+        "Startup Cost": 0.28,
+        "Total Cost": 109.23,
+        "Plan Rows": 2000,
+        "Plan Width": 10,
+        "Output": [
+         "order_items.ctid",
+         "order_items.order_id"
+        ]
+       },
+       {
+        "Node Type": "Hash",
+        "Parent Relationship": "Inner",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 37.02,
+        "Total Cost": 37.02,
+        "Plan Rows": 500,
+        "Plan Width": 10,
+        "Output": [
+         "orders.ctid",
+         "orders.id"
+        ],
+        "Plans": [
+         {
+          "Node Type": "Index Scan",
+          "Parent Relationship": "Outer",
+          "Parallel Aware": false,
+          "Async Capable": false,
+          "Scan Direction": "Forward",
+          "Index Name": "orders_pkey",
+          "Relation Name": "orders",
+          "Schema": "public",
+          "Alias": "orders",
+          "Startup Cost": 0.27,
+          "Total Cost": 37.02,
+          "Plan Rows": 500,
+          "Plan Width": 10,
+          "Output": [
+           "orders.ctid",
+           "orders.id"
+          ],
+          "Filter": "((orders.status)::text = $1)"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "catalog": {
+  "roots": [],
+  "leading": [],
+  "varchar": [
+   [
+    "public",
+    "orders",
+    [
+     "status"
+    ]
+   ]
+  ],
+  "partial": [],
+  "indexes": [
+   [
+    "public",
+    "order_items",
+    "order_items_order_product",
+    "btree",
+    true,
+    [
+     "order_id",
+     "product_id"
+    ],
+    null
+   ],
+   [
+    "public",
+    "orders",
+    "orders_pkey",
+    "btree",
+    true,
+    [
+     "id"
+    ],
+    null
+   ]
+  ]
+ },
+ "live": [
+  {
+   "schema": "public",
+   "table": "orders",
+   "node": "Index Scan using orders_pkey",
+   "kind": "filter",
+   "column": "status",
+   "expression": false,
+   "create_sql": "CREATE INDEX ON orders (status)",
+   "skipped": null,
+   "partial_skipped": false
+  }
+ ]
+}

@@ -73,9 +73,12 @@ class QueryGuardASGI:
         except BaseException:
             if report.status is None:
                 report.status = 500  # what the server answers for it
-            raise
-        finally:
             self._finish(tracker, scope)
+            raise
+        self._finish(tracker, scope)
+        if tracker.warning is not None:
+            # "warn" under an "error" filter, and the app itself succeeded.
+            raise tracker.warning
 
     def _finish(self, tracker: Tracker, scope: Scope) -> None:
         route = None

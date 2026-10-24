@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 from pytest_queryguard import (
     QueryBudgetExceeded,
+    QueryLog,
     max_db_time,
     max_queries,
     record_queries,
@@ -116,6 +121,93 @@ def test_nested_logs_both_count_the_time(engine: Engine) -> None:
     assert outer.db_time >= inner.db_time
 
 
+@pytest.mark.parametrize(
+    "make_log", [record_queries, lambda: max_queries(2), lambda: max_db_time(60)]
+)
+def test_a_late_completion_does_not_change_a_finished_logs_db_time(
+    make_log: Callable[[], AbstractContextManager[QueryLog]],
+) -> None:
+    started = Event()
+    release = Event()
+    engine = create_engine("sqlite://", poolclass=NullPool)
+
+    @event.listens_for(engine, "connect")
+    def register(dbapi_connection: Any, record: Any) -> None:
+        def wait_for_release() -> int:
+            started.set()
+            if not release.wait(timeout=10):
+                raise TimeoutError("the test did not release the query")
+            return 1
+
+        dbapi_connection.create_function("wait_for_release", 0, wait_for_release)
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool, record_queries() as outer:
+            try:
+                with make_log() as inner:
+                    _run(engine, "select 1")
+                    completed_time = inner.db_time
+                    assert completed_time > 0
+                    pending = pool.submit(_run, engine, "select wait_for_release()")
+                    assert started.wait(timeout=10)
+                    assert inner.count == 2
+                    assert inner[-1].duration is None
+                assert inner.db_time == completed_time
+            finally:
+                release.set()
+            pending.result(timeout=10)
+            # The outer recording is still live and sees the completion; the
+            # inner log must keep the timing snapshot from its block's exit.
+            assert outer.db_time > completed_time
+            assert inner.db_time == completed_time
+            assert inner[-1].duration is None
+        assert outer.db_time == pytest.approx(sum(q.duration or 0 for q in outer))
+    finally:
+        engine.dispose()
+
+
+def test_the_time_budget_judges_the_total_fixed_at_the_blocks_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A statement started in another thread finishes right after the log is
+    # fixed and before the verdict. Its time must not decide the budget.
+    started = Event()
+    release = Event()
+    engine = create_engine("sqlite://", poolclass=NullPool)
+
+    @event.listens_for(engine, "connect")
+    def register(dbapi_connection: Any, record: Any) -> None:
+        def slow_after_release() -> int:
+            started.set()
+            if not release.wait(timeout=10):
+                raise TimeoutError("the test did not release the query")
+            time.sleep(0.2)
+            return 1
+
+        dbapi_connection.create_function("slow_after_release", 0, slow_after_release)
+
+    finish = QueryLog._finish
+
+    def finish_then_complete(
+        self: QueryLog, earlier: BaseException | None
+    ) -> BaseException | None:
+        result = finish(self, earlier)
+        release.set()
+        pending.result(timeout=10)
+        return result
+
+    monkeypatch.setattr(QueryLog, "_finish", finish_then_complete)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            with max_db_time(0.1) as log:
+                pending = pool.submit(_run, engine, "select slow_after_release()")
+                assert started.wait(timeout=10)
+            assert log.db_time < 0.1
+    finally:
+        release.set()
+        engine.dispose()
+
+
 def test_executemany_is_timed_once(engine: Engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("create table t (a integer)"))
@@ -187,7 +279,7 @@ def test_max_queries_failure_shows_the_database_time(engine: Engine) -> None:
         _run(engine, "select 1")
         _run(engine, f"select nap({SLEEP})")
     message = str(caught.value)
-    assert "expected at most 1 queries, got 2" in message
+    assert "expected at most 1 query, got 2" in message
     assert "  database time: " in message
     assert "  slowest:" in message
     assert "select nap" in message.split("slowest:")[1].splitlines()[1]
@@ -301,7 +393,7 @@ def test_both_budgets_are_reported_in_one_failure(project: pytest.Pytester) -> N
     result = project.runpytest()
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(
-        ["*expected at most 1 queries, got 2*", "*database time * exceeded*"]
+        ["*expected at most 1 query, got 2*", "*database time * exceeded*"]
     )
 
 

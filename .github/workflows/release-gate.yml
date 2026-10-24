@@ -46,8 +46,11 @@ jobs:
         with:
           python-version: "3.10"
       - run: uv sync
-      - name: Pin SQLAlchemy and pytest to the oldest supported series
-        run: uv pip install "sqlalchemy==2.0.*" sqlmodel "pytest==8.0.*"
+      - name: Pin SQLAlchemy and pytest to the oldest supported releases
+        # The exact declared floor (pyproject.toml), not the latest 2.0.x. The
+        # current SQLModel does not import on it, so it is left out and its
+        # corpus scenarios skip (ci.yml runs them on the latest 2.0).
+        run: uv pip install "sqlalchemy==2.0.13" "pytest==8.0.*"
       - run: uv run --no-sync python -c "import sqlalchemy, pytest; print('sqlalchemy', sqlalchemy.__version__, 'pytest', pytest.__version__)"
       - run: uv run --no-sync pytest -rs
 

@@ -23,6 +23,13 @@ pytest.importorskip("factory")
 # pytester sessions run in this process, so the outer plugin sees their queries too.
 pytestmark = pytest.mark.allow_nplusone
 
+if kit.pg_url_from_env():
+    # pytester restores sys.modules after each in-process session. asyncpg's
+    # compiled protocol module, first imported inside a session and imported
+    # again in the next one, crashed the process (a segmentation fault).
+    # Imported here, it is part of the restored snapshot.
+    import asyncpg  # noqa: F401
+
 SCENARIOS = runner.load()
 BY_NAME = {s.name: s for s in SCENARIOS}
 _cache: dict[str, dict[str, runner.Result]] = {}
@@ -81,8 +88,17 @@ def test_plugin_agrees_with_the_verdict(
             monkeypatch.setenv(key, value)
         pytester.inline_run("-p", "no:cacheprovider", "-W", "ignore", "-q")
         _cache[config] = runner.read_results(out)
+    result = _cache[config][name]
+    # Checked here as well as in the test below: under pytest-xdist that test
+    # sees only the configurations its own worker ran, so it would catch a
+    # scenario that fails without findings only on some runs.
+    assert result.failed == bool(result.findings), (
+        "the scenario's test failed without a finding"
+        if result.failed
+        else "a finding did not fail the scenario's test"
+    )
     scope = runner.scope(config)
-    observed = _cache[config][name].kinds & scope
+    observed = result.kinds & scope
     expected = scenario.kinds & scope
     assert observed == expected, (
         f"{scenario.verdict}: expected {sorted(expected)}, the plugin reported {sorted(observed)}"

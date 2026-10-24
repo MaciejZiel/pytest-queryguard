@@ -13,10 +13,15 @@ def test_order_page(client):
     client.get("/orders/1")
 
 
-@pytest.mark.max_queries(n=3)  # the same, with a keyword
+@pytest.mark.max_queries(limit=3)  # the same, with a keyword
 def test_order_page_again(client):
     client.get("/orders/1")
 ```
+
+The keyword is `limit`, as in the function below. Releases before 0.4 called
+it `n`; `n=3` keeps working, without a warning. It may be removed in a future
+minor release, but only after a deprecation period with a warning (see
+[Stability](stability.md)).
 
 The test fails when its body runs more SQL statements than the limit. The
 failure lists every statement with the line that issued it. Budgets count
@@ -33,6 +38,17 @@ from pytest_queryguard import max_queries
 def test_checkout(service, cart):
     with max_queries(2):
         service.checkout(cart)
+```
+
+The block yields the same `QueryLog` as
+[`record_queries()`](python-api.md), so the statements can be read after the block:
+
+```python
+def test_checkout_statements(service, cart):
+    with max_queries(2) as log:
+        service.checkout(cart)
+    assert log.count == 2
+    assert "INSERT" in log.queries[-1].sql
 ```
 
 Only the statements inside the `with` block count. Above the limit it raises

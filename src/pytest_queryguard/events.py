@@ -25,6 +25,10 @@ class StatementEvent:
     # True when the statement loaded columns of an instance that already
     # existed (a deferred column, or attributes expired by commit or expire()).
     column_load: bool = False
+    # True when the statement is the lazy load of `relationship`; False for the
+    # query of an eager loader (selectinload, subqueryload) that carries the
+    # same relationship label.
+    lazy_load: bool = False
     # The bound parameters as the driver got them (not copied); None for
     # executemany, which can be large. Compared by the small-repeat rule.
     parameters: object = None
@@ -117,9 +121,9 @@ class ScanIssue:
     column: str | None  # the column for a CREATE INDEX hint, when obvious
     show_schema: bool = True  # False when the table is in the current schema
     expression: bool = False  # the column sits in a function or a non-text cast
-    # SQLite: set when the plan walks an existing index or primary key that the
-    # filter cannot use ("index ix_orders_created_at", "primary key"); the
-    # table is then not read in full, the index is.
+    # Set when the plan walks an existing index or primary key that the filter
+    # cannot use ("index ix_orders_created_at", "primary key"); the table is
+    # then not read in full, the index is. SQLite and PostgreSQL.
     index: str | None = field(default=None, compare=False)
     # What the index advisor works from; not part of the issue's identity.
     alias: str = field(default="", compare=False)
@@ -148,5 +152,8 @@ class Catalog:
     partial: dict[tuple[str, str], tuple[PartialIndex, ...]] = field(
         default_factory=dict
     )
+    # (schema, table) of a partition -> (schema, table) of its partitioned
+    # root; None for a table that is not a partition
+    roots: dict[tuple[str, str], tuple[str, str] | None] = field(default_factory=dict)
     # (installed, available) versions of the hypopg extension; None until read
     hypopg: tuple[str | None, str | None] | None = None

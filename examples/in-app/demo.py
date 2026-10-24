@@ -4,9 +4,13 @@ Run from this directory: python demo.py
 """
 
 import logging
+import os
 import sys
 
 from fastapi.testclient import TestClient
+
+# The apps switch the in-application mode on only in development.
+os.environ.setdefault("APP_ENV", "development")
 
 logging.basicConfig(stream=sys.stdout, format="%(levelname)s %(name)s: %(message)s")
 

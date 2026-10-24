@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -108,6 +109,128 @@ def test_missing_file_says_how_to_create_it(tmp_path: Path) -> None:
 def test_unreadable_file_is_an_error_not_a_crash(tmp_path: Path) -> None:
     with pytest.raises(BaselineError, match="cannot read"):
         baseline.load(tmp_path)  # a directory
+
+
+def test_deeply_nested_json_is_an_error_not_a_crash(tmp_path: Path) -> None:
+    # rejected by an iterative depth check, so the interpreter's recursion limit
+    # (which differs per version and platform) is never reached
+    path = tmp_path / "qg.json"
+    path.write_text("[" * 1_000)
+    with pytest.raises(BaselineError, match="nested too deep"):
+        baseline.load(path)
+
+
+def test_the_nesting_limit_counts_brackets_outside_strings_only() -> None:
+    path = Path("qg.json")
+    inside = '{"version": 1, "findings": [], "note": "' + "[" * 500 + '"}'
+    assert baseline.parse(inside, path) == frozenset()
+    at_limit = "[" * 100 + "]" * 100
+    with pytest.raises(BaselineError, match="no 'version' field"):
+        baseline.parse(at_limit, path)
+    with pytest.raises(BaselineError, match="nested too deep"):
+        baseline.parse("{" * 101, path)
+
+
+def test_dumps_writes_two_space_indented_utf8_text() -> None:
+    text = baseline.dumps([("write-loop", "Zażółć", "a.py", None)])
+    assert text == (
+        "{\n"
+        '  "version": 1,\n'
+        '  "findings": [\n'
+        "    {\n"
+        '      "kind": "write-loop",\n'
+        '      "label": "Zażółć",\n'
+        '      "file": "a.py",\n'
+        '      "function": null\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+    )
+
+
+def test_identities_sort_by_file_then_function_with_missing_values_first() -> None:
+    assert baseline.sorted_identities(
+        [("k", "l", "a.py", "f"), ("k", "l", "A.py", "f"), ("k", "l", None, "f")]
+    ) == [("k", "l", None, "f"), ("k", "l", "A.py", "f"), ("k", "l", "a.py", "f")]
+    assert baseline.sorted_identities(
+        [("k", "l", "a.py", "f"), ("k", "l", "a.py", "A"), ("k", "l", "a.py", None)]
+    ) == [("k", "l", "a.py", None), ("k", "l", "a.py", "A"), ("k", "l", "a.py", "f")]
+
+
+def test_functions_of_one_file_are_sorted_by_name() -> None:
+    names = [f"test_{c}" for c in "hgfedcba"]
+    identities = [("k", "l", "a.py", name) for name in names]
+    assert baseline.sorted_identities(identities) == sorted(identities)
+
+
+def test_an_empty_file_name_sorts_before_a_missing_one() -> None:
+    assert baseline.sorted_identities([("k", "l", None, "f"), ("k", "l", "", "f")]) == [
+        ("k", "l", "", "f"),
+        ("k", "l", None, "f"),
+    ]
+    assert baseline.sorted_identities([("k", "l", "f", None), ("k", "l", "f", "")]) == [
+        ("k", "l", "f", ""),
+        ("k", "l", "f", None),
+    ]
+
+
+def test_unknown_keys_are_all_listed_in_order() -> None:
+    text = '{"version": 1, "findings": [{"kind": "k", "label": "l", "b": 1, "a": 2}]}'
+    with pytest.raises(BaselineError, match=r"has unknown keys: a, b$"):
+        baseline.parse(text, Path("b.json"))
+
+
+def test_a_function_that_is_not_a_string_is_rejected() -> None:
+    text = '{"version": 1, "findings": [{"kind": "k", "label": "l", "function": 7}]}'
+    with pytest.raises(BaselineError, match="'function' must be a string or null"):
+        baseline.parse(text, Path("b.json"))
+
+
+def test_entry_errors_name_the_file_and_the_entry() -> None:
+    text = '{"version": 1, "findings": [{"kind": "k", "label": "l"}, 5]}'
+    with pytest.raises(BaselineError) as caught:
+        baseline.parse(text, Path("some") / "b.json")
+    assert str(caught.value).startswith(f"{Path('some') / 'b.json'}: findings[1] must")
+
+
+def test_a_file_without_a_version_says_how_to_regenerate_it() -> None:
+    with pytest.raises(BaselineError) as caught:
+        baseline.parse("{}", Path("b.json"))
+    assert str(caught.value).endswith(
+        "(no 'version' field); regenerate it with --queryguard-update-baseline"
+    )
+
+
+def test_a_file_of_another_version_says_how_to_regenerate_it() -> None:
+    with pytest.raises(BaselineError) as caught:
+        baseline.parse('{"version": 9, "findings": []}', Path("b.json"))
+    assert str(caught.value).endswith(
+        "upgrade the plugin or regenerate the file with --queryguard-update-baseline"
+    )
+
+
+def test_a_missing_file_ends_with_the_option_that_creates_it(tmp_path: Path) -> None:
+    with pytest.raises(BaselineError) as caught:
+        baseline.load(tmp_path / "nope.json")
+    assert str(caught.value).endswith(
+        "does not exist; create it with --queryguard-update-baseline"
+    )
+
+
+def test_the_file_is_read_as_utf8_whatever_the_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = ("write-loop", "Zażółć", "a.py", None)
+    path = tmp_path / "baseline.json"
+    baseline.write(path, [identity])
+    real_read_text = Path.read_text
+
+    def read_text(self: Path, encoding: str | None = None, **kwargs: object) -> str:
+        # Stand in for a locale whose default encoding is not UTF-8.
+        return real_read_text(self, encoding=encoding or "latin-1")
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    assert baseline.load(path) == {identity}
 
 
 # --- the plugin ---
@@ -322,6 +445,56 @@ def test_update_after_an_early_stop_leaves_the_file_alone(
     result.stdout.fnmatch_lines(["*queryguard baseline not updated: the run stopped*"])
 
 
+def test_update_after_a_collection_error_leaves_the_file_alone(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=ONE_LOOP, test_broken="import no_such_module_anywhere\n")
+    path = project.path / "qg.json"
+    path.write_text(baseline.dumps([LAZY_ID]))
+    before = path.read_text()
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == before
+    result.stdout.fnmatch_lines(["*queryguard baseline not updated: the run was*"])
+
+
+def test_a_collection_error_under_x_keeps_the_interrupted_reason(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_a=ONE_LOOP, test_broken="import no_such_module_anywhere\n")
+    path = project.path / "qg.json"
+    path.write_text(baseline.dumps([LAZY_ID]))
+    before = path.read_text()
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline", "-x"
+    )
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == before
+    result.stdout.fnmatch_lines(["*queryguard baseline not updated: the run was*"])
+
+
+def test_update_after_a_keyboard_interrupt_leaves_the_file_alone(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a="def test_stop():\n    raise KeyboardInterrupt\n" + ONE_LOOP
+    )
+    path = project.path / "qg.json"
+    path.write_text(baseline.dumps([LAZY_ID, ("write-loop", "x", None, None)]))
+    before = path.read_text()
+    result = project.runpytest_subprocess(
+        "--queryguard-baseline=qg.json",
+        "--queryguard-update-baseline",
+        "-p",
+        "no:cacheprovider",
+    )
+    assert result.ret == pytest.ExitCode.INTERRUPTED
+    assert path.read_text() == before
+    result.stdout.fnmatch_lines(["*queryguard baseline not updated: the run was*"])
+
+
 def test_a_write_error_is_reported_not_raised(
     project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -335,6 +508,83 @@ def test_a_write_error_is_reported_not_raised(
     )
     result.assert_outcomes(passed=1)
     result.stdout.fnmatch_lines(["*could not write *qg.json: read-only*"])
+
+
+def test_a_deeply_nested_file_is_a_usage_error(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=CLEAN)
+    (project.path / "qg.json").write_text("[" * 1_000)
+    result = project.runpytest("--queryguard-baseline=qg.json")
+    assert result.ret == pytest.ExitCode.USAGE_ERROR
+    result.stderr.fnmatch_lines(["*qg.json is not a queryguard baseline*"])
+
+
+def test_an_update_replaces_a_deeply_nested_file(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=ONE_LOOP)
+    (project.path / "qg.json").write_text("[" * 1_000)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*replaced an unusable file*nested too deep*"])
+    assert baseline.load(project.path / "qg.json")
+
+
+@pytest.mark.parametrize("error", [RuntimeError, MemoryError, UnicodeEncodeError])
+def test_any_write_error_is_reported_not_raised(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, error: type
+) -> None:
+    def fail(path: Path, identities: object) -> None:
+        if error is UnicodeEncodeError:
+            raise UnicodeEncodeError("utf-8", "\udc80", 0, 1, "surrogates not allowed")
+        raise error("broken")
+
+    monkeypatch.setattr(baseline, "write", fail)
+    project.makepyfile(test_a=ONE_LOOP)
+    result = project.runpytest(
+        "--queryguard-baseline=qg.json", "--queryguard-update-baseline"
+    )
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*queryguard baseline could not write *qg.json*"])
+    assert "Traceback" not in result.stdout.str() + result.stderr.str()
+
+
+def _make_non_utf8_dir(root: Path) -> None:
+    try:
+        os.makedirs(os.fsencode(root) + b"/caf\xe9")
+    except (OSError, ValueError):  # pragma: no cover - the filesystem refuses it
+        pytest.skip("cannot create a non-UTF-8 directory name here")
+
+
+def test_update_with_a_non_utf8_directory_name_writes_a_matching_baseline(
+    project: pytest.Pytester,
+) -> None:
+    _make_non_utf8_dir(project.path)
+    project.syspathinsert()
+    sub = Path(os.fsdecode(os.fsencode(project.path) + b"/caf\xe9"))
+    (sub / "test_a.py").write_text(ONE_LOOP)
+    args = ["--queryguard-baseline=qg.json", "-p", "no:cacheprovider"]
+    update = project.runpytest(*args, "--queryguard-update-baseline")
+    update.assert_outcomes(passed=1)
+    update.stdout.no_fnmatch_line("*INTERNALERROR*")
+    update.stdout.fnmatch_lines(["*queryguard: baseline updated*", "*1 entries*"])
+    # the entry reads back to the same identity, so the next run is clean
+    assert baseline.load(project.path / "qg.json")
+    project.runpytest(*args).assert_outcomes(passed=1)
+
+
+def test_a_lone_surrogate_in_an_identity_survives_a_round_trip(tmp_path: Path) -> None:
+    identity = ("relationship-load", "Order.customer", "caf\udce9/test_a.py", "test_a")
+    path = tmp_path / "qg.json"
+    baseline.write(path, [identity])
+    assert baseline.load(path) == {identity}
+
+
+def test_non_ascii_text_stays_readable_in_the_file(tmp_path: Path) -> None:
+    identity = ("relationship-load", "Order.zam\u00f3wienie", "a.py", "test_a")
+    path = tmp_path / "qg.json"
+    baseline.write(path, [identity])
+    assert "zam\u00f3wienie" in path.read_text(encoding="utf-8")
+    assert baseline.load(path) == {identity}
 
 
 def test_stale_entries_are_not_reported_with_measurement_off(

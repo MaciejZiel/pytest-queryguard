@@ -79,7 +79,7 @@ EXPECTED: dict[str, list[str | None]] = {
     "cast_date": [None],
     "coalesce": [None],
     "like": [None],
-    "not_equal": [None],
+    "not_equal": [],  # no btree index serves <>: nothing is reported
     "array_any": [None],
     "json_arrow": [None],
     "or_two_columns": [None],
@@ -432,7 +432,7 @@ def test_message_without_advice_keeps_the_old_fix_line() -> None:
 
 
 def test_message_with_advice_adds_the_alembic_snippet() -> None:
-    assert _block(_advice())[3:] == [
+    assert _block(_advice())[4:] == [
         "  fix: CREATE INDEX ON orders (customer_id)",
         (
             '  alembic: op.create_index("ix_orders_customer_id", "orders", '
@@ -447,7 +447,7 @@ def test_message_indents_a_multi_line_alembic_snippet() -> None:
         create_sql="CREATE INDEX ON t (a)",
         alembic='op.create_index(\n    "x",\n    "t",\n)',
     )
-    assert _block(advice)[4:] == [
+    assert _block(advice)[5:] == [
         "  alembic: op.create_index(",
         '      "x",',
         '      "t",',

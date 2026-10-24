@@ -43,12 +43,12 @@ queryguard: expected at most 2 queries, got 4
 
   1. SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:63 in order_detail)
   2. SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:64 in order_detail)
-  3. SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:68 in order_detail)
+  3. SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:65 in order_detail)
   4. SELECT count(*) AS count_1 FROM orders  (app/main.py:68 in order_detail)
 
   database time: 77 us
   slowest:
-        24 us  SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:68 in order_detail)
+        24 us  SELECT count(*) AS count_1 FROM orders WHERE orders.customer_id = ?  (app/main.py:65 in order_detail)
         24 us  SELECT orders.id, orders.customer_id FROM orders WHERE orders.id = ?  (app/main.py:63 in order_detail)
         15 us  SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  (app/main.py:64 in order_detail)
 =========================== short test summary info ============================
@@ -70,7 +70,7 @@ to run; the statements and their lines do not.
   should have to decide that on purpose.
 - Budgets count every statement, writes included, and they fail in every
   `queryguard_mode`. Fixtures are not counted, so seed data costs nothing.
-- Use `with max_queries(n):` around the one call when a test does more than
+- Use `with max_queries(limit):` around the one call when a test does more than
   call the endpoint. Only the block counts.
 
 ## Time budgets
