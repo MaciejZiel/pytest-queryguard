@@ -10,7 +10,9 @@ server or a staging environment.
 > reach it. Never enable either in production. The examples below switch it
 > on only when `APP_ENV` is `development`.
 
-It is experimental (see [Stability and versioning](stability.md#experimental)):
+It ships in the 0.5.0rc1 release candidate, not in 0.4.1:
+`pip install --pre pytest-queryguard`. It is experimental (see
+[Stability and versioning](stability.md#experimental)):
 names in `pytest_queryguard.app`, their settings and the panel's JSON may still
 change in a minor release, without a deprecation period.
 
