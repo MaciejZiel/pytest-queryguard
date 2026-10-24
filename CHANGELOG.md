@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The development panel of an ASGI application mounted under a `root_path`
+  serves its page and history at that prefix. Its JSON URL escapes path
+  characters such as `?`, `#` and `%`, and a mount named like the panel no
+  longer makes the middleware take over the application's own root.
+
 ## [0.5.0rc1] - 2026-10-24
 
 Release candidate: install it with `pip install --pre pytest-queryguard`.
