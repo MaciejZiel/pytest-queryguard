@@ -40,7 +40,7 @@ def _sync_app(engine: Engine) -> FastAPI:
 
     @app.get("/orders/{order_id}")
     def one(order_id: int, s: Session = Depends(session)) -> str:  # noqa: B008
-        return s.get_one(Order, order_id).customer.name
+        return s.get(Order, order_id).customer.name
 
     @app.get("/boom")
     def boom(s: Session = Depends(session)) -> None:  # noqa: B008

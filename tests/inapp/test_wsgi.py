@@ -44,7 +44,7 @@ def _flask_app(engine: Engine, **options: Any) -> tuple[Flask, list[RequestRepor
     @app.get("/orders/<int:order_id>")
     def one(order_id: int) -> str:
         with Session(engine) as s:
-            return s.get_one(Order, order_id).customer.name
+            return s.get(Order, order_id).customer.name
 
     @app.get("/stream")
     def stream() -> Response:
