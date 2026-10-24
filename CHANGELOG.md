@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- WSGI file responses preserve the server's native `wsgi.file_wrapper`
+  iterable, allowing the server to use its optimized transfer path. File
+  operations and cleanup stay in the request's query context, and the
+  report is finalized when the server closes the wrapper.
+
 ## [0.5.0rc1] - 2026-10-24
 
 Release candidate: install it with `pip install --pre pytest-queryguard`.

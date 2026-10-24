@@ -8,6 +8,7 @@ templates; budgets match the path unless the application calls
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from types import TracebackType
 from typing import Any
@@ -69,6 +70,19 @@ class QueryGuardWSGI:
                 return start_response(status, headers)
             return start_response(status, headers, exc_info)
 
+        wrapped_files: list[tuple[Iterable[bytes], _File]] = []
+        native_wrapper = environ.get("wsgi.file_wrapper")
+        if callable(native_wrapper):
+
+            def file_wrapper(file: Any, *args: Any, **kwargs: Any) -> Iterable[bytes]:
+                measured = _File(file, tracker, self)
+                result: Iterable[bytes] = native_wrapper(measured, *args, **kwargs)
+                wrapped_files.append((result, measured))
+                return result
+
+            # Keep the server's factory intact for its native-response check.
+            environ = {**environ, "wsgi.file_wrapper": file_wrapper}
+
         try:
             result = self.app(environ, start)
         except BaseException:
@@ -78,6 +92,10 @@ class QueryGuardWSGI:
             self._finish(tracker)
             raise
         tracker.detach()
+        for native_result, measured in wrapped_files:
+            if result is native_result:
+                measured.returned()
+                return result
         return _Body(result, tracker, self)
 
     def _finish(self, tracker: Tracker) -> None:
@@ -128,6 +146,68 @@ class QueryGuardWSGI:
     def reports(self) -> tuple[RequestReport, ...]:
         """The reports the panel holds, oldest first; empty without the panel."""
         return self.history.snapshot() if self.history is not None else ()
+
+
+class _File:
+    """Measure file operations without replacing the server's native iterable.
+
+    PEP 3333 requires a native wrapper to call the supplied file's close().
+    Only the file whose native iterable is actually returned ends the request;
+    applications may construct and discard other wrappers along the way.
+    """
+
+    def __init__(self, file: Any, tracker: Tracker, owner: QueryGuardWSGI) -> None:
+        self._file = file
+        self._tracker = tracker
+        self._owner = owner
+        self._selected = False
+        self._closed = False
+        self._failed = False
+
+    def __getattr__(self, name: str) -> Any:
+        value = getattr(self._file, name)
+        if not callable(value):
+            return value
+
+        def call(*args: Any, **kwargs: Any) -> Any:
+            token = _core.current.set(self._tracker.active)
+            try:
+                return value(*args, **kwargs)
+            except BaseException:
+                self._failed = True
+                raise
+            finally:
+                _core.current.reset(token)
+
+        return call
+
+    def returned(self) -> None:
+        self._selected = True
+        if self._closed:
+            self._finish()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        # Native transmission can fail without calling any Python file method.
+        # Do not replace the server's active error with a budget warning.
+        if sys.exc_info()[0] is not None:
+            self._failed = True
+        try:
+            # Access the original close through __getattr__ for its context.
+            close = self.__getattr__("close") if hasattr(self._file, "close") else None
+            if close is not None:
+                close()
+        finally:
+            if self._selected:
+                self._finish()
+
+    def _finish(self) -> None:
+        self._owner._finish(self._tracker)
+        warning, self._tracker.warning = self._tracker.warning, None
+        if warning is not None and not self._failed:
+            raise warning
 
 
 class _Body:
