@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0rc1] - 2026-10-24
+
+Release candidate: install it with `pip install --pre pytest-queryguard`.
+
+This release adds an experimental in-application mode: the same N+1 rules and
+query budgets on every HTTP request of a running FastAPI, Starlette or Flask
+application, for development and staging. The pytest plugin is unchanged.
+
 ### Added
 
 - An experimental in-application mode, `pytest_queryguard.app`, that runs the
@@ -1622,7 +1630,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc1...HEAD
+[0.5.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.1...v0.5.0rc1
 [0.4.1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc4...v0.4.0
 [0.4.0rc4]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc3...v0.4.0rc4
