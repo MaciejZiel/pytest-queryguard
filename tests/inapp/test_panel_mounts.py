@@ -125,3 +125,17 @@ def test_already_relative_scope_can_follow_the_panel_json_url() -> None:
         assert page.status_code == 200
         assert client.get(_json_url(page.text)).status_code == 200
     assert middleware.reports == ()
+
+
+@pytest.mark.parametrize(("root", "prefix"), [("/", ""), ("/api/", "/api")])
+def test_a_root_path_ending_in_a_slash_gives_a_same_host_json_url(
+    root: str, prefix: str
+) -> None:
+    middleware = QueryGuardASGI(FastAPI(), panel=True, report=[])
+    with TestClient(middleware, root_path=root) as client:
+        page = client.get(prefix + "/_queryguard")
+        assert page.status_code == 200
+        json_url = _json_url(page.text)
+        assert json_url == prefix + "/_queryguard/requests.json"
+        assert client.get(json_url).status_code == 200
+    assert middleware.reports == ()

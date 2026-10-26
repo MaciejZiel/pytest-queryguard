@@ -55,7 +55,7 @@ class QueryGuardASGI:
             return
         if self.history is not None:
             path = scope.get("path", "")
-            root = scope.get("root_path", "") or ""
+            root = (scope.get("root_path", "") or "").rstrip("/")
             if root and (path == root or path.startswith(root + "/")):
                 path = path[len(root) :]
             target = _panel.route(self.panel_path, path)
@@ -109,7 +109,7 @@ class QueryGuardASGI:
                 "text/plain",
             )
         elif target == "html":
-            root = scope.get("root_path", "") or ""
+            root = (scope.get("root_path", "") or "").rstrip("/")
             json_url = quote(f"{root}{self.panel_path}/requests.json", safe="/")
             status, body, kind = 200, _panel.html_body(json_url), "text/html"
         elif target == "json":
