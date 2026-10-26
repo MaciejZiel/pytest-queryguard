@@ -72,6 +72,7 @@ class QueryGuardWSGI:
 
         wrapped_files: list[tuple[Iterable[bytes], _File]] = []
         native_wrapper = environ.get("wsgi.file_wrapper")
+        file_wrapper: Any = None
         if callable(native_wrapper):
 
             def file_wrapper(file: Any, *args: Any, **kwargs: Any) -> Iterable[bytes]:
@@ -80,8 +81,9 @@ class QueryGuardWSGI:
                 wrapped_files.append((result, measured))
                 return result
 
-            # Keep the server's factory intact for its native-response check.
-            environ = {**environ, "wsgi.file_wrapper": file_wrapper}
+            # The same environ, so outer middleware still sees what the
+            # application writes into it, such as REMOTE_USER.
+            environ["wsgi.file_wrapper"] = file_wrapper
 
         try:
             result = self.app(environ, start)
@@ -91,6 +93,13 @@ class QueryGuardWSGI:
             tracker.detach()
             self._finish(tracker)
             raise
+        finally:
+            # Give the server its own factory back for its native-response check.
+            if (
+                file_wrapper is not None
+                and environ.get("wsgi.file_wrapper") is file_wrapper
+            ):
+                environ["wsgi.file_wrapper"] = native_wrapper
         tracker.detach()
         for native_result, measured in wrapped_files:
             if result is native_result:

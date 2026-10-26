@@ -427,3 +427,23 @@ def test_native_transfer_error_is_not_replaced_by_a_budget_warning(
         body.close()
     assert len(app.reports) == 1
     assert app.reports[0].statement_count == 1
+
+
+def test_outer_middleware_sees_what_the_application_writes_into_environ(
+    watched: Engine,
+) -> None:
+    def bare(environ: dict[str, Any], start: Any) -> Any:
+        _execute(watched, 601)
+        environ["REMOTE_USER"] = "alice"
+        start("200 OK", [])
+        return environ["wsgi.file_wrapper"](io.BytesIO(b"ok"))
+
+    app = queryguard.QueryGuardWSGI(bare, panel=True, report=[])
+    environ = _environ()
+    body = app(environ, lambda *a: None)
+    assert environ["REMOTE_USER"] == "alice"
+    assert environ["wsgi.file_wrapper"] is FileWrapper
+    assert isinstance(body, FileWrapper)
+    assert b"".join(body) == b"ok"
+    body.close()
+    assert [q.sql for q in app.reports[0].statements] == ["SELECT 601"]
