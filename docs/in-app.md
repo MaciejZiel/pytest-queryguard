@@ -141,6 +141,16 @@ way. The Flask test client does neither on its own: read the body
 (`response.data`, `response.get_json()`), use
 `with client.get(...) as response:`, or pass `buffered=True`.
 
+When the server provides `wsgi.file_wrapper` and the application returns an
+object created by it (for example, a Flask `send_file()` response), queryguard
+returns that native object unchanged. The server can still recognize it for
+its optimized file transfer. Operations on the supplied file run in the
+request's context; the report ends when the server closes the native wrapper,
+including on a partial transfer or a response whose body is not read. Queries
+in the file's cleanup count too. File methods such as `fileno()`, `seek()` and
+`tell()` remain available. This does not enable a native transfer on servers
+that do not already support one.
+
 ## Outside HTTP
 
 `track()` measures any block, for a job, a command or a message handler:
@@ -220,9 +230,18 @@ An exception in a callable is logged and does not reach the request.
 (`127.0.0.0/8`, `::1`); a peer without an address, such as a connection on a
 Unix socket, is refused too. `panel_loopback_only=False` lifts that. This
 guards against exposing it by accident and is not access control: behind a
-reverse proxy on the same machine every client is the proxy. The panel
-answers on `scope["path"]`, so under an ASGI `root_path` (for example
-`uvicorn --root-path`) it is not reachable; serve it without one. The responses carry a strict
+reverse proxy on the same machine every client is the proxy.
+
+For ASGI applications, `panel_path` is relative to the application's
+`root_path`. An application mounted at `/api` serves the default panel at
+`/api/_queryguard/` and its history at `/api/_queryguard/requests.json`.
+The page uses that same prefix to fetch its history, including when the
+mount path contains URL-escaped characters. Already application-relative
+ASGI paths are accepted too.
+Starlette 0.33 leaves `root_path` empty inside a `Mount`, so there the panel
+is not reachable under the mount.
+
+The responses carry a strict
 `Content-Security-Policy` and `Cache-Control: no-store`, and the page writes
 every value as text, never as HTML. Bound parameter values are never stored
 in the panel, but the SQL text is, including any literal the application puts
