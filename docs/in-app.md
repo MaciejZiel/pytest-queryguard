@@ -228,6 +228,8 @@ For ASGI applications, `panel_path` is relative to the application's
 The page uses that same prefix to fetch its history, including when the
 mount path contains URL-escaped characters. Already application-relative
 ASGI paths are accepted too.
+Starlette 0.33 leaves `root_path` empty inside a `Mount`, so there the panel
+is not reachable under the mount.
 
 The responses carry a strict
 `Content-Security-Policy` and `Cache-Control: no-store`, and the page writes
