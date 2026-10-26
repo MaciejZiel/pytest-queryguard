@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, MutableMapping
 from typing import Any
+from urllib.parse import quote
 
 from . import _core, _panel
 from ._core import RequestReport, Settings, Tracker
@@ -53,7 +54,11 @@ class QueryGuardASGI:
             await self.app(scope, receive, send)
             return
         if self.history is not None:
-            target = _panel.route(self.panel_path, scope.get("path", ""))
+            path = scope.get("path", "")
+            root = (scope.get("root_path", "") or "").rstrip("/")
+            if root and (path == root or path.startswith(root + "/")):
+                path = path[len(root) :]
+            target = _panel.route(self.panel_path, path)
             if target is not None:
                 await self._serve_panel(scope, send, target)
                 return
@@ -104,8 +109,8 @@ class QueryGuardASGI:
                 "text/plain",
             )
         elif target == "html":
-            root = scope.get("root_path", "") or ""
-            json_url = f"{root}{self.panel_path}/requests.json"
+            root = (scope.get("root_path", "") or "").rstrip("/")
+            json_url = quote(f"{root}{self.panel_path}/requests.json", safe="/")
             status, body, kind = 200, _panel.html_body(json_url), "text/html"
         elif target == "json":
             assert self.history is not None
