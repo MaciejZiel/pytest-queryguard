@@ -12,7 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The development panel of an ASGI application mounted under a `root_path`
   serves its page and history at that prefix. Its JSON URL escapes path
   characters such as `?`, `#` and `%`, and a mount named like the panel no
-  longer makes the middleware take over the application's own root.
+  longer makes the middleware take over the application's own root. Found
+  and fixed by @Muguett-DBY (#210).
+- WSGI file responses preserve the server's native `wsgi.file_wrapper`
+  iterable, allowing the server to use its optimized transfer path. File
+  operations and cleanup stay in the request's query context, and the
+  report is finalized when the server closes the wrapper. Found and fixed
+  by @Muguett-DBY (#211).
 
 ## [0.5.0rc1] - 2026-10-24
 

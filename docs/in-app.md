@@ -141,6 +141,16 @@ way. The Flask test client does neither on its own: read the body
 (`response.data`, `response.get_json()`), use
 `with client.get(...) as response:`, or pass `buffered=True`.
 
+When the server provides `wsgi.file_wrapper` and the application returns an
+object created by it (for example, a Flask `send_file()` response), queryguard
+returns that native object unchanged. The server can still recognize it for
+its optimized file transfer. Operations on the supplied file run in the
+request's context; the report ends when the server closes the native wrapper,
+including on a partial transfer or a response whose body is not read. Queries
+in the file's cleanup count too. File methods such as `fileno()`, `seek()` and
+`tell()` remain available. This does not enable a native transfer on servers
+that do not already support one.
+
 ## Outside HTTP
 
 `track()` measures any block, for a job, a command or a message handler:
