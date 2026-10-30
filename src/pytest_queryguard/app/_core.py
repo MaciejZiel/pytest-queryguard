@@ -10,6 +10,7 @@ import contextvars
 import itertools
 import logging
 import os
+import re
 import threading
 import time
 import traceback
@@ -36,11 +37,25 @@ REPEAT_SCOPES = (SCOPE_REQUEST, SCOPE_SESSION)
 Reporter = Callable[["RequestReport"], object]
 ReportTarget = str | Reporter
 _TARGETS = ("log", "warn")
+_METHOD = re.compile(r"[A-Za-z][A-Za-z-]*")  # GET, M-SEARCH, VERSION-CONTROL
 
 
 def _check_threshold(name: str, value: object, minimum: int = 2) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
         raise ValueError(f"{name} must be an integer >= {minimum}, got {value!r}")
+
+
+def _split_budget_key(key: str) -> tuple[str, str]:
+    """``"GET /a b"`` -> ``("GET", "/a b")``; ``"/a b"`` -> ``("", "/a b")``.
+
+    The first word is a method only when it looks like one (letters and
+    hyphens), so a path with spaces keeps them; any whitespace separates the
+    method.
+    """
+    head, *rest = key.strip().split(None, 1)
+    if rest and _METHOD.fullmatch(head):
+        return head.upper(), rest[0].strip()
+    return "", key.strip()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -128,8 +143,8 @@ class Settings:
         """The statement budget of a request; ``default_budget`` without a match."""
         names = [name for name in (route, path) if name]
         for key, limit in self.budgets.items():
-            want_method, _, pattern = key.strip().rpartition(" ")
-            if want_method and (method or "").upper() != want_method.strip().upper():
+            want_method, pattern = _split_budget_key(key)
+            if want_method and (method or "").upper() != want_method:
                 continue
             if any(fnmatchcase(name, pattern) for name in names):
                 return limit

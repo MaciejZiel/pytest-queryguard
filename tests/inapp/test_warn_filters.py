@@ -115,6 +115,25 @@ def test_wsgi_raises_the_warning_once_after_a_successful_body(watched: Engine) -
 
 
 @pytest.mark.usefixtures("warnings_are_errors")
+def test_wsgi_keeps_the_servers_error_when_the_client_disconnects(
+    watched: Engine,
+) -> None:
+    # wsgiref and gunicorn close the body inside their handler of the write
+    # error; the warning must not replace it.
+    app = _wsgi(watched, fail=None)
+    environ = {"REQUEST_METHOD": "GET", "PATH_INFO": "/"}
+    result = app(environ, lambda status, headers, exc_info=None: None)
+    with pytest.raises(BrokenPipeError):
+        try:
+            for _chunk in result:
+                raise BrokenPipeError("the client went away")
+        except BaseException:
+            result.close()
+            raise
+    result.close()  # a later close() raises nothing either
+
+
+@pytest.mark.usefixtures("warnings_are_errors")
 def test_track_keeps_the_blocks_exception(watched: Engine) -> None:
     with (
         pytest.raises(AppError),

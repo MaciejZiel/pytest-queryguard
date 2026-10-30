@@ -188,6 +188,8 @@ The missing-index check does not run in the application.
 template (`/orders/{order_id}` in FastAPI and Starlette, the rule given to
 `set_route()` in Flask) and against the request path; the first matching key
 wins, so put specific keys first: `{"GET /orders/{order_id}": 2, "/admin/*": 50}`.
+The method is the key's first word when it is letters and hyphens only; the rest of the
+key, spaces included, is the path (`"GET /files/my docs/*"`).
 In an application mounted inside another (`app.mount("/api", sub_app)`), the
 template is the one inside the mounted application, without the mount prefix;
 the request path keeps it.

@@ -242,23 +242,27 @@ class _Body:
         try:
             if self._iter is None:
                 self._iter = iter(self._result)
-            chunk = next(self._iter)
+            return next(self._iter)
         except StopIteration:
-            # Include response cleanup before finalizing the report.
-            _core.current.reset(token)
-            self.close()
-            raise
+            pass
         except BaseException:
-            _core.current.reset(token)
             self._failed = True
             raise
-        _core.current.reset(token)
-        return chunk
+        finally:
+            _core.current.reset(token)
+        # Include response cleanup before finalizing the report; outside the
+        # except block, where close() would take it for an error.
+        self.close()
+        raise StopIteration
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        # A server closes the body while handling its own error, such as a
+        # client disconnect; do not replace that error with a budget warning.
+        if sys.exc_info()[0] is not None:
+            self._failed = True
         try:
             close = getattr(self._result, "close", None)
             if close is not None:

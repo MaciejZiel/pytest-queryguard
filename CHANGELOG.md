@@ -19,6 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operations and cleanup stay in the request's query context, and the
   report is finalized when the server closes the wrapper. Found and fixed
   by @Muguett-DBY (#211).
+- A budget key whose path has spaces (`"GET /files/my docs/*"`) matches; the
+  method is the key's first word when it is letters and hyphens only, and any whitespace
+  may separate it from the path.
+- Under a warnings `error` filter, the WSGI middleware no longer replaces the
+  server's error with a budget warning when the server closes the response
+  while handling it, as wsgiref and gunicorn do when the client disconnects.
+- The in-app mode no longer calls `Session.get_bind()` to tell which engine a
+  lazy load runs on, so an override of it, such as a `ShardedSession`'s
+  `shard_chooser` or a replica router, runs only when SQLAlchemy calls it. A
+  load whose SELECT runs on an unwatched engine is dropped as it runs, for
+  every kind of Session.
+- When the last watched engine is garbage collected without `unwatch()`, the
+  shared listeners return at once and the next `watch()` or `unwatch()`
+  removes them.
 
 ## [0.5.0rc1] - 2026-10-24
 
