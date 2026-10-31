@@ -94,8 +94,12 @@ with queryguard.track("nightly-job") as report:  # any unit of work
   (`do_orm_execute`, `after_begin`) exist only on `Session`; they are
   registered on the `Session` class while at least one engine is watched, and
   return after one `ContextVar.get()` outside a request. A relationship or
-  column load is only kept when its statement reaches a watched engine, so
-  sessions on other engines add nothing. The pytest listeners in
+  column load is only kept when its statement reaches a watched engine: a
+  `before_cursor_execute` listener on the `Engine` class, registered with
+  them, drops a pending load whose SELECT runs on an unwatched engine, so
+  sessions on other engines add nothing. The engine is never guessed with
+  `Session.get_bind()`, which may be application code (`ShardedSession`'s
+  `shard_chooser`, Flask-SQLAlchemy's binds, replica routers). The pytest listeners in
   `listeners.py` are not changed; the in-app handlers reuse its pure helpers
   (`_is_write`, the scope numbers) and the shared `QueryCollector`,
   `detect()` and `make_findings()`.
@@ -130,5 +134,6 @@ with queryguard.track("nightly-job") as report:  # any unit of work
   counted (documented).
 - Starlette background tasks run inside the request's ASGI call, so their
   statements count for the request (documented).
-- The `Session`-class listener costs one `ContextVar.get()` per ORM execution
-  in the whole process while any engine is watched.
+- The `Session`-class listeners cost one `ContextVar.get()` per ORM execution,
+  and the `Engine`-class one a `ContextVar.get()` per statement, in the whole
+  process while any engine is watched.
