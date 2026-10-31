@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import warnings
 from collections.abc import Iterator
 from typing import Any
@@ -105,13 +106,21 @@ def test_wsgi_keeps_the_apps_exception(watched: Engine, where: str) -> None:
 
 
 @pytest.mark.usefixtures("warnings_are_errors")
-def test_wsgi_raises_the_warning_once_after_a_successful_body(watched: Engine) -> None:
+def test_wsgi_logs_the_error_instead_of_cutting_the_body_short(
+    watched: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Raised from the body, the error would stop the server before the last
+    # chunk of a chunked response (gunicorn, waitress); it cannot fail a
+    # response that has started, so it is logged at ERROR instead.
     app = _wsgi(watched, fail=None)
     environ = {"REQUEST_METHOD": "GET", "PATH_INFO": "/"}
     result = app(environ, lambda status, headers, exc_info=None: None)
-    with pytest.raises(QueryGuardWarning, match="expected at most 0 queries"):
-        list(result)
-    result.close()  # the server's close() does not raise it again
+    with caplog.at_level(logging.ERROR, logger="pytest_queryguard.app"):
+        assert list(result) == [b"ok"]
+        result.close()  # the server's close() raises nothing either
+    (record,) = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert "expected at most 0 queries" in record.getMessage()
+    assert "QueryGuardWarning" in record.getMessage()
 
 
 @pytest.mark.usefixtures("warnings_are_errors")

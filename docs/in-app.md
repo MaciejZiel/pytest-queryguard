@@ -222,13 +222,14 @@ budget. `"log"` writes one WARNING record. `"warn"` issues
 `-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception,
 raised when the request ends, and only when the application did not raise
 its own: the application's exception always wins, and the other targets
-still run. In a server, the exception comes after the response has been
-sent, so the client gets the response and the server logs the error
-(uvicorn: `Exception in ASGI application`; gunicorn: `Error handling
-request`). A WSGI server also closes the connection then, and a streamed
-WSGI response without `Content-Length` (sent chunked) loses its final chunk:
-the client sees an incomplete response. This was observed with gunicorn and
-waitress. Every reported request warns: the `default` and `module` actions
+still run. In an ASGI server the exception comes after the response has been
+sent, so the client gets the whole response and the server logs the error
+(uvicorn: `Exception in ASGI application`). A WSGI response has started
+before its report is ready, and an exception raised from its body would only
+cut it short (a chunked response loses its final chunk under gunicorn and
+waitress), so the WSGI middleware logs it instead: one ERROR record on
+`pytest_queryguard.app`, starting `QueryGuardWarning:`. `track()` raises it
+as usual. Every reported request warns: the `default` and `module` actions
 do not hide a repeated message, while `once` keeps every distinct message in
 Python's process-wide registry. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and

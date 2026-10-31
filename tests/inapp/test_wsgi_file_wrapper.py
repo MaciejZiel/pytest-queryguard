@@ -212,11 +212,13 @@ def test_native_file_errors_and_warn_as_error_preserve_the_application_error(
                 with pytest.raises(RuntimeError, match="download read failed"):
                     list(body)
                 body.close()  # a budget warning must not hide the read error
+            elif failure:
+                assert b"".join(body) == b"ok"
+                with pytest.raises(RuntimeError):
+                    body.close()
             else:
                 assert b"".join(body) == b"ok"
-                error = RuntimeError if failure else QueryGuardWarning
-                with pytest.raises(error):
-                    body.close()
+                body.close()  # the budget error is logged, not raised
             body.close()
             _execute(watched, 403)
     assert len(app.reports) == 1
