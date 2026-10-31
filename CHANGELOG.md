@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `QueryGuardWSGI` with `report="warn"` under an `error` warnings filter logs
+  the error (one ERROR record on `pytest_queryguard.app`) instead of raising
+  it from the response body. Raised there, it could not fail the response,
+  only cut it short: under gunicorn and waitress a chunked response lost its
+  final chunk. ASGI and `track()` still raise it. The in-app mode is
+  experimental, so this has no deprecation period.
+
 ### Fixed
 
 - The in-app mode labels and counts column loads as the pytest plugin does;
@@ -36,8 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The reported `status` with Starlette's handlers for `500` or
     `Exception`, which run outside `add_middleware()`, and how to include
     them by wrapping the whole application.
-  - `report="warn"` under an `error` filter in a WSGI server cuts off the end
-    of a chunked response.
   - Watching Flask-SQLAlchemy engines and binds.
   - uvicorn takes the client address from `X-Forwarded-For` sent by
     `127.0.0.1`.

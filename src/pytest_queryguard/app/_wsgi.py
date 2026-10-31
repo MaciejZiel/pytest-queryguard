@@ -240,7 +240,7 @@ class _File:
         self._owner._finish(self._tracker)
         warning, self._tracker.warning = self._tracker.warning, None
         if warning is not None and not self._failed:
-            raise warning
+            _log_raised(warning)
 
 
 class _Body:
@@ -300,7 +300,18 @@ class _Body:
         warning, self._tracker.warning = self._tracker.warning, None
         if warning is not None and not self._failed:
             # "warn" under an "error" filter, and the app itself succeeded.
-            raise warning
+            _log_raised(warning)
+
+
+def _log_raised(warning: Warning) -> None:
+    """Log a budget warning that a filter turned into an error.
+
+    A WSGI response has started by the time its report is ready. Raised from
+    the body or its close(), the error cannot fail it; it only stops the
+    server early, and a chunked response loses its final chunk. So it is
+    logged at ERROR, as loud as the server's own error log would be.
+    """
+    _core.logger.error("%s: %s", type(warning).__name__, warning)
 
 
 def _start(settings: Settings, environ: Environ) -> Tracker | None:
