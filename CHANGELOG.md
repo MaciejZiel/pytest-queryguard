@@ -70,6 +70,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to an empty path, so the panel answered every path of the application, and
   a non-ASCII path never matched under WSGI.
 
+- The in-app mode labels and counts column loads as the pytest plugin does;
+  both now share one classification in `listeners.py`. A `session.refresh()`
+  of the object that the latest flush in the same request wrote is no longer
+  reported as `column-load 'Item (refresh)'` (one per class and flush, as in
+  the plugin). `session.refresh(obj, ["name"])` is a refresh, not an
+  `(expired)` load with the `expire_on_commit=False` hint. The column load of
+  a joined-inheritance subclass is recognised on SQLAlchemy before 2.0.30
+  (#161). The `lazy="selectin"` or `lazy="subquery"` loader that a refresh
+  runs for one object is no longer reported as a lazy load.
+
 ### Documentation
 
 - The FAQ shows how to check code that runs in a fixture, with

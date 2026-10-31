@@ -91,6 +91,7 @@ def test_the_session_listeners_after_the_last_watched_engine_is_collected(
     queryguard.unwatch(other)
     assert not event.contains(Session, "do_orm_execute", _listeners._on_orm_execute)
     assert not event.contains(Session, "after_begin", _listeners._on_after_begin)
+    assert not event.contains(Session, "after_flush", _listeners._on_after_flush)
     assert not event.contains(
         Engine, "before_cursor_execute", _listeners._on_unwatched_cursor_execute
     )
