@@ -11,6 +11,7 @@ import itertools
 import logging
 import os
 import re
+import sys
 import threading
 import time
 import traceback
@@ -457,8 +458,19 @@ def _emit(report: RequestReport, settings: Settings) -> Warning | None:
     for target in settings.targets:
         if target == "warn":
             # Follows the warning filters: "error" turns it into an exception.
+            # A throwaway registry: the "default" action would otherwise show
+            # each message once per process and keep every one of them in the
+            # caller's module registry, which grows for a long-running server.
+            caller = sys._getframe(1)
             try:
-                warnings.warn(QueryGuardWarning(report.message), stacklevel=2)
+                warnings.warn_explicit(
+                    QueryGuardWarning(report.message),
+                    QueryGuardWarning,
+                    caller.f_code.co_filename,
+                    caller.f_lineno,
+                    module=caller.f_globals.get("__name__"),
+                    registry={},
+                )
             except Warning as exc:
                 raised = exc
             continue

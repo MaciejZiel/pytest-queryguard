@@ -307,8 +307,11 @@ rest of the process; `queryguard.internal_error()` returns it. It is separate
 from the pytest plugin's own error state, so neither switches the other off.
 
 Importing `pytest_queryguard.app` or creating the middleware registers
-nothing; only `watch()` adds listeners, to that engine and, while any engine
-is watched, to `Session` for the ORM events. `unwatch(engine)` removes them.
+nothing; only `watch()` adds listeners: to that engine, and, while any engine
+is watched, to `Session` for the ORM events and to the `Engine` class, where
+one checks that a lazy load's SELECT runs on a watched engine. Outside a
+request those shared listeners return after one `ContextVar.get()`.
+`unwatch()` of the last watched engine removes them.
 `python scripts/bench_overhead.py --app` times a statement with the engine not
 watched, watched but outside a request, and inside one. On an in-memory SQLite
 database, on a machine that was busy with other work (load average 20 to 90

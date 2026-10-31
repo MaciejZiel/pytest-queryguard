@@ -148,6 +148,18 @@ def test_a_custom_path_and_root_path(watched: Engine) -> None:
     assert '"/api/debug/qg/requests.json"' in page
 
 
+def test_the_wsgi_json_url_escapes_the_script_name(watched: Engine) -> None:
+    app = QueryGuardWSGI(lambda environ, start: [], panel=True, report=[])
+    environ = {
+        "REQUEST_METHOD": "GET",
+        "SCRIPT_NAME": "/team #2",
+        "PATH_INFO": "/_queryguard/",
+        "REMOTE_ADDR": "127.0.0.1",
+    }
+    page = b"".join(app(environ, lambda status, headers: None)).decode()
+    assert 'const url = "/team%20%232/_queryguard/requests.json";' in page
+
+
 def test_the_json_url_is_escaped() -> None:
     page = html_body('/x"><script>alert(1)</script>').decode()
     assert "<script>alert(1)" not in page

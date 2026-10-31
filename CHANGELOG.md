@@ -43,6 +43,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its parent: its lazy loads are reported again, and `watch()` on it no
   longer counts every statement twice.
 
+- `report="warn"` warns for every reported request. Python's `default` warning
+  action showed each distinct message only once per process and kept every
+  one in a registry that grew for as long as the server ran.
+- The WSGI panel URL-escapes `SCRIPT_NAME` in the URL its page fetches, as the
+  ASGI panel already did for `root_path`, so a mount such as `/team #2` loads
+  its history.
+
 ### Documentation
 
 - The FAQ shows how to check code that runs in a fixture, with

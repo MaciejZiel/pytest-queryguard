@@ -164,3 +164,20 @@ def test_other_targets_still_run_when_the_warning_is_an_error(
         ):
             _query(watched)
     assert len(reports) == 1
+
+
+def test_every_report_warns_and_the_registry_does_not_grow(watched: Engine) -> None:
+    # A long-running server: the "default" action must not hide repeats, and
+    # Python's per-module warning registry must not keep each message.
+    from pytest_queryguard.app import _core
+
+    registry = vars(_core).setdefault("__warningregistry__", {})
+    before = len(registry)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("default")
+        for _ in range(3):
+            with queryguard.track("same", default_budget=0, report="warn"):
+                _query(watched)
+    assert len(caught) == 3
+    assert all(issubclass(w.category, QueryGuardWarning) for w in caught)
+    assert len(registry) == before

@@ -12,6 +12,7 @@ import sys
 from collections.abc import Callable, Iterable, Iterator
 from types import TracebackType
 from typing import Any
+from urllib.parse import quote
 
 from . import _core, _panel
 from ._core import RequestReport, Settings, Tracker
@@ -136,7 +137,7 @@ class QueryGuardWSGI:
             )
         elif target == "html":
             root = environ.get("SCRIPT_NAME", "") or ""
-            json_url = f"{root}{self.panel_path}/requests.json"
+            json_url = quote(f"{root}{self.panel_path}/requests.json", safe="/")
             status, body, kind = "200 OK", _panel.html_body(json_url), "text/html"
         elif target == "json":
             assert self.history is not None
