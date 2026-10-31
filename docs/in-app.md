@@ -84,6 +84,17 @@ queryguard: expected at most 1 query, got 2
 
 A request without findings and within its budget logs nothing.
 
+A request's `status` is the one in the response it sends. An endpoint that
+raises before sending one is reported with `500`. In Starlette and FastAPI,
+a handler for `500` or `Exception`
+(`@app.exception_handler(Exception)`) runs in Starlette's outermost
+`ServerErrorMiddleware`, outside every `add_middleware()` layer. The report
+then shows `500` even when that handler answers with another status, and
+the handler's statements are not counted. To include both, wrap the whole
+application instead of calling `add_middleware()`:
+`app = queryguard.QueryGuardASGI(app, ...)`. Handlers for other exceptions and
+statuses run inside the middleware and are reported as sent.
+
 ## Flask and other WSGI applications
 
 Wrap `app.wsgi_app`. WSGI has no route templates, so a `before_request` hook
@@ -113,6 +124,17 @@ if os.environ.get("APP_ENV") == "development":
         if request.url_rule is not None:
             queryguard.set_route(request.url_rule.rule)
 ```
+
+With Flask-SQLAlchemy, the engines exist only inside an application context:
+
+```python
+with app.app_context():
+    queryguard.watch(db.engine)  # the default bind
+    queryguard.watch(db.engines["audit"])  # a bind from SQLALCHEMY_BINDS
+```
+
+Only watched engines count. A bind you do not watch adds no statements and
+no findings to the request, even when one Session uses several binds.
 
 The same lazy-load loop in a Flask view:
 
@@ -200,7 +222,13 @@ budget. `"log"` writes one WARNING record. `"warn"` issues
 `-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception,
 raised when the request ends, and only when the application did not raise
 its own: the application's exception always wins, and the other targets
-still run. Every reported request warns: the `default` and `module` actions
+still run. In a server, the exception comes after the response has been
+sent, so the client gets the response and the server logs the error
+(uvicorn: `Exception in ASGI application`; gunicorn: `Error handling
+request`). A WSGI server also closes the connection then, and a streamed
+WSGI response without `Content-Length` (sent chunked) loses its final chunk:
+the client sees an incomplete response. This was observed with gunicorn and
+waitress. Every reported request warns: the `default` and `module` actions
 do not hide a repeated message, while `once` keeps every distinct message in
 Python's process-wide registry. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and
@@ -230,15 +258,23 @@ An exception in a callable is logged and does not reach the request.
   third-party code) with each request's statements, timings and findings;
 - `/_queryguard/requests.json`: the same data as JSON, newest first.
 
-`panel_path` moves both. By default the panel answers only loopback clients
+`panel_path` moves both. The history is kept in memory by each server
+process. With several workers (`uvicorn --workers 2`, `gunicorn -w 2`) each
+worker has its own history and holds only the requests it served. A page
+load or refresh shows whichever worker answered it, so the list changes from one
+refresh to the next. Run a single worker while you use the panel, or use a
+`report` callable to collect reports from every worker in one place.
+
+By default the panel answers only loopback clients
 (`127.0.0.0/8`, `::1`); a peer without an address, such as a connection on a
 Unix socket, is refused too. So is a request whose `Host` header names another
 site than this machine (`localhost`, `*.localhost` or a loopback address; `testserver` only from
 Starlette's test client): a web page whose name was rebound
 to `127.0.0.1` cannot read the panel. This guards against exposing it by
 accident and is not access control: behind a reverse proxy on the same machine
-every client is the proxy, and a server that trusts proxy headers from anyone
-(uvicorn's `forwarded_allow_ips="*"`, a `ProxyFix` in front of an open port)
+every client is the proxy (unless the server takes the client address from
+the proxy's `X-Forwarded-For`, as uvicorn does for `127.0.0.1` by default),
+and a server that trusts proxy headers from anyone (uvicorn's `forwarded_allow_ips="*"`, a `ProxyFix` in front of an open port)
 or a tunnel that rewrites the Host header lets a remote client look local.
 
 ### A token for staging
@@ -327,9 +363,17 @@ so concurrent requests never mix:
 
 A thread you start yourself (`threading.Thread`, a `ThreadPoolExecutor`)
 starts with an empty context: its statements are not counted for any request,
-unless you run it with `contextvars.copy_context().run(...)`. Starlette
-background tasks run before the ASGI call returns, so their statements count
-for the request that scheduled them.
+unless you run it with `contextvars.copy_context().run(...)`.
+
+Starlette and FastAPI `BackgroundTasks` run after the response has been sent
+but before the ASGI call returns, also under `BaseHTTPMiddleware`. Their
+statements count for the request that scheduled them. The report is made only
+after they finish, so the log record and the panel entry arrive after the
+client has its response, and the request's `duration` includes them. The same
+holds for a `StreamingResponse`: statements made while its body is produced
+count. A request ends when its body is complete or the client disconnects, so
+a long-lived response, such as a server-sent events stream, is reported only
+when it closes.
 
 Python 3.14 can start threads with a copy of the creating thread's context
 instead. That is the default on free-threaded builds (3.14t) and can be turned
