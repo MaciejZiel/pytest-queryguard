@@ -191,7 +191,9 @@ def test_the_json_url_keeps_an_ampersand() -> None:
     assert 'const url = "/a&b/_queryguard/requests.json";' in page
 
 
-@pytest.mark.parametrize("path", ["", "/", "relative", None])
+@pytest.mark.parametrize(
+    "path", ["", "/", "//", "///", "/a//b", "relative", "/pänel", None]
+)
 def test_a_bad_panel_path_is_refused(path: object) -> None:
     with pytest.raises(ValueError, match="panel_path"):
         QueryGuardASGI(lambda *a: None, panel=True, panel_path=path)  # type: ignore[arg-type]

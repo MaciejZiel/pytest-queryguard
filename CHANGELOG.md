@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ASGI panel already did for `root_path`, so a mount such as `/team #2` or
   `/café` loads its history.
 
+- `panel_path` must be ASCII and have no empty segment. `"//"` normalised
+  to an empty path, so the panel answered every path of the application, and
+  a non-ASCII path never matched under WSGI.
+
 ### Documentation
 
 - The FAQ shows how to check code that runs in a fixture, with

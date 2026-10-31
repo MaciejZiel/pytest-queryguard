@@ -68,11 +68,25 @@ class History:
 
 
 def normalize_path(path: str) -> str:
-    if not isinstance(path, str) or not path.startswith("/") or len(path) < 2:
+    """``"/_queryguard/"`` -> ``"/_queryguard"``.
+
+    ASCII only: WSGI hands the path over as latin-1-decoded bytes, so another
+    character would never match there. No empty segment either: ``"//"``
+    would normalise to ``""`` and take over every path of the application.
+    """
+    normalized = path.rstrip("/") if isinstance(path, str) else ""
+    if (
+        not isinstance(path, str)
+        or not path.startswith("/")
+        or not normalized
+        or "//" in normalized
+        or not normalized.isascii()
+    ):
         raise ValueError(
-            f"panel_path must start with '/' and name a path, got {path!r}"
+            "panel_path must start with '/' and name a path of ASCII "
+            f"characters, got {path!r}"
         )
-    return path.rstrip("/")
+    return normalized
 
 
 def check_token(token: object, panel: bool, loopback_only: bool) -> bytes | None:

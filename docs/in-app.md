@@ -237,7 +237,9 @@ site than this machine (`localhost`, `*.localhost` or a loopback address; `tests
 Starlette's test client): a web page whose name was rebound
 to `127.0.0.1` cannot read the panel. This guards against exposing it by
 accident and is not access control: behind a reverse proxy on the same machine
-every client is the proxy.
+every client is the proxy, and a server that trusts proxy headers from anyone
+(uvicorn's `forwarded_allow_ips="*"`, a `ProxyFix` in front of an open port)
+or a tunnel that rewrites the Host header lets a remote client look local.
 
 ### A token for staging
 
