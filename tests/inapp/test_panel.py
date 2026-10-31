@@ -103,10 +103,18 @@ def test_the_panel_refuses_other_clients_by_default(watched: Engine) -> None:
     with TestClient(app, client=("203.0.113.9", 4000)) as client:
         assert client.get("/_queryguard/requests.json").status_code == 403
     open_app = QueryGuardASGI(
-        _fastapi(watched), panel=True, panel_loopback_only=False, report=[]
+        _fastapi(watched),
+        panel=True,
+        panel_loopback_only=False,
+        panel_token="t" * 16,
+        report=[],
     )
     with TestClient(open_app, client=("203.0.113.9", 4000)) as client:
-        assert client.get("/_queryguard/requests.json").status_code == 200
+        response = client.get(
+            "/_queryguard/requests.json",
+            headers={"authorization": "Bearer " + "t" * 16},
+        )
+        assert response.status_code == 200
 
 
 @pytest.mark.parametrize(
