@@ -86,6 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `record_queries()` and `assert_no_nplusone()`. Suggested by @Muguett-DBY.
 - The in-app example installs `sqlalchemy[asyncio]`: SQLAlchemy 2.1 no longer
   pulls in greenlet, which the async engine needs.
+- The free-threaded note in Getting started says that CI runs the in-app
+  mode's tests (`tests/inapp`) on CPython 3.14t; it said those builds were
+  not in the CI matrix.
 
 ## [0.5.0rc1] - 2026-10-24
 
