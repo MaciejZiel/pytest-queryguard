@@ -219,12 +219,21 @@ _watched: weakref.WeakSet[Engine] = weakref.WeakSet()
 _session_listeners = False
 
 
-def _in_watched(engine: Any) -> bool:
-    """Whether ``engine`` or an engine it was derived from is watched.
+def _in_chain(engine: Any, ancestor: Engine) -> bool:
+    """Whether ``engine`` is ``ancestor`` or was derived from it.
 
     ``engine.execution_options(...)`` returns an ``OptionEngine`` that shares
     its parent's listeners; ``_proxied`` leads back to that parent.
     """
+    while engine is not None:
+        if engine is ancestor:
+            return True
+        engine = getattr(engine, "_proxied", None)
+    return False
+
+
+def _in_watched(engine: Any) -> bool:
+    """Whether ``engine`` or an engine it was derived from is watched."""
     while engine is not None:
         if engine in _watched:
             return True
@@ -249,12 +258,18 @@ def watch(engine: Any) -> None:
     Takes an ``Engine`` or an ``AsyncEngine``; calling it again for the same
     engine does nothing. Call it at startup, before the engine hands out
     connections: a ``Connection`` opened earlier does not see the listeners.
+    An engine made with ``engine.execution_options()`` shares its parent's
+    listeners: watching the parent covers it, and watching the parent after
+    it moves its listeners to the parent.
     """
     sync = _sync_engine(engine)
     with _lock:
         _drop_session_listeners_if_unused()
         if _in_watched(sync):
             return
+        # Engines derived from this one would run both sets of listeners.
+        for derived in [e for e in _watched if _in_chain(e, sync)]:
+            _remove_engine_listeners(derived)
         event.listen(sync, "before_cursor_execute", _on_before_cursor_execute)
         event.listen(sync, "after_cursor_execute", _on_after_cursor_execute)
         _watched.add(sync)
@@ -262,14 +277,22 @@ def watch(engine: Any) -> None:
 
 
 def unwatch(engine: Any) -> None:
-    """Stop measuring ``engine``; does nothing when it is not watched."""
+    """Stop measuring ``engine``; does nothing when it was not passed to watch().
+
+    An engine watched through its parent (see ``watch()``) shares the parent's
+    listeners and stops with ``unwatch(parent)``.
+    """
     sync = _sync_engine(engine)
     with _lock:
         if sync in _watched:
-            event.remove(sync, "before_cursor_execute", _on_before_cursor_execute)
-            event.remove(sync, "after_cursor_execute", _on_after_cursor_execute)
-            _watched.discard(sync)
+            _remove_engine_listeners(sync)
         _drop_session_listeners_if_unused()
+
+
+def _remove_engine_listeners(engine: Engine) -> None:
+    event.remove(engine, "before_cursor_execute", _on_before_cursor_execute)
+    event.remove(engine, "after_cursor_execute", _on_after_cursor_execute)
+    _watched.discard(engine)
 
 
 def _add_session_listeners() -> None:

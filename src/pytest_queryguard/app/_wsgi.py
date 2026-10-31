@@ -136,8 +136,11 @@ class QueryGuardWSGI:
                 "text/plain",
             )
         elif target == "html":
-            root = environ.get("SCRIPT_NAME", "") or ""
-            json_url = quote(f"{root}{self.panel_path}/requests.json", safe="/")
+            # PEP 3333: SCRIPT_NAME holds the raw bytes, decoded as latin-1.
+            root = (environ.get("SCRIPT_NAME", "") or "").rstrip("/")
+            json_url = quote(
+                f"{root}{self.panel_path}/requests.json", safe="/", encoding="latin-1"
+            )
             status, body, kind = "200 OK", _panel.html_body(json_url), "text/html"
         elif target == "json":
             assert self.history is not None

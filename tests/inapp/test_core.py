@@ -369,6 +369,19 @@ def test_an_engine_with_execution_options_counts_as_watched(watched: Engine) -> 
     assert "Order.customer" in {q.relationship for q in report.statements}
 
 
+def test_watching_the_parent_after_an_option_engine_counts_once(engine: Engine) -> None:
+    option = engine.execution_options(isolation_level="SERIALIZABLE")
+    queryguard.watch(option)
+    queryguard.watch(engine)
+    with queryguard.track(report=[]) as report:
+        _lazy_loop(option)
+    assert report.statement_count == 1 + CUSTOMERS
+    queryguard.unwatch(option)  # watched through its parent now
+    assert queryguard.is_watched(option)
+    queryguard.unwatch(engine)
+    assert not queryguard.is_watched(option)
+
+
 def test_a_custom_get_bind_is_not_called_again(watched: Engine) -> None:
     chosen: list[object] = []
 

@@ -37,18 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With `panel_loopback_only` on (the default), the panel also refuses a
   request whose `Host` header names another site, so a web page whose name
   was rebound to `127.0.0.1` (DNS rebinding) cannot read the SQL it shows.
-  Requests to `localhost`, `*.localhost`, a loopback address or Starlette's
-  `testserver` are answered as before.
+  Requests to `localhost`, `*.localhost` or a loopback address, and
+  Starlette's test client (`testserver`), are answered as before.
 - An engine made with `engine.execution_options(...)` counts as watched with
-  its parent: its lazy loads are reported again, and `watch()` on it no
-  longer counts every statement twice.
+  its parent: its lazy loads are reported again, and watching both it and its
+  parent, in either order, no longer counts every statement twice.
 
 - `report="warn"` warns for every reported request. Python's `default` warning
   action showed each distinct message only once per process and kept every
   one in a registry that grew for as long as the server ran.
 - The WSGI panel URL-escapes `SCRIPT_NAME` in the URL its page fetches, as the
-  ASGI panel already did for `root_path`, so a mount such as `/team #2` loads
-  its history.
+  ASGI panel already did for `root_path`, so a mount such as `/team #2` or
+  `/café` loads its history.
 
 ### Documentation
 

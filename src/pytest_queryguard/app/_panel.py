@@ -20,8 +20,9 @@ from ._core import RequestReport
 
 # Starlette's TestClient reports its client as "testclient".
 _LOOPBACK_NAMES = frozenset(("localhost", "testclient"))
-# And sends Host "testserver": a single-label name, never a public site's.
-_TEST_HOST = "testserver"
+# And sends Host "testserver"; accepted only together with that client name,
+# which no network peer has, as a search domain could resolve the bare name.
+_TEST_CLIENT, _TEST_HOST = "testclient", "testserver"
 HEADERS = (
     ("cache-control", "no-store"),
     ("x-content-type-options", "nosniff"),
@@ -99,7 +100,10 @@ def host_name(host_header: str) -> str:
 def is_loopback_host(host_header: str) -> bool:
     """A Host header that names this machine: an address, localhost, *.localhost."""
     name = host_name(host_header)
-    return is_loopback(name) or name.endswith(".localhost") or name == _TEST_HOST
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    # An address; not the "testclient" name, which is a client's, not a host's.
+    return name not in _LOOPBACK_NAMES and is_loopback(name)
 
 
 def allowed(
@@ -117,7 +121,11 @@ def allowed(
         return True
     if client is None or not is_loopback(client):
         return False
-    return host_header is None or is_loopback_host(host_header)
+    if host_header is None:
+        return True
+    if client == _TEST_CLIENT and host_name(host_header) == _TEST_HOST:
+        return True
+    return is_loopback_host(host_header)
 
 
 def json_body(history: History) -> bytes:

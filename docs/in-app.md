@@ -200,7 +200,9 @@ budget. `"log"` writes one WARNING record. `"warn"` issues
 `-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception,
 raised when the request ends, and only when the application did not raise
 its own: the application's exception always wins, and the other targets
-still run. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
+still run. Every reported request warns: the `default` and `module` actions
+do not hide a repeated message, while `once` keeps every distinct message in
+Python's process-wide registry. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and
 `duration`), `statement_count`, `db_time`, `duration`, `findings`, `budget`,
 `over_budget` and `message`:
@@ -231,8 +233,8 @@ An exception in a callable is logged and does not reach the request.
 `panel_path` moves both. By default the panel answers only loopback clients
 (`127.0.0.0/8`, `::1`); a peer without an address, such as a connection on a
 Unix socket, is refused too. So is a request whose `Host` header names another
-site than this machine (`localhost`, `*.localhost`, a loopback address, or
-`testserver` for Starlette's test client): a web page whose name was rebound
+site than this machine (`localhost`, `*.localhost` or a loopback address; `testserver` only from
+Starlette's test client): a web page whose name was rebound
 to `127.0.0.1` cannot read the panel. `panel_loopback_only=False` lifts both. This
 guards against exposing it by accident and is not access control: behind a
 reverse proxy on the same machine every client is the proxy.
