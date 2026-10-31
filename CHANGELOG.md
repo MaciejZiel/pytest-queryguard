@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared listeners return at once and the next `watch()` or `unwatch()`
   removes them.
 
+### Documentation
+
+- The FAQ shows how to check code that runs in a fixture, with
+  `record_queries()` and `assert_no_nplusone()`. Suggested by @Muguett-DBY.
+
 ## [0.5.0rc1] - 2026-10-24
 
 Release candidate: install it with `pip install --pre pytest-queryguard`.
