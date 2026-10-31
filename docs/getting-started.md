@@ -13,9 +13,10 @@ with pytest: there is nothing to import or configure. `pytest -VV` lists it
 
 !!! note "Free-threaded Python"
     The free-threaded builds (CPython 3.13t and 3.14t, no GIL) are not in the
-    CI matrix and not in the package classifiers, so they are not a supported
-    configuration. The test suite was run once on CPython 3.14.4t with
-    SQLAlchemy 2.1.1 and passed; 3.13t was not tried. On those builds the
+    package classifiers, so they are not a supported configuration. CI runs
+    only the in-app mode's tests (`tests/inapp`) on 3.14t, not the whole
+    suite. The whole suite was run once on CPython 3.14.4t with SQLAlchemy
+    2.1.1 and passed; 3.13t was not tried. On those builds the
     counters of a measurement (statements, loads and database time) are
     updated under a lock, so statements from several threads are all counted
     and budgets hold; on a build with the GIL no lock is taken. The stored

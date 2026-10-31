@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The in-app mode labels and counts column loads as the pytest plugin does;
+  both now share one classification in `listeners.py`. A `session.refresh()`
+  of the object that the latest flush in the same request wrote is no longer
+  reported as `column-load 'Item (refresh)'` (one per class and flush, as in
+  the plugin). `session.refresh(obj, ["name"])` is a refresh, not an
+  `(expired)` load with the `expire_on_commit=False` hint. The column load of
+  a joined-inheritance subclass is recognised on SQLAlchemy before 2.0.30
+  (#161). The `lazy="selectin"` or `lazy="subquery"` loader that a refresh
+  runs for one object is no longer reported as a lazy load.
+
+### Documentation
+
+- The in-app example installs `sqlalchemy[asyncio]`: SQLAlchemy 2.1 no longer
+  pulls in greenlet, which the async engine needs.
+- The free-threaded note in Getting started says that CI runs the in-app
+  mode's tests (`tests/inapp`) on CPython 3.14t; it said those builds were
+  not in the CI matrix.
+
 ## [0.5.0rc2] - 2026-10-31
 
 Second release candidate: install it with `pip install --pre pytest-queryguard`.
