@@ -51,12 +51,13 @@ projects (only Litestar, pytest-asyncio and SQLModel may be missing).
 
 ## How the overhead is measured
 
-A shared GitHub runner is noisy, and the noise is not the same on every
-machine: with the earlier method (each configuration in its own process, the
-median of 15) the same code measured a Core ratio from 0.27 to 0.45 on
-different runners, and the same high value again when it was measured a
-second time on the same runner, so the gate failed about every other run on
-unchanged code.
+The ratio of the overhead check is (time per statement with the measurement
+on − time with it off) / time with it off, for a Core and an ORM loop against
+in-memory SQLite. A GitHub runner is not one machine: `ubuntu-latest` runs on
+several CPU models, and the ratio depends on the model. The earlier method
+(each configuration in its own process, the median of 15) also moved from
+run to run, so with one baseline for all runners the gate failed about every
+other run on unchanged code.
 
 `scripts/bench_gate.py` therefore times the measurement off and on in the
 same process: 7 processes (`--processes`), each with 20 rounds (`--rounds`)
@@ -64,30 +65,52 @@ of a block of 1000 statements off and a block on, in alternating order, with
 a new collector for each "on" block and a garbage collection before every
 block. A process's ratio is (on − off) / off of its fastest "off" and fastest
 "on" block, since noise only adds time; the result is the median over the
-processes. When a loop is over the limit, the gate measures again, up to 3
-times in all (`--attempts`), and the best result of each loop counts. The
-check takes about two minutes on the runner, at most about six with all
+processes. On one CPU model the result repeats within about 0.01. Between
+models it does not (gate runs on pull request 219, 16 runs):
+
+| CPU model | runs | Core | ORM |
+|---|---|---|---|
+| AMD EPYC 7763 | 9 | 0.275 to 0.291 | 0.233 to 0.245 |
+| AMD EPYC 9V45 | 3 | 0.364 to 0.375 | 0.267 to 0.281 |
+| AMD EPYC 9V74 | 2 | 0.276 to 0.277 | 0.318 to 0.321 |
+| Intel Xeon 6973P-C | 1 | 0.280 | 0.263 |
+| Intel Xeon 6975P-C | 1 | 0.277 | 0.267 |
+
+So `scripts/bench_baseline.json` has an entry per CPU model (`machines`,
+keyed by the `model name` in `/proc/cpuinfo`, which the job prints), and its
+top-level `core` and `orm` are the highest of those entries: the baseline of a
+CPU without an entry. When a loop is over the limit, the gate measures again,
+up to 3 times in all (`--attempts`), and the best result of each loop counts.
+The check takes one to two minutes on the runner, at most about four with all
 three attempts.
 
-A real regression is in every attempt: a plugin 1.5 times slower per
-statement raises both ratios to about 1.5 times the baseline, well over the
-125 % limit.
+A regression shows on every CPU and in every attempt. An overhead per
+statement 1.5 times the current one is a ratio 1.5 times the baseline, over
+the 125 % limit on every CPU model with an entry. An increase below about
+20 % can pass; the margin is what keeps the gate quiet on unchanged code. On a
+CPU model without an entry, the limit comes from the highest entry, so only a
+larger regression fails there.
 
 ## When a threshold has to change
 
 The accuracy minimums and the overhead baseline are floors against
 regressions. Raise them in the pull request that improves the result. Lower
-them only in a pull request that says why. The overhead baseline is recorded on the GitHub runner
-(`ubuntu-latest`, Python 3.12) that runs the gate, because the ratio depends on
-the machine: it is the mean of the gate's results over several green runs
-there (Core 0.297, ORM 0.267). Record it from those runs, not from a laptop: save the
-log of the `overhead` job of each green gate run and let the script average
-the `ratios:` lines,
+them only in a pull request that says why.
+
+The overhead baseline is recorded on the GitHub runner (`ubuntu-latest`,
+Python 3.12) that runs the gate, never on a laptop: each CPU model's entry is
+the mean of the gate's results on that model over several green runs. To
+record it, save the log of the `overhead` job of each green gate run and let
+the script average the `ratios:` lines per CPU model:
 
 ```bash
 gh run view RUN_ID --log --job JOB_ID > gate-1.log   # for each green run
 uv run python scripts/bench_gate.py --record gate-*.log
 ```
 
-It refuses a log without a passing overhead check. `--update` measures on the
-current machine and writes the result, which is only right on that runner.
+This replaces the entries of the CPU models in the logs, keeps the others and
+recomputes the top-level values. It refuses a log without a passing overhead
+check. When the gate fails on a CPU model that has no entry yet, and the code
+did not change, record that model from the failed log with
+`--record LOG --even-failed`. `--update` measures on the current machine and
+writes its entry, which is only right on the runner.

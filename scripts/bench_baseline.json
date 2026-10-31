@@ -1,4 +1,26 @@
 {
-  "core": 0.297,
-  "orm": 0.267
+  "core": 0.37,
+  "orm": 0.32,
+  "machines": {
+    "AMD EPYC 7763 64-Core Processor": {
+      "core": 0.281,
+      "orm": 0.24
+    },
+    "AMD EPYC 9V45 96-Core Processor": {
+      "core": 0.37,
+      "orm": 0.272
+    },
+    "AMD EPYC 9V74 80-Core Processor": {
+      "core": 0.277,
+      "orm": 0.32
+    },
+    "Intel(R) Xeon(R) 6973P-C": {
+      "core": 0.28,
+      "orm": 0.263
+    },
+    "Intel(R) Xeon(R) 6975P-C": {
+      "core": 0.277,
+      "orm": 0.267
+    }
+  }
 }

@@ -1,4 +1,4 @@
-"""scripts/bench_gate.py: the retry rule and recording a baseline from gate logs."""
+"""scripts/bench_gate.py: the retry rule, per-CPU baselines and recording them."""
 
 from __future__ import annotations
 
@@ -27,9 +27,21 @@ def gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModuleType:
     monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
     baseline = tmp_path / "bench_baseline.json"
-    baseline.write_text(json.dumps({"core": 0.2, "orm": 0.3}))
+    baseline.write_text(
+        json.dumps(
+            {
+                "core": 0.4,
+                "orm": 0.5,
+                "machines": {
+                    "Test CPU": {"core": 0.2, "orm": 0.3},
+                    "Other CPU": {"core": 0.4, "orm": 0.5},
+                },
+            }
+        )
+    )
     monkeypatch.setattr(module, "BASELINE", baseline)
-    monkeypatch.setattr(module, "_machine", lambda: "test machine")
+    monkeypatch.setattr(module, "_cpu", lambda: "Test CPU")
+    monkeypatch.setattr(module, "_machine", lambda: "Test CPU, 4 CPUs")
     return module
 
 
@@ -79,25 +91,58 @@ def test_a_regression_on_every_attempt_fails(gate, monkeypatch, capsys):
     assert gate.OK not in out
 
 
-def test_record_writes_the_mean_of_green_gate_logs(gate, tmp_path, capsys):
+def test_a_cpu_without_an_entry_uses_the_highest_recorded(gate, monkeypatch, capsys):
+    monkeypatch.setattr(gate, "_cpu", lambda: "New CPU")
+    measurements(gate, monkeypatch, {"core": 0.45, "orm": 0.55})
+    assert gate.main(["--factor", "1.25", "--slack", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "baseline:  {'core': 0.4, 'orm': 0.5}" in out
+    assert "no entry for this CPU" in out
+
+
+def gate_log(path: Path, cpu: str, ratios: dict[str, float], ok: bool = True) -> str:
     prefix = "overhead\tUNKNOWN STEP\t2026-11-01T00:00:00.0000000Z "
-    logs = []
-    for index, ratios in enumerate(
-        ({"core": 0.2, "orm": 0.3}, {"core": 0.3, "orm": 0.4})
-    ):
-        log = tmp_path / f"gate-{index}.log"
-        log.write_text(
-            f"{prefix}attempt 1:\n{prefix}ratios: {json.dumps(ratios)}\n"
-            f"{prefix}{gate.OK}\n"
-        )
-        logs.append(str(log))
+    lines = [
+        f"machine:   {cpu}, 4 CPUs, clock source tsc, Python 3.12.16",
+        "attempt 1:",
+        f"ratios: {json.dumps(ratios)}",
+        "ok: per-statement overhead is within the allowed margin"
+        if ok
+        else "FAIL core: overhead",
+    ]
+    path.write_text("".join(f"{prefix}{line}\n" for line in lines))
+    return str(path)
+
+
+def test_record_writes_the_mean_per_cpu_and_keeps_other_cpus(gate, tmp_path):
+    logs = [
+        gate_log(tmp_path / "1.log", "Test CPU", {"core": 0.2, "orm": 0.3}),
+        gate_log(tmp_path / "2.log", "Test CPU", {"core": 0.3, "orm": 0.4}),
+        gate_log(tmp_path / "3.log", "New CPU", {"core": 0.6, "orm": 0.1}),
+    ]
     assert gate.main(["--record", *logs]) == 0
-    assert json.loads(gate.BASELINE.read_text()) == {"core": 0.25, "orm": 0.35}
+    assert json.loads(gate.BASELINE.read_text()) == {
+        "core": 0.6,
+        "orm": 0.5,
+        "machines": {
+            "New CPU": {"core": 0.6, "orm": 0.1},
+            "Other CPU": {"core": 0.4, "orm": 0.5},
+            "Test CPU": {"core": 0.25, "orm": 0.35},
+        },
+    }
 
 
 def test_record_refuses_a_failed_gate_log(gate, tmp_path):
-    log = tmp_path / "gate.log"
-    log.write_text('ratios: {"core": 0.5, "orm": 0.5}\nFAIL core: overhead\n')
+    before = gate.BASELINE.read_text()
+    log = gate_log(tmp_path / "1.log", "Test CPU", {"core": 0.5, "orm": 0.5}, ok=False)
     with pytest.raises(SystemExit, match="not the log of a passing"):
-        gate.main(["--record", str(log)])
-    assert json.loads(gate.BASELINE.read_text()) == {"core": 0.2, "orm": 0.3}
+        gate.main(["--record", log])
+    assert gate.BASELINE.read_text() == before
+
+
+def test_record_reads_a_failed_log_only_when_asked(gate, tmp_path):
+    log = gate_log(tmp_path / "1.log", "New CPU", {"core": 0.7, "orm": 0.2}, ok=False)
+    assert gate.main(["--record", log, "--even-failed"]) == 0
+    recorded = json.loads(gate.BASELINE.read_text())
+    assert recorded["machines"]["New CPU"] == {"core": 0.7, "orm": 0.2}
+    assert recorded["core"] == 0.7
