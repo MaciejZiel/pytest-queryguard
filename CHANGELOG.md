@@ -26,6 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The free-threaded note in Getting started says that CI runs the in-app
   mode's tests (`tests/inapp`) on CPython 3.14t; it said those builds were
   not in the CI matrix.
+- `docs/in-app.md`, from running the in-application mode under uvicorn,
+  granian, gunicorn (sync, gthread, gevent), waitress and the Flask
+  development server:
+  - Each server process keeps its own panel history, so with several workers
+    the panel shows only what the worker that answered has served.
+  - `BackgroundTasks` and streamed bodies count for their request, and
+    the report arrives after the client has its response.
+  - The reported `status` with Starlette's handlers for `500` or
+    `Exception`, which run outside `add_middleware()`, and how to include
+    them by wrapping the whole application.
+  - `report="warn"` under an `error` filter in a WSGI server cuts off the end
+    of a chunked response.
+  - Watching Flask-SQLAlchemy engines and binds.
+  - uvicorn takes the client address from `X-Forwarded-For` sent by
+    `127.0.0.1`.
 
 ## [0.5.0rc2] - 2026-10-31
 
