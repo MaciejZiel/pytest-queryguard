@@ -103,10 +103,56 @@ def test_the_panel_refuses_other_clients_by_default(watched: Engine) -> None:
     with TestClient(app, client=("203.0.113.9", 4000)) as client:
         assert client.get("/_queryguard/requests.json").status_code == 403
     open_app = QueryGuardASGI(
-        _fastapi(watched), panel=True, panel_loopback_only=False, report=[]
+        _fastapi(watched),
+        panel=True,
+        panel_loopback_only=False,
+        panel_token="t" * 16,
+        report=[],
     )
     with TestClient(open_app, client=("203.0.113.9", 4000)) as client:
-        assert client.get("/_queryguard/requests.json").status_code == 200
+        response = client.get(
+            "/_queryguard/requests.json",
+            headers={"authorization": "Bearer " + "t" * 16},
+        )
+        assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("host", "status"),
+    [
+        ("attacker.example:8000", 403),
+        ("testserver.attacker.example", 403),
+        ("testclient", 403),
+        ("testserver", 200),  # Starlette's TestClient, from client "testclient"
+        ("localhost.attacker.example", 403),
+        ("localhost:8000", 200),
+        ("LOCALHOST.", 200),
+        ("app.localhost:8000", 200),
+        ("127.0.0.1:8000", 200),
+        ("[::1]:8000", 200),
+    ],
+)
+def test_the_panel_refuses_a_rebound_host_name(
+    watched: Engine, host: str, status: int
+) -> None:
+    # DNS rebinding: a page on attacker.example, its name now resolving to
+    # 127.0.0.1, reads the panel as a same-origin URL from a loopback client.
+    app = QueryGuardASGI(_fastapi(watched), panel=True, report=[])
+    with TestClient(app, client=("127.0.0.1", 4000)) as client:
+        response = client.get("/_queryguard/requests.json", headers={"host": host})
+    # A real loopback peer: "testserver" could be a search-domain name.
+    real = 403 if host == "testserver" else status
+    assert response.status_code == real
+    with TestClient(app) as client:  # client "testclient"
+        response = client.get("/_queryguard/requests.json", headers={"host": host})
+    assert response.status_code == status
+    flask_app = Flask(__name__)
+    wsgi = QueryGuardWSGI(flask_app.wsgi_app, panel=True, report=[])
+    flask_app.wsgi_app = wsgi  # type: ignore[method-assign]
+    response = flask_app.test_client().get(
+        "/_queryguard/requests.json", headers={"Host": host}
+    )
+    assert response.status_code == real
 
 
 def test_a_custom_path_and_root_path(watched: Engine) -> None:
@@ -114,6 +160,22 @@ def test_a_custom_path_and_root_path(watched: Engine) -> None:
     with TestClient(app, root_path="/api") as client:
         page = client.get("/debug/qg").text
     assert '"/api/debug/qg/requests.json"' in page
+
+
+def test_the_wsgi_json_url_escapes_the_script_name(watched: Engine) -> None:
+    app = QueryGuardWSGI(lambda environ, start: [], panel=True, report=[])
+    environ = {
+        "REQUEST_METHOD": "GET",
+        "SCRIPT_NAME": "/team #2",
+        "PATH_INFO": "/_queryguard/",
+        "REMOTE_ADDR": "127.0.0.1",
+    }
+    page = b"".join(app(environ, lambda status, headers: None)).decode()
+    assert 'const url = "/team%20%232/_queryguard/requests.json";' in page
+    # Raw UTF-8 bytes of "/café/", decoded as latin-1 per PEP 3333.
+    environ["SCRIPT_NAME"] = "/café/".encode().decode("latin-1")
+    page = b"".join(app(environ, lambda status, headers: None)).decode()
+    assert 'const url = "/caf%C3%A9/_queryguard/requests.json";' in page
 
 
 def test_the_json_url_is_escaped() -> None:
@@ -129,7 +191,9 @@ def test_the_json_url_keeps_an_ampersand() -> None:
     assert 'const url = "/a&b/_queryguard/requests.json";' in page
 
 
-@pytest.mark.parametrize("path", ["", "/", "relative", None])
+@pytest.mark.parametrize(
+    "path", ["", "/", "//", "///", "/a//b", "relative", "/pänel", None]
+)
 def test_a_bad_panel_path_is_refused(path: object) -> None:
     with pytest.raises(ValueError, match="panel_path"):
         QueryGuardASGI(lambda *a: None, panel=True, panel_path=path)  # type: ignore[arg-type]

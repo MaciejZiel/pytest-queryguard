@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `panel_token` for `QueryGuardASGI` and `QueryGuardWSGI`. It is required
+  with `panel_loopback_only=False`: without one the middleware raises
+  `ValueError`. The panel's `requests.json` then answers only
+  `Authorization: Bearer <token>` and refuses anything else with `401`; the
+  page reads the token from its URL fragment (`/_queryguard/#token=...`).
+  See `docs/in-app.md`.
+
+### Changed
+
+- `QueryGuardASGI` and `QueryGuardWSGI` with `panel=True` and
+  `panel_loopback_only=False` raise `ValueError` without a `panel_token`. An
+  application that sets `panel_loopback_only=False` must add a token. The
+  in-app mode is experimental, so this has no deprecation period.
+
 ### Fixed
 
 - The development panel of an ASGI application mounted under a `root_path`
@@ -19,6 +35,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operations and cleanup stay in the request's query context, and the
   report is finalized when the server closes the wrapper. Found and fixed
   by @Muguett-DBY (#211).
+- A budget key whose path has spaces (`"GET /files/my docs/*"`) matches; the
+  method is the key's first word when it is letters and hyphens only, and any whitespace
+  may separate it from the path.
+- Under a warnings `error` filter, the WSGI middleware no longer replaces the
+  server's error with a budget warning when the server closes the response
+  while handling it, as wsgiref and gunicorn do when the client disconnects.
+- The in-app mode no longer calls `Session.get_bind()` to tell which engine a
+  lazy load runs on, so an override of it, such as a `ShardedSession`'s
+  `shard_chooser` or a replica router, runs only when SQLAlchemy calls it. A
+  load whose SELECT runs on an unwatched engine is dropped as it runs, for
+  every kind of Session.
+- When the last watched engine is garbage collected without `unwatch()`, the
+  shared listeners return at once and the next `watch()` or `unwatch()`
+  removes them.
+
+- With `panel_loopback_only` on (the default), the panel also refuses a
+  request whose `Host` header names another site, so a web page whose name
+  was rebound to `127.0.0.1` (DNS rebinding) cannot read the SQL it shows.
+  Requests to `localhost`, `*.localhost` or a loopback address, and
+  Starlette's test client (`testserver`), are answered as before.
+- An engine made with `engine.execution_options(...)` counts as watched with
+  its parent: its lazy loads are reported again, and watching both it and its
+  parent, in either order, no longer counts every statement twice.
+
+- `report="warn"` warns for every reported request. Python's `default` warning
+  action showed each distinct message only once per process and kept every
+  one in a registry that grew for as long as the server ran.
+- The WSGI panel URL-escapes `SCRIPT_NAME` in the URL its page fetches, as the
+  ASGI panel already did for `root_path`, so a mount such as `/team #2` or
+  `/café` loads its history.
+
+- `panel_path` must be ASCII and have no empty segment. `"//"` normalised
+  to an empty path, so the panel answered every path of the application, and
+  a non-ASCII path never matched under WSGI.
+
+### Documentation
+
+- The FAQ shows how to check code that runs in a fixture, with
+  `record_queries()` and `assert_no_nplusone()`. Suggested by @Muguett-DBY.
 
 ## [0.5.0rc1] - 2026-10-24
 

@@ -188,6 +188,8 @@ The missing-index check does not run in the application.
 template (`/orders/{order_id}` in FastAPI and Starlette, the rule given to
 `set_route()` in Flask) and against the request path; the first matching key
 wins, so put specific keys first: `{"GET /orders/{order_id}": 2, "/admin/*": 50}`.
+The method is the key's first word when it is letters and hyphens only; the rest of the
+key, spaces included, is the path (`"GET /files/my docs/*"`).
 In an application mounted inside another (`app.mount("/api", sub_app)`), the
 template is the one inside the mounted application, without the mount prefix;
 the request path keeps it.
@@ -198,7 +200,9 @@ budget. `"log"` writes one WARNING record. `"warn"` issues
 `-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception,
 raised when the request ends, and only when the application did not raise
 its own: the application's exception always wins, and the other targets
-still run. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
+still run. Every reported request warns: the `default` and `module` actions
+do not hide a repeated message, while `once` keeps every distinct message in
+Python's process-wide registry. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and
 `duration`), `statement_count`, `db_time`, `duration`, `findings`, `budget`,
 `over_budget` and `message`:
@@ -228,9 +232,62 @@ An exception in a callable is logged and does not reach the request.
 
 `panel_path` moves both. By default the panel answers only loopback clients
 (`127.0.0.0/8`, `::1`); a peer without an address, such as a connection on a
-Unix socket, is refused too. `panel_loopback_only=False` lifts that. This
-guards against exposing it by accident and is not access control: behind a
-reverse proxy on the same machine every client is the proxy.
+Unix socket, is refused too. So is a request whose `Host` header names another
+site than this machine (`localhost`, `*.localhost` or a loopback address; `testserver` only from
+Starlette's test client): a web page whose name was rebound
+to `127.0.0.1` cannot read the panel. This guards against exposing it by
+accident and is not access control: behind a reverse proxy on the same machine
+every client is the proxy, and a server that trusts proxy headers from anyone
+(uvicorn's `forwarded_allow_ips="*"`, a `ProxyFix` in front of an open port)
+or a tunnel that rewrites the Host header lets a remote client look local.
+
+### A token for staging
+
+`panel_loopback_only=False` lifts both checks, and then the middleware needs a
+`panel_token`: without one it raises `ValueError` when it is created. The
+token must have at least 16 characters, from letters, digits and `-._~+/`;
+`secrets.token_urlsafe(32)` makes one. Keep it out of the code, for example in
+an environment variable:
+
+```python
+import os
+
+from pytest_queryguard import app as queryguard
+
+# Staging only: never in production.
+if os.environ.get("APP_ENV") == "staging":
+    queryguard.watch(engine)
+    app.add_middleware(
+        queryguard.QueryGuardASGI,
+        panel=True,
+        panel_loopback_only=False,
+        panel_token=os.environ["QUERYGUARD_PANEL_TOKEN"],
+    )
+```
+
+```bash
+export QUERYGUARD_PANEL_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+```
+
+`/_queryguard/requests.json` then answers only a request with
+`Authorization: Bearer <token>`; any other gets `401` with
+`WWW-Authenticate: Bearer`. The HTML page holds no data and needs no token.
+Open it with the token in the URL fragment,
+`https://staging.example.com/_queryguard/#token=<token>`: the page reads it
+there and sends it in that header. A browser never sends the fragment to the
+server, but it stays in the browser's history. A token may also be set with
+`panel_loopback_only` on; then both checks apply.
+
+```bash
+curl -H "Authorization: Bearer $QUERYGUARD_PANEL_TOKEN" \
+    https://staging.example.com/_queryguard/requests.json
+```
+
+Serve the panel over HTTPS: the token is a password sent with every refresh.
+
+A WSGI server must pass the `Authorization` header on to the application.
+Most do; Apache's mod_wsgi drops it unless `WSGIPassAuthorization On` is set,
+and the panel then answers `401` to the right token.
 
 For ASGI applications, `panel_path` is relative to the application's
 `root_path`. An application mounted at `/api` serves the default panel at
@@ -302,17 +359,25 @@ rest of the process; `queryguard.internal_error()` returns it. It is separate
 from the pytest plugin's own error state, so neither switches the other off.
 
 Importing `pytest_queryguard.app` or creating the middleware registers
-nothing; only `watch()` adds listeners, to that engine and, while any engine
-is watched, to `Session` for the ORM events. `unwatch(engine)` removes them.
+nothing; only `watch()` adds listeners: to that engine, and, while any engine
+is watched, to `Session` for the ORM events and to the `Engine` class, where
+one checks that a lazy load's SELECT runs on a watched engine. Outside a
+request those shared listeners return after one `ContextVar.get()`.
+`unwatch()` of the last watched engine removes them.
 `python scripts/bench_overhead.py --app` times a statement with the engine not
 watched, watched but outside a request, and inside one. On an in-memory SQLite
-database, on a machine that was busy with other work (load average 20 to 90
-on 16 cores; minimum of 21 runs, microseconds per statement):
+database, on a 16-core laptop that was otherwise idle (load average 1.3 to
+1.6, balanced power profile, Python 3.14, SQLAlchemy 2.1; minimum of 21 runs,
+microseconds per statement):
 
 | Statement | Not watched | Watched, outside a request | Inside a request |
 |---|---|---|---|
-| Core `SELECT` | 41.7 | 46.4 (+4.7) | 53.2 (+11.5) |
-| ORM `select()` | 74.3 | 93.9 (+19.6) | 96.1 (+21.9) |
+| Core `SELECT` | 71.7 | 85.0 (+13.3) | 94.5 (+22.7) |
+| ORM `select()` | 144.3 | 167.6 (+23.3) | 191.7 (+47.3) |
+
+Run to run, these numbers move by a few microseconds; the shared `Session`
+and `Engine` listeners cost well under one microsecond of that when timed on
+their own.
 
 Treat these as an order of magnitude and measure your own application; see
 [Performance](performance.md) for the method.

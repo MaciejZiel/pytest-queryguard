@@ -123,7 +123,8 @@ by the index check, with a notice in the session summary.
 
 ## Why was nothing reported for my test?
 
-- the code under test ran in a fixture, not in the test body;
+- the code under test ran in a fixture, not in the test body (see
+  [the next question](#the-code-i-want-to-check-runs-in-a-fixture));
 - the statements did not come through SQLAlchemy (a raw `sqlite3` or other
   DB-API connection, the Django ORM, Peewee, Tortoise ORM): the plugin does not
   see them, and `--queryguard-report` shows 0 statements for the test;
@@ -131,6 +132,48 @@ by the index check, with a notice in the session summary.
   pattern;
 - the count is below the threshold. `--queryguard-report` shows how many
   statements each test ran.
+
+## The code I want to check runs in a fixture
+
+Only the test body is measured, on purpose: seeding data is meant to run many
+queries, and a session-scoped fixture would otherwise charge its setup to
+whichever test happens to run first. When the fixture is the code under test,
+wrap that code in [`record_queries()`](python-api.md) and check the log:
+
+```python
+import pytest
+
+from pytest_queryguard import record_queries
+
+
+@pytest.fixture
+def report_data(session):
+    with record_queries() as log:
+        data = build_report_data(session)  # include the relationship reads
+    log.assert_no_nplusone()
+    return data
+```
+
+An N+1 in `build_report_data` then fails the setup of every test that uses
+the fixture, with the usual message:
+
+```text
+E       pytest_queryguard.NPlusOneDetected: queryguard: N+1 detected
+E         Order.customer was lazy-loaded 3 times
+E         first at test_recipe.py:40 in build_report_data
+```
+
+Two things to keep in mind:
+
+- only the block is recorded: a relationship the test reads later, after the
+  fixture returned, is a lazy load outside it (and is measured with the test
+  body instead);
+- the block records statements from every thread while it runs, so keep
+  unrelated background work, such as a server thread started by another
+  fixture, out of it.
+
+Thanks to @Muguett-DBY for
+[the recipe](https://github.com/pytest-dev/pytest/discussions/15166).
 
 ## Does it slow my tests down?
 

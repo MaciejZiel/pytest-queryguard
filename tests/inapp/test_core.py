@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import subprocess
 import sys
 import warnings
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import create_engine, event, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.horizontal_shard import ShardedSession
 from sqlalchemy.orm import Session, joinedload
 
 from pytest_queryguard import QueryGuardWarning, record_queries
@@ -65,6 +68,33 @@ def test_watch_and_unwatch_are_idempotent(engine: Engine) -> None:
     )
     # The Session listeners go with the last watched engine.
     assert not event.contains(Session, "do_orm_execute", _listeners._on_orm_execute)
+
+
+def test_the_session_listeners_after_the_last_watched_engine_is_collected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gone = create_engine(f"sqlite:///{tmp_path / 'gone.sqlite'}")
+    queryguard.watch(gone)
+    gone.dispose()
+    del gone
+    gc.collect()
+    assert not _listeners._watched
+    # Still registered, but they do nothing until a watch() or unwatch() call.
+    assert event.contains(Session, "do_orm_execute", _listeners._on_orm_execute)
+    calls: list[object] = []
+    monkeypatch.setattr(_listeners, "find_callsite", lambda: calls.append(1))
+    other = create_engine("sqlite://")
+    seed(other)
+    with queryguard.track(report=[]):
+        _lazy_loop(other)
+    assert calls == []
+    queryguard.unwatch(other)
+    assert not event.contains(Session, "do_orm_execute", _listeners._on_orm_execute)
+    assert not event.contains(Session, "after_begin", _listeners._on_after_begin)
+    assert not event.contains(
+        Engine, "before_cursor_execute", _listeners._on_unwatched_cursor_execute
+    )
+    other.dispose()
 
 
 def test_watch_takes_the_sync_engine_of_an_async_engine(
@@ -238,6 +268,33 @@ def test_budget_keys(
     assert settings.budget_for(method, route, path) == budget
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "budget"),
+    [
+        ("GET", "/files/my docs/a", 2),
+        ("POST", "/files/my docs/a", None),
+        ("GET", "/search results", 5),
+        ("GET", "/tab", 7),
+        ("GET", "/a  b", 8),
+        ("M-SEARCH", "/upnp", 9),
+        ("GET", "/upnp", None),
+    ],
+)
+def test_budget_keys_with_whitespace(
+    method: str, path: str, budget: int | None
+) -> None:
+    settings = Settings(
+        budgets={
+            "GET /files/my docs/*": 2,
+            "/search results": 5,
+            "GET\t/tab": 7,
+            "GET   /a  b": 8,
+            "M-SEARCH /upnp": 9,
+        }
+    )
+    assert settings.budget_for(method, None, path) == budget
+
+
 def test_settings_copy_the_budgets() -> None:
     budgets = {"/a": 1}
     settings = Settings(budgets=budgets)
@@ -298,15 +355,72 @@ def test_an_error_at_the_end_of_a_unit_is_contained(
     assert isinstance(queryguard.internal_error(), RuntimeError)
 
 
+def test_an_engine_with_execution_options_counts_as_watched(watched: Engine) -> None:
+    # execution_options() returns an OptionEngine that shares the listeners
+    # (schema_translate_map, isolation levels); its loads must still count.
+    option = watched.execution_options(isolation_level="SERIALIZABLE")
+    nested = option.execution_options(schema_translate_map={None: None})
+    assert queryguard.is_watched(option) and queryguard.is_watched(nested)
+    queryguard.watch(option)  # already watched through its parent: no-op
+    with queryguard.track(report=[]) as report:
+        _lazy_loop(nested)
+    assert report.statement_count == 1 + CUSTOMERS
+    assert "relationship-load" in {f.kind for f in report.findings}
+    assert "Order.customer" in {q.relationship for q in report.statements}
+
+
+def test_watching_the_parent_after_an_option_engine_counts_once(engine: Engine) -> None:
+    option = engine.execution_options(isolation_level="SERIALIZABLE")
+    queryguard.watch(option)
+    queryguard.watch(engine)
+    with queryguard.track(report=[]) as report:
+        _lazy_loop(option)
+    assert report.statement_count == 1 + CUSTOMERS
+    queryguard.unwatch(option)  # watched through its parent now
+    assert queryguard.is_watched(option)
+    queryguard.unwatch(engine)
+    assert not queryguard.is_watched(option)
+
+
+def test_a_custom_get_bind_is_not_called_again(watched: Engine) -> None:
+    chosen: list[object] = []
+
+    def shard_chooser(mapper: object, instance: object, clause: object = None) -> str:
+        chosen.append(instance)  # application code: it may count or rotate
+        return "a"
+
+    with (
+        queryguard.track(report=[]) as report,
+        ShardedSession(
+            shards={"a": watched},
+            shard_chooser=shard_chooser,
+            identity_chooser=lambda *args, **kwargs: ["a"],
+            execute_chooser=lambda context: ["a"],
+        ) as session,
+    ):
+        names = [o.customer.name for o in session.scalars(select(Order))]
+    assert len(names) == CUSTOMERS * 2
+    assert chosen == []
+    assert "relationship-load" in {f.kind for f in report.findings}
+
+
+class RoutingSession(Session):
+    """A get_bind override, as in Flask-SQLAlchemy or a replica router."""
+
+    def get_bind(self, *args: Any, **kwargs: Any) -> Any:
+        return super().get_bind(*args, **kwargs)
+
+
+@pytest.mark.parametrize("session_class", [Session, RoutingSession])
 def test_a_load_on_an_unwatched_engine_is_not_credited_to_a_watched_one(
-    watched: Engine, tmp_path: Path
+    watched: Engine, tmp_path: Path, session_class: type[Session]
 ) -> None:
     other = create_engine(f"sqlite:///{tmp_path / 'other.sqlite'}")
     seed(other)
     try:
         with (
             queryguard.track(report=[]) as report,
-            Session(other) as session,
+            session_class(other) as session,
             watched.connect() as conn,
         ):
             for order in session.scalars(select(Order)):

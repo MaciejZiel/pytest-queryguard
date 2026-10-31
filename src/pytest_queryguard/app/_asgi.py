@@ -27,8 +27,10 @@ class QueryGuardASGI:
     Takes a ``Settings`` or its fields as keyword arguments, so
     ``app.add_middleware(QueryGuardASGI, budgets={...})`` works in Starlette
     and FastAPI. With ``panel=True`` it also serves the development panel at
-    ``panel_path``; by default only to loopback clients. Never enable the
-    panel in production.
+    ``panel_path``; by default only to loopback clients. With
+    ``panel_loopback_only=False`` it needs ``panel_token``, which
+    ``requests.json`` then requires as a Bearer token. Never enable the panel
+    in production.
     """
 
     def __init__(
@@ -40,6 +42,7 @@ class QueryGuardASGI:
         panel_path: str = "/_queryguard",
         panel_history: int = 50,
         panel_loopback_only: bool = True,
+        panel_token: str | None = None,
         **options: Any,
     ) -> None:
         self.app = app
@@ -47,6 +50,9 @@ class QueryGuardASGI:
         self.panel = bool(panel)
         self.panel_path = _panel.normalize_path(panel_path)
         self.panel_loopback_only = panel_loopback_only
+        self._panel_token = _panel.check_token(
+            panel_token, self.panel, panel_loopback_only
+        )
         self.history = _panel.History(panel_history) if self.panel else None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -102,12 +108,18 @@ class QueryGuardASGI:
         host = client[0] if client else None
         if scope.get("method") not in ("GET", "HEAD"):
             status, body, kind = 405, b"method not allowed", "text/plain"
-        elif not _panel.allowed(host, self.panel_loopback_only):
+        elif not _panel.allowed(
+            host, self.panel_loopback_only, _header(scope, b"host")
+        ):
             status, body, kind = (
                 403,
                 b"the panel answers loopback clients only",
                 "text/plain",
             )
+        elif target == "json" and not _panel.authorized(
+            self._panel_token, _header(scope, b"authorization")
+        ):
+            status, body, kind = 401, _panel.UNAUTHORIZED, "text/plain"
         elif target == "html":
             root = (scope.get("root_path", "") or "").rstrip("/")
             json_url = quote(f"{root}{self.panel_path}/requests.json", safe="/")
@@ -122,6 +134,9 @@ class QueryGuardASGI:
             (b"content-length", str(len(body)).encode()),
         ]
         headers += [(k.encode(), v.encode()) for k, v in _panel.HEADERS]
+        if status == 401:
+            name, value = _panel.CHALLENGE
+            headers.append((name.encode(), value.encode()))
         await send(
             {"type": "http.response.start", "status": status, "headers": headers}
         )
@@ -151,3 +166,11 @@ def _start(settings: Settings, scope: Scope) -> Tracker | None:
     except Exception as exc:  # noqa: BLE001  # never break the application
         _core.fail(exc, "the start of a request")
         return None
+
+
+def _header(scope: Scope, name: bytes) -> str | None:
+    """The first value of a request header, or None when it is absent."""
+    for key, value in scope.get("headers") or ():
+        if key.lower() == name:
+            return bytes(value).decode("latin-1")
+    return None

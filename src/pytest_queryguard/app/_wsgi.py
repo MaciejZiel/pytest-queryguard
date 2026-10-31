@@ -12,6 +12,7 @@ import sys
 from collections.abc import Callable, Iterable, Iterator
 from types import TracebackType
 from typing import Any
+from urllib.parse import quote
 
 from . import _core, _panel
 from ._core import RequestReport, Settings, Tracker
@@ -28,7 +29,9 @@ class QueryGuardWSGI:
     Wrap the application callable, for Flask ``app.wsgi_app``. Takes a
     ``Settings`` or its fields as keyword arguments. With ``panel=True`` it
     also serves the development panel at ``panel_path``; by default only to
-    loopback clients. Never enable the panel in production.
+    loopback clients. With ``panel_loopback_only=False`` it needs
+    ``panel_token``, which ``requests.json`` then requires as a Bearer token.
+    Never enable the panel in production.
     """
 
     def __init__(
@@ -40,6 +43,7 @@ class QueryGuardWSGI:
         panel_path: str = "/_queryguard",
         panel_history: int = 50,
         panel_loopback_only: bool = True,
+        panel_token: str | None = None,
         **options: Any,
     ) -> None:
         self.app = app
@@ -47,6 +51,9 @@ class QueryGuardWSGI:
         self.panel = bool(panel)
         self.panel_path = _panel.normalize_path(panel_path)
         self.panel_loopback_only = panel_loopback_only
+        self._panel_token = _panel.check_token(
+            panel_token, self.panel, panel_loopback_only
+        )
         self.history = _panel.History(panel_history) if self.panel else None
 
     def __call__(
@@ -124,15 +131,30 @@ class QueryGuardWSGI:
                 b"method not allowed",
                 "text/plain",
             )
-        elif not _panel.allowed(environ.get("REMOTE_ADDR"), self.panel_loopback_only):
+        elif not _panel.allowed(
+            environ.get("REMOTE_ADDR"),
+            self.panel_loopback_only,
+            environ.get("HTTP_HOST"),
+        ):
             status, body, kind = (
                 "403 Forbidden",
                 b"the panel answers loopback clients only",
                 "text/plain",
             )
+        elif target == "json" and not _panel.authorized(
+            self._panel_token, environ.get("HTTP_AUTHORIZATION")
+        ):
+            status, body, kind = (
+                "401 Unauthorized",
+                _panel.UNAUTHORIZED,
+                "text/plain",
+            )
         elif target == "html":
-            root = environ.get("SCRIPT_NAME", "") or ""
-            json_url = f"{root}{self.panel_path}/requests.json"
+            # PEP 3333: SCRIPT_NAME holds the raw bytes, decoded as latin-1.
+            root = (environ.get("SCRIPT_NAME", "") or "").rstrip("/")
+            json_url = quote(
+                f"{root}{self.panel_path}/requests.json", safe="/", encoding="latin-1"
+            )
             status, body, kind = "200 OK", _panel.html_body(json_url), "text/html"
         elif target == "json":
             assert self.history is not None
@@ -148,6 +170,8 @@ class QueryGuardWSGI:
             ("Content-Length", str(len(body))),
             *_panel.HEADERS,
         ]
+        if status.startswith("401"):
+            headers.append(_panel.CHALLENGE)
         start_response(status, headers)
         return [b"" if method == "HEAD" else body]
 
@@ -242,23 +266,27 @@ class _Body:
         try:
             if self._iter is None:
                 self._iter = iter(self._result)
-            chunk = next(self._iter)
+            return next(self._iter)
         except StopIteration:
-            # Include response cleanup before finalizing the report.
-            _core.current.reset(token)
-            self.close()
-            raise
+            pass
         except BaseException:
-            _core.current.reset(token)
             self._failed = True
             raise
-        _core.current.reset(token)
-        return chunk
+        finally:
+            _core.current.reset(token)
+        # Include response cleanup before finalizing the report; outside the
+        # except block, where close() would take it for an error.
+        self.close()
+        raise StopIteration
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        # A server closes the body while handling its own error, such as a
+        # client disconnect; do not replace that error with a budget warning.
+        if sys.exc_info()[0] is not None:
+            self._failed = True
         try:
             close = getattr(self._result, "close", None)
             if close is not None:

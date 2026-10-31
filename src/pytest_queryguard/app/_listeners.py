@@ -31,16 +31,11 @@ from ..listeners import _is_write, scope_of_connection, scope_of_session
 from . import _core
 
 # The relationship or column load of the ORM execution whose statement comes
-# next, with the collector it was seen for and the engine it will run on (None
-# if unknown). Context-local, so concurrent tasks of one request cannot take
-# each other's; the engine keeps a load on an unwatched engine from being
-# credited to the next statement on a watched one.
-_Pending = tuple[
-    QueryCollector,
-    RelationshipLoadEvent | None,
-    ColumnLoadEvent | None,
-    Engine | None,
-]
+# next, with the collector it was seen for. Context-local, so concurrent tasks
+# of one request cannot take each other's. A read on an unwatched engine drops
+# it (_on_unwatched_cursor_execute), so it is not credited to the next
+# statement on a watched one.
+_Pending = tuple[QueryCollector, RelationshipLoadEvent | None, ColumnLoadEvent | None]
 _pending: contextvars.ContextVar[_Pending | None] = contextvars.ContextVar(
     "queryguard_app_pending", default=None
 )
@@ -79,29 +74,17 @@ def _column_load(state: ORMExecuteState) -> ColumnLoadEvent | None:
     )
 
 
-def _bind_engine(state: ORMExecuteState) -> Engine | None:
-    """The engine this ORM execution will run on, or None if it cannot tell."""
-    try:
-        bind = state.session.get_bind(**state.bind_arguments)
-    except Exception:  # noqa: BLE001  # unknown: match any engine, as before
-        return None
-    engine = getattr(bind, "engine", None)
-    return engine if isinstance(engine, Engine) else None
-
-
 def _on_orm_execute(state: ORMExecuteState) -> None:
     active = _core.live()
-    if active is None or _core._error is not None:
+    # No watched engine: the last one was collected without unwatch(). Checked
+    # after live(), which is cheaper and ends most calls outside a request.
+    if active is None or _core._error is not None or not _watched:
         return
     try:
         collector = active.collector
         if state.is_column_load:
             load = _column_load(state)
-            _pending.set(
-                (collector, None, load, _bind_engine(state))
-                if load is not None
-                else None
-            )
+            _pending.set((collector, None, load) if load is not None else None)
             return
         if not state.is_relationship_load:
             if _pending.get() is not None:
@@ -121,14 +104,14 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             getattr(prop, "uselist", None) is False,
             scope_of_session(state.session),
         )
-        _pending.set((collector, rel, None, _bind_engine(state)))
+        _pending.set((collector, rel, None))
     except Exception as exc:  # noqa: BLE001  # never break the application
         _core.fail(exc, "the do_orm_execute listener")
 
 
 def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
     """Tag the connection with its Session, for repeat_scope="session"."""
-    if _core.live() is None or _core._error is not None:
+    if _core.live() is None or _core._error is not None or not _watched:
         return
     try:
         scope = scope_of_session(session)
@@ -160,10 +143,7 @@ def _on_before_cursor_execute(
             pending = _pending.get()
             if pending is not None:
                 _pending.set(None)
-                engine = pending[3]
-                if pending[0] is collector and (
-                    engine is None or engine is getattr(conn, "engine", None)
-                ):
+                if pending[0] is collector:
                     rel, col = pending[1], pending[2]
         # Loads are kept only when their statement reaches a watched engine.
         if rel is not None:
@@ -186,6 +166,26 @@ def _on_before_cursor_execute(
             setattr(context, _TIMING_ATTR, (stmt, collector, time.perf_counter()))
     except Exception as exc:  # noqa: BLE001  # never break the application
         _core.fail(exc, "the before_cursor_execute listener")
+
+
+def _on_unwatched_cursor_execute(
+    conn: Any,
+    cursor: Any,
+    statement: str,
+    parameters: Any,
+    context: Any,
+    executemany: bool,
+) -> None:
+    """Drop the pending load when its SELECT runs on an unwatched engine.
+
+    Registered on every Engine, so the engine a load runs on need not be
+    guessed with ``Session.get_bind()``: an override of it, such as a
+    ``ShardedSession``'s ``shard_chooser``, is application code.
+    """
+    if _pending.get() is None or _is_write(statement):
+        return
+    if not _in_watched(getattr(conn, "engine", None)):
+        _pending.set(None)
 
 
 def _on_after_cursor_execute(
@@ -218,6 +218,28 @@ _watched: weakref.WeakSet[Engine] = weakref.WeakSet()
 _session_listeners = False
 
 
+def _in_chain(engine: Any, ancestor: Engine) -> bool:
+    """Whether ``engine`` is ``ancestor`` or was derived from it.
+
+    ``engine.execution_options(...)`` returns an ``OptionEngine`` that shares
+    its parent's listeners; ``_proxied`` leads back to that parent.
+    """
+    while engine is not None:
+        if engine is ancestor:
+            return True
+        engine = getattr(engine, "_proxied", None)
+    return False
+
+
+def _in_watched(engine: Any) -> bool:
+    """Whether ``engine`` or an engine it was derived from is watched."""
+    while engine is not None:
+        if engine in _watched:
+            return True
+        engine = getattr(engine, "_proxied", None)
+    return False
+
+
 def _sync_engine(engine: Any) -> Engine:
     if isinstance(engine, Engine):
         return engine
@@ -235,37 +257,70 @@ def watch(engine: Any) -> None:
     Takes an ``Engine`` or an ``AsyncEngine``; calling it again for the same
     engine does nothing. Call it at startup, before the engine hands out
     connections: a ``Connection`` opened earlier does not see the listeners.
+    An engine made with ``engine.execution_options()`` shares its parent's
+    listeners: watching the parent covers it, and watching the parent after
+    it moves its listeners to the parent.
     """
-    global _session_listeners
     sync = _sync_engine(engine)
     with _lock:
-        if sync in _watched:
+        _drop_session_listeners_if_unused()
+        if _in_watched(sync):
             return
+        # Engines derived from this one would run both sets of listeners.
+        for derived in [e for e in _watched if _in_chain(e, sync)]:
+            _remove_engine_listeners(derived)
         event.listen(sync, "before_cursor_execute", _on_before_cursor_execute)
         event.listen(sync, "after_cursor_execute", _on_after_cursor_execute)
         _watched.add(sync)
-        if not _session_listeners:
-            event.listen(Session, "do_orm_execute", _on_orm_execute)
-            event.listen(Session, "after_begin", _on_after_begin)
-            _session_listeners = True
+        _add_session_listeners()
 
 
 def unwatch(engine: Any) -> None:
-    """Stop measuring ``engine``; does nothing when it is not watched."""
-    global _session_listeners
+    """Stop measuring ``engine``; does nothing when it was not passed to watch().
+
+    An engine watched through its parent (see ``watch()``) shares the parent's
+    listeners and stops with ``unwatch(parent)``.
+    """
     sync = _sync_engine(engine)
     with _lock:
-        if sync not in _watched:
-            return
-        event.remove(sync, "before_cursor_execute", _on_before_cursor_execute)
-        event.remove(sync, "after_cursor_execute", _on_after_cursor_execute)
-        _watched.discard(sync)
-        if not _watched and _session_listeners:
-            event.remove(Session, "do_orm_execute", _on_orm_execute)
-            event.remove(Session, "after_begin", _on_after_begin)
-            _session_listeners = False
+        if sync in _watched:
+            _remove_engine_listeners(sync)
+        _drop_session_listeners_if_unused()
+
+
+def _remove_engine_listeners(engine: Engine) -> None:
+    event.remove(engine, "before_cursor_execute", _on_before_cursor_execute)
+    event.remove(engine, "after_cursor_execute", _on_after_cursor_execute)
+    _watched.discard(engine)
+
+
+def _add_session_listeners() -> None:
+    global _session_listeners
+    if not _session_listeners:
+        event.listen(Session, "do_orm_execute", _on_orm_execute)
+        event.listen(Session, "after_begin", _on_after_begin)
+        event.listen(Engine, "before_cursor_execute", _on_unwatched_cursor_execute)
+        _session_listeners = True
+
+
+def _drop_session_listeners_if_unused() -> None:
+    """Remove the shared Session and Engine listeners once no engine is watched.
+
+    Also after the last watched engine was garbage collected without
+    ``unwatch()``; not from a finalizer, which could run in the middle of a
+    SQLAlchemy event dispatch. Until then the listeners return at once.
+    """
+    global _session_listeners
+    if not _watched and _session_listeners:
+        event.remove(Session, "do_orm_execute", _on_orm_execute)
+        event.remove(Session, "after_begin", _on_after_begin)
+        event.remove(Engine, "before_cursor_execute", _on_unwatched_cursor_execute)
+        _session_listeners = False
 
 
 def is_watched(engine: Any) -> bool:
-    """True while ``engine`` (or the sync engine of an AsyncEngine) is watched."""
-    return _sync_engine(engine) in _watched
+    """True while ``engine`` (or the sync engine of an AsyncEngine) is watched.
+
+    An engine made with ``execution_options()`` is watched with its parent.
+    """
+    return _in_watched(_sync_engine(engine))

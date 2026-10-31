@@ -69,6 +69,8 @@ def clean_state() -> Iterator[None]:
     yield
     for engine in list(_listeners._watched):
         _listeners.unwatch(engine)
+    with _listeners._lock:  # also after an engine collected without unwatch()
+        _listeners._drop_session_listeners_if_unused()
     _core._reset_for_tests()
 
 
