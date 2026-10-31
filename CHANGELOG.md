@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0rc2] - 2026-10-31
+
+Second release candidate: install it with `pip install --pre pytest-queryguard`.
+
+It fixes the in-application mode after an audit, a code review and a security
+review of 0.5.0rc1, and adds a token for its panel. The mode stays
+experimental. The pytest plugin is unchanged apart from documentation.
+
 ### Added
 
 - `panel_token` for `QueryGuardASGI` and `QueryGuardWSGI`. It is required
@@ -1713,7 +1721,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc1...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc2...HEAD
+[0.5.0rc2]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc1...v0.5.0rc2
 [0.5.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.1...v0.5.0rc1
 [0.4.1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0rc4...v0.4.0
