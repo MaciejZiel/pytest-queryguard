@@ -121,7 +121,8 @@ with queryguard.track("nightly-job") as report:  # any unit of work
 - **Panel.** Off by default; `panel=True` serves `<panel_path>/` (HTML) and
   `<panel_path>/requests.json` from the middleware itself, the last
   `panel_history` reports. The HTML has inline CSS and JS only and renders
-  text with `textContent`. By default it answers loopback clients only; that
+  text with `textContent`. By default it answers loopback clients only, and
+  only for a loopback `Host` header (against DNS rebinding); that
   is a guard against accidental exposure, not access control. Bound
   parameters are never stored in the panel.
 

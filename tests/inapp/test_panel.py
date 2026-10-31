@@ -109,6 +109,38 @@ def test_the_panel_refuses_other_clients_by_default(watched: Engine) -> None:
         assert client.get("/_queryguard/requests.json").status_code == 200
 
 
+@pytest.mark.parametrize(
+    ("host", "status"),
+    [
+        ("attacker.example:8000", 403),
+        ("testserver.attacker.example", 403),
+        ("testserver", 200),
+        ("localhost.attacker.example", 403),
+        ("localhost:8000", 200),
+        ("LOCALHOST.", 200),
+        ("app.localhost:8000", 200),
+        ("127.0.0.1:8000", 200),
+        ("[::1]:8000", 200),
+    ],
+)
+def test_the_panel_refuses_a_rebound_host_name(
+    watched: Engine, host: str, status: int
+) -> None:
+    # DNS rebinding: a page on attacker.example, its name now resolving to
+    # 127.0.0.1, reads the panel as a same-origin URL from a loopback client.
+    app = QueryGuardASGI(_fastapi(watched), panel=True, report=[])
+    with TestClient(app, client=("127.0.0.1", 4000)) as client:
+        response = client.get("/_queryguard/requests.json", headers={"host": host})
+    assert response.status_code == status
+    flask_app = Flask(__name__)
+    wsgi = QueryGuardWSGI(flask_app.wsgi_app, panel=True, report=[])
+    flask_app.wsgi_app = wsgi  # type: ignore[method-assign]
+    response = flask_app.test_client().get(
+        "/_queryguard/requests.json", headers={"Host": host}
+    )
+    assert response.status_code == status
+
+
 def test_a_custom_path_and_root_path(watched: Engine) -> None:
     app = QueryGuardASGI(_fastapi(watched), panel=True, panel_path="/debug/qg/")
     with TestClient(app, root_path="/api") as client:

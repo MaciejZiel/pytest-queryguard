@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared listeners return at once and the next `watch()` or `unwatch()`
   removes them.
 
+- With `panel_loopback_only` on (the default), the panel also refuses a
+  request whose `Host` header names another site, so a web page whose name
+  was rebound to `127.0.0.1` (DNS rebinding) cannot read the SQL it shows.
+  Requests to `localhost`, `*.localhost`, a loopback address or Starlette's
+  `testserver` are answered as before.
+- An engine made with `engine.execution_options(...)` counts as watched with
+  its parent: its lazy loads are reported again, and `watch()` on it no
+  longer counts every statement twice.
+
 ### Documentation
 
 - The FAQ shows how to check code that runs in a fixture, with

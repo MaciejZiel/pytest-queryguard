@@ -102,7 +102,9 @@ class QueryGuardASGI:
         host = client[0] if client else None
         if scope.get("method") not in ("GET", "HEAD"):
             status, body, kind = 405, b"method not allowed", "text/plain"
-        elif not _panel.allowed(host, self.panel_loopback_only):
+        elif not _panel.allowed(
+            host, self.panel_loopback_only, _header(scope, b"host")
+        ):
             status, body, kind = (
                 403,
                 b"the panel answers loopback clients only",
@@ -151,3 +153,11 @@ def _start(settings: Settings, scope: Scope) -> Tracker | None:
     except Exception as exc:  # noqa: BLE001  # never break the application
         _core.fail(exc, "the start of a request")
         return None
+
+
+def _header(scope: Scope, name: bytes) -> str | None:
+    """The first value of a request header, or None when it is absent."""
+    for key, value in scope.get("headers") or ():
+        if key.lower() == name:
+            return bytes(value).decode("latin-1")
+    return None

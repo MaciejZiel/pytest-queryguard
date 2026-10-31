@@ -230,7 +230,10 @@ An exception in a callable is logged and does not reach the request.
 
 `panel_path` moves both. By default the panel answers only loopback clients
 (`127.0.0.0/8`, `::1`); a peer without an address, such as a connection on a
-Unix socket, is refused too. `panel_loopback_only=False` lifts that. This
+Unix socket, is refused too. So is a request whose `Host` header names another
+site than this machine (`localhost`, `*.localhost`, a loopback address, or
+`testserver` for Starlette's test client): a web page whose name was rebound
+to `127.0.0.1` cannot read the panel. `panel_loopback_only=False` lifts both. This
 guards against exposing it by accident and is not access control: behind a
 reverse proxy on the same machine every client is the proxy.
 

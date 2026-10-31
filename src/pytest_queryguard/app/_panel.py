@@ -20,6 +20,8 @@ from ._core import RequestReport
 
 # Starlette's TestClient reports its client as "testclient".
 _LOOPBACK_NAMES = frozenset(("localhost", "testclient"))
+# And sends Host "testserver": a single-label name, never a public site's.
+_TEST_HOST = "testserver"
 HEADERS = (
     ("cache-control", "no-store"),
     ("x-content-type-options", "nosniff"),
@@ -83,15 +85,39 @@ def is_loopback(host: str) -> bool:
     return bool(address.is_loopback or (mapped is not None and mapped.is_loopback))
 
 
-def allowed(client: str | None, loopback_only: bool) -> bool:
+def host_name(host_header: str) -> str:
+    """The name in a Host header: ``"[::1]:8000"`` -> ``"::1"``."""
+    host = host_header.strip().lower()
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end != -1 else host
+    if host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host.rstrip(".")
+
+
+def is_loopback_host(host_header: str) -> bool:
+    """A Host header that names this machine: an address, localhost, *.localhost."""
+    name = host_name(host_header)
+    return is_loopback(name) or name.endswith(".localhost") or name == _TEST_HOST
+
+
+def allowed(
+    client: str | None, loopback_only: bool, host_header: str | None = None
+) -> bool:
     """Whether the panel answers this client.
 
     None (no address: a Unix socket peer, often a reverse proxy relaying any
-    client) is refused while ``loopback_only`` is on.
+    client) is refused while ``loopback_only`` is on. So is a loopback client
+    whose Host header names another site: a page on that site whose name was
+    rebound to 127.0.0.1 (DNS rebinding) could otherwise read the panel. A
+    request without a Host header is not from a browser and is answered.
     """
     if not loopback_only:
         return True
-    return client is not None and is_loopback(client)
+    if client is None or not is_loopback(client):
+        return False
+    return host_header is None or is_loopback_host(host_header)
 
 
 def json_body(history: History) -> bytes:

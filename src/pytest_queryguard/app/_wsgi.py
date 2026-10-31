@@ -124,7 +124,11 @@ class QueryGuardWSGI:
                 b"method not allowed",
                 "text/plain",
             )
-        elif not _panel.allowed(environ.get("REMOTE_ADDR"), self.panel_loopback_only):
+        elif not _panel.allowed(
+            environ.get("REMOTE_ADDR"),
+            self.panel_loopback_only,
+            environ.get("HTTP_HOST"),
+        ):
             status, body, kind = (
                 "403 Forbidden",
                 b"the panel answers loopback clients only",
