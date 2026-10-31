@@ -316,13 +316,18 @@ request those shared listeners return after one `ContextVar.get()`.
 `unwatch()` of the last watched engine removes them.
 `python scripts/bench_overhead.py --app` times a statement with the engine not
 watched, watched but outside a request, and inside one. On an in-memory SQLite
-database, on a machine that was busy with other work (load average 20 to 90
-on 16 cores; minimum of 21 runs, microseconds per statement):
+database, on a 16-core laptop that was otherwise idle (load average 1.3 to
+1.6, balanced power profile, Python 3.14, SQLAlchemy 2.1; minimum of 21 runs,
+microseconds per statement):
 
 | Statement | Not watched | Watched, outside a request | Inside a request |
 |---|---|---|---|
-| Core `SELECT` | 41.7 | 46.4 (+4.7) | 53.2 (+11.5) |
-| ORM `select()` | 74.3 | 93.9 (+19.6) | 96.1 (+21.9) |
+| Core `SELECT` | 71.7 | 85.0 (+13.3) | 94.5 (+22.7) |
+| ORM `select()` | 144.3 | 167.6 (+23.3) | 191.7 (+47.3) |
+
+Run to run, these numbers move by a few microseconds; the shared `Session`
+and `Engine` listeners cost well under one microsecond of that when timed on
+their own.
 
 Treat these as an order of magnitude and measure your own application; see
 [Performance](performance.md) for the method.

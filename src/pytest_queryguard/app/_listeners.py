@@ -75,11 +75,10 @@ def _column_load(state: ORMExecuteState) -> ColumnLoadEvent | None:
 
 
 def _on_orm_execute(state: ORMExecuteState) -> None:
-    # No watched engine: the last one was collected without unwatch().
-    if not _watched:
-        return
     active = _core.live()
-    if active is None or _core._error is not None:
+    # No watched engine: the last one was collected without unwatch(). Checked
+    # after live(), which is cheaper and ends most calls outside a request.
+    if active is None or _core._error is not None or not _watched:
         return
     try:
         collector = active.collector
@@ -112,7 +111,7 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
 
 def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
     """Tag the connection with its Session, for repeat_scope="session"."""
-    if not _watched or _core.live() is None or _core._error is not None:
+    if _core.live() is None or _core._error is not None or not _watched:
         return
     try:
         scope = scope_of_session(session)
