@@ -355,6 +355,20 @@ def test_an_error_at_the_end_of_a_unit_is_contained(
     assert isinstance(queryguard.internal_error(), RuntimeError)
 
 
+def test_an_engine_with_execution_options_counts_as_watched(watched: Engine) -> None:
+    # execution_options() returns an OptionEngine that shares the listeners
+    # (schema_translate_map, isolation levels); its loads must still count.
+    option = watched.execution_options(isolation_level="SERIALIZABLE")
+    nested = option.execution_options(schema_translate_map={None: None})
+    assert queryguard.is_watched(option) and queryguard.is_watched(nested)
+    queryguard.watch(option)  # already watched through its parent: no-op
+    with queryguard.track(report=[]) as report:
+        _lazy_loop(nested)
+    assert report.statement_count == 1 + CUSTOMERS
+    assert "relationship-load" in {f.kind for f in report.findings}
+    assert "Order.customer" in {q.relationship for q in report.statements}
+
+
 def test_a_custom_get_bind_is_not_called_again(watched: Engine) -> None:
     chosen: list[object] = []
 

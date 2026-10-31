@@ -185,7 +185,7 @@ def _on_unwatched_cursor_execute(
     """
     if _pending.get() is None or _is_write(statement):
         return
-    if getattr(conn, "engine", None) not in _watched:
+    if not _in_watched(getattr(conn, "engine", None)):
         _pending.set(None)
 
 
@@ -219,6 +219,19 @@ _watched: weakref.WeakSet[Engine] = weakref.WeakSet()
 _session_listeners = False
 
 
+def _in_watched(engine: Any) -> bool:
+    """Whether ``engine`` or an engine it was derived from is watched.
+
+    ``engine.execution_options(...)`` returns an ``OptionEngine`` that shares
+    its parent's listeners; ``_proxied`` leads back to that parent.
+    """
+    while engine is not None:
+        if engine in _watched:
+            return True
+        engine = getattr(engine, "_proxied", None)
+    return False
+
+
 def _sync_engine(engine: Any) -> Engine:
     if isinstance(engine, Engine):
         return engine
@@ -240,7 +253,7 @@ def watch(engine: Any) -> None:
     sync = _sync_engine(engine)
     with _lock:
         _drop_session_listeners_if_unused()
-        if sync in _watched:
+        if _in_watched(sync):
             return
         event.listen(sync, "before_cursor_execute", _on_before_cursor_execute)
         event.listen(sync, "after_cursor_execute", _on_after_cursor_execute)
@@ -284,5 +297,8 @@ def _drop_session_listeners_if_unused() -> None:
 
 
 def is_watched(engine: Any) -> bool:
-    """True while ``engine`` (or the sync engine of an AsyncEngine) is watched."""
-    return _sync_engine(engine) in _watched
+    """True while ``engine`` (or the sync engine of an AsyncEngine) is watched.
+
+    An engine made with ``execution_options()`` is watched with its parent.
+    """
+    return _in_watched(_sync_engine(engine))
