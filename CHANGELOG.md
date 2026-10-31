@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tests and CI: the overhead check (`scripts/bench_gate.py`, the release
+  gate's `overhead` job) times the measurement off and on interleaved in the
+  same process and keeps the fastest block of each, and measures again up to
+  three times when over the limit. The earlier method failed about every
+  other gate run on unchanged code. The baseline is re-recorded on the runner
+  for the new method; `--record` writes it from logs of green gate runs.
+
 ## [0.5.0rc2] - 2026-10-31
 
 Second release candidate: install it with `pip install --pre pytest-queryguard`.

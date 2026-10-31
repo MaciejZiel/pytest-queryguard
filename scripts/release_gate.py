@@ -508,8 +508,9 @@ def check_upgrade(wheel: Path, version: str) -> list[str]:
 def check_bench() -> list[str]:
     """scripts/bench_gate.py with the release margin: 25 % over the baseline, no extra slack.
 
-    The ratios are relative (time with the measurement over time without), and
-    each run repeats the measurement once when it is over the limit.
+    The ratios are relative (time with the measurement over time without),
+    timed off and on interleaved in each of 7 processes; a result over the
+    limit is measured again, up to 3 times in all, and the best counts.
     """
     result = subprocess.run(
         [
@@ -519,8 +520,12 @@ def check_bench() -> list[str]:
             "1.25",
             "--slack",
             "0.0",
-            "--runs",
-            "15",
+            "--processes",
+            "7",
+            "--rounds",
+            "20",
+            "--attempts",
+            "3",
         ],
         capture_output=True,
         text=True,
