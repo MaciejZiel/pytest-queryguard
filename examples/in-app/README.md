@@ -7,7 +7,7 @@ route and, for FastAPI, the development panel. Development only: the apps
 switch it on only while `APP_ENV` is `development`; `demo.py` sets it.
 
 ```console
-$ pip install ../.. fastapi flask aiosqlite httpx
+$ pip install ../.. "sqlalchemy[asyncio]" fastapi flask aiosqlite httpx
 $ python demo.py
 ```
 

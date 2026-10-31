@@ -291,7 +291,7 @@ class _Written:
 
 
 def _on_after_flush(session: Session, flush_context: Any) -> None:
-    """Remember which objects this flush wrote, for ``_is_refresh_after_write``.
+    """Remember which objects this flush wrote, for ``is_refresh_after_write``.
 
     Only the latest flush counts: a newer one replaces the set.
     """
@@ -301,19 +301,28 @@ def _on_after_flush(session: Session, flush_context: Any) -> None:
         if not collector.active():
             session.__dict__.pop(_WRITTEN_ATTR, None)
             return
-        # Still the state before the flush here: new and dirty are what it
-        # wrote. An object in dirty without a net change (an attribute set to
-        # its own value) got no UPDATE, so a refresh of it reads back nothing.
-        states = {instance_state(obj) for obj in session.new}
-        states.update(
-            instance_state(obj) for obj in session.dirty if session.is_modified(obj)
-        )
-        session.__dict__[_WRITTEN_ATTR] = _Written(states)
+        session.__dict__[_WRITTEN_ATTR] = flush_record(session)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "after_flush listener (refresh after write)")
 
 
-def _is_refresh_after_write(session: Any, instance: Any) -> bool:
+def flush_record(session: Any) -> _Written:
+    """The objects the flush running now writes, from its ``after_flush`` event.
+
+    The caller stores the record: the plugin and the in-app mode each keep
+    their own.
+    """
+    # Still the state before the flush here: new and dirty are what it
+    # wrote. An object in dirty without a net change (an attribute set to
+    # its own value) got no UPDATE, so a refresh of it reads back nothing.
+    states = {instance_state(obj) for obj in session.new}
+    states.update(
+        instance_state(obj) for obj in session.dirty if session.is_modified(obj)
+    )
+    return _Written(states)
+
+
+def is_refresh_after_write(written: _Written | None, instance: Any) -> bool:
     """Whether this refresh reads back an object the latest flush wrote.
 
     A repository's ``create()`` or ``update()`` flushes one object and
@@ -322,8 +331,10 @@ def _is_refresh_after_write(session: Any, instance: Any) -> bool:
     class and flush is let through, so refreshing every object of a bulk
     ``add_all()`` one by one is still counted, as is a refresh of an object
     that was only read.
+
+    ``written`` is the record of the Session's latest flush (``flush_record``);
+    a refresh that is let through is taken off it.
     """
-    written = session.__dict__.get(_WRITTEN_ATTR)
     if written is None or instance not in written.states:
         return False
     cls = instance.class_
@@ -332,6 +343,15 @@ def _is_refresh_after_write(session: Any, instance: Any) -> bool:
     written.refreshed.add(cls)
     written.states.discard(instance)
     return True
+
+
+def column_load_counts(load: ColumnLoadEvent, instance: Any, written: Any) -> bool:
+    """Whether a column load counts, given the record of the latest flush.
+
+    A refresh that reads back that flush's write keeps its column-load label
+    (so it is not a repeated statement either) but is not counted.
+    """
+    return load.cause != CAUSE_REFRESH or not is_refresh_after_write(written, instance)
 
 
 def _has_pending(conn: Any) -> bool:
@@ -376,14 +396,17 @@ def _is_column_load(state: ORMExecuteState) -> bool:
     return bool(getattr(options, "_for_refresh_state", False))
 
 
-def _record_column_load(
-    state: ORMExecuteState, targets: tuple[collector.QueryCollector, ...]
-) -> None:
-    """Note an instance that loads columns it already has a row for."""
-    instance = getattr(_load_options(state), "_refresh_state", None)
+def classify_column_load(state: ORMExecuteState) -> tuple[Any, ColumnLoadEvent] | None:
+    """The instance state a column load reloads, and its event; None without one.
+
+    It parks no attribution and counts nothing, so the in-app mode, which
+    keeps its own state, labels a load exactly as the plugin does. The caller
+    has checked ``_is_column_load(state)``.
+    """
+    load_options = _load_options(state)
+    instance = getattr(load_options, "_refresh_state", None)
     if instance is None:
-        _set_pending(state.session, None)
-        return
+        return None
     options: Any = getattr(state.statement, "_compile_options", None)
     if not hasattr(options, "_only_load_props"):
         # Without it every load would look like a plain refresh, with a wrong
@@ -397,7 +420,7 @@ def _record_column_load(
     columns = {prop.key for prop in instance.mapper.column_attrs}
     # session.refresh(obj, ["name"]) expires the names before it loads them,
     # so without the flag it would look like an expired load.
-    user_refresh = bool(getattr(_load_options(state), "_is_user_refresh", False))
+    user_refresh = bool(getattr(load_options, "_is_user_refresh", False))
     if only is None or user_refresh:
         cause, names = CAUSE_REFRESH, ()
     elif instance.expired or (only and set(only) <= expired):
@@ -414,10 +437,22 @@ def _record_column_load(
         find_callsite(),
         scope=scope_of_session(state.session),
     )
+    return instance, load
+
+
+def _record_column_load(
+    state: ORMExecuteState, targets: tuple[collector.QueryCollector, ...]
+) -> None:
+    """Note an instance that loads columns it already has a row for."""
+    found = classify_column_load(state)
+    if found is None:
+        _set_pending(state.session, None)
+        return
+    instance, load = found
     _set_pending(state.session, None, column_load=load)
-    if cause == CAUSE_REFRESH and _is_refresh_after_write(state.session, instance):
-        # The statement keeps its column-load label (so it is not a repeated
-        # statement either) but is not counted.
+    if not column_load_counts(
+        load, instance, state.session.__dict__.get(_WRITTEN_ATTR)
+    ):
         return
     for target in targets:
         target.add_column_load(load)
