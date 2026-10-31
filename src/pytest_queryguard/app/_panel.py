@@ -3,13 +3,19 @@
 Off by default. The page is self-contained (inline CSS and JS, no third-party
 code) and renders every value with ``textContent``. It is a development aid,
 not something to expose in production.
+
+With a token, ``requests.json`` answers only ``Authorization: Bearer
+<token>``. The page holds no data; it reads the token from its URL fragment
+(``#token=...``), which the browser never sends, and puts it in that header.
 """
 
 from __future__ import annotations
 
+import hmac
 import html
 import ipaddress
 import json
+import re
 import threading
 from collections import deque
 from typing import Any
@@ -23,6 +29,11 @@ _LOOPBACK_NAMES = frozenset(("localhost", "testclient"))
 # And sends Host "testserver"; accepted only together with that client name,
 # which no network peer has, as a search domain could resolve the bare name.
 _TEST_CLIENT, _TEST_HOST = "testclient", "testserver"
+# RFC 6750 b64token: fits a header and a URL fragment unchanged.
+_TOKEN = re.compile(r"[A-Za-z0-9._~+/-]+=*")
+MIN_TOKEN_LENGTH = 16
+UNAUTHORIZED = b"missing or wrong panel token"
+CHALLENGE = ("www-authenticate", "Bearer")
 HEADERS = (
     ("cache-control", "no-store"),
     ("x-content-type-options", "nosniff"),
@@ -62,6 +73,45 @@ def normalize_path(path: str) -> str:
             f"panel_path must start with '/' and name a path, got {path!r}"
         )
     return path.rstrip("/")
+
+
+def check_token(token: object, panel: bool, loopback_only: bool) -> bytes | None:
+    """The panel token as bytes, or None when the panel has none.
+
+    A panel that answers any client must have one: the loopback check only
+    guards against accidents, the token is the access control.
+    """
+    if token is None:
+        if panel and not loopback_only:
+            raise ValueError(
+                "panel_loopback_only=False needs panel_token, a secret of at "
+                f"least {MIN_TOKEN_LENGTH} characters, such as "
+                "secrets.token_urlsafe(32), read from the environment"
+            )
+        return None
+    if not isinstance(token, str):
+        raise TypeError(f"panel_token must be a string, got {type(token).__name__}")
+    if len(token) < MIN_TOKEN_LENGTH or not _TOKEN.fullmatch(token):
+        # The value is a secret: never in the message.
+        raise ValueError(
+            f"panel_token must have at least {MIN_TOKEN_LENGTH} characters, "
+            "letters, digits and -._~+/ (secrets.token_urlsafe() makes one)"
+        )
+    return token.encode("ascii")
+
+
+def authorized(token: bytes | None, header: str | None) -> bool:
+    """Whether an ``Authorization`` header carries the panel token."""
+    if token is None:
+        return True
+    if header is None:
+        return False
+    parts = header.split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        return False
+    # Headers arrive decoded as latin-1, so this gives back the bytes sent.
+    sent = parts[1].strip().encode("latin-1", errors="replace")
+    return hmac.compare_digest(sent, token)
 
 
 def route(panel_path: str, path: str) -> str | None:
@@ -262,16 +312,43 @@ function render(data) {
   document.getElementById("status").textContent =
     status + (data.internal_error ? "; switched off: " + data.internal_error : "");
 }
+function token() {
+  // From #token=..., never from the query string: a fragment is not sent.
+  const m = location.hash.slice(1).match(/(?:^|&)token=([^&]*)/);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+}
+let latest = 0;
 async function load() {
+  const status = document.getElementById("status");
+  const n = ++latest;  // a slower, older answer must not replace a newer one
   try {
-    const res = await fetch(url, {cache: "no-store"});
-    render(await res.json());
+    const t = token();
+    const headers = t ? {"Authorization": "Bearer " + t} : {};
+    const res = await fetch(url, {cache: "no-store", headers: headers});
+    if (n !== latest) return;
+    if (res.status === 401) {
+      stopAuto();  // the same token would fail every 2 s
+      document.getElementById("rows").replaceChildren();
+      status.textContent = t
+        ? "The token in the address is wrong."
+        : "This panel needs its token: open it as " + location.pathname + "#token=<token>.";
+      return;
+    }
+    if (!res.ok) { status.textContent = "Could not load " + url + ": HTTP " + res.status; return; }
+    const data = await res.json();
+    if (n === latest) render(data);
   } catch (e) {
-    document.getElementById("status").textContent = "Could not load " + url + ": " + e;
+    if (n === latest) status.textContent = "Could not load " + url + ": " + e;
   }
 }
 let timer = null;
+function stopAuto() {
+  clearInterval(timer); timer = null;
+  document.getElementById("auto").checked = false;
+}
 document.getElementById("refresh").addEventListener("click", load);
+window.addEventListener("hashchange", load);  // a token pasted into the address
 document.getElementById("auto").addEventListener("change", (e) => {
   clearInterval(timer); timer = e.target.checked ? setInterval(load, 2000) : null;
 });

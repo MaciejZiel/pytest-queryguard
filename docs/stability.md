@@ -119,7 +119,9 @@ defaults, labels or messages, or remove them, with a changelog entry under
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini option and its
-default, so a change to it is deliberate and visible in review.
+default, and the names, signatures and fields of `pytest_queryguard.app` and
+the keys of the panel's JSON, so a change to them is deliberate and visible in
+review.
 
 ## Failing open
 

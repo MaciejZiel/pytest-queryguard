@@ -39,8 +39,8 @@ one test runs at a time, but it cannot run inside a development server:
 6. An optional development panel (JSON and a self-contained HTML page).
 7. The pytest plugin keeps its behaviour, its listeners and its tests.
 
-Non-goals: production monitoring, sampling, persistence, authentication of
-the panel, the missing-index check (it runs `EXPLAIN` on the request's
+Non-goals: production monitoring, sampling, persistence, user accounts or
+roles for the panel, the missing-index check (it runs `EXPLAIN` on the request's
 connection; that belongs in tests), and framework-specific integrations
 beyond pure ASGI and WSGI.
 
@@ -123,8 +123,19 @@ with queryguard.track("nightly-job") as report:  # any unit of work
   `panel_history` reports. The HTML has inline CSS and JS only and renders
   text with `textContent`. By default it answers loopback clients only, and
   only for a loopback `Host` header (against DNS rebinding); that
-  is a guard against accidental exposure, not access control. Bound
-  parameters are never stored in the panel.
+  is a guard against accidental exposure, not access control. Access
+  control is `panel_token`, required with `panel_loopback_only=False` (a
+  `ValueError` when the middleware is created without it): at least 16
+  characters of the RFC 6750 token alphabet. `requests.json` then answers
+  only `Authorization: Bearer <token>`, compared with `hmac.compare_digest`,
+  and anything else gets `401` with `WWW-Authenticate: Bearer`. The checks
+  run in this order: method, loopback client and `Host` (when on), token.
+  The HTML page holds no data and is served without the token; it reads the
+  token from its URL fragment (`#token=...`), which browsers do not send, and
+  puts it in the `Authorization` header of its fetch, so the token never
+  appears in a request URL or a server log. A header, not a cookie, so
+  another site cannot make the browser send it (no CSRF). Bound parameters
+  are never stored in the panel.
 
 - **Memory.** `max_events` (default 1000) caps the statements kept per
   request; past it they are only counted, as in the plugin.

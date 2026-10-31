@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `panel_token` for `QueryGuardASGI` and `QueryGuardWSGI`. It is required
+  with `panel_loopback_only=False`: without one the middleware raises
+  `ValueError`. The panel's `requests.json` then answers only
+  `Authorization: Bearer <token>` and refuses anything else with `401`; the
+  page reads the token from its URL fragment (`/_queryguard/#token=...`).
+  See `docs/in-app.md`.
+
+### Changed
+
+- `QueryGuardASGI` and `QueryGuardWSGI` with `panel=True` and
+  `panel_loopback_only=False` raise `ValueError` without a `panel_token`. An
+  application that sets `panel_loopback_only=False` must add a token. The
+  in-app mode is experimental, so this has no deprecation period.
+
 ### Fixed
 
 - The development panel of an ASGI application mounted under a `root_path`

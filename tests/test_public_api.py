@@ -265,3 +265,178 @@ def test_type_hints_of_exported_names_still_resolve() -> None:
         if name == "__version__":
             continue
         typing.get_type_hints(getattr(pytest_queryguard, name))
+
+
+# The in-app mode is experimental (docs/stability.md#experimental): it may
+# change in a minor release without a deprecation period, but not by accident.
+EXPECTED_APP_ALL = [
+    "CallSite",
+    "Finding",
+    "Query",
+    "QueryGuardASGI",
+    "QueryGuardWSGI",
+    "RequestReport",
+    "Settings",
+    "internal_error",
+    "is_watched",
+    "set_route",
+    "track",
+    "unwatch",
+    "watch",
+]
+
+_MIDDLEWARE_INIT = (
+    "(self, app: '{app}', settings: 'Settings | None' = None, *, "
+    "panel: 'bool' = False, panel_path: 'str' = '/_queryguard', "
+    "panel_history: 'int' = 50, panel_loopback_only: 'bool' = True, "
+    "panel_token: 'str | None' = None, **options: 'Any') -> 'None'"
+)
+
+EXPECTED_APP_SIGNATURES = {
+    "watch": "(engine: 'Any') -> 'None'",
+    "unwatch": "(engine: 'Any') -> 'None'",
+    "is_watched": "(engine: 'Any') -> 'bool'",
+    "track": (
+        "(name: 'str' = '', *, settings: 'Settings | None' = None, "
+        "**options: 'Any') -> 'Iterator[RequestReport]'"
+    ),
+    "set_route": "(template: 'str') -> 'None'",
+    "internal_error": "() -> 'BaseException | None'",
+    "QueryGuardASGI.__init__": _MIDDLEWARE_INIT.format(app="ASGIApp"),
+    "QueryGuardWSGI.__init__": _MIDDLEWARE_INIT.format(app="WSGIApp"),
+}
+
+EXPECTED_APP_FIELDS = {
+    "Settings": [
+        "relationship_threshold",
+        "repeat_threshold",
+        "column_load_threshold",
+        "small_repeat_threshold",
+        "write_loop_threshold",
+        "repeat_scope",
+        "budgets",
+        "default_budget",
+        "report",
+        "max_events",
+    ],
+    "RequestReport": [
+        "id",
+        "name",
+        "method",
+        "path",
+        "route",
+        "status",
+        "started",
+        "duration",
+        "statements",
+        "statement_count",
+        "db_time",
+        "findings",
+        "budget",
+        "error",
+    ],
+}
+
+# The keys of the panel's requests.json, whose "requests" are
+# RequestReport.to_dict(); the page reads them.
+EXPECTED_PANEL_JSON = ["version", "watched_engines", "internal_error", "requests"]
+EXPECTED_REPORT_DICT = [
+    "id",
+    "name",
+    "method",
+    "path",
+    "route",
+    "status",
+    "started",
+    "duration",
+    "statement_count",
+    "truncated",
+    "db_time",
+    "budget",
+    "over_budget",
+    "error",
+    "statements",
+    "findings",
+]
+EXPECTED_STATEMENT_DICT = [
+    "sql",
+    "duration",
+    "relationship",
+    "file",
+    "line",
+    "function",
+]
+EXPECTED_FINDING_DICT = [
+    "kind",
+    "label",
+    "file",
+    "line",
+    "function",
+    "count",
+    "message",
+]
+
+
+def test_app_all_is_the_documented_list() -> None:
+    from pytest_queryguard import app
+
+    assert sorted(app.__all__) == EXPECTED_APP_ALL
+    for name in app.__all__:
+        assert hasattr(app, name), name
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED_APP_SIGNATURES))
+def test_app_signatures(name: str) -> None:
+    from pytest_queryguard import app
+
+    obj: Any = app
+    for part in name.split("."):
+        obj = getattr(obj, part)
+    assert str(inspect.signature(obj)) == EXPECTED_APP_SIGNATURES[name]
+
+
+@pytest.mark.parametrize("name", sorted(EXPECTED_APP_FIELDS))
+def test_app_dataclass_fields(name: str) -> None:
+    from pytest_queryguard import app
+
+    fields = dataclasses.fields(getattr(app, name))
+    names = [f.name for f in fields if not f.name.startswith("_")]
+    assert names == EXPECTED_APP_FIELDS[name]
+
+
+def test_panel_json_keys() -> None:
+    import json
+
+    from pytest_queryguard.app import CallSite, Finding, Query, RequestReport
+    from pytest_queryguard.app._panel import History, json_body
+
+    history = History(1)
+    history.add(
+        RequestReport(
+            id=1,
+            name="GET /",
+            statements=(
+                Query(
+                    sql="SELECT 1",
+                    callsite=CallSite(filename="a.py", lineno=1, function="f"),
+                    relationship=None,
+                ),
+            ),
+            statement_count=1,
+            findings=(
+                Finding(
+                    kind="repeated-statement",
+                    label="SELECT 1",
+                    file="a.py",
+                    function="f",
+                    message="m",
+                ),
+            ),
+        )
+    )
+    data = json.loads(json_body(history))
+    assert list(data) == EXPECTED_PANEL_JSON
+    report = data["requests"][0]
+    assert list(report) == EXPECTED_REPORT_DICT
+    assert list(report["statements"][0]) == EXPECTED_STATEMENT_DICT
+    assert list(report["findings"][0]) == EXPECTED_FINDING_DICT

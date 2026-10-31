@@ -235,9 +235,57 @@ An exception in a callable is logged and does not reach the request.
 Unix socket, is refused too. So is a request whose `Host` header names another
 site than this machine (`localhost`, `*.localhost` or a loopback address; `testserver` only from
 Starlette's test client): a web page whose name was rebound
-to `127.0.0.1` cannot read the panel. `panel_loopback_only=False` lifts both. This
-guards against exposing it by accident and is not access control: behind a
-reverse proxy on the same machine every client is the proxy.
+to `127.0.0.1` cannot read the panel. This guards against exposing it by
+accident and is not access control: behind a reverse proxy on the same machine
+every client is the proxy.
+
+### A token for staging
+
+`panel_loopback_only=False` lifts both checks, and then the middleware needs a
+`panel_token`: without one it raises `ValueError` when it is created. The
+token must have at least 16 characters, from letters, digits and `-._~+/`;
+`secrets.token_urlsafe(32)` makes one. Keep it out of the code, for example in
+an environment variable:
+
+```python
+import os
+
+from pytest_queryguard import app as queryguard
+
+# Staging only: never in production.
+if os.environ.get("APP_ENV") == "staging":
+    queryguard.watch(engine)
+    app.add_middleware(
+        queryguard.QueryGuardASGI,
+        panel=True,
+        panel_loopback_only=False,
+        panel_token=os.environ["QUERYGUARD_PANEL_TOKEN"],
+    )
+```
+
+```bash
+export QUERYGUARD_PANEL_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+```
+
+`/_queryguard/requests.json` then answers only a request with
+`Authorization: Bearer <token>`; any other gets `401` with
+`WWW-Authenticate: Bearer`. The HTML page holds no data and needs no token.
+Open it with the token in the URL fragment,
+`https://staging.example.com/_queryguard/#token=<token>`: the page reads it
+there and sends it in that header. A browser never sends the fragment to the
+server, but it stays in the browser's history. A token may also be set with
+`panel_loopback_only` on; then both checks apply.
+
+```bash
+curl -H "Authorization: Bearer $QUERYGUARD_PANEL_TOKEN" \
+    https://staging.example.com/_queryguard/requests.json
+```
+
+Serve the panel over HTTPS: the token is a password sent with every refresh.
+
+A WSGI server must pass the `Authorization` header on to the application.
+Most do; Apache's mod_wsgi drops it unless `WSGIPassAuthorization On` is set,
+and the panel then answers `401` to the right token.
 
 For ASGI applications, `panel_path` is relative to the application's
 `root_path`. An application mounted at `/api` serves the default panel at
