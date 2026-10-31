@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import Depends, FastAPI
+from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
 from sqlalchemy import literal_column, select
 from sqlalchemy.engine import Engine
@@ -128,6 +129,36 @@ def test_an_endpoint_error_is_reported_and_propagates(watched: Engine) -> None:
         assert client.get("/boom").status_code == 500
     assert reports[0].status == 500
     assert reports[0].statement_count == 1
+
+
+@pytest.mark.parametrize("outermost", [False, True])
+def test_a_500_handler_is_seen_only_from_outside_the_app(
+    watched: Engine, outermost: bool
+) -> None:
+    # Starlette runs a handler for 500 or Exception in ServerErrorMiddleware,
+    # outside every add_middleware() layer (docs/in-app.md, "Status").
+    reports: list[RequestReport] = []
+    app = _sync_app(watched)
+
+    @app.exception_handler(500)
+    def handler(request: Any, exc: Exception) -> PlainTextResponse:
+        with Session(watched) as s:
+            s.execute(select(literal_column("2")))
+        return PlainTextResponse("down", status_code=503)
+
+    asgi: Any = app
+    if outermost:
+        asgi = QueryGuardASGI(app, default_budget=0, report=reports.append)
+    else:
+        app.add_middleware(QueryGuardASGI, default_budget=0, report=reports.append)
+    with TestClient(asgi, raise_server_exceptions=False) as client:
+        assert client.get("/boom").status_code == 503
+    (report,) = reports
+    assert report.route == "/boom"
+    if outermost:
+        assert (report.status, report.statement_count) == (503, 2)
+    else:
+        assert (report.status, report.statement_count) == (500, 1)
 
 
 def test_httpx_async_client_with_an_async_engine(async_engine: AsyncEngine) -> None:
