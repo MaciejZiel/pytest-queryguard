@@ -72,7 +72,8 @@ dev = [
     "flask-sqlalchemy>=3.1.1",
     "httpx>=0.28,<0.29",
     "mypy",
-    # PostgreSQL tests (BSD-3-Clause); psycopg and psycopg2 are LGPL.
+    # PostgreSQL tests (BSD-3-Clause); psycopg and psycopg2 are LGPL, so not
+    # here: CI installs psycopg for one run of the postgres job only.
     "pg8000>=1.31.5",
     # MySQL and MariaDB tests (MIT).
     "pymysql>=1.2.3",

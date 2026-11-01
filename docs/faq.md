@@ -111,15 +111,26 @@ under `-n 2` and `-n 4` in CI.
 N+1 detection and budgets hook SQLAlchemy events, not a driver, so they do not
 depend on the driver. The index check needs a driver it can talk to through
 SQLAlchemy: CI runs it with pg8000 (sync) and asyncpg (async), on PostgreSQL 14
-to 18. psycopg2 and psycopg 3 are LGPL-licensed, so the project does not
-depend on them and does not run them in CI. They were checked by hand during
-review and gave the same findings for plain statements, `%` in SQL, expanding
-`IN`, autocommit and `stream_results`; this is not covered by an automated
-test. On 2026-10-12 the 14 index scenarios of the
-[comparison](comparison.md) also gave the same results through psycopg 3 (3.3.6)
-as through pg8000, on PostgreSQL 17.11; psycopg2 was not part of that run.
+to 18, and runs the whole suite once more with psycopg 3 as the sync driver,
+on PostgreSQL 17. psycopg 3 and psycopg2 are LGPL-licensed, so the package does
+not depend on them; psycopg 3 is installed only in that CI run, as a test
+dependency that is not shipped. psycopg2 is not run in CI; it was checked by
+hand during review and gave the same findings for plain statements, `%` in
+SQL, expanding `IN`, autocommit and `stream_results`. On 2026-10-12 the 14
+index scenarios of the [comparison](comparison.md) also gave the same results
+through psycopg 3 (3.3.6) as through pg8000, on PostgreSQL 17.11.
+
+One known difference on psycopg 3: psycopg prepares a statement on the server
+after it has run it five times on one connection, and the
+[index advisor](index-advisor.md)'s hypopg verification runs the same `EXPLAIN`
+more often than that for a statement with several tables or a partial-index
+candidate. Those later verifications then fail ("bind message supplies 0
+parameters"); the finding and the suggested index are still reported, with
+"could not verify this index" in place of the hypopg result.
+
 Async drivers other than asyncpg (for example psycopg's async mode) are skipped
-by the index check, with a notice in the session summary.
+by the index check, with a notice in the session summary; N+1 detection and
+budgets work on them, and CI runs psycopg's async mode too.
 
 ## Why was nothing reported for my test?
 

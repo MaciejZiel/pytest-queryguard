@@ -11,6 +11,7 @@ output was produced by running the code on it, and says with which versions.
 | [Litestar](recipes-litestar.md) | `TestClient` with an overridden session dependency |
 | [pytest-asyncio](recipes-pytest-asyncio.md) | Configuration pitfalls for async tests and fixtures |
 | [Budgets for hot endpoints](recipes-budgets.md) | `max_queries` and `max_db_time` on the endpoints that matter |
+| [Factory Boy and seeding](recipes-factory-boy.md) | Seeding rows in the test body: fixtures, or ignoring write loops in tests |
 | [Adopting on a legacy codebase](recipes-legacy.md) | Warn mode, a baseline, then fail |
 | [CI](recipes-ci.md) | GitHub Actions, GitLab CI, and why there is no pre-commit hook |
 

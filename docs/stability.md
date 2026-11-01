@@ -162,8 +162,9 @@ checks the outcome of every test of a small suite.
   entry point. A failing snapshot means: the change is breaking, or it is an
   addition that must be added to the snapshot on purpose. Update the snapshot
   in the same commit as the change, so reviewers see it.
-- CI runs the suite on Python 3.10 to 3.14, SQLAlchemy 2.0 and the latest
-  release, the oldest and the latest pytest, PostgreSQL 14 to 18, Windows and
-  macOS, and under pytest-xdist. A nightly job tries the SQLAlchemy
-  development branch, pytest pre-releases and Python 3.15; it is allowed to
-  fail and tells maintainers about upcoming incompatibilities early.
+- CI runs the suite on Python 3.10 to 3.14 and the 3.15 pre-release,
+  SQLAlchemy 2.0 and the latest release, the oldest and the latest pytest,
+  PostgreSQL 14 to 18, Windows and macOS, and under pytest-xdist. A nightly
+  job tries the SQLAlchemy development branch, pytest pre-releases and Python
+  3.15; it is allowed to fail and tells maintainers about upcoming
+  incompatibilities early.
