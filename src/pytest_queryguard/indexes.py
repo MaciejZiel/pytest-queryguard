@@ -1302,9 +1302,18 @@ def _explain(cursor: Any, sql: str, asyncpg: bool) -> Any:
     if asyncpg:
         cursor.execute(explain_block(sql))
         cursor.execute(_READ_PLAN)
+    elif _is_psycopg(cursor):
+        # psycopg prepares a statement once a connection has run it five
+        # times; EXPLAIN of a statement with $n placeholders and no parameters
+        # then fails ("bind message supplies 0 parameters").
+        cursor.execute(_EXPLAIN + sql, prepare=False)
     else:
         cursor.execute(_EXPLAIN + sql)
     return cursor.fetchone()
+
+
+def _is_psycopg(cursor: Any) -> bool:
+    return type(cursor).__module__.split(".", 1)[0] == "psycopg"
 
 
 _SEQSCAN = "SELECT set_config('enable_seqscan', '{}', true)"

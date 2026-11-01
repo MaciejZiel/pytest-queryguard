@@ -170,20 +170,6 @@ def test_the_range_goes_into_the_index_without_a_sort(db: Db) -> None:
     assert advice.verification.used is True
 
 
-# psycopg 3 prepares a statement on the server once the connection has run it
-# prepare_threshold (5) times. The verification runs the same EXPLAIN text more
-# often than that, with $n placeholders and no parameters, and the prepared
-# statement then fails ("bind message supplies 0 parameters"): the second
-# table, or the partial-index candidate, is left unverified. A fix belongs in
-# src/pytest_queryguard/hypopg.py (for example prepare=False on psycopg).
-psycopg_prepares = pytest.mark.xfail(
-    PG_URL is not None and make_url(PG_URL).get_driver_name() == "psycopg",
-    reason="psycopg auto-prepares the repeated EXPLAIN of the verification",
-    strict=True,
-)
-
-
-@psycopg_prepares
 def test_a_selective_constant_predicate_makes_a_partial_index(db: Db) -> None:
     # deleted_at IS NULL holds for 2% of the rows
     sql = "SELECT * FROM orders WHERE customer_id = $1 AND deleted_at IS NULL"
@@ -208,7 +194,6 @@ def test_an_unselective_constant_predicate_stays_a_key_column(db: Db) -> None:
     assert advice.create_sql == "CREATE INDEX ON orders (customer_id)"
 
 
-@psycopg_prepares
 def test_two_tables_of_one_statement_are_both_advised_and_verified(db: Db) -> None:
     sql = (
         "SELECT * FROM customers c, orders o WHERE c.email = $1 AND o.customer_id = $2"
