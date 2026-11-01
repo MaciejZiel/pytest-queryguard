@@ -44,12 +44,27 @@ class StatementEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class ParentLoad:
+    """Where the parent of a lazy load came from, for the fix hint."""
+
+    # The query that loaded the parent; for a parent reached through other
+    # relationships, the query at the start of that chain. None when unknown.
+    callsite: CallSite | None
+    # The class that query selected ("Order"), and the relationships from it to
+    # the parent as (label, scalar): (("Order.customer", True),). root is None
+    # when the way is unknown or cannot be written as a loader option chain.
+    root: str | None = None
+    path: tuple[tuple[str, bool], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class RelationshipLoadEvent:
     relationship: str
     parent_key: object
     callsite: CallSite | None
     scalar: bool = False  # many-to-one or one-to-one, not a collection
     scope: int | None = None  # the Session that lazy-loaded it
+    parent: ParentLoad | None = None  # None when nothing is known about it
 
 
 # What made the instance load columns again.

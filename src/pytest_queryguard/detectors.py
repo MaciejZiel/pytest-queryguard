@@ -114,6 +114,14 @@ class RelationshipFinding:
     # "session" it stays 1 and ``scoped`` is set: the count is for one Session.
     scopes: int = 1
     scoped: bool = False
+    # Where the parents were loaded, when every load knows it: the first site,
+    # and how many other sites there were.
+    parent_site: CallSite | None = None
+    other_parent_sites: int = 0
+    # The query class and relationship chain that load the parents, when every
+    # load has the same one (see events.ParentLoad); None when unknown.
+    parent_root: str | None = None
+    parent_path: tuple[tuple[str, bool], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +191,32 @@ def _scope_count(items: Sequence[_T], scope: Callable[[_T], object]) -> int:
     return len({scope(item) for item in items})
 
 
+def _parents(
+    loads: Sequence[RelationshipLoadEvent],
+) -> tuple[CallSite | None, int, str | None, tuple[tuple[str, bool], ...]]:
+    """(parent site, other sites, root, path) for a finding; see RelationshipFinding.
+
+    A site or a path is given only when every load knows one: a load whose
+    parent was created in the test, not loaded, could come from anywhere.
+    """
+    parents = [load.parent for load in loads]
+    sites: dict[CallSite, None] = {}
+    for parent in parents:
+        if parent is None or parent.callsite is None:
+            sites.clear()
+            break
+        sites[parent.callsite] = None
+    first = next(iter(sites), None)
+    root: str | None = None
+    path: tuple[tuple[str, bool], ...] = ()
+    known = parents[0]
+    if known is not None and known.root is not None:
+        way = (known.root, known.path)
+        if all(p is not None and (p.root, p.path) == way for p in parents):
+            root, path = way
+    return first, max(len(sites) - 1, 0), root, path
+
+
 def _relationship_findings(
     collector: QueryCollector, threshold: int, scoped: bool = False
 ) -> list[RelationshipFinding]:
@@ -226,6 +260,7 @@ def _relationship_findings(
                 best[-1].scalar,
                 1 if scoped else _scope_count(best, lambda load: load.scope),
                 scoped,
+                *_parents(best),
             )
         )
     return sorted(found, key=lambda f: -f.count)

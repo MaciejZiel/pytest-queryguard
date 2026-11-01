@@ -129,26 +129,51 @@ def _statement_line(detection: Detection) -> str:
     return kind_line(kind, label)
 
 
+def _loader(scalar: bool) -> str:
+    return "joinedload" if scalar else "selectinload"
+
+
+def _parent_query(finding: RelationshipFinding) -> str:
+    """The parent query with the loader, through the chain that loaded the parents.
+
+    Without a known chain, the query of the relationship's own class.
+    """
+    loader = f"{_loader(finding.scalar)}({finding.relationship})"
+    if finding.parent_root is None:
+        parent = finding.relationship.split(".", 1)[0]
+        return f"select({parent}).options({loader})"
+    steps = [f"{_loader(scalar)}({label})" for label, scalar in finding.parent_path]
+    return f"select({finding.parent_root}).options({'.'.join([*steps, loader])})"
+
+
+def _relationship_block(finding: RelationshipFinding, cwd: Path | None) -> list[str]:
+    lines = [
+        (
+            f"  {finding.relationship} was lazy-loaded {finding.count} times"
+            f"{_across(finding, 'Sessions')}{_in_one(finding, 'Session')}"
+        ),
+        _first_at(finding.first, cwd),
+    ]
+    if finding.parent_site is not None:
+        others = finding.other_parent_sites
+        more = ""
+        if others:
+            more = f" and {others} other place{'s' if others > 1 else ''}"
+        lines.append(f"  parents loaded at {_location(finding.parent_site, cwd)}{more}")
+    lines.append(kind_line(*_kind_label(finding)))
+    if finding.sample_sql is not None:
+        lines.append(f"  sql: {_truncate(finding.sample_sql)}")
+    return [
+        *lines,
+        *_scope_hint(finding),
+        "  fix: load it with the parent query, e.g.",
+        f"       {_parent_query(finding)}",
+    ]
+
+
 def _block(finding: Detection, cwd: Path | None) -> list[str]:
     if isinstance(finding, RelationshipFinding):
-        parent = finding.relationship.split(".", 1)[0]
-        lines = [
-            (
-                f"  {finding.relationship} was lazy-loaded {finding.count} times"
-                f"{_across(finding, 'Sessions')}{_in_one(finding, 'Session')}"
-            ),
-            _first_at(finding.first, cwd),
-            kind_line(*_kind_label(finding)),
-        ]
-        if finding.sample_sql is not None:
-            lines.append(f"  sql: {_truncate(finding.sample_sql)}")
-        loader = "joinedload" if finding.scalar else "selectinload"
-        return [
-            *lines,
-            *_scope_hint(finding),
-            "  fix: load it with the parent query, e.g.",
-            f"       select({parent}).options({loader}({finding.relationship}))",
-        ]
+        return _relationship_block(finding, cwd)
     if isinstance(finding, ColumnLoadFinding):
         return _column_block(finding, cwd)
     if isinstance(finding, WriteLoopFinding):

@@ -1,0 +1,371 @@
+"""Where the parents of a lazy load were loaded, and the chained loader hint.
+
+The listeners note on each instance the call site of the query that loaded it
+and its load path; a relationship-load finding prints the site and builds the
+loader option from the root of that path (issue #225).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+from sqlalchemy import ForeignKey, create_engine, select, update
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    aliased,
+    joinedload,
+    mapped_column,
+    relationship,
+    selectinload,
+    subqueryload,
+)
+from sqlalchemy.pool import StaticPool
+
+from pytest_queryguard import collector, listeners, plugin
+from pytest_queryguard.detectors import RelationshipFinding, detect
+from pytest_queryguard.events import CallSite
+from pytest_queryguard.messages import format_findings
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Country(Base):
+    __tablename__ = "ps_country"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+
+class Customer(Base):
+    __tablename__ = "ps_customer"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    country_id: Mapped[int] = mapped_column(ForeignKey("ps_country.id"))
+    country: Mapped[Country] = relationship()
+    orders: Mapped[list[Order]] = relationship(back_populates="customer")
+
+
+class Order(Base):
+    __tablename__ = "ps_order"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("ps_customer.id"))
+    customer: Mapped[Customer] = relationship(back_populates="orders")
+
+
+@pytest.fixture(autouse=True)
+def _isolated(request: pytest.FixtureRequest) -> Iterator[None]:
+    # The listeners are driven by hand here, as in test_listeners.py.
+    stash = request.config.stash
+    saved = stash[plugin._settings]
+    stash[plugin._settings] = plugin._Settings("off", 2, 5)
+    listeners.install()
+    collector._reset_for_tests()
+    listeners._reset_for_tests()
+    yield
+    collector._reset_for_tests()
+    listeners._reset_for_tests()
+    stash[plugin._settings] = saved
+
+
+def _seed(session: Session, first: int = 1) -> None:
+    for i in range(first, first + 3):
+        session.add(Order(id=i, customer=Customer(id=i, country=Country(id=i))))
+
+
+@pytest.fixture
+def engine() -> Iterator[Engine]:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        _seed(session)
+        session.commit()
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def rec() -> Iterator[collector.QueryCollector]:
+    c = collector.QueryCollector()
+    collector.push(c)
+    yield c
+    collector.pop(c)
+
+
+def _finding(rec: collector.QueryCollector, label: str) -> RelationshipFinding:
+    for found in detect(rec, relationship_threshold=2, repeat_threshold=99):
+        if isinstance(found, RelationshipFinding) and found.relationship == label:
+            return found
+    raise AssertionError(f"no finding for {label}")
+
+
+def _line(marker: str) -> int:
+    """The line of this file that ends with ``# <marker>``."""
+    with open(__file__, encoding="utf-8") as source:
+        for number, text in enumerate(source, start=1):
+            if text.rstrip().endswith(f"# {marker}"):
+                return number
+    raise AssertionError(marker)
+
+
+def _hint(finding: RelationshipFinding) -> str:
+    return format_findings([finding]).splitlines()[-1].strip()
+
+
+def _base_query(session: Session) -> Iterator[Order]:
+    statement = select(Order).options(joinedload(Order.customer))
+    return iter(session.scalars(statement))  # helper-query
+
+
+def test_a_query_built_in_a_helper_is_named_with_the_chained_loader(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        for order in _base_query(session):
+            _ = order.customer.country
+    finding = _finding(rec, "Customer.country")
+    assert finding.parent_site is not None
+    assert finding.parent_site.function == "_base_query"
+    assert finding.parent_site.lineno == _line("helper-query")
+    assert finding.other_parent_sites == 0
+    assert _hint(finding) == (
+        "select(Order).options(joinedload(Order.customer).joinedload(Customer.country))"
+    )
+    message = format_findings([finding], cwd=Path(__file__).parent)
+    where = f"test_parent_site.py:{_line('helper-query')} in _base_query"
+    assert f"  parents loaded at {where}\n" in message
+    assert listeners.internal_error() is None
+
+
+def test_the_execute_line_is_named_not_the_line_that_reads_the_rows(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        result = session.execute(select(Order))  # executed
+        session.execute(select(Customer)).all()
+        for order in result.scalars():
+            _ = order.customer
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("executed")
+    assert _hint(finding) == "select(Order).options(joinedload(Order.customer))"
+
+
+@pytest.mark.parametrize("loader", [selectinload, subqueryload, joinedload])
+def test_parents_loaded_by_an_eager_loader_have_the_outer_query_site(
+    engine: Engine, rec: collector.QueryCollector, loader: object
+) -> None:
+    with Session(engine) as session:
+        statement = select(Order).options(loader(Order.customer))  # type: ignore[operator]
+        for order in session.scalars(statement).all():  # outer
+            _ = order.customer.country
+    finding = _finding(rec, "Customer.country")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("outer")
+    assert finding.parent_root == "Order"
+    assert finding.parent_path == (("Order.customer", True),)
+
+
+def test_parents_loaded_lazily_point_to_the_query_at_the_start_of_the_chain(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        orders = session.scalars(select(Order)).all()  # root
+        for order in orders:
+            _ = order.customer.country
+    nested = _finding(rec, "Customer.country")
+    assert nested.parent_site is not None
+    assert nested.parent_site.lineno == _line("root")
+    assert _hint(nested) == (
+        "select(Order).options(joinedload(Order.customer).joinedload(Customer.country))"
+    )
+    # The lazy load of Order.customer itself is a finding of its own.
+    assert _hint(_finding(rec, "Order.customer")) == (
+        "select(Order).options(joinedload(Order.customer))"
+    )
+
+
+def test_session_get_parents_name_the_get_call(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        for key in (1, 2, 3):
+            _ = session.get(Order, key).customer  # type: ignore[union-attr]  # get
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("get")
+    assert _hint(finding) == "select(Order).options(joinedload(Order.customer))"
+
+
+def test_a_parent_from_the_identity_map_keeps_the_query_that_loaded_it(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        orders = session.scalars(select(Order)).all()  # first-load
+        # session.get() finds them in the identity map: no statement, no event.
+        again = [session.get(Order, order.id) for order in orders]
+        for order in again:
+            _ = order.customer  # type: ignore[union-attr]
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("first-load")
+
+
+def test_objects_created_in_the_test_and_reread_by_a_query_get_its_site(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        orders = [
+            Order(id=10 + i, customer=Customer(id=10 + i, country_id=i + 1))
+            for i in range(3)
+        ]
+        session.add_all(orders)
+        session.flush()
+        session.expire_all()
+        statement = (
+            select(Order).where(Order.id >= 10).options(joinedload(Order.customer))
+        )
+        for order in session.scalars(statement).unique():  # reread
+            _ = order.customer.country
+        session.rollback()
+    finding = _finding(rec, "Customer.country")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("reread")
+    assert finding.parent_path == (("Order.customer", True),)
+
+
+def test_objects_created_in_the_test_and_never_loaded_fall_back(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        orders = [
+            Order(id=10 + i, customer=Customer(id=10 + i, country_id=i + 1))
+            for i in range(3)
+        ]
+        session.add_all(orders)
+        session.flush()
+        # Neither expired nor loaded: the query hands back the same objects
+        # without reading them, so nothing says where they came from.
+        for order in session.scalars(select(Order).where(Order.id >= 10)):
+            _ = order.customer.country
+        session.rollback()
+    finding = _finding(rec, "Customer.country")
+    assert finding.parent_site is None
+    assert finding.parent_root is None
+    message = format_findings([finding])
+    assert "parents loaded at" not in message
+    assert _hint(finding) == "select(Customer).options(joinedload(Customer.country))"
+
+
+def test_parents_loaded_outside_the_measurement_fall_back(engine: Engine) -> None:
+    with Session(engine) as session:
+        orders = session.scalars(select(Order)).all()
+        rec = collector.QueryCollector()
+        collector.push(rec)
+        try:
+            for order in orders:
+                _ = order.customer
+        finally:
+            collector.pop(rec)
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is None
+    assert finding.parent_root is None
+
+
+def test_an_aliased_root_gives_no_chain(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    alias = aliased(Order)
+    with Session(engine) as session:
+        for order in session.scalars(select(alias)).all():  # aliased
+            _ = order.customer
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("aliased")
+    assert finding.parent_root is None
+    assert _hint(finding) == "select(Order).options(joinedload(Order.customer))"
+
+
+def test_parents_from_two_queries_name_the_first_and_count_the_other(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        first = session.scalars(select(Order).where(Order.id < 3)).all()  # two-1
+        second = session.scalars(select(Order).where(Order.id == 3)).all()
+        for order in [*first, *second]:
+            _ = order.customer
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("two-1")
+    assert finding.other_parent_sites == 1
+    assert "and 1 other place\n" in format_findings([finding]) + "\n"
+
+
+def test_async_session_names_the_awaiting_line() -> None:
+    pytest.importorskip("aiosqlite")
+    pytest.importorskip("greenlet")
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    async def scenario() -> collector.QueryCollector:
+        engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with AsyncSession(engine) as session:
+            _seed(session)
+            await session.commit()
+        rec = collector.QueryCollector()
+        collector.push(rec)
+        try:
+            async with AsyncSession(engine) as session:
+                statement = select(Order).options(joinedload(Order.customer))
+                orders = (await session.scalars(statement)).all()  # awaited
+                for order in orders:
+                    await session.run_sync(lambda _, o=order: o.customer.country)
+        finally:
+            collector.pop(rec)
+            await engine.dispose()
+        return rec
+
+    rec = asyncio.run(scenario())
+    finding = _finding(rec, "Customer.country")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("awaited")
+    assert _hint(finding) == (
+        "select(Order).options(joinedload(Order.customer).joinedload(Customer.country))"
+    )
+
+
+def test_a_failing_origin_lookup_stops_measurement_and_keeps_the_test(
+    engine: Engine, rec: collector.QueryCollector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(context: object) -> CallSite | None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(listeners, "_query_site", boom)
+    with Session(engine) as session:
+        assert len(session.scalars(select(Order)).all()) == 3
+    failure = listeners.internal_failure()
+    assert failure is not None
+    assert failure.source == "load listener (parent sites)"
+
+
+def test_a_bulk_update_that_synchronizes_the_session_is_not_an_origin(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    # The ORM fires the refresh event without a query context for it.
+    with Session(engine) as session:
+        orders = session.scalars(select(Order)).all()  # before-update
+        session.execute(update(Order).values(customer_id=Order.customer_id))
+        for order in orders:
+            _ = order.customer
+    assert listeners.internal_error() is None
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("before-update")

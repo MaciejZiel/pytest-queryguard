@@ -45,7 +45,14 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    InstanceEvents,
+    Mapped,
+    Mapper,
+    Session,
+    mapped_column,
+)
 from sqlalchemy.pool import StaticPool
 
 
@@ -269,7 +276,7 @@ def _plugin_listeners() -> list[tuple[type, str, Callable[..., Any]]]:
     """Every (target, event, function) that ``listeners.install()`` registers.
 
     Discovered rather than listed: the functions of ``listeners`` registered on
-    Session, Engine or Pool. SQLAlchemy's registry of listeners must have grown
+    Session, Engine, Pool or Mapper (the instance events, registered raw). SQLAlchemy's registry of listeners must have grown
     by as many entries as were found, so a listener the search cannot see (on
     another target, or defined elsewhere) stops the benchmark instead of
     staying on in the "off" blocks, where its cost would cancel out.
@@ -285,8 +292,12 @@ def _plugin_listeners() -> list[tuple[type, str, Callable[..., Any]]]:
     functions = [f for f in vars(listeners).values() if inspect.isfunction(f)]
     found: list[tuple[type, str, Callable[..., Any]]] = [
         (target, name, function)
-        for target in (Session, Engine, Pool)
-        for name in target.dispatch._event_names
+        for target in (Session, Engine, Pool, Mapper)
+        for name in (
+            InstanceEvents.dispatch._event_names
+            if target is Mapper
+            else target.dispatch._event_names
+        )
         for function in functions
         if event.contains(target, name, function)
     ]
@@ -305,7 +316,12 @@ def _child_interleaved(statements: int, rounds: int) -> None:
 
     def measurement(on: bool) -> None:
         for target, name, function in registered:
-            (event.listen if on else event.remove)(target, name, function)
+            if not on:
+                event.remove(target, name, function)
+            elif target is Mapper:
+                event.listen(target, name, function, raw=True)
+            else:
+                event.listen(target, name, function)
         if not on:
             # SQLAlchemy sets this class flag when a listener is added and
             # never clears it; left set, every "off" statement would still go
