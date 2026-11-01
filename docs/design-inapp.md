@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Status | Implemented, experimental (0.5.0rc1 to 0.5.0rc3) |
+| Status | Implemented, experimental (0.5.0) |
 | Author | Maciej Zieliński |
 | Date | 2026-10-13 |
-| Target release | 0.5.0 (experimental from 0.5.0rc1) |
+| Target release | 0.5.0 (released as experimental) |
 | Extends | [design.md](design.md), [design-0.3-api.md](design-0.3-api.md) |
 
 ## 1. Problem

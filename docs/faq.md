@@ -290,9 +290,9 @@ an async FastAPI example. On SQLAlchemy 2.1 and newer install
 - Your data access does not go through SQLAlchemy 2: Django ORM, Peewee,
   Tortoise ORM, raw DB-API connections. The plugin sees nothing there, and
   says nothing. For Django see [django-zeal](comparison.md).
-- You want to see N+1 queries in a running application or in production: the
-  plugin works only inside pytest. A middleware (see the
-  [comparison](comparison.md)) or an APM tool fits that better.
+- You want to see N+1 queries in production: the
+  [in-application mode](in-app.md) is for development and staging only. An
+  APM tool fits production better.
 - Most of the database work in your suite happens in fixtures, or the tests
   that matter are end-to-end tests against a deployed service: only the test
   function body is measured, in the same process.
