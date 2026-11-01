@@ -15,7 +15,7 @@ pull request's copy of the gate.
 
 | # | check | where |
 |---|---|---|
-| 1 | The whole CI matrix (`ci.yml`, reused through `workflow_call`): Python 3.10 to 3.14, SQLAlchemy 2.0 and latest, pytest 8.0 and latest, xdist, PostgreSQL, Windows and macOS. Plus the oldest SQLAlchemy series and pytest on Linux, Windows and macOS. | `ci`, `oldest-versions` jobs |
+| 1 | The whole CI matrix (`ci.yml`, reused through `workflow_call`): Python 3.10 to 3.14 and the 3.15 pre-release, SQLAlchemy 2.0 and latest, pytest 8.0 and latest, xdist, PostgreSQL, Windows and macOS. Plus the oldest SQLAlchemy series and pytest on Linux, Windows and macOS. | `ci`, `oldest-versions` jobs |
 | 2 | Accuracy corpus: precision and recall of the default configuration are at least the minimums in `scripts/accuracy_thresholds.json` (see [Accuracy](accuracy.md#release-thresholds)), and no disagreement with a verdict is undocumented. | `release_gate.py accuracy` |
 | 3 | Every Python block in `README.md` and `docs/` parses, and the projects a page spells out file by file (and `README.md`'s quick start, and the examples in `examples/`) run and give the output the page shows. | `tests/test_doc_examples.py`, `test_readme.py`, `test_docs.py`, `test_examples.py` |
 | 4 | The wheel and the sdist install into clean virtual environments on Linux, Windows and macOS; `pip check` passes; the package imports; the `pytest11` entry point is registered; `pytest --co` works on a tiny project and the plugin reports an N+1 there. | `release_gate.py install` |
