@@ -85,9 +85,12 @@ and the finding uses them only when all its loads agree: a single site (or the
 first one and how many others), and a single load path that can be written as
 `select(Root).options(loader(A.b).loader(B.c))` (no aliased class or
 `of_type()`). Otherwise the line is left out and the hint names the
-relationship's own class, as without the information. An object that a query
+relationship's own class, as without the information. An object whose row
+two queries from different places read gets no origin; one that a query
 returns from the identity map without reading its row fires no event, so it
-keeps the query that loaded it first.
+keeps the query that loaded it. Origins are kept per measurement: an object
+loaded before the test body (or before a `record_queries()` block) has none
+there. The in-app mode does not record origins and prints the earlier hint.
 
 #### How a lazy load's statement is attributed
 

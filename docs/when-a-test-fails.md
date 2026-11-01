@@ -35,8 +35,10 @@ queryguard: N+1 detected
   The line is left out when the plugin cannot tell, for example for objects
   the test created and the query handed back without reading them, or objects
   loaded before the test body started; the hint then names the
-  relationship's own class. An object that was already in the Session keeps
-  the query that first loaded it, even when a later query returns it again.
+  relationship's own class. It is also left out when two queries from
+  different places read the same objects, since the plugin cannot tell which
+  result the loop uses. An object that a later query returns from the Session
+  without reading its row again keeps the query that loaded it.
 - `kind` and `label` name the finding the way ignore patterns, `allow_nplusone`
   and the baseline do: `relationship-load Order.customer` is the pattern for
   this one. For a repeated statement the label is the normalized statement,

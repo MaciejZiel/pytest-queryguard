@@ -17,6 +17,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Mapper, ORMExecuteState, Session, loading, strategies
 from sqlalchemy.orm.attributes import instance_state
+from sqlalchemy.orm.context import QueryContext
 from sqlalchemy.orm.session import SessionTransaction
 from sqlalchemy.pool import Pool
 
@@ -367,8 +368,10 @@ def _nested_code(function: Any, name: str, variable: str) -> Any:
 
 # Where the parents of a lazy load came from. A read stores its call site on
 # its execution context, which its result keeps (_SITE_ATTR); each instance a
-# query loads gets (call site, load path) on its InstanceState (_ORIGIN_ATTR),
-# so it goes away with the object.
+# query loads gets (call site, load path, measurement) on its InstanceState
+# (_ORIGIN_ATTR), so it goes away with the object. The measurement is the
+# collector generation: an origin noted in another test, or outside the
+# current record_queries() block, is not used.
 _SITE_ATTR = "_queryguard_site"
 _ORIGIN_ATTR = "_queryguard_origin"
 # The generator in loading.instances() that turns the rows of one result into
@@ -387,15 +390,18 @@ _MAX_QUERY_DEPTH = 200
 # (runid, call site) of the query whose instances were seen last: the rows of
 # one query come in one after another, so the walk runs once per query.
 _last_query: tuple[int, CallSite | None] = (0, None)
-# The live collectors; the per-row listeners only need to know if there is one.
+# The live collectors; the per-row listeners only need to know if there is one,
+# without a call per row. collector.py never rebinds the list.
 _collectors = collector._stack
 # id(statement) -> (statement, call site) of the reads of the current
 # measurement: the query context that turns a result into instances holds the
 # statement it ran, so its call site is found without a walk up the stack.
 # _AMBIGUOUS when one statement object ran from two places (its results may
 # be read in any order); then, and for a statement not here, the stack is
-# walked. Holds the statements, so it is bounded and emptied for each
-# measurement.
+# walked. Holds the statements, so it is emptied for each measurement and
+# takes no more once full (a statement not here is found by the walk). Lazy
+# loads and eager loader statements are left out: their instances are found
+# through the parent or the outer query.
 _reads: dict[int, tuple[Any, CallSite | None]] = {}
 _reads_generation = -1
 _MAX_READS = 256
@@ -412,13 +418,14 @@ def _note_read(statement: Any, site: CallSite | None) -> None:
     """Remember the call site of a read, for _query_site."""
     global _reads_generation
     generation = collector._generation
-    if generation != _reads_generation or len(_reads) >= _MAX_READS:
+    if generation != _reads_generation:
         _reads.clear()
         _reads_generation = generation
     key = id(statement)
     entry = _reads.get(key)
     if entry is None or entry[0] is not statement:
-        _reads[key] = (statement, site)
+        if len(_reads) < _MAX_READS:
+            _reads[key] = (statement, site)
     elif entry[1] is not site:
         _reads[key] = (statement, _AMBIGUOUS)
 
@@ -430,11 +437,11 @@ def _query_site(context: Any) -> CallSite | None:
     and those of a selectin or subquery loader from the query that it runs
     for; the call site is that query's.
     """
-    parent = getattr(context.load_options, "_lazy_loaded_from", None)
-    if parent is not None:
-        origin = parent.__dict__.get(_ORIGIN_ATTR)
-        return None if origin is None else origin[0]
     target = context.top_level_context or context
+    parent = getattr(target.load_options, "_lazy_loaded_from", None)
+    if parent is not None:
+        origin = _current_origin(parent)
+        return None if origin is None else origin[0]
     statement = target.query
     entry = _reads.get(id(statement))
     if entry is not None and entry[0] is statement and entry[1] is not _AMBIGUOUS:
@@ -472,9 +479,13 @@ def _on_instance_load(state: Any, context: Any) -> None:
     if _error is not None or not _collectors:
         return
     try:
+        # Session.merge() fires it without a query context for a new object.
+        run = getattr(context, "runid", None)
+        if run is None:
+            return
         last = _last_query
-        site = last[1] if last[0] == context.runid else _site_of(context)
-        state.__dict__[_ORIGIN_ATTR] = (site, state.load_path)
+        site = last[1] if last[0] == run else _site_of(context)
+        state.__dict__[_ORIGIN_ATTR] = (site, state.load_path, collector._generation)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "load listener (parent sites)")
 
@@ -485,14 +496,16 @@ def _on_instance_refresh(state: Any, context: Any, attrs: Any) -> None:
     A query that returns objects created in the test (or expired since) loads
     their columns again and fires this, not ``load``. A refresh of one object
     (an expired attribute, ``session.refresh()``) keeps the earlier origin: it
-    does not say where the object came from.
+    does not say where the object came from. An object that two queries of
+    different places or paths read has no known origin: which result the code
+    goes on with cannot be told.
     """
     if _error is not None or not _collectors:
         return
     try:
         # A bulk UPDATE or DELETE that synchronizes the Session fires it
-        # without a query context.
-        if context is None or context.refresh_state is not None:
+        # without a query context, and a composite attribute with a marker.
+        if not isinstance(context, QueryContext) or context.refresh_state is not None:
             return
         # The state's load_path is not updated for an instance the Session
         # already had; the path of this query's rows is in the frame that
@@ -509,7 +522,10 @@ def _on_instance_refresh(state: Any, context: Any, attrs: Any) -> None:
                 frame = frame.f_back
         last = _last_query
         site = last[1] if last[0] == context.runid else _site_of(context)
-        state.__dict__[_ORIGIN_ATTR] = (site, path)
+        before = _current_origin(state)
+        if before is not None and (before[0] is not site or before[1] != path):
+            site = path = None
+        state.__dict__[_ORIGIN_ATTR] = (site, path, collector._generation)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "refresh listener (parent sites)")
 
@@ -557,12 +573,21 @@ def _loader_path(
     return found
 
 
+def _current_origin(state: Any) -> tuple[Any, ...] | None:
+    """(call site, load path, generation) of an instance, if noted in this
+    measurement."""
+    origin = state.__dict__.get(_ORIGIN_ATTR)
+    if origin is None or origin[2] != collector._generation:
+        return None
+    return origin  # type: ignore[no-any-return]
+
+
 def _parent_load(parent: Any, prop: Any) -> ParentLoad | None:
     """Where the parent of this lazy load came from; None when unknown."""
-    origin = parent.__dict__.get(_ORIGIN_ATTR)
+    origin = _current_origin(parent)
     if origin is None:
         return None
-    site, path = origin
+    site, path, _ = origin
     root, chain = _loader_path(path, prop)
     if site is None and root is None:
         return None
@@ -776,7 +801,8 @@ def _on_cursor_execute(
             if _is_orm(invoked):
                 # Read back when the ORM turns the rows into instances.
                 setattr(context, _SITE_ATTR, stmt.callsite)
-                _note_read(invoked, stmt.callsite)
+                if relationship is None:
+                    _note_read(invoked, stmt.callsite)
             # Read back by the after listener; per execution, so statements
             # that overlap in time (asyncio tasks) never mix up. Taken last,
             # so the time spent finding the call site is not counted.

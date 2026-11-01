@@ -8,6 +8,7 @@ loader option from the root of that path (issue #225).
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from sqlalchemy.orm import (
     Mapped,
     Session,
     aliased,
+    composite,
     joinedload,
     mapped_column,
     relationship,
@@ -58,6 +60,21 @@ class Order(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("ps_customer.id"))
     customer: Mapped[Customer] = relationship(back_populates="orders")
+
+
+@dataclasses.dataclass
+class Point:
+    x: int
+    y: int
+
+
+class Vertex(Base):
+    __tablename__ = "ps_vertex"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    x: Mapped[int]
+    y: Mapped[int]
+    p: Mapped[Point] = composite("x", "y")
 
 
 @pytest.fixture(autouse=True)
@@ -369,3 +386,65 @@ def test_a_bulk_update_that_synchronizes_the_session_is_not_an_origin(
     finding = _finding(rec, "Order.customer")
     assert finding.parent_site is not None
     assert finding.parent_site.lineno == _line("before-update")
+
+
+def test_a_merged_new_object_does_not_stop_the_measurement(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    # Session.merge() fires the load event without a query context.
+    with Session(engine) as session:
+        session.merge(Country(id=99))
+    assert listeners.internal_error() is None
+
+
+def test_a_composite_attribute_does_not_stop_the_measurement(
+    rec: collector.QueryCollector,
+) -> None:
+    # Reading a composite after a flush fires refresh with a marker object.
+    cengine = create_engine("sqlite://")
+    Base.metadata.create_all(cengine)
+    with Session(cengine) as session:
+        vertex = Vertex(id=1, p=Point(1, 2))
+        session.add(vertex)
+        session.flush()
+        vertex.p = Point(7, 8)
+        session.flush()
+        assert vertex.p == Point(7, 8)
+    cengine.dispose()
+    assert listeners.internal_error() is None
+
+
+def test_parents_that_two_queries_read_have_no_known_origin(
+    engine: Engine, rec: collector.QueryCollector
+) -> None:
+    with Session(engine) as session:
+        orders = session.scalars(select(Order)).all()
+        # Reads the same rows again; the lazy relationship is unloaded, so the
+        # ORM fires refresh. Which result the loop uses cannot be told.
+        session.scalars(select(Order).where(Order.id > 0)).all()
+        for order in orders:
+            _ = order.customer
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is None
+    assert finding.parent_root is None
+
+
+def test_an_origin_noted_in_an_earlier_measurement_is_not_used(
+    engine: Engine,
+) -> None:
+    with Session(engine) as session:
+        first = collector.QueryCollector()
+        collector.push(first)
+        try:
+            orders = session.scalars(select(Order)).all()
+        finally:
+            collector.pop(first)
+        rec = collector.QueryCollector()
+        collector.push(rec)
+        try:
+            for order in orders:
+                _ = order.customer
+        finally:
+            collector.pop(rec)
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is None
