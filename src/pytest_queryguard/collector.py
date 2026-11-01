@@ -101,6 +101,9 @@ class QueryCollector:
 
 # Process-wide on purpose: the code under test may run in another thread.
 _stack: list[QueryCollector] = []
+# The tuple active() returns, rebuilt on push and pop only: the listeners
+# call active() for every statement.
+_active: tuple[QueryCollector, ...] = ()
 _generation = 0
 
 
@@ -110,25 +113,28 @@ def generation() -> int:
 
 
 def push(collector: QueryCollector) -> None:
-    global _generation
+    global _generation, _active
     _generation += 1
     _stack.append(collector)
+    _active = tuple(_stack)
 
 
 def pop(collector: QueryCollector) -> None:
-    global _generation
+    global _generation, _active
     _generation += 1
     for i in range(len(_stack) - 1, -1, -1):
         if _stack[i] is collector:
             del _stack[i]
             break
+    _active = tuple(_stack)
 
 
 def active() -> tuple[QueryCollector, ...]:
-    return tuple(_stack)
+    return _active
 
 
 def _reset_for_tests() -> None:
-    global _generation
+    global _generation, _active
     _generation += 1
     _stack.clear()
+    _active = ()

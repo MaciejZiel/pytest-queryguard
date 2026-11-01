@@ -176,7 +176,7 @@ def test_a_column_load_without_an_instance_is_ignored_quietly() -> None:
         collector.pop(target)
     assert listeners.internal_error() is None
     assert target.column_loads == []
-    assert listeners._take_pending(object()) == (None, None, False)
+    assert listeners._take_pending(object()) == (None, None, False, None)
 
 
 @pytest.mark.filterwarnings(
