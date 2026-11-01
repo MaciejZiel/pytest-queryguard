@@ -46,6 +46,16 @@ Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+.
 | Missing index, with the `CREATE INDEX` | opt-in | no index can serve a filter (PostgreSQL 16+, SQLite, MySQL, MariaDB) |
 | Unused eager loads | experimental, off | a relationship is eager-loaded and never read |
 
+Why not just `raiseload`? It blocks lazy loads where you add it to a model or
+query; this plugin needs no code change and also reports what `raiseload` does
+not cover. The two work together: see the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#how-does-this-relate-to-sqlalchemys-raiseload).
+
+| Question | Answer | Details |
+|---|---|---|
+| What does it catch? | Lazy loads, plus loops of ORM, Core and `text()` statements, column reloads, row-by-row writes and missing indexes | [Comparison](https://maciejziel.github.io/pytest-queryguard/comparison.html): 45 scenarios against two other plugins |
+| What does it cost? | First measurement (2026-11-01, Python 3.14, SQLAlchemy 2.1, 300-test suite on file-based SQLite): about +1 % suite time; pytest-querycount +5.5 %, queryspy +28 % | [Performance](https://maciejziel.github.io/pytest-queryguard/performance.html#first-comparison-with-other-plugins) |
+| Can a legacy suite adopt it? | Yes: warn first, record a baseline, then only new findings fail | [Legacy recipe](https://maciejziel.github.io/pytest-queryguard/recipes-legacy.html) |
+
 For adoption: a [baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html) so that only new
 findings fail, [SARIF and a GitHub Action](https://maciejziel.github.io/pytest-queryguard/ci.html) for code
 scanning, and per-finding [ignore patterns](https://maciejziel.github.io/pytest-queryguard/ignoring.html).
