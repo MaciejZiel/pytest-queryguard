@@ -448,3 +448,20 @@ def test_an_origin_noted_in_an_earlier_measurement_is_not_used(
             collector.pop(rec)
     finding = _finding(rec, "Order.customer")
     assert finding.parent_site is None
+
+
+def test_a_new_select_per_iteration_keeps_the_site_once_the_map_is_full(
+    engine: Engine, rec: collector.QueryCollector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Without the stack walk only the noted reads can name the site.
+    monkeypatch.setattr(listeners, "_CHUNKS_CODE", None)
+    with Session(engine) as session:
+        for _ in range(listeners._MAX_READS + 10):
+            session.scalars(select(Order).where(Order.id == 1)).all()
+            session.expunge_all()
+        for order in session.scalars(select(Order)).all():  # past-the-cap
+            _ = order.customer
+    assert len(listeners._reads) == listeners._MAX_READS
+    finding = _finding(rec, "Order.customer")
+    assert finding.parent_site is not None
+    assert finding.parent_site.lineno == _line("past-the-cap")

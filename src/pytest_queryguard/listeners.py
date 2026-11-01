@@ -422,6 +422,11 @@ _reads: dict[int, tuple[Any, CallSite | None]] = {}
 _reads_generation = -1
 _MAX_READS = 256
 _AMBIGUOUS = CallSite(filename="", lineno=0, function="")
+# (statement, call site) of the latest read, unless that statement is
+# ambiguous: the rows of a query are nearly always turned into instances right
+# after it ran, so this finds the site even once _reads is full (a loop that
+# builds a new select() per iteration fills it after 256).
+_last_read: tuple[Any, CallSite | None] = (None, None)
 
 
 def _is_orm(statement: Any) -> bool:
@@ -432,7 +437,7 @@ def _is_orm(statement: Any) -> bool:
 
 def _note_read(statement: Any, site: CallSite | None) -> None:
     """Remember the call site of a read, for _query_site."""
-    global _reads_generation
+    global _reads_generation, _last_read
     generation = collector._generation
     if generation != _reads_generation:
         _reads.clear()
@@ -442,8 +447,12 @@ def _note_read(statement: Any, site: CallSite | None) -> None:
     if entry is None or entry[0] is not statement:
         if len(_reads) < _MAX_READS:
             _reads[key] = (statement, site)
-    elif entry[1] is not site:
+        _last_read = (statement, site)
+    elif entry[1] is site:
+        _last_read = (statement, site)
+    else:
         _reads[key] = (statement, _AMBIGUOUS)
+        _last_read = (None, None)
 
 
 def _query_site(context: Any) -> CallSite | None:
@@ -459,6 +468,9 @@ def _query_site(context: Any) -> CallSite | None:
         origin = _current_origin(parent)
         return None if origin is None else origin[0]
     statement = target.query
+    last = _last_read
+    if last[0] is statement:
+        return last[1]
     entry = _reads.get(id(statement))
     if entry is not None and entry[0] is statement and entry[1] is not _AMBIGUOUS:
         return entry[1]
