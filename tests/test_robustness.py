@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import os
 import re
 import sys
 import threading
@@ -77,7 +78,22 @@ def test_state_does_not_grow_across_many_measurements(measured: None) -> None:
         after = _snapshot()
     finally:
         tracemalloc.stop()
-    total = sum(d.size_diff for d in after.compare_to(before, "filename"))
+    # SQLAlchemy's event registry is a module-level dict of every listener key
+    # in the process: the engines of the earlier tests leave thousands in it,
+    # and the cycles here add and remove theirs. When the table is rebuilt in
+    # this window that is one block of 0.5 MB or so (seen at 5,700 keys, the
+    # same number before and after), whatever the plugin does; one block there
+    # is left out of the total, a growing registry still counts.
+    total = sum(
+        d.size_diff
+        for d in after.compare_to(before, "lineno")
+        if not (
+            d.count_diff <= 1
+            and d.traceback[0].filename.endswith(
+                os.path.join("sqlalchemy", "event", "registry.py")
+            )
+        )
+    )
     diffs = after.filter_traces(PLUGIN_ONLY).compare_to(
         before.filter_traces(PLUGIN_ONLY), "filename"
     )
