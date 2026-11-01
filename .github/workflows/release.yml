@@ -8,6 +8,33 @@ permissions:
   contents: read
 
 jobs:
+  # The release gate (release-gate.yml) must have passed on the commit the tag
+  # points to, in a run started by hand on main (docs/releasing.md): a pull
+  # request's run uses that pull request's copy of the gate. Checked here, so
+  # a tag pushed too early, or on another commit, publishes nothing.
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: The release gate passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          sha=$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)
+          passed=$(gh api "repos/$REPO/actions/workflows/release-gate.yml/runs?head_sha=$sha&event=workflow_dispatch&branch=main&status=success&per_page=100" \
+            --jq "[.workflow_runs[] | select(.head_sha == \"$sha\" and .event == \"workflow_dispatch\" and .head_branch == \"main\" and .conclusion == \"success\")] | length")
+          if [ "$passed" -eq 0 ]; then
+            echo "::error::The release gate has not passed on $sha, the commit of $TAG."
+            echo "Run Actions > Release gate > Run workflow on main at that commit, wait"
+            echo "for it to be green, then re-run this workflow. Nothing was published."
+            exit 1
+          fi
+          echo "release gate passed on $sha ($passed green run(s) on main)"
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -55,7 +82,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [gate, build]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

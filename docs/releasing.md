@@ -5,7 +5,11 @@ everything that can be checked is checked before the tag, by one workflow: the
 release gate (`.github/workflows/release-gate.yml`). It does not tag, upload or
 publish anything. The release workflow (`.github/workflows/release.yml`) starts
 from a tag that a person pushes, and a person pushes it only after the gate is
-green on the commit that gets the tag.
+green on the commit that gets the tag. The release workflow checks that too:
+its `gate` job looks up the runs of `release-gate.yml` started by hand on
+`main` for the tagged commit, and fails, so nothing is published, unless one
+of them succeeded. A pull request's gate run does not count, since it runs the
+pull request's copy of the gate.
 
 ## What the gate checks
 
@@ -24,7 +28,8 @@ green on the commit that gets the tag.
 
 On GitHub: Actions, "Release gate", "Run workflow", on `main`. It also runs on
 a pull request that changes `src/pytest_queryguard/__init__.py` (the version),
-the workflow or its scripts. The `gate` job is green only when every other job
+the workflow or its scripts (including the overhead benchmark and its
+baseline). The `gate` job is green only when every other job
 is, so it is the one to require.
 
 Locally, the checks that are not a plain `pytest` run:
@@ -46,8 +51,10 @@ projects (only Litestar, pytest-asyncio and SQLModel may be missing).
 1. A pull request bumps `__version__`, dates the changelog entry and fixes the
    link references. The gate runs on it.
 2. After it is merged, run the gate on `main` and wait for it to be green.
-3. Tag that commit `vX.Y.Z` and push the tag; `release.yml` builds and
-   publishes.
+3. Tag that commit `vX.Y.Z` and push the tag; `release.yml` checks that a
+   gate run on `main` at that commit succeeded, then builds and publishes.
+   Without one its `gate` job fails and nothing is published; run the gate
+   on that commit, then re-run the release workflow.
 
 ## How the overhead is measured
 
