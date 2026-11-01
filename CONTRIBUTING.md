@@ -90,4 +90,6 @@ request: one row with the source URL, the name, the SPDX license identifier
 and a link to the license. `tests/test_licenses.py` checks the file. Copyleft
 licenses (GPL, AGPL, LGPL, SSPL, MPL, EPL, CDDL) are not accepted for new
 dependencies; that is why the PostgreSQL tests use pg8000 and asyncpg and not
-psycopg. GitHub Actions are pinned by commit SHA.
+psycopg. A copyleft package may be installed in a CI job as a test-only tool
+that is not in `uv.lock` and not shipped (psycopg 3 in the `postgres` job);
+record it in `3rdparty_licenses.md` all the same. GitHub Actions are pinned by commit SHA.

@@ -10,7 +10,7 @@ It watches the SQL each test function body sends (fixture setup and teardown are
 pip install pytest-queryguard
 ```
 
-This file describes 0.4.1. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
+This file describes 0.5.0. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
 
 ## Quick start
 
@@ -106,7 +106,7 @@ Here `list_orders` is the fixed function from the README (`select(Order).options
 - After an internal error, a block that ends normally issues `QueryGuardInternalWarning` (the log may be incomplete), and `assert_no_nplusone()` raises `RuntimeError` instead of passing.
 - `QueryGuardDeprecationWarning` (a `DeprecationWarning`, not a `QueryGuardWarning`) is what a later release uses to announce an option or name it removes; a `filterwarnings` entry for `QueryGuardWarning` does not match it.
 
-## In-application mode (experimental, from 0.5.0rc1)
+## In-application mode (experimental, from 0.5.0)
 
 ```python
 from pytest_queryguard import app as queryguard

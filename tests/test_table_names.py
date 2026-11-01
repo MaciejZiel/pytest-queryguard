@@ -13,7 +13,13 @@ import pytest
 from pytest_queryguard.findings import KIND_MISSING_INDEX, Finding
 from pytest_queryguard.ignores import IgnoreRule, apply_rules, parse_rule
 from pytest_queryguard.tablenames import table_matches
-from tests.test_index_check import Postgres, needs_pg, pg16, postgres  # noqa: F401
+from tests.test_index_check import (  # noqa: F401
+    Postgres,
+    needs_pg,
+    pg16,
+    postgres,
+    search_path_args,
+)
 
 # pytester runs sessions in-process, so the outer plugin sees their queries too.
 pytestmark = pytest.mark.allow_nplusone
@@ -182,9 +188,7 @@ PG_ENGINE = """
 from sqlalchemy import create_engine
 
 def make_engine():
-    return create_engine(
-        {url!r}, connect_args={{"startup_params": {{"search_path": {schema!r}}}}}
-    )
+    return create_engine({url!r}, connect_args={connect_args!r})
 """
 ENTRY_POINTS = ["ini-tables", "allow_missing_index", "ini-ignore", "allow_nplusone"]
 
@@ -247,5 +251,8 @@ def test_pg_spellings(
     table: str,
     matches: bool,
 ) -> None:
-    engine = PG_ENGINE.format(url=pg16.url, schema=pg16.schema)
+    engine = PG_ENGINE.format(
+        url=pg16.url,
+        connect_args=search_path_args(pg16.url, pg16.schema),
+    )
     _run(project, engine, entry, spelling.format(schema=pg16.schema), table, matches)

@@ -68,8 +68,34 @@ tests/test_orders.py::test_fetch_customers
 
 Budgets (`max_queries`, `max_db_time`) still fail in `warn` mode: a budget is
 a number you wrote, not a guess. Fix what is cheap, and let the rest wait for
-the baseline. `queryguard_fail_on = ["relationship-load"]` is a middle step:
-only that kind fails, the rest warn.
+the baseline.
+
+A middle step is to fail only on the kinds that are rarely wrong, and let the
+rest warn until they are baselined. `relationship-load` and `column-load`
+name one attribute that was loaded object by object. `repeated-statement`
+compares statements without their bind values, so an integration test that
+sends several requests, each doing the same lookups once, can trip it with
+code that is fine (see
+[the FAQ](faq.md#my-integration-test-makes-several-requests-and-fails-with-repeated-statement)
+and `queryguard_repeat_scope`).
+A report from another plugin with the same kinds points the same way: on a
+project generator with 22,000 tests,
+[queryspy issue #14](https://github.com/sqla-native/queryspy/issues/14)
+counted 346 repeated-statement findings, none of them real, and 27
+column-load findings, all real and fixed in an afternoon. That was queryspy
+with a threshold of 2 identical statements; pytest-queryguard's default is 5,
+so expect fewer, but the same kind of noise. So:
+
+```ini
+[pytest]
+queryguard_fail_on =
+    relationship-load
+    column-load
+```
+
+In `pyproject.toml`: `queryguard_fail_on = ["relationship-load", "column-load"]`.
+Findings of the other kinds are reported as `QueryGuardWarning` and the test
+passes; budgets still fail.
 
 ## 2. Baseline
 

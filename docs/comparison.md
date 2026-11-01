@@ -12,9 +12,9 @@ measurements are ones I ran myself, on scenarios I wrote.
   and pytest-capquery list none on PyPI), and the cells below that changed say
   so.
 - pytest-queryguard: the measurements were made on the `next` branch at commit
-  `b64d19c`, before 0.4.0rc1, and describe 0.4.0 (2026-10-14). The latest
-  stable release, 0.4.1 (2026-10-23), changed only the database time of
-  statements that finish in another thread, which no row below measures.
+  `b64d19c`, before 0.4.0rc1, and describe 0.4.0 (2026-10-14). 0.4.1 changed only the database time of
+  statements that finish in another thread, which no row below measures, and
+  0.5.0 added the in-application mode without changing the plugin.
 - Marks in the matrix: **(v)** verified by running the package or reading its
   installed source on that date; **(r)** read in the package's PyPI
   description only, not run. Anything I could not check is marked as such.
@@ -23,7 +23,7 @@ measurements are ones I ran myself, on scenarios I wrote.
 
 | Tool | Version (release date) | First release on PyPI | Targets | License |
 |---|---|---|---|---|
-| pytest-queryguard | 0.4.1 (2026-10-23) | 2026-10-10 | SQLAlchemy 2 | MIT |
+| pytest-queryguard | 0.5.0 (2026-11-01) | 2026-10-10 | SQLAlchemy 2 | MIT |
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.5.0 (2026-10-04) | 2026-08-04 | SQLAlchemy 2.0+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |
@@ -60,7 +60,7 @@ and restricts commercial use. Read it before you adopt it.
 | Unused eager loads | experimental, off by default (v) | no, deliberately (r) | no | yes, for Flask-SQLAlchemy and Django per its README (r) | no (r) | no | no |
 | Row-by-row write loops | opt-in (v) | not reported (v) | not reported (v) | no | no | no | no |
 | Per-finding ignore | marker, ini patterns and baseline (v); no `with` block | marker and an `ignore()` block (v) | `ignore=` for the index check only (r) | whitelist and an `ignore` block (r) | allow-list and an ignore block (r) | no | no |
-| In-app middleware and request panel | yes, experimental since 0.5.0rc1: ASGI and WSGI, optional panel (v) | yes: ASGI and WSGI, optional panel (v: modules present) | no | Django, Flask-SQLAlchemy, WSGI (r) | Django middleware (r) | yes, FastAPI middleware (r) | no |
+| In-app middleware and request panel | yes, experimental since 0.5.0: ASGI and WSGI, optional panel (v) | yes: ASGI and WSGI, optional panel (v: modules present) | no | Django, Flask-SQLAlchemy, WSGI (r) | Django middleware (r) | yes, FastAPI middleware (r) | no |
 | Async SQLAlchemy | yes (v) | yes (v) | yes (v) | no | no | not stated | yes, through `sync_engine` (r) |
 | pytest-xdist | tested in CI | not stated | summary per worker; budgets and N+1 unaffected (r) | not stated | not stated | not stated | not stated |
 | Documentation site | this site | yes (r) | README | README | README | README | README |
@@ -75,7 +75,7 @@ not work.
   the installed package), and fastapi-nplusone is a FastAPI middleware.
   nplusone and django-zeal run inside Django, Flask and WSGI apps.
   pytest-queryguard's in-application mode (see [In-application mode](in-app.md))
-  is experimental and ships in the 0.5.0 release candidates (from 0.5.0rc1).
+  is experimental and ships from 0.5.0.
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI uses
@@ -239,12 +239,24 @@ simple cases and says "an expression index may be needed" for `i06`;
 pytest-querycount's suggests `CREATE INDEX` for plain columns and gives no
 suggestion for the expression.
 
+### Overhead (first measurement)
+
+Measured once, on 2026-11-01 (Python 3.14, SQLAlchemy 2.1), on the generated
+300-test suite of `scripts/bench_suite.py` against file-based SQLite: added
+suite time was +0.3 to +1.3 % for pytest-queryguard, +5.5 % for
+pytest-querycount and +28 % for queryspy in strict mode. Per statement the
+three were closer, and queryspy added the least to a Core statement. The
+method and the per-statement numbers are in
+[Performance](performance.md#first-comparison-with-other-plugins). This is a
+first, single-session measurement; publishing it with a script you can run is
+[issue #253](https://github.com/MaciejZiel/pytest-queryguard/issues/253).
+
 ### What I did not measure
 
 SQLite for the index check (the page for it has its own tests), MySQL,
-PostgreSQL versions other than 17, async drivers in this comparison, memory
-and speed, other SQLAlchemy versions, and any real application.
-Overhead numbers are in `scripts/bench_overhead.py` and are for
+PostgreSQL versions other than 17, async drivers in this comparison, memory,
+other SQLAlchemy versions, and any real application. Speed was measured once,
+above; the overhead gate in `scripts/bench_overhead.py` covers
 pytest-queryguard only.
 
 ## Choosing

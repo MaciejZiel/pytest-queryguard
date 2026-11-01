@@ -117,6 +117,7 @@ def test_the_pages_with_projects_are_found() -> None:
     names = {p.name for p in WITH_PROJECT}
     assert {
         "getting-started.md",
+        "recipes-factory-boy.md",
         "recipes-fastapi.md",
         "recipes-flask-sqlalchemy.md",
         "recipes-litestar.md",

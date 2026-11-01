@@ -514,7 +514,7 @@ def test_pg_async_plans_equal_plain_explain_plans(pg16_async: Postgres) -> None:
     assert PG_URL is not None
     schema = pg16_async.schema
     sync = create_engine(
-        PG_URL, connect_args={"startup_params": {"search_path": schema}}
+        PG_URL, connect_args=sync_tests.search_path_args(PG_URL, schema)
     )
     with sync.begin() as conn:
         for statement in EQUAL_PLANS_SETUP:

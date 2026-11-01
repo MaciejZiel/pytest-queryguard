@@ -70,16 +70,21 @@
   read after a commit.
 - The write-loop rule cannot tell test seeding (Factory Boy creating rows with
   a flush each) or a per-row insert with its own error handling from a write
-  loop in the code under test. It is off by default for that reason.
+  loop in the code under test. It is off by default for that reason; see
+  [Factory Boy and seeding](recipes-factory-boy.md) for suites that seed in
+  the test body.
 - The PostgreSQL index check needs PostgreSQL 16 or newer, and a sync engine or an
   async engine on asyncpg. It is tested on 16, 17 and 18; a newer server is
   checked, with one notice that it is untested (see
   [PostgreSQL versions](index-check.md#postgresql-versions)). Other async drivers, such as psycopg's async
-  mode, are skipped with a notice. The test suite uses pg8000 and asyncpg.
-  psycopg2 and psycopg 3 were checked by hand during review and give the
-  same findings for plain statements, `%` in SQL, expanding `IN`,
-  autocommit and `stream_results`; they are LGPL-licensed, so this project
-  does not depend on them or run them in CI.
+  mode, are skipped with a notice. The test suite uses pg8000 and asyncpg,
+  and CI runs it once more with psycopg 3 (sync and async), installed only
+  for that run since it is LGPL-licensed. psycopg2 is not run in CI; it was
+  checked by hand during review and gives the same findings for plain
+  statements, `%` in SQL, expanding `IN`, autocommit and `stream_results`.
+  On psycopg 3 the hypopg verification of a second table or a partial-index
+  candidate of one statement can fail (see
+  [the FAQ](faq.md#which-postgresql-drivers-work)).
 - On asyncpg the check needs PL/pgSQL, which PostgreSQL installs by
   default. Without it, each statement is counted as one PostgreSQL could
   not plan. After the first check, the connection knows the custom setting

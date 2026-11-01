@@ -129,6 +129,40 @@ scope, the autoflush attribution), and an in-memory SQLite statement is so
 cheap that each step shows as a few percentage points. Run to run the same
 commit varies by about 5 points, so a bisect needs repeated, pinned runs.
 
+## First comparison with other plugins
+
+One first measurement against queryspy and pytest-querycount, on
+2026-11-01. It is a single session on the machine above, with Python 3.14,
+SQLAlchemy 2.1 and pytest-queryguard from the development branch before
+0.5.0; the full write-up, with the exact versions and a script you can run, is
+tracked in [issue #253](https://github.com/MaciejZiel/pytest-queryguard/issues/253).
+Until then, read these numbers as preliminary.
+
+- Whole suite: the generated 300-test suite of `scripts/bench_suite.py`
+  against file-based SQLite, pinned to one core, each tool in a fresh pytest
+  process, with the tools' runs interleaved and the order reversed every
+  round. Each tool ran with the settings that make it report N+1:
+  pytest-queryguard with `--queryguard-mode=warn`, queryspy with
+  `--queryspy-strict`, pytest-querycount with a `no_n_plus_one(threshold=3)`
+  marker on every test.
+- Per statement: Core `select` by key, ORM `select` by primary key and one
+  lazy load, against in-memory SQLite, 15 processes per tool, the fastest of
+  5 blocks in each.
+
+| | pytest-queryguard | pytest-querycount | queryspy |
+|---|---|---|---|
+| 300-test suite, added time | +0.3 to +1.3 % | +5.5 % | +28 % |
+| Core `select`, added per statement | +24 us | +46 us | +10 us |
+| ORM `select`, added per statement | +56 us | +76 us | +72 us |
+| Lazy load, added per statement | +101 us | +96 us | +106 us |
+
+Per statement the three are close on ORM work, and queryspy adds the least
+to a Core statement. On the whole suite the differences come from what each
+plugin does per test, not only per statement. The absolute per-statement
+figures are higher than in the sections above because this was another
+session; as said in [Method](#method), only numbers measured back to back
+compare.
+
 ## Reproduce
 
 ```bash

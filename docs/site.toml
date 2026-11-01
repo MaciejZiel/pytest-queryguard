@@ -53,6 +53,7 @@ pages = [
   { title = "Litestar", file = "recipes-litestar.md", description = "Catch N+1 queries in Litestar handlers with an overridden async session dependency." },
   { title = "pytest-asyncio pitfalls", file = "recipes-pytest-asyncio.md", description = "Configuration mistakes with pytest-asyncio that look like database problems: strict mode, fixtures, event loop scopes." },
   { title = "Budgets for hot endpoints", file = "recipes-budgets.md", description = "Put a query budget on the endpoints where a regression costs most, and choose the number." },
+  { title = "Factory Boy and seeding", file = "recipes-factory-boy.md", description = "Keep Factory Boy seeding in the test body from showing up as write loops or expired reloads: seed in fixtures, or ignore write loops in tests." },
   { title = "Adopting on a legacy codebase", file = "recipes-legacy.md", description = "Introduce pytest-queryguard step by step: warn mode, a baseline of existing findings, then fail on anything new." },
   { title = "CI recipes", file = "recipes-ci.md", description = "Run pytest-queryguard in GitHub Actions and GitLab CI, keep JUnit output, and why pre-commit does not apply." },
 ]
