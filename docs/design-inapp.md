@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Proposed |
+| Status | Implemented, experimental (0.5.0rc1 to 0.5.0rc3) |
 | Author | Maciej Zieliński |
 | Date | 2026-10-13 |
 | Target release | 0.5.0 (experimental from 0.5.0rc1) |

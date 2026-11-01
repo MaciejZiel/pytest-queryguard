@@ -12,8 +12,9 @@ measurements are ones I ran myself, on scenarios I wrote.
   and pytest-capquery list none on PyPI), and the cells below that changed say
   so.
 - pytest-queryguard: the measurements were made on the `next` branch at commit
-  `b64d19c`, before 0.4.0rc1. The current release on PyPI is 0.4.0
-  (2026-10-14); the matrix describes it.
+  `b64d19c`, before 0.4.0rc1, and describe 0.4.0 (2026-10-14). The latest
+  stable release, 0.4.1 (2026-10-23), changed only the database time of
+  statements that finish in another thread, which no row below measures.
 - Marks in the matrix: **(v)** verified by running the package or reading its
   installed source on that date; **(r)** read in the package's PyPI
   description only, not run. Anything I could not check is marked as such.
@@ -74,7 +75,7 @@ not work.
   the installed package), and fastapi-nplusone is a FastAPI middleware.
   nplusone and django-zeal run inside Django, Flask and WSGI apps.
   pytest-queryguard's in-application mode (see [In-application mode](in-app.md))
-  is experimental and first ships in the 0.5.0rc1 pre-release.
+  is experimental and ships in the 0.5.0 release candidates (from 0.5.0rc1).
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI uses
