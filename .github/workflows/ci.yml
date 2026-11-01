@@ -173,11 +173,17 @@ jobs:
 
   # The missing-index check needs a real server. 14 and 15 cover the "too old"
   # notice; 16, 17 and 18 run the check itself. Each run exercises two
-  # drivers: pg8000 (sync) and asyncpg (tests/test_index_check_async.py).
-  # psycopg and psycopg2 are LGPL and not allowed as dependencies here, so
-  # they are not part of the matrix. One more run on 16 uses the oldest
+  # drivers: the sync driver of QUERYGUARD_PG_URL (pg8000) and asyncpg
+  # (tests/test_index_check_async.py). One more run on 16 uses the oldest
   # supported SQLAlchemy, which the asyncpg path depends on (run_async() on
   # adapted connections).
+  #
+  # One run on 17 uses psycopg 3, the most common PostgreSQL driver: the whole
+  # suite with psycopg as the sync driver, and its async mode in
+  # tests/test_psycopg_async.py. psycopg is LGPL-licensed, so it is not a
+  # dependency of the package or of the dev group (not in uv.lock); it is
+  # installed only here, as a CI-only test dependency, and nothing of it is
+  # shipped.
   #
   # The index advisor verifies its suggestions with the hypopg extension. The
   # official postgres image is Debian-based with the PGDG repository, which has
@@ -186,17 +192,25 @@ jobs:
   # packages). Where the package does not exist the plain image is used, the
   # extension is not created and the tests that need it are skipped.
   postgres:
+    # The pg8000 runs keep the names they had before the driver was added to
+    # the matrix, so required checks that name them still match.
+    name: postgres (${{ matrix.postgres }}, ${{ matrix.sqlalchemy }}${{ matrix.driver != 'pg8000' && format(', {0}', matrix.driver) || '' }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         postgres: ["14", "15", "16", "17", "18"]
         sqlalchemy: ["latest"]
+        driver: ["pg8000"]
         include:
           - postgres: "16"
             sqlalchemy: "2.0"
+            driver: "pg8000"
+          - postgres: "17"
+            sqlalchemy: "latest"
+            driver: "psycopg"
     env:
-      QUERYGUARD_PG_URL: postgresql+pg8000://postgres:pg@localhost:5432/postgres
+      QUERYGUARD_PG_URL: postgresql+${{ matrix.driver }}://postgres:pg@localhost:5432/postgres
     steps:
       - name: Start PostgreSQL ${{ matrix.postgres }} with hypopg
         env:
@@ -225,6 +239,9 @@ jobs:
       - name: Pin SQLAlchemy to the 2.0 series
         if: matrix.sqlalchemy == '2.0'
         run: uv pip install "sqlalchemy==2.0.*"
+      - name: Install psycopg 3 (CI only, not in uv.lock)
+        if: matrix.driver == 'psycopg'
+        run: uv pip install "psycopg[binary]==3.3.6"
       - run: uv run --no-sync coverage run -m pytest -rs
       - run: uv run --no-sync coverage report
 

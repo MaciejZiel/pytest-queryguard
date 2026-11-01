@@ -1,7 +1,8 @@
 """The missing-index check, end to end.
 
 Tests that need PostgreSQL run only when QUERYGUARD_PG_URL is set, for
-example ``postgresql+pg8000://postgres:pg@localhost:5432/postgres``.
+example ``postgresql+pg8000://postgres:pg@localhost:5432/postgres``. The sync
+driver in the URL may be pg8000, psycopg or psycopg2.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -305,6 +307,19 @@ PG_URL = os.environ.get("QUERYGUARD_PG_URL")
 needs_pg = pytest.mark.skipif(not PG_URL, reason="QUERYGUARD_PG_URL is not set")
 
 
+def search_path_args(url: str, schema: str) -> dict[str, Any]:
+    """connect_args that set the search_path to `schema` for the URL's driver."""
+    from sqlalchemy.engine import make_url
+
+    driver = make_url(url).get_driver_name()
+    if driver == "pg8000":
+        return {"startup_params": {"search_path": schema}}
+    if driver == "asyncpg":
+        return {"server_settings": {"search_path": schema}}
+    # libpq drivers: psycopg (sync and async) and psycopg2
+    return {"options": f"-csearch_path={schema}"}
+
+
 @dataclass(frozen=True)
 class Postgres:
     url: str
@@ -354,9 +369,7 @@ SCHEMA = {schema!r}
 
 
 def make_engine(**kwargs):
-    return create_engine(
-        URL, connect_args={{"startup_params": {{"search_path": SCHEMA}}}}, **kwargs
-    )
+    return create_engine(URL, connect_args={connect_args!r}, **kwargs)
 
 
 @pytest.fixture
@@ -382,7 +395,13 @@ def session(engine):
 
 
 def _pg_project(project: pytest.Pytester, pg: Postgres) -> pytest.Pytester:
-    project.makeconftest(PG_CONFTEST.format(url=pg.url, schema=pg.schema))
+    project.makeconftest(
+        PG_CONFTEST.format(
+            url=pg.url,
+            schema=pg.schema,
+            connect_args=search_path_args(pg.url, pg.schema),
+        )
+    )
     return project
 
 
@@ -418,9 +437,11 @@ def test_pg_seq_scan_fails_with_table_condition_sql_site_and_hint(
             "",
             "  orders is read in full: Seq Scan with filter (orders.customer_id = $1)",
             f"  first at test_a.py:{_line(path)} in test_orders",
+            # the parameter as the driver renders it: %s (pg8000, psycopg2)
+            # or %(customer_id_1)s::INTEGER (psycopg)
             (
                 "  sql: SELECT orders.id, orders.customer_id FROM orders "
-                "WHERE orders.customer_id = %s*"
+                "WHERE orders.customer_id = %*"
             ),
             "  fix: CREATE INDEX ON orders (customer_id)",
         ]
@@ -1635,9 +1656,7 @@ SCHEMA = {schema!r}
 
 @pytest.fixture(scope="session")
 def engine():
-    engine = create_engine(
-        URL, connect_args={{"startup_params": {{"search_path": SCHEMA}}}}
-    )
+    engine = create_engine(URL, connect_args={connect_args!r})
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE events (id int PRIMARY KEY, a int, b int)"))
         conn.execute(text("CREATE INDEX events_ab ON events (a, b)"))
@@ -1669,7 +1688,11 @@ def test_pg_catalog_cache_is_cleared_by_ddl_and_by_its_rollback(
     if pg16.version >= (18,):
         pytest.skip("PostgreSQL 18 can skip-scan the leading column")
     project.makeconftest(
-        SESSION_ENGINE_CONFTEST.format(url=pg16.url, schema=pg16.schema)
+        SESSION_ENGINE_CONFTEST.format(
+            url=pg16.url,
+            schema=pg16.schema,
+            connect_args=search_path_args(pg16.url, pg16.schema),
+        )
     )
     project.makepyfile(
         test_a="""
