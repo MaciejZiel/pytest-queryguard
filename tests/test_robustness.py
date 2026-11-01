@@ -63,7 +63,11 @@ def _snapshot() -> tracemalloc.Snapshot:
 
 
 def test_state_does_not_grow_across_many_measurements(measured: None) -> None:
-    for _ in range(5):  # warm up: caches, interned strings, first-call costs
+    # Warm up: caches, interned strings, first-call costs. SQLAlchemy's
+    # one-time growth (langhelpers memos, weakref registries) is spread over
+    # the first cycles: after 5 the next 150 still kept 47 KB locally and
+    # 151 KB on a CI runner, against 10 KB and then 6 KB in later windows.
+    for _ in range(30):
         _cycle(200)
     tracemalloc.start(12)
     try:
