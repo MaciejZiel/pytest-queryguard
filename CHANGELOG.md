@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-08
+
+The notes of the three release candidates (0.5.0rc1 to 0.5.0rc3) are merged
+below by section; the entries of the candidates follow unchanged.
+
+This release adds an experimental in-application mode: the same N+1 rules and
+query budgets on every HTTP request of a running FastAPI, Starlette or Flask
+application, for development and staging. There is nothing to do when
+upgrading from 0.4.1: the pytest plugin behaves as before, and no option or
+default changed. The in-app mode is listed under "Experimental" in the
+[stability policy](docs/stability.md#experimental), so its names may still
+change in a minor release.
+
+### Added
+
+- An experimental in-application mode, `pytest_queryguard.app`: `watch(engine)`
+  and `unwatch(engine)` for an `Engine` or `AsyncEngine`, `QueryGuardASGI`
+  (FastAPI and Starlette), `QueryGuardWSGI` (Flask and other WSGI apps) and
+  `track()` for other units of work. Findings are reported through `logging`,
+  `QueryGuardWarning` or a callback, and per-route query budgets apply.
+  Statements are collected per request in a `contextvars.ContextVar`, so
+  concurrent requests, tasks and threads never mix. It applies the plugin's
+  rules, column loads included. Importing it registers nothing. See
+  `docs/in-app.md` and `examples/in-app`; `scripts/bench_overhead.py --app`
+  times it. Thanks to @Muguett-DBY for reviewing it before release and for
+  fixes to its panel and WSGI responses (#203, #210, #211).
+- An optional development panel (`panel=True`, off by default) that serves the
+  last requests as JSON and as a self-contained HTML page. It answers only
+  loopback clients by default and checks the `Host` header against DNS
+  rebinding; to serve other clients (`panel_loopback_only=False`) a
+  `panel_token` is required, sent as `Authorization: Bearer <token>`.
+
+### Changed
+
+- Tests and CI: the overhead check has a baseline per CPU model and times the
+  measurement off and on interleaved, and the release workflow publishes only
+  when the release gate passed on the tagged commit.
+
+### Documentation
+
+- How the in-app mode behaves under uvicorn, granian, gunicorn, waitress and
+  the Flask development server: per-worker panel history, `BackgroundTasks`
+  and streamed bodies, Starlette's `500` handlers, Flask-SQLAlchemy binds.
+- The FAQ shows how to check code that runs in a fixture, with
+  `record_queries()` and `assert_no_nplusone()`. Suggested by @Muguett-DBY.
+
 ## [0.5.0rc3] - 2026-11-01
 
 Third release candidate: install it with `pip install --pre pytest-queryguard`.
@@ -1771,7 +1817,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc3...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc3...v0.5.0
 [0.5.0rc3]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc2...v0.5.0rc3
 [0.5.0rc2]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc1...v0.5.0rc2
 [0.5.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.1...v0.5.0rc1
