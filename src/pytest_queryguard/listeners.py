@@ -26,6 +26,7 @@ from .events import (
     CAUSE_DEFERRED,
     CAUSE_EXPIRED,
     CAUSE_REFRESH,
+    CallSite,
     ColumnLoadEvent,
     RelationshipLoadEvent,
     StatementEvent,
@@ -141,6 +142,11 @@ def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None
 # Orders the ORM executions of all Sessions: of the Sessions that share a
 # connection, the one that executed last owns the connection's next SELECT.
 _executions = itertools.count(1)
+# The collector generation of the latest parked attribution that names
+# something. While it differs from the current generation no
+# connection can have a pending attribution that _take_pending would hand out,
+# so the cursor listener skips the lookup.
+_pending_generation = -1
 
 
 def _set_pending(
@@ -148,6 +154,7 @@ def _set_pending(
     name: str | None,
     column_load: ColumnLoadEvent | None = None,
     lazy: bool = False,
+    site: CallSite | None = None,
 ) -> None:
     """Park the attribution of the ORM execution of ``session``.
 
@@ -155,13 +162,18 @@ def _set_pending(
     supersedes an older attribution parked by another Session of the same
     connection whose SELECT never ran.
     """
+    global _pending_generation
+    generation = collector.generation()
+    if name is not None or column_load is not None:
+        _pending_generation = generation
     try:
         session.__dict__[_PENDING_ATTR] = (
             next(_executions),
-            collector.generation(),
+            generation,
             name,
             column_load,
             lazy,
+            site,
         )
     except (AttributeError, TypeError):
         pass
@@ -183,8 +195,9 @@ def _latest(conn: Any) -> tuple[Any, Any]:
 
 def _take_pending(
     conn: Any,
-) -> tuple[str | None, ColumnLoadEvent | None, bool]:
-    """(relationship, column load, lazy) of the ORM execution that ``conn`` serves.
+) -> tuple[str | None, ColumnLoadEvent | None, bool, CallSite | None]:
+    """(relationship, column load, lazy, call site) of the ORM execution that
+    ``conn`` serves.
 
     ``lazy`` is True for a lazy load, False for the query of an eager loader such
     as selectinload, which carries the same relationship label.
@@ -195,13 +208,13 @@ def _take_pending(
     try:
         session, entry = _latest(conn)
         if entry is None or (entry[2] is None and entry[3] is None):
-            return None, None, False
-        session.__dict__[_PENDING_ATTR] = (entry[0], entry[1], None, None, False)
+            return None, None, False, None
+        session.__dict__[_PENDING_ATTR] = (entry[0], entry[1], None, None, False, None)
     except (AttributeError, TypeError):
-        return None, None, False
+        return None, None, False, None
     if entry[1] == collector.generation():
-        return entry[2], entry[3], entry[4]
-    return None, None, False
+        return entry[2], entry[3], entry[4], entry[5]
+    return None, None, False, None
 
 
 # Code of the method that opens a Session's connection: it runs the engine's
@@ -449,7 +462,7 @@ def _record_column_load(
         _set_pending(state.session, None)
         return
     instance, load = found
-    _set_pending(state.session, None, column_load=load)
+    _set_pending(state.session, None, column_load=load, site=load.callsite)
     if not column_load_counts(
         load, instance, state.session.__dict__.get(_WRITTEN_ATTR)
     ):
@@ -484,8 +497,8 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             key = parent.identity_key
             if key is None:
                 key = id(parent)
-        _set_pending(state.session, name, lazy=parent is not None)
         site = find_callsite()
+        _set_pending(state.session, name, lazy=parent is not None, site=site)
         load = RelationshipLoadEvent(
             name, key, site, scalar, scope_of_session(state.session)
         )
@@ -493,6 +506,26 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
             target.add_relationship_load(load)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "do_orm_execute listener (relationship loads)")
+
+
+# (is_write, is_read) per statement text: SQLAlchemy hands the same str object
+# for a cached compiled statement, so the lookup costs a hash it has already
+# computed. Small and emptied when full: a suite of many distinct texts
+# (literal values in text()) must not keep them.
+_kinds: dict[str, tuple[bool, bool | None]] = {}
+_MAX_KINDS = 256
+
+
+def _kind(sql: str) -> tuple[bool, bool | None]:
+    """(is_write, is_read) of a statement; is_read is None for a write."""
+    try:
+        return _kinds[sql]
+    except KeyError:
+        if len(_kinds) >= _MAX_KINDS:
+            _kinds.clear()
+        write = _is_write(sql)
+        result = _kinds[sql] = (write, None if write else _is_read(sql))
+        return result
 
 
 _is_write = sqltext.is_write
@@ -527,20 +560,21 @@ def _on_cursor_execute(
         # SELECT. Loads are reads: leave the pending attribution for the SELECT.
         # So is a BEGIN, SAVEPOINT or SET that a begin listener runs, and so is
         # a statement on the connection of another Session.
-        write = _is_write(statement)
-        relationship, column_load, lazy = None, None, False
+        write, read = _kind(statement)
+        relationship, column_load, lazy, site = None, None, False, None
         if (
             not write
+            and _pending_generation == collector.generation()
             and _has_pending(conn)
-            and _is_read(statement)
+            and read
             and not _inside_begin()
         ):
-            relationship, column_load, lazy = _take_pending(conn)
+            relationship, column_load, lazy, site = _take_pending(conn)
         if column_load is not None:
             column_load.sql = statement
         stmt = StatementEvent(
             statement,
-            find_callsite(),
+            site if site is not None else find_callsite(),
             relationship,
             column_load=column_load is not None,
             lazy_load=lazy,
