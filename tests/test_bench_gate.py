@@ -103,8 +103,12 @@ def test_a_cpu_without_an_entry_uses_the_highest_recorded(gate, monkeypatch, cap
 def gate_log(path: Path, cpu: str, ratios: dict[str, float], ok: bool = True) -> str:
     prefix = "overhead\tUNKNOWN STEP\t2026-11-01T00:00:00.0000000Z "
     lines = [
+        "== bench: per-statement overhead is within 25 % of the baseline",
         f"machine:   {cpu}, 4 CPUs, clock source tsc, Python 3.12.16",
         "attempt 1:",
+        f"  measured: {json.dumps(ratios)}",
+        "attempt 2:",
+        '  measured: {"core": 0.01, "orm": 0.01}',
         f"ratios: {json.dumps(ratios)}",
         "ok: per-statement overhead is within the allowed margin"
         if ok
@@ -138,6 +142,22 @@ def test_record_refuses_a_failed_gate_log(gate, tmp_path):
     with pytest.raises(SystemExit, match="not the log of a passing"):
         gate.main(["--record", log])
     assert gate.BASELINE.read_text() == before
+
+
+def test_record_refuses_a_log_that_is_not_one_release_gate_job(gate, tmp_path):
+    one = gate_log(tmp_path / "1.log", "Test CPU", {"core": 0.2, "orm": 0.3})
+    text = Path(one).read_text()
+    (tmp_path / "ci.log").write_text(text.replace("== bench:", "== other:"))
+    (tmp_path / "two.log").write_text(text + text.replace("Test CPU", "Other CPU"))
+    for name in ("ci.log", "two.log"):
+        with pytest.raises(SystemExit, match="one release-gate overhead job"):
+            gate.main(["--record", str(tmp_path / name)])
+
+
+def test_even_failed_is_only_for_a_cpu_without_an_entry(gate, tmp_path):
+    log = gate_log(tmp_path / "1.log", "Test CPU", {"core": 0.9, "orm": 0.9}, ok=False)
+    with pytest.raises(SystemExit, match="already has an entry"):
+        gate.main(["--record", log, "--even-failed"])
 
 
 def test_record_reads_a_failed_log_only_when_asked(gate, tmp_path):

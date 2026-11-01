@@ -71,7 +71,7 @@ models it does not (gate runs on pull request 219, 16 runs):
 | CPU model | runs | Core | ORM |
 |---|---|---|---|
 | AMD EPYC 7763 | 9 | 0.275 to 0.291 | 0.233 to 0.245 |
-| AMD EPYC 9V45 | 3 | 0.364 to 0.375 | 0.267 to 0.281 |
+| AMD EPYC 9V45 | 3 | 0.364 to 0.380 | 0.273 to 0.281 |
 | AMD EPYC 9V74 | 2 | 0.276 to 0.277 | 0.318 to 0.321 |
 | Intel Xeon 6973P-C | 1 | 0.280 | 0.263 |
 | Intel Xeon 6975P-C | 1 | 0.277 | 0.267 |
@@ -86,8 +86,8 @@ three attempts.
 
 A regression shows on every CPU and in every attempt. An overhead per
 statement 1.5 times the current one is a ratio 1.5 times the baseline, over
-the 125 % limit on every CPU model with an entry. An increase below about
-20 % can pass; the margin is what keeps the gate quiet on unchanged code. On a
+the 125 % limit on every CPU model with an entry. An increase below 25 %
+can pass; the margin is what keeps the gate quiet on unchanged code. On a
 CPU model without an entry, the limit comes from the highest entry, so only a
 larger regression fails there.
 
@@ -99,9 +99,11 @@ them only in a pull request that says why.
 
 The overhead baseline is recorded on the GitHub runner (`ubuntu-latest`,
 Python 3.12) that runs the gate, never on a laptop: each CPU model's entry is
-the mean of the gate's results on that model over several green runs. To
-record it, save the log of the `overhead` job of each green gate run and let
-the script average the `ratios:` lines per CPU model:
+the mean of the gate's first measurement on that model over several green
+runs (the first, because the result the gate decides on is the best of its
+attempts, which would pull the baseline down). To record it, save the log of
+the `overhead` job of each green gate run, one job per file, and let the
+script average them per CPU model:
 
 ```bash
 gh run view RUN_ID --log --job JOB_ID > gate-1.log   # for each green run
@@ -109,8 +111,10 @@ uv run python scripts/bench_gate.py --record gate-*.log
 ```
 
 This replaces the entries of the CPU models in the logs, keeps the others and
-recomputes the top-level values. It refuses a log without a passing overhead
-check. When the gate fails on a CPU model that has no entry yet, and the code
-did not change, record that model from the failed log with
-`--record LOG --even-failed`. `--update` measures on the current machine and
-writes its entry, which is only right on the runner.
+recomputes the top-level values. It refuses a log that is not one overhead
+job of the release gate (the CI job's looser margin lets more through) or
+that did not pass. When the gate fails on a CPU model that has no entry yet,
+and the code did not change, record that model from the failed log with
+`--record LOG --even-failed`; this is refused for a model that has an entry.
+`--update` measures on the current machine and writes its entry, which is
+only right on the runner.

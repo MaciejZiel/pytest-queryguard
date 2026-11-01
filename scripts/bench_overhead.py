@@ -268,14 +268,20 @@ def measure(statements: int, runs: int) -> dict[str, tuple[float, float]]:
 def _plugin_listeners() -> list[tuple[type, str, Callable[..., Any]]]:
     """Every (target, event, function) that ``listeners.install()`` registers.
 
-    Discovered rather than listed, so a listener added to ``install()`` later
-    is switched on and off with the others.
+    Discovered rather than listed: the functions of ``listeners`` registered on
+    Session, Engine or Pool. SQLAlchemy's registry of listeners must have grown
+    by as many entries as were found, so a listener the search cannot see (on
+    another target, or defined elsewhere) stops the benchmark instead of
+    staying on in the "off" blocks, where its cost would cancel out.
     """
+    from sqlalchemy.event import registry
     from sqlalchemy.pool import Pool
 
     from pytest_queryguard import listeners
 
+    before = set(registry._key_to_collection)
     listeners.install()
+    added = set(registry._key_to_collection) - before
     functions = [f for f in vars(listeners).values() if inspect.isfunction(f)]
     found: list[tuple[type, str, Callable[..., Any]]] = [
         (target, name, function)
@@ -284,8 +290,10 @@ def _plugin_listeners() -> list[tuple[type, str, Callable[..., Any]]]:
         for function in functions
         if event.contains(target, name, function)
     ]
-    if not any(name == "before_cursor_execute" for _, name, _ in found):
-        raise RuntimeError("the statement listener was not found")
+    if not added or len(found) != len(added):
+        raise RuntimeError(
+            f"install() registered {len(added)} listeners, {len(found)} were found"
+        )
     return found
 
 
@@ -304,6 +312,9 @@ def _child_interleaved(statements: int, rounds: int) -> None:
             # through the (empty) event dispatch that a process without the
             # plugin skips.
             Engine._has_events = False
+            with engine.connect() as conn:
+                if conn._has_events:
+                    raise RuntimeError("Engine events still on in an off block")
 
     measurement(False)
     loops = {

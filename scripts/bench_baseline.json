@@ -8,7 +8,7 @@
     },
     "AMD EPYC 9V45 96-Core Processor": {
       "core": 0.37,
-      "orm": 0.272
+      "orm": 0.276
     },
     "AMD EPYC 9V74 80-Core Processor": {
       "core": 0.277,

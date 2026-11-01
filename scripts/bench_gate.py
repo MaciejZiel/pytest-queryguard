@@ -30,10 +30,10 @@ A comparison over the limit is measured again, up to ``--attempts`` times in
 all, and the best result of each loop counts: noise does not repeat in the
 same direction every time, a regression does.
 
-``--record`` sets each CPU model's entry to the mean of the ``ratios:`` lines
-in saved logs of green gate runs on it (``gh run view RUN --log --job JOB >
-gate-1.log``), so the baseline comes from the runner and not from a laptop.
-Entries of other CPU models are kept.
+``--record`` sets each CPU model's entry to the mean of the first attempt of
+saved logs of the release gate's ``overhead`` job on it (``gh run view RUN
+--log --job JOB > gate-1.log``, one job per file), so the baseline comes from
+the runner and not from a laptop. Entries of other CPU models are kept.
 
 Run it on one operating system only; the baseline comes from Linux.
 """
@@ -59,11 +59,14 @@ BASELINE = Path(__file__).parent / "bench_baseline.json"
 FACTOR = 2.0
 SLACK = 0.10
 LOOPS = ("core", "orm")
-# The lines --record reads back from a log: the CPU, and the result, printed
-# once after the last attempt.
+# What --record reads back from a log: the CPU, and each attempt's result.
+# ("ratios:" is the result the gate decided on, the best of the attempts.)
 MACHINE = re.compile(r"\bmachine: +(.+?), \d+ CPUs,")
-RATIOS = re.compile(r"\bratios: (\{.*\})")
+MEASURED = re.compile(r"\bmeasured: (\{.*\})")
 OK = "ok: per-statement overhead is within the allowed margin"
+# The heading scripts/release_gate.py prints for this check: a log without
+# it is not from the release gate, and the CI job's looser margin passes more.
+RELEASE_BENCH = "== bench:"
 
 
 def _cpu() -> str:
@@ -132,19 +135,32 @@ def with_machines(
 
 
 def read_logs(
-    paths: list[Path], even_failed: bool = False
+    paths: list[Path], known: set[str], even_failed: bool = False
 ) -> dict[str, dict[str, float]]:
-    """Per CPU model, the mean ratio of each loop in these green gate logs."""
+    """Per CPU model, the mean first-attempt ratio of each loop in these logs.
+
+    A log must hold one release-gate overhead job that passed; with
+    ``even_failed``, a failed one too, but only for a CPU not in ``known``.
+    """
     found: dict[str, list[dict[str, float]]] = defaultdict(list)
     for path in paths:
         text = path.read_text(errors="replace")
-        if OK not in text and not even_failed:
-            raise SystemExit(f"{path}: not the log of a passing overhead check")
-        cpu = MACHINE.search(text)
-        lines = [json.loads(m.group(1)) for m in RATIOS.finditer(text)]
-        if cpu is None or not lines:
-            raise SystemExit(f"{path}: no 'machine:' or 'ratios:' line")
-        found[cpu.group(1)].extend(lines)
+        if text.count(RELEASE_BENCH) != 1:
+            raise SystemExit(
+                f"{path}: not the log of one release-gate overhead job "
+                "(gh run view RUN --log --job JOB)"
+            )
+        cpus = {match.group(1) for match in MACHINE.finditer(text)}
+        measured = MEASURED.search(text)
+        if len(cpus) != 1 or measured is None:
+            raise SystemExit(f"{path}: no single 'machine:' or no 'measured:' line")
+        cpu = cpus.pop()
+        if OK not in text and not (even_failed and cpu not in known):
+            raise SystemExit(
+                f"{path}: not the log of a passing overhead check"
+                + (f" ({cpu} already has an entry)" if even_failed else "")
+            )
+        found[cpu].append(json.loads(measured.group(1)))
     return {
         cpu: {
             name: round(statistics.fmean(ratios[name] for ratios in runs), 3)
@@ -203,10 +219,16 @@ def main(argv: list[str] | None = None) -> int:
         help="with --record, also read failed logs (a CPU new to the baseline)",
     )
     args = parser.parse_args(argv)
+    if args.even_failed and not args.record:
+        parser.error("--even-failed needs --record")
+    if min(args.statements, args.rounds, args.processes, args.attempts) < 1:
+        parser.error("--statements, --rounds, --processes and --attempts must be >= 1")
     data: dict[str, Any] = json.loads(BASELINE.read_text())
 
     if args.record:
-        recorded = read_logs(args.record, args.even_failed)
+        recorded = read_logs(
+            args.record, set(data.get("machines", {})), args.even_failed
+        )
         _write(with_machines(data, recorded))
         for cpu, ratios in recorded.items():
             print(f"baseline written for {cpu}: {ratios}")
@@ -233,9 +255,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     best: dict[str, float] = {}
     problems: list[str] = []
-    for attempt in range(1, max(args.attempts, 1) + 1):
+    for attempt in range(1, args.attempts + 1):
         print(f"attempt {attempt}:")
         current = _measure(args.statements, args.rounds, args.processes)
+        print(f"  measured: {json.dumps(current)}")
         best = {
             name: min(current[name], best.get(name, current[name])) for name in LOOPS
         }
