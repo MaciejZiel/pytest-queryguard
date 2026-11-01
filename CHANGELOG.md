@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only cut it short: under gunicorn and waitress a chunked response lost its
   final chunk. ASGI and `track()` still raise it. The in-app mode is
   experimental, so this has no deprecation period.
+- Tests and CI: the overhead check (`scripts/bench_gate.py`, the release
+  gate's `overhead` job) times the measurement off and on interleaved in the
+  same process and keeps the fastest block of each, and measures again up to
+  three times when over the limit. The baseline has an entry per CPU model,
+  since the ratio differs by up to a third between the CPU models of GitHub's
+  runners but repeats within about 0.01 on one model; it is re-recorded on
+  the runner for the new method, and `--record` writes it from gate logs. The
+  earlier method failed about every other gate run on unchanged code.
 
 ### Fixed
 
