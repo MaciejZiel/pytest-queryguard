@@ -292,7 +292,7 @@ LISTENERS = [
     "listeners:scope_of_session",
     "listeners:scope_of_connection",
     "listeners:_take_pending",
-    "listeners:_kind",
+    "listeners:_is_write",
     "listeners:_record_column_load",
     "collector:QueryCollector.add_statement",
     "collector:QueryCollector.add_relationship_load",

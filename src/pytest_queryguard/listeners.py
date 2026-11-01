@@ -164,7 +164,11 @@ def _set_pending(
     """
     global _pending_generation
     generation = collector.generation()
-    if name is not None or column_load is not None:
+    # Never lowered: a thread still in an older measurement must not hide the
+    # attribution another thread parked in the current one.
+    if (name is not None or column_load is not None) and (
+        generation > _pending_generation
+    ):
         _pending_generation = generation
     try:
         session.__dict__[_PENDING_ATTR] = (
@@ -508,26 +512,6 @@ def _on_orm_execute(state: ORMExecuteState) -> None:
         _fail(exc, "do_orm_execute listener (relationship loads)")
 
 
-# (is_write, is_read) per statement text: SQLAlchemy hands the same str object
-# for a cached compiled statement, so the lookup costs a hash it has already
-# computed. Small and emptied when full: a suite of many distinct texts
-# (literal values in text()) must not keep them.
-_kinds: dict[str, tuple[bool, bool | None]] = {}
-_MAX_KINDS = 256
-
-
-def _kind(sql: str) -> tuple[bool, bool | None]:
-    """(is_write, is_read) of a statement; is_read is None for a write."""
-    try:
-        return _kinds[sql]
-    except KeyError:
-        if len(_kinds) >= _MAX_KINDS:
-            _kinds.clear()
-        write = _is_write(sql)
-        result = _kinds[sql] = (write, None if write else _is_read(sql))
-        return result
-
-
 _is_write = sqltext.is_write
 _READ_VERBS = frozenset(("SELECT", "WITH"))
 
@@ -560,13 +544,13 @@ def _on_cursor_execute(
         # SELECT. Loads are reads: leave the pending attribution for the SELECT.
         # So is a BEGIN, SAVEPOINT or SET that a begin listener runs, and so is
         # a statement on the connection of another Session.
-        write, read = _kind(statement)
+        write = _is_write(statement)
         relationship, column_load, lazy, site = None, None, False, None
         if (
             not write
             and _pending_generation == collector.generation()
             and _has_pending(conn)
-            and read
+            and _is_read(statement)
             and not _inside_begin()
         ):
             relationship, column_load, lazy, site = _take_pending(conn)
