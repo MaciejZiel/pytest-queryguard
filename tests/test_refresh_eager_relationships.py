@@ -410,4 +410,4 @@ def test_a_lazy_load_run_by_a_load_hook_inside_a_refresh_is_counted(
         engine.dispose()
     report = _report(log)
     assert "Item.keeper was lazy-loaded 2 times" in report
-    assert "Shelf.items" not in report
+    assert "label: Shelf.items" not in report

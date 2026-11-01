@@ -15,6 +15,7 @@ from pytest_queryguard.detectors import (
 from pytest_queryguard.events import (
     CallSite,
     ColumnLoadEvent,
+    ParentLoad,
     RelationshipLoadEvent,
     StatementEvent,
 )
@@ -837,3 +838,53 @@ def test_a_savepoint_per_row_write_loop_is_still_a_write_loop() -> None:
         c, relationship_threshold=2, repeat_threshold=5, write_loop_threshold=2
     )
     assert [(type(f).__name__, f.count) for f in findings] == [("WriteLoopFinding", 6)]
+
+
+# ------------------------------------------- relationship rule: parent sites
+
+OTHER = CallSite(filename="app.py", lineno=20, function="other")
+CHAIN = (("Order.customer", True),)
+
+
+def _with_parent(key: object, parent: ParentLoad | None) -> RelationshipLoadEvent:
+    return RelationshipLoadEvent("Customer.country", key, SITE, True, None, parent)
+
+
+def _found(*loads: RelationshipLoadEvent) -> RelationshipFinding:
+    c = QueryCollector()
+    c.relationship_loads.extend(loads)
+    [f] = detect(c, relationship_threshold=2, repeat_threshold=5)
+    assert isinstance(f, RelationshipFinding)
+    return f
+
+
+def test_parents_of_one_query_give_its_site_and_chain() -> None:
+    parent = ParentLoad(SITE, "Order", CHAIN)
+    f = _found(_with_parent(1, parent), _with_parent(2, parent))
+    assert (f.parent_site, f.other_parent_sites) == (SITE, 0)
+    assert (f.parent_root, f.parent_path) == ("Order", CHAIN)
+
+
+def test_parents_of_two_queries_give_the_first_site_and_count_the_other() -> None:
+    f = _found(
+        _with_parent(1, ParentLoad(SITE, "Order", CHAIN)),
+        _with_parent(2, ParentLoad(OTHER, "Order", CHAIN)),
+        _with_parent(3, ParentLoad(SITE, "Order", CHAIN)),
+    )
+    assert (f.parent_site, f.other_parent_sites) == (SITE, 1)
+    assert f.parent_root == "Order"
+
+
+def test_one_parent_of_unknown_origin_drops_the_site_and_chain() -> None:
+    f = _found(_with_parent(1, ParentLoad(SITE, "Order", CHAIN)), _with_parent(2, None))
+    assert (f.parent_site, f.other_parent_sites) == (None, 0)
+    assert f.parent_root is None
+
+
+def test_parents_reached_by_different_chains_give_no_chain() -> None:
+    f = _found(
+        _with_parent(1, ParentLoad(SITE, "Order", CHAIN)),
+        _with_parent(2, ParentLoad(SITE, "Customer", ())),
+    )
+    assert f.parent_site == SITE
+    assert (f.parent_root, f.parent_path) == (None, ())

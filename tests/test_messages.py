@@ -455,3 +455,44 @@ def test_the_closing_note_names_a_whole_index_scan_when_no_table_was_read() -> N
     assert "sequential scan" not in only_walked
     mixed = format_index_findings([_scan(walked), _scan(seq)], cwd=CWD)
     assert "a sequential scan is fine on a small lookup table" in mixed
+
+
+def test_relationship_message_names_the_parent_site_and_chains_the_loader() -> None:
+    site = CallSite(filename="/work/project/app/views.py", lineno=30, function="render")
+    parents = CallSite(
+        filename="/work/project/app/orders.py", lineno=21, function="_base_query"
+    )
+    finding = RelationshipFinding(
+        "Item.product",
+        4,
+        site,
+        None,
+        True,
+        parent_site=parents,
+        parent_root="Customer",
+        parent_path=(("Customer.orders", False), ("Order.items", False)),
+    )
+    assert format_findings([finding], cwd=CWD).splitlines() == [
+        "queryguard: N+1 detected",
+        "",
+        "  Item.product was lazy-loaded 4 times",
+        "  first at app/views.py:30 in render",
+        "  parents loaded at app/orders.py:21 in _base_query",
+        "  kind: relationship-load  label: Item.product",
+        "  fix: load it with the parent query, e.g.",
+        (
+            "       select(Customer).options(selectinload(Customer.orders)"
+            ".selectinload(Order.items).joinedload(Item.product))"
+        ),
+    ]
+
+
+def test_relationship_message_counts_other_parent_sites() -> None:
+    parents = CallSite(filename="/work/project/a.py", lineno=3, function="f")
+    finding = RelationshipFinding(
+        "Order.customer", 4, None, None, parent_site=parents, other_parent_sites=2
+    )
+    lines = format_findings([finding], cwd=CWD).splitlines()
+    assert "  parents loaded at a.py:3 in f and 2 other places" in lines
+    # No known chain: the hint is the relationship's own class, as before.
+    assert lines[-1] == "       select(Order).options(selectinload(Order.customer))"

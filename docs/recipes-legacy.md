@@ -48,6 +48,7 @@ tests/test_orders.py::test_list_orders
   
     Order.customer was lazy-loaded 50 times
     first at app/orders.py:10 in list_orders
+    parents loaded at app/orders.py:9 in list_orders
     kind: relationship-load  label: Order.customer
     sql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
     fix: load it with the parent query, e.g.

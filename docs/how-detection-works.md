@@ -9,8 +9,9 @@ it saw.
 1. When pytest starts (unless `queryguard_mode = off`; budgets still install
    the listeners when a test needs them), the plugin adds class-level
    SQLAlchemy listeners: `do_orm_execute` on `Session` sees relationship lazy
-   loads, and `before_cursor_execute` and `after_cursor_execute` on `Engine`
-   see every SQL statement and time it.
+   loads, `before_cursor_execute` and `after_cursor_execute` on `Engine`
+   see every SQL statement and time it, and the `load` and `refresh` instance
+   events note which query loaded each object (see below).
 2. Measurement covers only the test function body, so queries in fixture
    setup and teardown are not counted. unittest `setUp` and `tearDown` run
    inside the test call and are counted.
@@ -68,6 +69,28 @@ The plugin finds the immediate loader by looking a few frames up the stack
 a parent object. If a SQLAlchemy release renames that loader or moves it out
 of reach, these loads count as lazy loads again, as before this rule: a
 possible false positive, never a missed lazy load and never an error.
+
+#### Where the parents were loaded
+
+The report names the query that loaded the parent objects
+(`parents loaded at`) and chains the loader hint from it. The call site of
+each `SELECT` is kept with its result, and while the ORM turns its rows into
+objects the `load` instance event (and `refresh`, for an object the `Session`
+already had whose row the query reads again) stores that call site and the
+object's load path (`Order -> Order.customer -> Customer`) on the object's
+state. The call site is looked up once per query, not per row. Objects of a
+`selectinload` or `subqueryload` query and of a lazy load inherit the site of
+the query they were loaded for. A lazy load later reads them from its parent,
+and the finding uses them only when all its loads agree: a single site (or the
+first one and how many others), and a single load path that can be written as
+`select(Root).options(loader(A.b).loader(B.c))` (no aliased class or
+`of_type()`). Otherwise the line is left out and the hint names the
+relationship's own class, as without the information. An object whose row
+two queries from different places read gets no origin; one that a query
+returns from the identity map without reading its row fires no event, so it
+keeps the query that loaded it. Origins are kept per measurement: an object
+loaded before the test body (or before a `record_queries()` block) has none
+there. The in-app mode does not record origins and prints the earlier hint.
 
 #### How a lazy load's statement is attributed
 

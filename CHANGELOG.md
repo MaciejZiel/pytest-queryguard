@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The report of a relationship load says where the parents were loaded
+  (`parents loaded at app/orders.py:21 in _base_query`): the line that ran the
+  query whose rows became the parent objects, which may be a helper far from
+  the loop. For parents reached through other relationships the `fix` line
+  chains the loaders from that query, e.g.
+  `select(Order).options(joinedload(Order.customer).joinedload(Customer.country))`
+  instead of `select(Customer).options(joinedload(Customer.country))`, which
+  named a query the code does not have. When the origin is unknown (objects
+  the test created, loaded before the test body, or read by two queries from
+  different places) the report is as before. The pytest plugin only; the
+  in-app mode keeps the earlier hint.
+  The plugin listens to the ORM's `load` and `refresh` instance events for
+  this: in the overhead benchmark (in-memory SQLite) about 0.6 microseconds
+  per loaded object, and a few microseconds per ORM query (#225).
+
 ### Fixed
 
 - On psycopg 3, the index check and the index advisor's hypopg verification
