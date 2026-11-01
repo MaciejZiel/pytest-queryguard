@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runners but repeats within about 0.01 on one model; it is re-recorded on
   the runner for the new method, and `--record` writes it from gate logs. The
   earlier method failed about every other gate run on unchanged code.
+- Tests and CI: the release workflow publishes only when the release gate,
+  run by hand on `main`, passed on the tagged commit. The gate also runs on
+  pull requests that change the overhead benchmark or its baseline.
 
 ### Fixed
 

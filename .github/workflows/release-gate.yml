@@ -16,6 +16,9 @@ on:
       - .github/workflows/release-gate.yml
       - scripts/release_gate.py
       - scripts/accuracy_thresholds.json
+      - scripts/bench_gate.py
+      - scripts/bench_overhead.py
+      - scripts/bench_baseline.json
 
 permissions:
   contents: read
@@ -99,7 +102,10 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  # 6. Per-statement overhead against scripts/bench_baseline.json, 25 % margin.
+  # 6. Per-statement overhead against scripts/bench_baseline.json, 25 % margin
+  #    over the entry of the runner's CPU model (off and on interleaved in one
+  #    process, best of up to 3 measurements; see scripts/bench_gate.py). Its
+  #    log is what `bench_gate.py --record` reads (docs/releasing.md).
   overhead:
     runs-on: ubuntu-latest
     steps:
