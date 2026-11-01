@@ -120,14 +120,6 @@ SQL, expanding `IN`, autocommit and `stream_results`. On 2026-10-12 the 14
 index scenarios of the [comparison](comparison.md) also gave the same results
 through psycopg 3 (3.3.6) as through pg8000, on PostgreSQL 17.11.
 
-One known difference on psycopg 3: psycopg prepares a statement on the server
-after it has run it five times on one connection, and the
-[index advisor](index-advisor.md)'s hypopg verification runs the same `EXPLAIN`
-more often than that for a statement with several tables or a partial-index
-candidate. Those later verifications then fail ("bind message supplies 0
-parameters"); the finding and the suggested index are still reported, with
-"could not verify this index" in place of the hypopg result.
-
 Async drivers other than asyncpg (for example psycopg's async mode) are skipped
 by the index check, with a notice in the session summary; N+1 detection and
 budgets work on them, and CI runs psycopg's async mode too.

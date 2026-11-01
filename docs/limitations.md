@@ -82,9 +82,6 @@
   for that run since it is LGPL-licensed. psycopg2 is not run in CI; it was
   checked by hand during review and gives the same findings for plain
   statements, `%` in SQL, expanding `IN`, autocommit and `stream_results`.
-  On psycopg 3 the hypopg verification of a second table or a partial-index
-  candidate of one statement can fail (see
-  [the FAQ](faq.md#which-postgresql-drivers-work)).
 - On asyncpg the check needs PL/pgSQL, which PostgreSQL installs by
   default. Without it, each statement is counted as one PostgreSQL could
   not plan. After the first check, the connection knows the custom setting

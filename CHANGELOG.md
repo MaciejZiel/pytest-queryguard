@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- On psycopg 3, the index check and the index advisor's hypopg verification
+  run `EXPLAIN` without preparing it. psycopg prepares a statement on the
+  server once a connection has run it five times, and the prepared `EXPLAIN`
+  of a statement with `$n` placeholders failed ("bind message supplies 0
+  parameters"): the advisor said "could not verify this index" for a second
+  table or a partial-index candidate (#255).
+
 ## [0.5.0] - 2026-11-01
 
 The notes of the three release candidates (0.5.0rc1 to 0.5.0rc3) are merged
