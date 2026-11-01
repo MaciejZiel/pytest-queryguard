@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0rc3] - 2026-11-01
+
+Third release candidate: install it with `pip install --pre pytest-queryguard`.
+
+The in-application mode now applies the plugin's column-load rules, and its
+WSGI middleware no longer cuts a response short under an `error` warnings
+filter. Running the mode under uvicorn, granian, gunicorn and waitress found
+no other defects; what it showed is now documented. The release checks are
+steadier, and a release is published only after the release gate passed on
+its commit. The pytest plugin behaves as before; its column-load code is now
+split into helpers that the in-app mode shares.
+
 ### Changed
 
 - `QueryGuardWSGI` with `report="warn"` under an `error` warnings filter logs
@@ -1759,7 +1771,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc2...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc3...HEAD
+[0.5.0rc3]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc2...v0.5.0rc3
 [0.5.0rc2]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0rc1...v0.5.0rc2
 [0.5.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.1...v0.5.0rc1
 [0.4.1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.4.0...v0.4.1
