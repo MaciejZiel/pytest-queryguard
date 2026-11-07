@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A baseline file whose entries have keys besides `kind`, `label`, `file`
+  and `function` is read, with the other keys ignored, instead of stopping
+  pytest with `has unknown keys`. [Stability](docs/stability.md#files-tools-and-the-action)
+  says new keys may be added to a file in a minor release; with the old
+  reader, a baseline written by a later 1.x release with one more key would
+  have been unreadable by 1.0. An update still writes the four keys only.
+
+### Documentation
+
+- [The API freeze before 1.0](docs/design-1.0-freeze.md): the last audit of
+  the public surface before 1.0.0rc1, ranked, with a recommendation for each
+  item and what is left for #357 and for 2.0.
+- [Stability](docs/stability.md): the plugin's own readers ignore keys they
+  do not know, and a value keeps its type (new data goes into a new key);
+  the text of a finding's `message` in the `--queryguard-json` file is not
+  public; the labels of `repeated-statement` and `write-loop` follow the SQL
+  text the ORM sends, which an ORM upgrade can change.
+- The docstrings of `QueryBudgetExceeded` (also the time budget and
+  `num_queries()`) and `QueryGuardWarning` (every finding that warns, not
+  only N+1 and missing indexes), and `llms.txt` (the rules of
+  `assert_no_nplusone()`, and `ignore()` and `QueryGuardDeprecationWarning`
+  in the list of public names).
+
 ## [0.9.0] - 2026-11-07
 
 ### Added

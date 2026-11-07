@@ -134,6 +134,9 @@ An entry is the identity of a finding: kind, label, file and function.
   versions.)
 - The entries are sorted and the file ends with a newline, so running the
   update twice gives the same bytes and a diff shows only real changes.
+- Other keys in an entry, or at the top of the file, are ignored when the
+  file is read, so a baseline that a later release wrote with more keys still
+  works; an update writes only the keys above.
 
 ## Stale entries
 

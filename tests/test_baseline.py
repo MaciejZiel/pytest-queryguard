@@ -85,10 +85,6 @@ def test_write_uses_unix_newlines_and_leaves_no_temp_file(tmp_path: Path) -> Non
         ('{"version": true, "findings": []}', "version True"),
         ('{"version": 1}', "'findings' must be a list"),
         ('{"version": 1, "findings": [1]}', r"findings\[0\] must be an object"),
-        (
-            '{"version": 1, "findings": [{"kind": "k", "label": "l", "line": 3}]}',
-            "unknown keys: line",
-        ),
         ('{"version": 1, "findings": [{"label": "l"}]}', "'kind' must be a non-empty"),
         (
             '{"version": 1, "findings": [{"kind": "k", "label": "l", "file": 1}]}',
@@ -174,10 +170,19 @@ def test_an_empty_file_name_sorts_before_a_missing_one() -> None:
     ]
 
 
-def test_unknown_keys_are_all_listed_in_order() -> None:
-    text = '{"version": 1, "findings": [{"kind": "k", "label": "l", "b": 1, "a": 2}]}'
-    with pytest.raises(BaselineError, match=r"has unknown keys: a, b$"):
-        baseline.parse(text, Path("b.json"))
+def test_keys_a_later_release_adds_are_ignored() -> None:
+    """Version 1 may gain keys; this release still reads such a file.
+
+    docs/stability.md: new keys may be added in a minor release. A reader that
+    rejected them would make a baseline written by 1.x unreadable by 1.0.
+    """
+    text = (
+        '{"version": 1, "note": "x", "findings": [{"kind": "k", "label": "l", '
+        '"file": "a.py", "function": "f", "line": 3, "reason": {"why": 1}}]}'
+    )
+    assert baseline.parse(text, Path("b.json")) == {("k", "l", "a.py", "f")}
+    # an update writes the four keys of the identity only
+    assert "reason" not in baseline.dumps(baseline.parse(text, Path("b.json")))
 
 
 def test_a_function_that_is_not_a_string_is_rejected() -> None:

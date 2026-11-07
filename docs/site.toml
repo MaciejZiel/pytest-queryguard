@@ -88,4 +88,5 @@ pages = [
   { title = "Design: async index check (0.3)", file = "design-0.3.md", description = "Design notes for the missing-index check on async engines added in pytest-queryguard 0.3." },
   { title = "Design: reading queries (0.3)", file = "design-0.3-api.md", description = "Design notes for reading the measured queries in a test, added in pytest-queryguard 0.3." },
   { title = "Design: in-application mode", file = "design-inapp.md", description = "Design notes for the in-application mode: a context-local collector, per-engine listeners, ASGI and WSGI middleware and the panel." },
+  { title = "Design: the API freeze before 1.0", file = "design-1.0-freeze.md", description = "The last audit of the public surface before 1.0.0rc1: every option, name and file format we would regret freezing, ranked, with a recommendation each." },
 ]

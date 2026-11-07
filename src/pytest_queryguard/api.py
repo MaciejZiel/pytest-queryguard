@@ -21,7 +21,12 @@ from .warnings import QueryGuardInternalWarning, default, renamed, warn_internal
 
 
 class QueryBudgetExceeded(AssertionError):
-    """Raised when a block runs more SQL statements than its budget allows."""
+    """Raised when a block goes over its budget.
+
+    That is more SQL statements than ``max_queries()`` allows, more database
+    time than ``max_db_time()`` allows, or, for the fixture's
+    ``num_queries()``, any other number of statements than expected.
+    """
 
 
 class NPlusOneDetected(AssertionError):

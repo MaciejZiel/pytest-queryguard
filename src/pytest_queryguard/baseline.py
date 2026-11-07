@@ -66,9 +66,8 @@ def _entry_identity(entry: Any, index: int, path: Path) -> Identity:
     where = f"{path}: findings[{index}]"
     if not isinstance(entry, dict):
         raise BaselineError(f"{where} must be an object, got {entry!r}")
-    unknown = set(entry) - {"kind", "label", "file", "function"}
-    if unknown:
-        raise BaselineError(f"{where} has unknown keys: {', '.join(sorted(unknown))}")
+    # Other keys are ignored: a later release may add keys to an entry without
+    # a new version (docs/stability.md), and this release must still read it.
     for key in ("kind", "label"):
         if not isinstance(entry.get(key), str) or not entry[key]:
             raise BaselineError(f"{where}: {key!r} must be a non-empty string")

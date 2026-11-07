@@ -33,7 +33,11 @@ changes by accident.
   `allow_missing_index`) and the `queryguard` fixture.
 - The meaning of the finding kinds and of the labels and patterns used by
   the `queryguard_ignore` option and marker, so that an existing ignore keeps
-  matching the same finding.
+  matching the same finding. The label of `repeated-statement` and
+  `write-loop` is the normalized SQL text: how pytest-queryguard normalizes
+  it is covered, the text the ORM sends is not (see "What is not public"), so
+  an ORM upgrade that renders a statement differently can change the label,
+  as [Baseline](baseline.md#what-an-entry-is) explains.
 - The pytest entry point name (`queryguard`).
 - The files the plugin writes and reads, and the command-line tools and the
   GitHub Action that work with them, as listed under
@@ -47,7 +51,11 @@ changes by accident.
 
 Each file has a number for its format. A reader rejects a number it does not
 know, with an error that says so. New keys may be added in a minor release
-(read a file by the keys you need and ignore the others). Changing the meaning
+(read a file by the keys you need and ignore the others); the plugin and its
+tools read their own files the same way, so a file that a later 1.x release
+wrote with more keys still reads. A value keeps its type: new data goes into
+a new key, not into a different shape of an existing one (a per-test value in
+the budget file stays a number of queries). Changing the meaning
 of a key, removing one, or changing what identifies a finding is an
 incompatible change: the number goes up, and from 1.0 on it needs a major
 release.
@@ -56,7 +64,7 @@ release.
 |---|---|---|---|
 | Baseline file (`--queryguard-baseline`, see [Baseline](baseline.md)) | `"version": 1` | `findings`, each with `kind`, `label`, `file`, `function` (the identity of a finding) | the order of the entries |
 | Budget file (`--queryguard-budgets`, see [Budgets](budgets.md#lock-todays-counts-the-budget-file)) | `"format": 1` | `budgets`: test node id to a number of queries | the order of the entries |
-| Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the order of tests and findings |
+| Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the text of a finding's `message`, the order of tests and findings |
 | SARIF file (`--queryguard-sarif`, see [SARIF](sarif.md)) | SARIF 2.1.0 | the rule ids `queryguard/<kind>`, one per finding kind; the fingerprint key `queryguardIdentity/v1` in `partialFingerprints` and the identity it hashes, so code scanning alerts stay the same alerts after an upgrade; the result `properties` `count`, `label`, `tests` and `peakCount` | rule names, descriptions and help, message text, `primaryLocationLineHash`, `codeFlows`, `fixes` (experimental, see below) |
 
 A new fingerprint key (`queryguardIdentity/v2`) would close every open alert
