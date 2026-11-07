@@ -271,6 +271,69 @@ jobs:
       - run: uv run --no-sync coverage run -m pytest -rs
       - run: uv run --no-sync coverage report
 
+  # The Django integration (tests/django_project, with the "django" dependency
+  # group: Django, pytest-django and Django REST framework) against each
+  # supported Django release. SQLite by default; one run each on PostgreSQL
+  # (psycopg 3, installed here only, as in the postgres job) and on MySQL
+  # (PyMySQL from the dev group in place of the GPL mysqlclient). The servers
+  # run as Docker images, as test services. The integration's own coverage is
+  # checked here; the main test job does not load Django.
+  django:
+    name: django (${{ matrix.django }}, Python ${{ matrix.python-version }}, ${{ matrix.db }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { django: "5.2", python-version: "3.10", db: sqlite }
+          - { django: "5.2", python-version: "3.13", db: sqlite }
+          - { django: "6.0", python-version: "3.12", db: sqlite }
+          - { django: "6.1", python-version: "3.13", db: sqlite }
+          - { django: "6.1", python-version: "3.14", db: sqlite }
+          - { django: "6.1", python-version: "3.13", db: postgresql }
+          - { django: "5.2", python-version: "3.12", db: mysql }
+    steps:
+      - name: Start PostgreSQL
+        if: matrix.db == 'postgresql'
+        run: |
+          docker run -d --name qg-pg -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=pg postgres:17
+          for _ in $(seq 1 60); do
+            docker exec qg-pg pg_isready -h localhost -U postgres && break
+            sleep 1
+          done
+          docker exec qg-pg pg_isready -h localhost -U postgres
+          echo "QUERYGUARD_DJANGO_DB=postgresql://postgres:pg@127.0.0.1:5432/postgres" >> "$GITHUB_ENV"
+      - name: Start MySQL
+        if: matrix.db == 'mysql'
+        run: |
+          docker run -d --name qg-mysql -p 127.0.0.1:3306:3306 -e MYSQL_ROOT_PASSWORD=secret \
+            -e MYSQL_DATABASE=queryguard mysql:8.4.13 \
+            --mysql-native-password=ON --authentication-policy=mysql_native_password
+          for _ in $(seq 1 90); do
+            docker exec qg-mysql mysql -h127.0.0.1 -uroot -psecret -e "SELECT 1" >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec qg-mysql mysql -h127.0.0.1 -uroot -psecret -e "SELECT VERSION()"
+          echo "QUERYGUARD_DJANGO_DB=mysql://root:secret@127.0.0.1:3306/queryguard" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --group django
+      - name: Install Django ${{ matrix.django }}
+        env:
+          DJANGO: ${{ matrix.django }}
+        run: uv pip install "django==${DJANGO}.*"
+      - name: Install psycopg 3 (CI only, not in uv.lock)
+        if: matrix.db == 'postgresql'
+        run: uv pip install "psycopg[binary]==3.3.6"
+      - run: uv run --no-sync python -c "import django; print('Django', django.get_version())"
+      - run: uv run --no-sync coverage run -m pytest -rs tests/django_project
+      - run: >-
+          uv run --no-sync coverage report --fail-under=90
+          --include="src/pytest_queryguard/django_backend.py,src/pytest_queryguard/backends.py"
+
   # The missing-index check on MySQL and MariaDB (docs/index-check-mysql.md):
   # the LTS releases MySQL 8.4 and MariaDB 11.8, with PyMySQL and aiomysql
   # from the dev group. The images are pinned to a patch release: the live
