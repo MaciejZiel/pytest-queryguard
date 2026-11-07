@@ -21,7 +21,17 @@ def _package_dir(name: str) -> str | None:
 # Packages whose frames are never the application's. pluggy is also where the
 # walk for the callers stops (see _callers).
 _HOOK_PACKAGE = "pluggy"
-_INTERNAL_PACKAGES = ("sqlalchemy", "pytest", "_pytest", _HOOK_PACKAGE)
+# Django, asgiref (its sync/async bridge) and Django REST framework are the
+# libraries of the Django integration; only those already imported count.
+_INTERNAL_PACKAGES = (
+    "sqlalchemy",
+    "pytest",
+    "_pytest",
+    _HOOK_PACKAGE,
+    "django",
+    "asgiref",
+    "rest_framework",
+)
 
 
 def _compute_prefixes() -> tuple[str, ...]:
@@ -51,6 +61,14 @@ def _classify(filename: str) -> bool:
         return True
     parts = Path(filename).parts
     return "site-packages" in parts or "dist-packages" in parts
+
+
+def reset_internal() -> None:
+    """Classify the files again: a library of ``_INTERNAL_PACKAGES`` was
+    imported after the first classification (the Django integration)."""
+    global _prefixes
+    _prefixes = None
+    _internal.clear()
 
 
 def _is_internal(filename: str) -> bool:

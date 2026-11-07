@@ -11,6 +11,7 @@ from .blocks import IgnoreBlock, Sieve, covering
 from .collector import QueryCollector
 from .events import (
     CAUSE_DEFERRED,
+    ORM_SQLALCHEMY,
     CallSite,
     ColumnLoadEvent,
     RelationshipLoadEvent,
@@ -129,6 +130,8 @@ class RelationshipFinding:
     # load has the same one (see events.ParentLoad); None when unknown.
     parent_root: str | None = None
     parent_path: tuple[tuple[str, bool], ...] = ()
+    # The ORM that recorded the loads (events.ORM_*): the wording of the fix.
+    orm: str = ORM_SQLALCHEMY
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +145,7 @@ class RepeatFinding:
     # See RelationshipFinding: Sessions or connection checkouts counted over.
     scopes: int = 1
     scoped: bool = False
+    orm: str = ORM_SQLALCHEMY
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +158,7 @@ class WriteLoopFinding:
     first: CallSite | None
     scopes: int = 1
     scoped: bool = False
+    orm: str = ORM_SQLALCHEMY
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +176,7 @@ class ColumnLoadFinding:
     scoped: bool = False
     base: str | None = None  # the class the query selected, for CAUSE_POLYMORPHIC
     single_table: bool = False  # CAUSE_POLYMORPHIC: the columns are in its table
+    orm: str = ORM_SQLALCHEMY
 
     @property
     def label(self) -> str:
@@ -373,6 +379,7 @@ def _relationship_findings(
                 1 if scoped else _scope_count(best, lambda load: load.scope),
                 scoped,
                 *_parents(best),
+                best[-1].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count)
@@ -425,6 +432,7 @@ def _column_load_findings(
                 scoped,
                 base,
                 single_table,
+                best[0].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count)
@@ -511,6 +519,7 @@ def _write_loop_findings(
                 best[0].callsite,
                 1 if scoped else _scope_count(best, lambda s: s.scope),
                 scoped,
+                best[0].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count)
@@ -901,6 +910,7 @@ def _small_repeat_findings(
                     True,
                     1 if scoped else _scope_count(best, lambda s: s.scope),
                     scoped,
+                    best[0].orm,
                 )
             )
     return sorted(found, key=lambda f: -f.count)
@@ -939,6 +949,7 @@ def _repeat_findings(
                 False,
                 1 if scoped else _scope_count(best, lambda s: s.scope),
                 scoped,
+                best[0].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count), hidden

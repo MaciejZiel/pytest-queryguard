@@ -5,11 +5,12 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from typing import overload
 
+from .backends import install
 from .blocks import Sieve
 from .collector import QueryCollector, pop, pop_local, push, push_local
 from .detectors import SCOPES, detect
 from .events import CallSite, StatementEvent
-from .listeners import install, internal_error, record_error
+from .listeners import internal_error, record_error
 from .messages import (
     display_root,
     format_budget,

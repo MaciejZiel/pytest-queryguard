@@ -13,6 +13,7 @@ from .events import (
     CAUSE_DEFERRED,
     CAUSE_POLYMORPHIC,
     CAUSE_REFRESH,
+    ORM_DJANGO,
     Advice,
     CallSite,
     ScanEvent,
@@ -46,6 +47,10 @@ _BATCHED_FIX = [
     "  fix: this query already fetches several rows with IN (...), so it is the",
     "       calls that repeat: call it once with all the ids, or combine the calls",
 ]
+_REPEAT_FIX_DJANGO = [
+    "  fix: fetch all rows in one query instead of in a loop, e.g.",
+    "       Model.objects.in_bulk(ids) or Model.objects.filter(pk__in=ids)",
+]
 _IN_LIST = "IN (...)"
 
 
@@ -59,10 +64,29 @@ def _in_one(finding: Detection, noun: str) -> str:
     return f" in one {noun}" if getattr(finding, "scoped", False) else ""
 
 
+def _django(finding: Detection) -> bool:
+    return getattr(finding, "orm", None) == ORM_DJANGO
+
+
+def _units(finding: Detection, sqlalchemy: str) -> str:
+    """What one scope is called in the text: Django counts database connections."""
+    return "database connections" if _django(finding) else sqlalchemy
+
+
+def _unit(finding: Detection, sqlalchemy: str) -> str:
+    return "database connection" if _django(finding) else sqlalchemy
+
+
 def _scope_hint(finding: Detection) -> list[str]:
     """The note for a count that adds up several Sessions, which may be requests."""
     if getattr(finding, "scopes", 1) <= 1:
         return []
+    if _django(finding):
+        return [
+            "  note: if each belongs to a separate request or thread, this is not a",
+            "  loop; set queryguard_scope = session to count each database",
+            "  connection on its own (QueryLog.assert_no_nplusone: scope='session')",
+        ]
     return [
         "  note: if each belongs to a separate request or unit of work, this is not a",
         "  loop; set queryguard_scope = session to count each Session on its",
@@ -196,13 +220,48 @@ def _parent_query(finding: RelationshipFinding) -> str:
     return f"select({root}).options({loader_option(finding)})"
 
 
+def django_lookup(finding: RelationshipFinding) -> tuple[str, str, str]:
+    """(query class, method, lookup) of the Django fix of a relationship-load.
+
+    ``select_related`` when every step from the parent query is single-valued,
+    else ``prefetch_related``; the lookup joins the steps with ``__``.
+    """
+    owner, _, name = finding.relationship.partition(".")
+    root = finding.parent_root
+    steps: list[tuple[str, bool]] = []
+    if root is not None:
+        steps = [
+            (label.partition(".")[2], scalar) for label, scalar in finding.parent_path
+        ]
+    else:
+        root = owner
+    steps.append((name, finding.scalar))
+    single = all(scalar for _, scalar in steps)
+    method = "select_related" if single else "prefetch_related"
+    return root, method, "__".join(step for step, _ in steps)
+
+
+def _django_relationship_fix(finding: RelationshipFinding) -> list[str]:
+    root, method, lookup = django_lookup(finding)
+    lines = [
+        "  fix: load it with the parent query, e.g.",
+        f'       {root}.objects.{method}("{lookup}")',
+    ]
+    if finding.scalar:
+        lines.append(
+            "       or, on Django 6.1+, .fetch_mode(models.FETCH_PEERS) on that query"
+        )
+    return lines
+
+
 def _relationship_block(
     finding: RelationshipFinding, stack: Stack, cwd: Path | None
 ) -> list[str]:
     lines = [
         (
             f"  {finding.relationship} was lazy-loaded {finding.count} times"
-            f"{_across(finding, 'Sessions')}{_in_one(finding, 'Session')}"
+            f"{_across(finding, _units(finding, 'Sessions'))}"
+            f"{_in_one(finding, _unit(finding, 'Session'))}"
         ),
         *_first_at(finding.first, stack, cwd),
     ]
@@ -216,6 +275,8 @@ def _relationship_block(
     lines.extend((kind_line(kind, label), docs_line(kind)))
     if finding.sample_sql is not None:
         lines.append(f"  sql: {_truncate(finding.sample_sql)}")
+    if _django(finding):
+        return [*lines, *_scope_hint(finding), *_django_relationship_fix(finding)]
     return [
         *lines,
         *_scope_hint(finding),
@@ -232,16 +293,20 @@ def _block(finding: Detection, stack: Stack, cwd: Path | None) -> list[str]:
     if isinstance(finding, WriteLoopFinding):
         return _write_block(finding, stack, cwd)
     how = " with different parameters" if finding.varying else ""
-    where = _across(finding, "Sessions or connection checkouts") + _in_one(
-        finding, "Session or connection checkout"
-    )
+    where = _across(
+        finding, _units(finding, "Sessions or connection checkouts")
+    ) + _in_one(finding, _unit(finding, "Session or connection checkout"))
+    if _IN_LIST in finding.sql:
+        fix = _BATCHED_FIX
+    else:
+        fix = _REPEAT_FIX_DJANGO if _django(finding) else _REPEAT_FIX
     return [
         f"  the same statement ran {finding.count} times{how}{where}",
         *_first_at(finding.first, stack, cwd),
         _statement_line(finding),
         docs_line(KIND_REPEAT),
         *_scope_hint(finding),
-        *(_BATCHED_FIX if _IN_LIST in finding.sql else _REPEAT_FIX),
+        *fix,
     ]
 
 
@@ -261,20 +326,35 @@ _WRITE_FIX = {
 }
 
 
+_WRITE_FIX_DJANGO = {
+    "INSERT": [
+        "  fix: write the rows together: Model.objects.bulk_create(rows)",
+    ],
+    "UPDATE": [
+        "  fix: update the rows together: Model.objects.bulk_update(rows, fields),",
+        "       or one queryset.update(...) when every row gets the same values",
+    ],
+    "DELETE": [
+        "  fix: delete the rows together: Model.objects.filter(pk__in=ids).delete()",
+    ],
+}
+
+
 def _write_block(
     finding: WriteLoopFinding, stack: Stack, cwd: Path | None
 ) -> list[str]:
+    fixes = _WRITE_FIX_DJANGO if _django(finding) else _WRITE_FIX
     return [
         (
             f"  the same {finding.verb} ran {finding.count} times, one row at a "
-            f"time{_across(finding, 'Sessions or connection checkouts')}"
-            f"{_in_one(finding, 'Session or connection checkout')}"
+            f"time{_across(finding, _units(finding, 'Sessions or connection checkouts'))}"
+            f"{_in_one(finding, _unit(finding, 'Session or connection checkout'))}"
         ),
         *_first_at(finding.first, stack, cwd),
         _statement_line(finding),
         docs_line(KIND_WRITE_LOOP),
         *_scope_hint(finding),
-        *_WRITE_FIX.get(finding.verb, _WRITE_FIX["INSERT"]),
+        *fixes.get(finding.verb, fixes["INSERT"]),
     ]
 
 
@@ -284,9 +364,18 @@ def _column_block(
     owner = finding.owner
     count = (
         f"{finding.count} times for {finding.instances} instances"
-        f"{_across(finding, 'Sessions')}{_in_one(finding, 'Session')}"
+        f"{_across(finding, _units(finding, 'Sessions'))}"
+        f"{_in_one(finding, _unit(finding, 'Session'))}"
     )
-    if finding.cause == CAUSE_DEFERRED:
+    if finding.cause == CAUSE_DEFERRED and _django(finding):
+        names = ", ".join(finding.attributes)
+        head = f"  {owner}.{names} was loaded on its own {count} (deferred field)"
+        quoted = ", ".join(f'"{name}"' for name in finding.attributes)
+        fix = [
+            "  fix: load it with the query: leave it out of .defer(), or name it",
+            f"       in .only(), e.g. {owner}.objects.only(..., {quoted})",
+        ]
+    elif finding.cause == CAUSE_DEFERRED:
         names = ", ".join(finding.attributes)
         head = f"  {owner}.{names} was loaded on its own {count} (deferred column)"
         undefer = ", ".join(f"undefer({owner}.{name})" for name in finding.attributes)

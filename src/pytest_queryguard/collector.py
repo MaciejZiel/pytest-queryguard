@@ -414,8 +414,22 @@ def _rebuild() -> None:
     _full_stack[:] = _active_full
 
 
+# Called with no arguments at the start of each process-wide measurement
+# (push): an ORM integration that can only hook in once its ORM is configured
+# (Django, see backends.py) does it here. A hook must never raise.
+_push_hooks: list[Callable[[], None]] = []
+
+
+def on_push(hook: Callable[[], None]) -> None:
+    """Call ``hook`` at the start of every measurement from now on (once per hook)."""
+    if hook not in _push_hooks:
+        _push_hooks.append(hook)
+
+
 def push(collector: QueryCollector) -> None:
     global _generation
+    for hook in _push_hooks:
+        hook()
     _generation += 1
     collector.since = _generation
     callsite.new_measurement()

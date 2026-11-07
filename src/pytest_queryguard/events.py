@@ -12,6 +12,11 @@ if TYPE_CHECKING:
 # recorded it (blocks.current()), innermost last; () outside any block.
 
 
+# Which ORM integration recorded an event (StatementEvent.orm and the others).
+ORM_SQLALCHEMY = "sqlalchemy"
+ORM_DJANGO = "django"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CallSite:
     """A source location. Its fields are public API; its constructor is not.
@@ -71,6 +76,9 @@ class StatementEvent:
     # unknown. See listeners.scope_of_connection().
     scope: int | None = None
     ignores: tuple[IgnoreBlock, ...] = ()
+    # The ORM integration that recorded it: ORM_SQLALCHEMY or ORM_DJANGO. It
+    # picks the wording of a finding's fix; the rules do not read it.
+    orm: str = "sqlalchemy"
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +107,7 @@ class RelationshipLoadEvent:
     scope: int | None = None  # the Session that lazy-loaded it
     parent: ParentLoad | None = None  # None when nothing is known about it
     ignores: tuple[IgnoreBlock, ...] = ()
+    orm: str = "sqlalchemy"  # see StatementEvent.orm
 
 
 # What made the instance load columns again.
@@ -124,6 +133,7 @@ class ColumnLoadEvent:
     ignores: tuple[IgnoreBlock, ...] = ()
     base: str | None = None  # the class the query selected, for CAUSE_POLYMORPHIC
     single_table: bool = False  # CAUSE_POLYMORPHIC: the columns are in its table
+    orm: str = "sqlalchemy"  # see StatementEvent.orm
 
 
 @dataclass(frozen=True, slots=True)

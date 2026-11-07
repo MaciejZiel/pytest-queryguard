@@ -31,6 +31,7 @@ from . import (
 from . import budgets as budget_files
 from . import groups as finding_groups
 from .api import NPlusOneDetected, QueryGuardFixture, add_to_strict_error
+from .backends import install, install_index_check
 from .baseline import BaselineError, Identity, sorted_identities
 from .callsite import DEFAULT_STACK_DEPTH, swap_stack_depth, trim_to_user_code
 from .collector import QueryCollector, pop, push
@@ -62,8 +63,6 @@ from .indexes import scan_key, select_findings
 from .listeners import (
     disable_strict,
     enable_strict,
-    install,
-    install_index_check,
     internal_error,
     internal_failure,
     record_error,
@@ -814,6 +813,7 @@ def _strict_hook(
             other_parent_sites=1 if other_lines else 0,
             parent_root=None if parent is None else parent.root,
             parent_path=() if parent is None else parent.path,
+            orm=load.orm,
         )
         finding = make_finding(detection, cwd=root)
         if rules and not apply_rules([finding], rules)[0]:
