@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   batched bulk writes count as one write. Django 5.2, 6.0 and 6.1 on
   SQLite, PostgreSQL and MySQL. Not yet for Django: the in-app mode,
   patches and the experimental unused-eager-load and unused-columns checks.
+  Each request of the test client counts on its own, also with
+  `queryguard_scope = test`; nothing is recorded in the set-up and tear-down
+  of Django's own test cases; loads of objects the test created are grouped
+  by the call path of the read. Measured on six open-source Django projects
+  and against django-zeal and nplusone ([Django](docs/django.md#real-projects)).
 - The JSON output of the experimental trend
   (`python -m pytest_queryguard.trend --format json`) starts with
   `"format": 1`, like the other JSON files, and its keys are documented in
@@ -37,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SQLAlchemy is imported only once the project imports it: its listeners are
+  installed when collection ends or a measurement starts. A project that does
+  not use SQLAlchemy (one that only uses Django) no longer pays about 0.2 s
+  per pytest run for importing it.
 - The GitHub Action checks its switches: `fail`, `upload`, `compare` and
   `comment` must be `true` or `false` (any case), and `trend` `false`, `true`
   or 2 to 100; anything else, the empty string included, stops the action

@@ -169,50 +169,185 @@ the `AsyncClient` count per connection before Django 6.1. See
 
 ## Accuracy
 
-The Django corpus in `tests/django_project/corpus` has 68 scenarios, 34 with
-an N+1 or another finding and 34 without, run in five configurations:
+The Django corpus in `tests/django_project/corpus` has 73 scenarios, 37 with
+an N+1 or another finding and 36 without, run in five configurations:
 foreign keys, reverse relations, many-to-many relations, one-to-one relations,
 generic relations,
 multi-table inheritance, `select_related()`, `prefetch_related()` and
 `Prefetch` objects, `.only()` and `.defer()`, Django REST framework
 serializers, admin list, change and delete pages, templates, `get()` and
 `exists()` per item, `save()` and `delete()` in a loop against bulk writes and
-cascades, signals, `iterator()` and pagination. On SQLite, with Django 5.2 and
+cascades, signals, `iterator()`, pagination, helpers called for objects the
+test created, and requests of the test client. On SQLite, with Django 5.2 and
 6.1, in the default configuration:
 
 | Kind | Precision | Recall |
 |---|---|---|
-| `relationship-load` | 100 % (19 of 19) | 100 % |
+| `relationship-load` | 100 % (22 of 22) | 100 % |
 | `column-load` | 100 % (5 of 5) | 100 % |
 | `repeated-statement` | 100 % (7 of 7) | 100 % |
-| `write-loop` (threshold 2) | 100 % (5 of 5) | 100 % |
+| `write-loop` (threshold 2) | 100 % (7 of 7) | 100 % |
 
 The same holds in the other four configurations (small repeats, a column-load
 threshold of 2, write loops, strict mode) and on PostgreSQL 17 and MySQL 8.4,
 except for one scenario with two N+1s in strict mode: the test stops at the
-first, before the second is complete. The corpus
-was written together with the integration, so these numbers say that the
-cases it names work, not how often the rules are right on other code; runs
-on real Django projects are still to come. `scripts/django_accuracy_report.py`
+first, before the second is complete. `scripts/django_accuracy_report.py`
 prints them.
+
+**These numbers are biased.** We wrote the corpus, together with the
+integration: it says that the cases it names work, not how often the rules
+are right on other code. Five of its scenarios (`clean_35`, `clean_36`,
+`bug_35` to `bug_37`) were added after the runs on real projects below found
+false positives, each before its fix. For an estimate on code we did not
+write, see [Real projects](#real-projects).
+
+## Real projects
+
+The test suites of six open-source Django projects ran in GitHub Actions on
+2026-11-07, each once without the plugin, once with it in warn mode, and once
+under each of [django-zeal](#comparison) and nplusone (the `django` suite of
+`.github/workflows/realworld.yml`; projects, tags and commands in
+`scripts/realworld_django_projects.json`). Final run:
+[42420546251](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42420546251);
+the first one, before the fixes below:
+[42416001785](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42416001785).
+
+| Project | Tests run | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings | Overhead (one run) |
+|---|---|---|---|---|---|---|
+| Django REST framework 3.18.3 (Django 6.1) | all | 1655 / 0 / 9 | none | 0 / 0 | 38: 32 relationship-load, 6 repeated-statement | noise (7 s suite) |
+| Read the Docs 2026.11.03 | api, projects, builds, organizations | 585 / 0 / 5 | none | 0 / 0 | 45: 15 relationship-load, 28 repeated-statement, 2 column-load | +1.7 % |
+| django-cms 5.1.3 | all | 1781 / 1 / 70 | none | 0 / 0 | 2539: 521 relationship-load, 2017 repeated-statement, 1 column-load | +15.9 % |
+| pretix 2026.9.0 | `tests/api` | 1654 / 1 / 0 | none | 0 / 0 | 378: 124 relationship-load, 254 repeated-statement | +2.2 % |
+| saleor 3.23.47 (PostgreSQL) | the query-count benchmarks and product queries | 1487 / 0 / 0 | none | 0 / 0 | 258: 233 relationship-load, 25 repeated-statement | noise |
+| django-oscar 4.2.1 (PostgreSQL) | functional and integration | 1697 / 0 / 0 | none | 0 / 0 | 641: 278 relationship-load, 363 repeated-statement | +3.7 % |
+
+The plugin changed no test's outcome and reported no internal error in any of
+the 7,000-odd tests. django-cms runs about 90 statements in each test body, so
+the cost per statement shows there (about 15 µs on a laptop: finding the call
+site and recording the statement); the overheads are one run each, and the
+runs without a tool vary by up to 30 % between runs of the workflow.
+
+**Triage.** All 38 findings of Django REST framework and 12 distinct finding
+sites drawn at random from each other project (98 in all) were read in the
+projects' code:
+
+| Verdict | Count | What they are |
+|---|---|---|
+| true | 68 | a relation or the same query per item in a loop of the application: serializers and GraphQL resolvers reading a relation per row, signal receivers per saved row, tree walks, per-row deletes |
+| debatable | 28 | the same query at several lines of straight test code (fixtures made one by one, assertions), a loop of the test over cases or pages, settings looked up again and again in one request |
+| false | 2 | django-oscar's concurrency test: five threads, each placing one order on its own connection, counted together |
+
+The first run had 5,071 findings in the five projects that ran (django-oscar
+did not: it needs PostgreSQL); the same five have 3,258 now. The false
+positives it showed, each fixed with a scenario added first:
+
+- **A test that makes several requests** (Read the Docs, pretix, django-cms,
+  DRF): every request looks up its session, user, token or settings once, and
+  those lookups were counted together. Each request of the test client now
+  counts on its own (`clean_36`, `bug_37`); pretix went from 861 to 254
+  `repeated-statement` findings.
+- **One helper, two objects the test created** (Read the Docs: `Project.save()`
+  reads `self.versions` of a project made in `setUp` and one made in the
+  test, 210 findings; saleor 85; django-cms about 170): loads of objects of
+  unknown origin are now grouped by the call path of the read, not by its
+  line alone (`clean_35`, `bug_35`, `bug_36`).
+- **Django's own test-case machinery** (DRF, django-cms): the flush and
+  `post_migrate` of `TransactionTestCase` tear-downs ran content type and
+  permission queries inside the measured call; nothing is recorded in
+  `_pre_setup` and `_post_teardown` now (a test in `tests/django_project`;
+  the corpus cannot hold a `TransactionTestCase`).
+
+Not fixed: work spread over threads (the two false findings above) still
+counts together with `queryguard_scope = test`; `queryguard_scope = session`
+counts each connection on its own.
+
+## Comparison
+
+The Django corpus under each tool, in GitHub Actions on 2026-11-07
+([run 42421653867](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42421653867);
+`scripts/head_to_head/django_corpus.py`, `head-to-head.yml` with
+`suite=django`). Each tool as its documentation says to make it fail a test:
+django-zeal 2.3.0 in `INSTALLED_APPS` with `zeal_context()` around each test
+call (it raises at the first N+1); nplusone 1.0.0 in `INSTALLED_APPS` with its
+`Profiler`. Django 5.2, SQLite:
+
+| Tool | Precision | Recall, all BUG | `relationship-load` P / R | `repeated-statement` P / R | `column-load` P / R |
+|---|---|---|---|---|---|
+| pytest-queryguard, defaults | 100 % | 89 % (`write-loop` is off by default) | 100 / 100 % | 100 / 100 % | 100 / 100 % |
+| pytest-queryguard, write loops on | 100 % | 100 % | 100 / 100 % | 100 / 100 % | 100 / 100 % |
+| django-zeal 2.3.0 | 93 % | 70 % | 90 / 86 % | 67 / 29 % | 100 / 80 % |
+| nplusone 1.0.0 | 84 % | 43 % | 100 / 68 % | n/a | n/a |
+
+- django-zeal misses reverse many-to-many reads, `count()`, `filter()` and
+  `exists()` per row, `refresh_from_db()`, a serializer method that queries
+  and generic relations; it flags `clean_35` and `clean_36`, the two cases our
+  own first real-project runs got wrong. Its `get()` check is our
+  `repeated-statement` for `get()` only.
+- nplusone reports an unused eager load in three CLEAN scenarios (a kind the
+  corpus does not score for Django, so each counts against it) and does not
+  report `.count()`, generic relations or the deferred-field loads. On Django
+  6.1 it crashes (`ValueError: too many values to unpack`) in every query with
+  `select_related()`: 8 scenarios there, and 15 tests of Django REST
+  framework.
+- The bias above holds here too, and more: the corpus was written by us, for
+  this plugin's rules. The kinds a tool does not claim are left out of its
+  per-kind columns, but its overall recall counts every BUG scenario.
+
+What each tool reports on the real projects (final run above; reports counted
+once per test and message):
+
+| Project | pytest-queryguard findings | django-zeal reports (tests) | nplusone reports (tests) |
+|---|---|---|---|
+| Django REST framework | 38 | 112 (97) | 36 (36), and 15 tests it broke |
+| Read the Docs | 45 | 1445 (430) | 225 (138) |
+| django-cms | 2539 | 2704 (980) | 768 (512) |
+| pretix | 378 | 1479 (515) | 2756 (771) |
+| saleor | 258 | 461 (292) | 1615 (1195) |
+| django-oscar | 641 | 2875 (863) | 986 (495) |
+
+django-zeal's largest groups are the patterns fixed above:
+`sessions.Session.get()` once per request (DRF, Read the Docs) and
+`Project.versions` read by `Project.save()` (Read the Docs, 225 times).
+nplusone's are mostly unused eager loads (`OrderPosition.checkins`, 294 times
+in pretix).
+
+### Overhead against the other tools
+
+A 300-test pytest-django suite of the test project (each test reads 18 books
+with `select_related()`, gets three books and counts them; no N+1), Django
+5.2, 9 interleaved rounds on one runner (`scripts/head_to_head/django_overhead.py`,
+same run), against the same suite with no tool:
+
+| | pytest-queryguard | django-zeal | nplusone |
+|---|---|---|---|
+| added wall time, best / median round | +1.3 % / +3.0 % | +2.0 % / −0.5 % | +6.0 % / +2.4 % |
+| fixed cost per pytest run (median) | +28 ms | −12 ms (noise) | −9 ms (noise) |
+| added per test (median) | +181 µs (+2.5 %) | −7 µs (noise) | +247 µs (+3.5 %) |
+
+Before the work on this
+([run 42418336858](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42418336858))
+the plugin added 10 % to that suite: 278 ms per run, nearly all of it importing
+SQLAlchemy in a project that does not use it, and 722 µs per test. SQLAlchemy
+is now imported only once the project imports it; between tests the plugin's
+execute wrapper is off; and the hooks return at once while nothing is
+measured. django-zeal records no statements, only relation reads, so it has
+less to do per statement; pytest-queryguard records every statement for the
+budgets and the `repeated-statement` rule.
 
 ## Overhead
 
 `scripts/bench_django_overhead.py` times three workloads in-memory on SQLite
-with Django 6.1 and Python 3.13, each in a fresh process: one `get()` per
+with Django 6.1 and Python 3.15, each in a fresh process: one `get()` per
 statement, iterating books with `select_related()` (the cost per instance)
 and reading `book.author` of each book (a lazy load each). Median of 7 runs
 on a laptop, in microseconds per operation:
 
 | Workload | Not installed | Installed, not measuring | Measuring |
 |---|---|---|---|
-| `get()` | 139 | 144 (+4 %) | 163 (+17 %) |
-| a row with `select_related()` | 7.5 | 7.3 (noise) | 7.7 (+3 %) |
-| a lazy load | 159 | 167 (+5 %) | 207 (+30 %) |
+| `get()` | 129 | 134 (+4 %) | 157 (+21 %) |
+| a row with `select_related()` | 6.8 | 6.8 | 7.4 (+9 %) |
+| a lazy load | 155 | 156 (+1 %) | 197 (+28 %) |
 
 The cost is per statement and per lazy load (finding the call site, recording
-the event), and is smaller than the SQLAlchemy listeners' (see
-[Performance](performance.md)). On a test suite, where statements are a part
-of each test's time, the share is lower; a whole-suite measurement is still
-to come.
-
+the event). On a test suite, where statements are a part of each test's time,
+the share is lower: see the suite above and the real projects.
