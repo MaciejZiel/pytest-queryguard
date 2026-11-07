@@ -279,6 +279,14 @@ def summarize(directory: Path, project: str, ref: str, samples: int = 5) -> Summ
             "scripts/realworld_projects.json (or realworld_django_projects.json) "
             "and the end of baseline.log"
         )
+    elif baseline.count("failed") > baseline.count("passed"):
+        # it ran, but most of it broke on its own: a missing service or
+        # setting, and the few tests left say little about the plugin
+        harness.append(
+            f"most tests fail without the plugin ({baseline.count('failed')} failed, "
+            f"{baseline.count('passed')} passed): check the project's install, env "
+            "and services, and the end of baseline.log"
+        )
     if plugin.outcomes is None and judged:
         problems.append("the run with the plugin left no JUnit XML")
     if plugin.exit in (2, 3, 4, 124, 137) and judged:

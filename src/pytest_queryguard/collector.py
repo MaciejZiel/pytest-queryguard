@@ -426,6 +426,35 @@ def on_push(hook: Callable[[], None]) -> None:
         _push_hooks.append(hook)
 
 
+# Called with no arguments when a context-local collector opens (push_local),
+# and when the last collector of any kind closes (idle): an integration that
+# hooks into each statement (Django's execute wrapper) only while something
+# measures. A hook must never raise.
+_local_push_hooks: list[Callable[[], None]] = []
+_idle_hooks: list[Callable[[], None]] = []
+
+
+def on_push_local(hook: Callable[[], None]) -> None:
+    if hook not in _local_push_hooks:
+        _local_push_hooks.append(hook)
+
+
+def on_idle(hook: Callable[[], None]) -> None:
+    if hook not in _idle_hooks:
+        _idle_hooks.append(hook)
+
+
+def idle() -> bool:
+    """Whether no collector of any kind is open."""
+    return not _stack and not _live_local
+
+
+def _maybe_idle() -> None:
+    if not _stack and not _live_local:
+        for hook in _idle_hooks:
+            hook()
+
+
 def push(collector: QueryCollector) -> None:
     global _generation
     for hook in _push_hooks:
@@ -445,6 +474,7 @@ def pop(collector: QueryCollector) -> None:
             del _stack[i]
             break
     _rebuild()
+    _maybe_idle()
 
 
 def active() -> tuple[QueryCollector, ...]:
@@ -476,6 +506,8 @@ _combined: tuple[object, object, int, tuple[QueryCollector, ...]] | None = None
 
 def push_local(collector: QueryCollector) -> None:
     global _live_local
+    for hook in _local_push_hooks:
+        hook()
     with _local_lock:
         _live_local += 1
     _local.set((*_local.get(), collector))
@@ -498,7 +530,8 @@ def pop_local(collector: QueryCollector) -> None:
     for i in range(len(stack) - 1, -1, -1):
         if stack[i] is collector:
             _local.set(stack[:i] + stack[i + 1 :])
-            return
+            break
+    _maybe_idle()
 
 
 def targets() -> tuple[QueryCollector, ...]:

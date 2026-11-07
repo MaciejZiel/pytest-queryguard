@@ -28,8 +28,16 @@
       "install": "uv pip install -e '.[test]' 'django>=5.2,<5.3'",
       "prepare": "",
       "pytest_args": "tests/functional tests/integration",
-      "postgres": false,
-      "env": {}
+      "postgres": true,
+      "env": {
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "postgres",
+        "POSTGRES_DB": "oscar",
+        "DATABASE_USER": "postgres",
+        "DATABASE_PASSWORD": "postgres",
+        "DATABASE_HOST": "127.0.0.1",
+        "DATABASE_PORT": "5432"
+      }
     },
     {
       "name": "saleor",

@@ -168,3 +168,42 @@ def test_by_title(db):
     out = result.stdout.str()
     assert "missing-index" in out
     assert "library_book" in out
+
+
+TEST_CASES = """
+from django.test import TestCase, TransactionTestCase
+
+from tests.django_project.library.models import Author, Publisher
+
+
+class FlushedAfterEachTest(TransactionTestCase):
+    # its tear-down flushes the database and emits post_migrate, which runs
+    # the same content type and permission queries for every app
+    def test_one_query(self):
+        Publisher.objects.create(name="p")
+        assert Publisher.objects.count() == 1
+
+
+class InATransaction(TestCase):
+    def test_n_plus_one_in_the_test_is_still_found(self):
+        publisher = Publisher.objects.create(name="p")
+        for i in range(3):
+            Author.objects.create(name=f"a{i}", publisher=publisher)
+        names = [a.publisher.name for a in Author.objects.all()]
+        assert len(names) == 3
+"""
+
+
+def test_django_test_case_set_up_and_tear_down_are_not_measured(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(test_cases=TEST_CASES)
+    result = _run(project, "test_cases.py", "--queryguard-json=out.json")
+    result.assert_outcomes(passed=1, failed=1)
+    tests = json.loads((project.path / "out.json").read_text())["tests"]
+    flushed = next(v for k, v in tests.items() if "FlushedAfterEachTest" in k)
+    assert flushed["findings"] == []
+    # the test's own two statements; not the flush, not post_migrate
+    assert flushed["statements"] == 2
+    found = next(v for k, v in tests.items() if "InATransaction" in k)
+    assert [f["label"] for f in found["findings"]] == ["Author.publisher"]

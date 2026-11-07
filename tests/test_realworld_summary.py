@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -534,6 +535,8 @@ def test_the_project_list_is_well_formed(name: str) -> None:
         assert project["ref"] and project["ref"] not in ("main", "master", "HEAD")
         assert project["repository"].count("/") == 1
         assert "," not in project["name"]
+        # GitHub masks a URL with a password and then drops the whole list
+        assert not re.search(r"://[^/@\"]+:[^/@\"]+@", json.dumps(project))
 
 
 def test_a_plugin_run_is_not_judged_against_a_baseline_that_stopped(
@@ -623,3 +626,20 @@ def test_no_other_tools_no_section(summary: ModuleType, tmp_path: Path) -> None:
     write_runs(tmp_path, junit(("test_a", "passed")), junit(("test_a", "passed")))
     result = summary.summarize(tmp_path, "demo", "v1")
     assert "tools" not in result.stats
+
+
+def test_a_baseline_where_most_tests_fail_is_a_harness_problem(
+    summary: ModuleType, tmp_path: Path
+) -> None:
+    runs = junit(("test_a", "passed"), ("test_b", "error"), ("test_c", "error"))
+    write_runs(
+        tmp_path,
+        runs,
+        runs,
+        baseline_meta={"exit": 1, "seconds": 5},
+        plugin_meta={"exit": 1, "seconds": 5},
+        counts=counts_file({}),
+    )
+    result = summary.summarize(tmp_path, "demo", "v1")
+    assert result.problems == []
+    assert len(result.harness) == 1 and "most tests fail" in result.harness[0]

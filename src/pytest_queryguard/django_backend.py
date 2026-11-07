@@ -76,6 +76,8 @@ _DISPATCH_UID = "pytest_queryguard.django_backend"
 # The django.db.models.query module the patches were installed on; a new
 # import of Django (pytester purges sys.modules) is patched again.
 _installed_for: object = None
+# The django.test.testcases module whose set-up and tear-down are patched
+_testcases_for: object = None
 _connections: Any = None  # django.db.connections of that import
 _index_check = False
 # The live collectors that want loads; never rebound (see collector.py).
@@ -147,6 +149,12 @@ _writing: ContextVar[bool] = ContextVar("queryguard_django_writing", default=Fal
 # statements of this context belong to; negative, so never equal to a
 # SQLAlchemy flush number.
 _unit: ContextVar[int | None] = ContextVar("queryguard_django_unit", default=None)
+# Inside the database set-up and tear-down of Django's own test cases
+# (TransactionTestCase._pre_setup and _post_teardown: fixtures loaded, the
+# database flushed, post_migrate emitted): unittest runs them inside the test
+# call, but they are not the test's code, and assertNumQueries does not count
+# them either. Nothing is recorded there.
+_machinery: ContextVar[bool] = ContextVar("queryguard_django_machinery", default=False)
 _units = itertools.count(1)
 # The application line that awaited the async ORM call (aget(), async for)
 # running in this thread through asgiref's sync_to_async: the thread itself
@@ -191,6 +199,8 @@ def ensure(*, index_check: bool = False) -> None:
         query = sys.modules.get("django.db.models.query")
         if query is None or query is not _installed_for:
             _install()
+        if _testcases_for is not sys.modules.get("django.test.testcases"):
+            _patch_testcases()
         _attach_all()
         # a streaming response never read to its end sends no request_finished
         _request.set(None)
@@ -275,6 +285,39 @@ def _install() -> None:
     _installed_for = query
 
 
+def _patch_testcases() -> None:
+    """Record nothing inside the set-up and tear-down of Django's test cases."""
+    global _testcases_for
+    testcases = sys.modules.get("django.test.testcases")
+    if testcases is None:
+        return
+    owner = testcases.TransactionTestCase
+    for name in ("_pre_setup", "_post_teardown"):
+        original = owner.__dict__.get(name)
+        if original is None:
+            continue
+        if isinstance(original, classmethod):
+            function = original.__func__
+            if getattr(function, _ORIGINAL, None) is None:
+                setattr(owner, name, classmethod(_outside_test(function)))
+        elif getattr(original, _ORIGINAL, None) is None:
+            setattr(owner, name, _outside_test(original))
+    _testcases_for = testcases
+
+
+def _outside_test(original: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(original)
+    def method(*args: Any, **kwargs: Any) -> Any:
+        token = _machinery.set(True)
+        try:
+            return original(*args, **kwargs)
+        finally:
+            _machinery.reset(token)
+
+    setattr(method, _ORIGINAL, original)
+    return method
+
+
 def _patch_factories(descriptors: Any) -> None:
     """Instrument every related manager class, also those made already."""
     factories = [
@@ -324,6 +367,43 @@ def _attach_all() -> None:
         _attach(connection)
 
 
+def attach() -> None:
+    """Wrap this thread's connections, when the integration is installed.
+
+    For a context-local collector (``record_queries()``, the fixture), which
+    may open outside the test's measurement. Never raises.
+    """
+    if _installed_for is None:
+        return
+    try:
+        _attach_all()
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "Django integration (attach)")
+
+
+def detach() -> None:
+    """Unwrap this thread's connections once nothing measures.
+
+    With an execute wrapper in its list, Django runs every statement through
+    a slower path; the statements between tests (fixtures, setup and
+    teardown) then pay for a wrapper that records nothing. The next
+    measurement wraps them again (``ensure``), and a connection made in
+    another thread keeps its wrapper (it was wrapped as it was created).
+    Never raises.
+    """
+    if _installed_for is None:
+        return
+    try:
+        connections = _module("django.db").connections
+        for connection in connections.all(initialized_only=True):
+            wrappers = connection.execute_wrappers
+            for i in range(len(wrappers) - 1, -1, -1):
+                if wrappers[i] is _execute:
+                    del wrappers[i]
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "Django integration (detach)")
+
+
 def _attach(connection: Any) -> None:
     wrappers = connection.execute_wrappers
     for wrapper in wrappers:
@@ -342,7 +422,7 @@ def _execute(
     if _failed():
         return execute(sql, params, many, context)
     targets = collector.targets()
-    if not targets:
+    if not targets or _machinery.get():
         return execute(sql, params, many, context)
     try:
         stmt = _record(sql, params, many, context, targets)
@@ -766,7 +846,7 @@ def _prepare(
 
 
 def _run_load(pending: _Pending | None, call: Callable[[], Any]) -> Any:
-    if pending is None:
+    if pending is None or _machinery.get():
         return call()
     event = pending[0]
     if isinstance(event, RelationshipLoadEvent):

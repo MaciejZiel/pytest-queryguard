@@ -25,6 +25,8 @@ def install() -> None:
     """Install the ORM integrations; idempotent and cheap after the first call."""
     listeners.install()
     collector.on_push(_on_push)
+    collector.on_push_local(_on_push_local)
+    collector.on_idle(_on_idle)
     _on_push()
 
 
@@ -42,3 +44,15 @@ def _on_push() -> None:
     from . import django_backend
 
     django_backend.ensure(index_check=_index_check)
+
+
+def _on_push_local() -> None:
+    django_backend = sys.modules.get("pytest_queryguard.django_backend")
+    if django_backend is not None:
+        django_backend.attach()
+
+
+def _on_idle() -> None:
+    django_backend = sys.modules.get("pytest_queryguard.django_backend")
+    if django_backend is not None:
+        django_backend.detach()

@@ -42,6 +42,10 @@ on:
         description: "Branch, tag or SHA of pytest-queryguard to install (empty: the commit the run was started on)"
         required: false
         default: ""
+      plugin-args:
+        description: "Extra pytest arguments of the run with the plugin, split on spaces (e.g. -o queryguard_scope=session)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -85,6 +89,17 @@ jobs:
             | {include: [$all[] | select(($names | length) == 0 or (.name as $n | $names | index($n)))]}
           ' "$FILE")
           echo "$matrix" | jq .
+          if [ "$(jq '.include | length' <<< "$matrix")" -eq 0 ]; then
+            echo "::error::no project selected from $FILE"
+            exit 1
+          fi
+          # GitHub drops a job output that holds a masked value (a database URL
+          # with a password, say) and the project jobs then never start: check
+          # the list has no such value, so that never passes as a green run.
+          if grep -Eq '://[^/@"]+:[^/@"]+@' <<< "$matrix"; then
+            echo "::error::a value in $FILE has credentials in a URL; GitHub would mask it and drop the project list"
+            exit 1
+          fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   project:
@@ -177,8 +192,10 @@ jobs:
           PYTEST_ARGS: ${{ matrix.pytest_args }}
           PREPARE: ${{ matrix.prepare }}
           SUITE: ${{ inputs.suite }}
+          PLUGIN_ARGS: ${{ inputs.plugin-args }}
         run: |
           read -r -a args <<< "$PYTEST_ARGS"
+          read -r -a plugin_args <<< "$PLUGIN_ARGS"
           run() {
             local name=$1 start end code
             shift
@@ -206,7 +223,8 @@ jobs:
             -W "default::pytest_queryguard.QueryGuardWarning" \
             -W "always::pytest_queryguard.QueryGuardInternalWarning" \
             --queryguard-json="$OUT/queryguard.json" \
-            --queryguard-sarif="$OUT/queryguard.sarif"
+            --queryguard-sarif="$OUT/queryguard.sarif" \
+            ${plugin_args[0]:+"${plugin_args[@]}"}
           if [ "$SUITE" = django ]; then
             # The other N+1 tools for Django, each installed only now, so the
             # two runs above did not have it. zeal's own warning is ignored by
@@ -276,9 +294,10 @@ jobs:
           PLUGIN_SHA: ${{ needs.select.outputs.plugin-sha }}
           MATRIX: ${{ needs.select.outputs.matrix }}
           SUITE: ${{ inputs.suite }}
+          PLUGIN_ARGS: ${{ inputs.plugin-args }}
         run: |
           {
-            echo "## Real-world projects ($SUITE), plugin at \`$PLUGIN_SHA\`"
+            echo "## Real-world projects ($SUITE), plugin at \`$PLUGIN_SHA\`${PLUGIN_ARGS:+, with \`$PLUGIN_ARGS\`}"
             echo
             files=()
             for name in $(jq -r '.include[].name' <<< "$MATRIX"); do
