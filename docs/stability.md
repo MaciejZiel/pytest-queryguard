@@ -38,10 +38,20 @@ changes by accident.
 - The files the plugin writes and reads, and the command-line tools and the
   GitHub Action that work with them, as listed under
   [Files, tools and the action](#files-tools-and-the-action).
-- Supported versions: Python, SQLAlchemy and pytest releases listed in
-  `pyproject.toml` and the CI matrix. Dropping a Python, SQLAlchemy or pytest
-  series is announced in the changelog and happens in a minor release at the
+- Supported versions: the Python and pytest releases, and the releases of
+  each supported ORM (today SQLAlchemy), listed in `pyproject.toml` and the
+  CI matrix. Dropping a Python or pytest series, or a series of a supported
+  ORM, is announced in the changelog and happens in a minor release at the
   earliest after the series is end of life upstream.
+- How to install it: `pip install pytest-queryguard` installs SQLAlchemy
+  today, as a core dependency, and the extra `pytest-queryguard[sqlalchemy]`
+  requires the same SQLAlchemy versions. A minor release may move SQLAlchemy
+  from the core dependencies into that extra, so that a project that does not
+  use SQLAlchemy does not install it. That release also makes the plugin load
+  its SQLAlchemy support only when SQLAlchemy is installed, and the changelog
+  says so under "Changed".
+  Installing with `[sqlalchemy]`, or listing SQLAlchemy in your own
+  dependencies, keeps working through that change.
 
 ### Files, tools and the action
 
@@ -197,8 +207,9 @@ cannot parse is skipped with a message.
   that is a fix, not a breaking change.
 - Minor (`x.Y.0`): new public API, new options with a default that keeps
   today's behaviour, new finding kinds that are off or reported as warnings
-  first (from 1.0 on; see below for 0.x), deprecations, and dropping support for an end-of-life Python,
-  SQLAlchemy or pytest series.
+  first (from 1.0 on; see below for 0.x), deprecations, dropping support for an end-of-life Python,
+  SQLAlchemy or pytest series, and moving SQLAlchemy from the core
+  dependencies into the `sqlalchemy` extra (see "How to install it" above).
 - Major (`X.0.0`): removals of deprecated API, changed defaults, and
   incompatible changes to anything listed under "What is public".
 

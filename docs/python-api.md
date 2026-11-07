@@ -37,7 +37,8 @@ ran. The log is also sized, iterable and indexable (`len(log)`,
 `collections.abc.Sequence`, because `log.count` is a number and not the
 `count(value)` method of a sequence. An empty log is falsy. Each `Query` has:
 
-- `sql`: the statement as SQLAlchemy sent it to the driver;
+- `sql`: the statement as the ORM sent it to the database driver (with
+  SQLAlchemy: the text SQLAlchemy passed to the DBAPI cursor);
 - `callsite`: a `CallSite` with `filename`, `lineno` and `function`, the
   first frame outside SQLAlchemy, pytest, the standard library,
   `site-packages`, the plugin and the methods of a `Session` subclass, or
@@ -46,8 +47,10 @@ ran. The log is also sized, iterable and indexable (`len(log)`,
   to the test (`queryguard_stack_depth` of them, 3 by default), as seen the
   first time that line ran in the block or test; they are not part of the
   equality of two `CallSite`s;
-- `relationship`: the relationship the statement loaded, lazily or as the
-  extra query of `selectinload`, such as `"Order.customer"`, or `None`;
+- `relationship`: the model relationship the statement loaded, as
+  `Class.attribute` such as `"Order.customer"` (with SQLAlchemy: loaded
+  lazily, or as the extra query of an eager loader such as `selectinload`),
+  or `None`;
 - `duration`: seconds spent in the database and driver, measured around the
   cursor call, or `None` if the statement is still running or raised an error.
 
@@ -82,7 +85,8 @@ keyword-only arguments, with the same defaults as the ini options:
 
 An ini option set to `0` for "off" is `None` here.
 
-`scope="session"` counts each `Session` on its own, like
+`scope="session"` counts each database session on its own (for SQLAlchemy,
+each `Session` or connection checkout), like
 `queryguard_scope = session` (see [Tests with several sessions or
 requests](several-sessions.md)); the default is `"test"`.
 

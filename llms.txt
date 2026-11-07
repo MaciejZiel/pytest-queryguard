@@ -10,7 +10,7 @@ It watches the SQL each test function body sends (fixture setup and teardown are
 pip install pytest-queryguard
 ```
 
-This file describes 0.8.0. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
+This file describes 0.8.0. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. `pytest-queryguard[sqlalchemy]` installs the same today, and keeps SQLAlchemy installed if a later minor release moves it out of the core dependencies (docs/stability.md). For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
 
 ## Quick start
 
@@ -106,7 +106,7 @@ def test_orders_use_one_query(session):  # 50 orders in the database
 Here `list_orders` is the fixed function from the README (`select(Order).options(joinedload(Order.customer))`), not the N+1 version above: that one sends 51 queries for 50 orders and fails `assert_no_nplusone()`.
 
 - `record_queries()` records the statements a block sends, from any thread, and yields a `QueryLog`. It works outside pytest and changes nothing else.
-- `log.queries` is a tuple of `Query` objects (`sql`, `callsite` as a `CallSite` with `filename`, `lineno` and `function`, or `None`, and `relationship`, such as `"Order.customer"`, or `None`). `log.count`, `len(log)`, iteration and indexing also work; a `QueryLog` is not a `collections.abc.Sequence`.
+- `log.queries` is a tuple of `Query` objects (`sql`, `callsite` as a `CallSite` with `filename`, `lineno` and `function`, or `None`, and `relationship`, the model relationship the statement loaded as `Class.attribute`, such as `"Order.customer"`, or `None`). `log.count`, `len(log)`, iteration and indexing also work; a `QueryLog` is not a `collections.abc.Sequence`.
 - `log.assert_no_nplusone()` raises `NPlusOneDetected` (a subclass of `AssertionError`) with the plugin's two rules. Thresholds are the keyword arguments `relationship_threshold=2`, `repeat_threshold=5`, `column_load_threshold=5`, `small_repeat_threshold` and `write_loop_threshold`, and `scope="test"` or `"session"` (like `queryguard_scope`; `repeat_scope=` is its deprecated name since 0.8.0); the `queryguard_*` ini options, `queryguard_mode` and the `queryguard_ignore` marker are not read.
 - After an internal error, a block that ends normally issues `QueryGuardInternalWarning` (the log may be incomplete), and `assert_no_nplusone()` raises `RuntimeError` instead of passing.
 - `QueryGuardDeprecationWarning` (a `DeprecationWarning`, not a `QueryGuardWarning`) is what a later release uses to announce an option or name it removes; a `filterwarnings` entry for `QueryGuardWarning` does not match it. Deprecated since 0.8.0, removed in 2.0: `queryguard_repeat_scope` (use `queryguard_scope`), `repeat_scope=` (use `scope=`), `max_queries(n=...)` (use a positional limit or `limit=`).
@@ -146,7 +146,7 @@ Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, 
 | `queryguard_small_repeat_threshold` | `0` or integer >= 2 | `0` (off) |
 | `queryguard_column_load_threshold` | integer >= 2 | `5` |
 | `queryguard_write_loop_threshold` | `0` or integer >= 2 | `0` (off) |
-| `queryguard_scope` | since 0.8.0 (before: `queryguard_repeat_scope`, deprecated); `test` (everything a test runs counts together) or `session` (each Session or connection checkout on its own) | `test` |
+| `queryguard_scope` | since 0.8.0 (before: `queryguard_repeat_scope`, deprecated); `test` (everything a test runs counts together) or `session` (each database session on its own; for SQLAlchemy, each Session or connection checkout) | `test` |
 | `queryguard_unused_eager_load` | `off`, `warn`, `fail` | `off` |
 | `queryguard_unused_columns` | `off`, `warn`, `fail` | `off` |
 | `queryguard_cartesian_load` | `off`, `warn`, `fail`: one SELECT that joins two collections side by side (kind `cartesian-load`) | `warn` |
