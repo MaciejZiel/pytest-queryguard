@@ -175,4 +175,7 @@ source = ["pytest_queryguard"]
 
 [tool.coverage.report]
 fail_under = 90
+# The Django integration: measured by the "django" CI job, which runs
+# tests/django_project with Django installed (see .github/workflows/ci.yml).
+omit = ["*/pytest_queryguard/django_backend.py"]
 show_missing = true

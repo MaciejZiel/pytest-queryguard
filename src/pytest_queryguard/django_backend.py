@@ -47,12 +47,11 @@ from __future__ import annotations
 
 import functools
 import importlib
-import inspect
 import itertools
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextvars import ContextVar
 from typing import Any
 
@@ -106,7 +105,7 @@ class _Frozen:
 class _Origin(_Frozen):
     """Where an instance was loaded: the query line, its class and the path."""
 
-    __slots__ = ("noted", "path", "root", "site")
+    __slots__ = ("deferring", "noted", "path", "root", "site")
 
     def __init__(
         self,
@@ -114,11 +113,14 @@ class _Origin(_Frozen):
         root: str | None,
         path: tuple[tuple[str, bool], ...],
         noted: int,
+        deferring: bool = False,
     ) -> None:
         self.site = site
         self.root = root
         self.path = path
         self.noted = noted
+        # the query left out fields (.only(), .defer())
+        self.deferring = deferring
 
 
 class _Load(_Frozen):
@@ -339,7 +341,7 @@ def _execute(
         for target in targets:
             target.add_db_time(duration)
         if _index_check:
-            _check_index(sql, params, many, context)
+            _check_index(stmt.sql, params, many, context)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "Django execute wrapper (after the statement)")
     return result
@@ -414,28 +416,36 @@ class _Connection:
 
     ``engine`` is the Django connection (per alias and thread): the explained
     statements and the catalog are cached per engine. ``dialect`` is read by
-    the PostgreSQL check only.
+    the PostgreSQL check only. One per Django connection, kept on it.
     """
 
     __slots__ = ("connection", "dialect", "engine")
 
-    def __init__(self, wrapper: Any, dialect: Any = None) -> None:
+    def __init__(self, wrapper: Any) -> None:
         self.engine = wrapper
-        self.connection = _DbapiHolder(wrapper.connection)
-        self.dialect = dialect
+        self.connection = _DbapiHolder(wrapper)
+        self.dialect = (
+            _PostgresDialect(wrapper) if wrapper.vendor == "postgresql" else None
+        )
 
 
 class _DbapiHolder:
-    __slots__ = ("dbapi_connection",)
+    """``connection.dbapi_connection``: the Django connection's current one."""
 
-    def __init__(self, dbapi_connection: Any) -> None:
-        self.dbapi_connection = dbapi_connection
+    __slots__ = ("_wrapper",)
+
+    def __init__(self, wrapper: Any) -> None:
+        self._wrapper = wrapper
+
+    @property
+    def dbapi_connection(self) -> Any:
+        return self._wrapper.connection
 
 
 class _PostgresDialect:
     """The few dialect attributes the PostgreSQL check reads."""
 
-    __slots__ = ("driver", "server_version_info")
+    __slots__ = ("_version", "_wrapper", "driver")
     name = "postgresql"
     paramstyle = "pyformat"
     is_async = False
@@ -443,7 +453,25 @@ class _PostgresDialect:
     def __init__(self, wrapper: Any) -> None:
         database = getattr(wrapper, "Database", None)
         self.driver = getattr(database, "__name__", "psycopg").split(".")[0]
-        self.server_version_info = tuple(wrapper.get_database_version())
+        self._wrapper = wrapper
+        self._version: tuple[int, ...] | None = None
+
+    @property
+    def server_version_info(self) -> tuple[int, ...]:
+        if self._version is None:
+            self._version = tuple(self._wrapper.get_database_version())
+        return self._version
+
+
+_ADAPTER = "_queryguard_index_connection"
+
+
+def _adapter(wrapper: Any) -> _Connection:
+    adapter = wrapper.__dict__.get(_ADAPTER)
+    if adapter is None:
+        adapter = _Connection(wrapper)
+        setattr(wrapper, _ADAPTER, adapter)
+    return adapter  # type: ignore[no-any-return]
 
 
 def _raw_cursor(cursor: Any) -> Any:
@@ -463,31 +491,39 @@ def _check_index(sql: str, params: Any, many: bool, context: Any) -> None:
     if catalog.changes_catalog(sql):
         catalog.clear()  # DDL: the cached catalog and explains are stale
     targets = [target for target in collector.active() if target.index_check]
-    if not targets:
+    if not targets or many:
         return
     wrapper = context["connection"]
     vendor = wrapper.vendor
     if vendor == "sqlite":
+        if not sqlite_index.is_checked_statement(sql):
+            return
         statement = sql
-        if params is not None:
-            names = list(params) if isinstance(params, dict) else None
+        if params is not None:  # as Django's SQLite cursor turns %s into ?
+            names = list(params) if isinstance(params, Mapping) else None
             statement = _raw_cursor(context["cursor"]).convert_query(
                 sql, param_names=names
             )
-        sqlite_index.check(_Connection(wrapper), statement, params, many, targets)
+        sqlite_index.check(_adapter(wrapper), statement, params, many, targets)
     elif vendor == "mysql":
         cursor = _raw_cursor(context["cursor"])
-        mysql_index.check(_Connection(wrapper), cursor, sql, params, many, targets)
+        mysql_index.check(_adapter(wrapper), cursor, sql, params, many, targets)
     elif vendor == "postgresql":
-        dialect = _PostgresDialect(wrapper)
-        indexes.check(_Connection(wrapper, dialect), sql, many, targets)
+        indexes.check(_adapter(wrapper), sql, many, targets)
     else:
-        notice = (
-            f"{vendor} statements were not checked: the index check supports "
-            f"{indexes.SUPPORTED_DATABASES}"
-        )
+        notice = indexes.unsupported_reason(_Vendor(vendor))
         for target in targets:
-            target.index_notices[notice] = None
+            if notice is not None:
+                target.index_notices[notice] = None
+
+
+class _Vendor:
+    """A dialect stand-in that only has a name, for the unsupported notice."""
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str) -> None:
+        self.name = name
 
 
 # --- where instances come from -----------------------------------------------
@@ -527,7 +563,20 @@ def _rows_origin(local: _Rows, before: int, queryset: Any) -> _Origin | None:
     origin = local.origin
     if origin is None or local.inherited:
         return origin
-    return _Origin(origin.site, queryset.model.__name__, (), origin.noted)
+    names, defer = queryset.query.deferred_loading
+    return _Origin(
+        origin.site,
+        queryset.model.__name__,
+        (),
+        origin.noted,
+        bool(names) or not defer,
+    )
+
+
+def _deferred_by_query(instance: Any) -> bool:
+    """Whether the query that loaded ``instance`` left out some fields."""
+    origin = _origin_of(instance)
+    return origin is not None and origin.deferring
 
 
 def _origin_of(instance: Any) -> _Origin | None:
@@ -678,29 +727,38 @@ def _generic_get(
         if instance is None or not _collectors or _failed():
             return original(self, instance, cls)
         field = self if field_of is None else field_of(self)
-        if field.is_cached(instance):
+        ct_id = getattr(instance, field.model._meta.get_field(field.ct_field).attname)
+        pk_val = getattr(instance, field.fk_field)
+        if ct_id is None or pk_val is None:
+            return original(self, instance, cls)  # no query
+        db = instance._state.db
+        # The content type first, outside the load: Django caches it, so a
+        # loop looks it up once. Its errors are the application's own, as
+        # Django would raise them in the call below.
+        content_type = field.get_content_type(id=ct_id, using=db)
+        if _cached_target(field, instance, content_type, pk_val, db):
             return original(self, instance, cls)
-        pending = None
-        try:
-            ct_field = field.model._meta.get_field(field.ct_field)
-            ct_id = getattr(instance, ct_field.attname, None)
-            if ct_id is not None and getattr(instance, field.fk_field) is not None:
-                # the content type first, outside the load: Django caches it,
-                # so a loop looks it up once
-                field.get_content_type(id=ct_id, using=instance._state.db)
-                # scalar False: the fix is prefetch_related, not select_related
-                pending = _prepare(
-                    f"{field.model.__name__}.{field.name}",
-                    instance,
-                    False,
-                    _scope(instance),
-                )
-        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-            _fail(exc, "Django integration (generic foreign key)")
-            pending = None
+        # scalar False: the fix is prefetch_related, not select_related
+        pending = _prepare(
+            f"{field.model.__name__}.{field.name}", instance, False, _scope(instance)
+        )
         return _run_load(pending, lambda: original(self, instance, cls))
 
     return __get__
+
+
+def _cached_target(
+    field: Any, instance: Any, content_type: Any, pk_val: Any, db: Any
+) -> bool:
+    """Whether the cached target still matches (Django then runs no query)."""
+    if not field.is_cached(instance):
+        return False
+    target = field.get_cached_value(instance)
+    if target is None:
+        return True
+    if field.get_content_type(obj=target, using=db).id != content_type.id:
+        return False
+    return bool(target._meta.pk.to_python(pk_val) == target.pk)
 
 
 def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
@@ -709,10 +767,14 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
             instance is None
             or not _collectors
             or self.field.attname in instance.__dict__
-            or getattr(self.field, "generated", False)
             or _failed()
+            or (
+                getattr(self.field, "generated", False)
+                and not _deferred_by_query(instance)
+            )
         ):
-            # a GeneratedField is reloaded by Django itself after save()
+            # a GeneratedField without RETURNING is reloaded by Django itself
+            # after save(): only one a query left out is a column load
             return original(self, instance, cls)
         try:
             event = ColumnLoadEvent(
@@ -772,7 +834,7 @@ def _instrument_manager(cls: Any) -> None:
         cls.constrained_target = property(_constrained(target.fget))
     for name in _MANAGER_WRITES:
         method = cls.__dict__.get(name)
-        if method is not None and not inspect.iscoroutinefunction(method):
+        if method is not None:
             setattr(cls, name, _writing_method(method))
     setattr(cls, _INSTRUMENTED, True)
 

@@ -50,8 +50,7 @@ jobs:
       - run: uv run mypy src
       # coverage run (not --cov) so the module-level lines of the entry-point plugin count
       - run: uv run --no-sync coverage run -m pytest
-      # without the Django integration, which the django job measures
-      - run: uv run --no-sync coverage report --omit="*/pytest_queryguard/django_backend.py"
+      - run: uv run --no-sync coverage report
 
   build:
     needs: test

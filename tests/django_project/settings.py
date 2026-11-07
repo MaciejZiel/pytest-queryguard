@@ -67,7 +67,9 @@ def _database(url: str | None) -> dict[str, Any]:
 DATABASES = {"default": _database(os.environ.get("QUERYGUARD_DJANGO_DB"))}
 # The pytest sessions that the tests start in a subprocess need a test
 # database of their own on a server: the outer session holds "test_<name>".
-if os.environ.get("QUERYGUARD_DJANGO_TEST_NAME"):
+if os.environ.get("QUERYGUARD_DJANGO_TEST_NAME") and not DATABASES["default"][
+    "ENGINE"
+].endswith("sqlite3"):
     DATABASES["default"]["TEST"] = {"NAME": os.environ["QUERYGUARD_DJANGO_TEST_NAME"]}
 if DATABASES["default"]["ENGINE"].endswith("mysql"):
     # PyMySQL (MIT, dev group) in place of mysqlclient (GPL).
