@@ -117,6 +117,11 @@ and the [GitHub Action](ci.md), [SARIF](sarif.md) and strict mode
 (`queryguard_strict`, which raises `NPlusOneDetected` at the attribute access
 that makes the N+1).
 
+With `queryguard_scope = session`, each request (one call of the test client;
+a view called directly with `RequestFactory` is no request) counts on its own,
+as a Session does for SQLAlchemy; statements outside a request count per
+database connection. See [Several sessions or requests](several-sessions.md).
+
 ## How it sees Django
 
 - **Statements** come from Django's documented
@@ -134,13 +139,16 @@ that makes the N+1).
 - **Where the parents came from**: the plugin notes the query line of each
   instance a queryset builds, so lazy loads are grouped by that line as for
   SQLAlchemy (see [How detection works](how-detection-works.md#relationship-load)).
-  Instances reached through `select_related()` have no line of their own;
-  their loads are grouped by the line that read them.
+  The objects `select_related()` builds with each row count as loaded there
+  too, so a load below them names the whole lookup
+  (`select_related("author__publisher")`).
 - **Call sites** skip the frames of Django, asgiref and Django REST framework,
   as they skip SQLAlchemy's: a finding points at your view, serializer or test.
   A DRF view whose queryset is a class attribute has no line of its own: the
   finding points at the test line that called the view, and the fix belongs in
-  the view's `queryset` or `get_queryset()`.
+  the view's `queryset` or `get_queryset()`. A call of the async ORM
+  (`await Book.objects.aget(...)`, `async for`), which Django runs in a
+  thread of asgiref, has the line that awaited it as its call site.
 
 ## Limitations
 
@@ -150,11 +158,6 @@ that makes the N+1).
   fix names `.only()`. Generated fields are left out.
 - **Durations** include the time of other `execute_wrapper`s, since the
   plugin's wrapper is the outermost.
-- **`queryguard_scope = session`** counts per database connection, which in a
-  test is usually one: it does not split a test's requests as it does
-  SQLAlchemy Sessions.
-- **The async ORM** (`aget()`, `async for`) runs in a thread of asgiref:
-  statements are measured, but their call site is the test line at best.
 - Not for Django yet: `unused-eager-load`, `unused-columns`, `cartesian-load`,
   `--queryguard-write-patch` and `--queryguard-show-patch` (Django findings
   have no patch), the static check and the in-application mode.

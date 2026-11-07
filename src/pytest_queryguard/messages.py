@@ -69,12 +69,12 @@ def _django(finding: Detection) -> bool:
 
 
 def _units(finding: Detection, sqlalchemy: str) -> str:
-    """What one scope is called in the text: Django counts database connections."""
-    return "database connections" if _django(finding) else sqlalchemy
+    """What one scope is called in the text: for Django, a request or connection."""
+    return "requests or database connections" if _django(finding) else sqlalchemy
 
 
 def _unit(finding: Detection, sqlalchemy: str) -> str:
-    return "database connection" if _django(finding) else sqlalchemy
+    return "request or database connection" if _django(finding) else sqlalchemy
 
 
 def _scope_hint(finding: Detection) -> list[str]:
@@ -83,9 +83,9 @@ def _scope_hint(finding: Detection) -> list[str]:
         return []
     if _django(finding):
         return [
-            "  note: if each belongs to a separate request or thread, this is not a",
-            "  loop; set queryguard_scope = session to count each database",
-            "  connection on its own (QueryLog.assert_no_nplusone: scope='session')",
+            "  note: if each belongs to a separate request, this is not a loop; set",
+            "  queryguard_scope = session to count each request on its own",
+            "  (QueryLog.assert_no_nplusone: scope='session')",
         ]
     return [
         "  note: if each belongs to a separate request or unit of work, this is not a",

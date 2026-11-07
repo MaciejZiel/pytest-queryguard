@@ -266,3 +266,26 @@ def test_generic_foreign_key_in_a_loop() -> None:
     with measure() as collector:
         titles = [m.target.title for m in Bookmark.objects.prefetch_related("target")]
     assert detections(collector) == []
+
+
+def test_a_load_below_select_related_names_the_whole_lookup() -> None:
+    with measure() as collector:
+        books = Book.objects.select_related("author")
+        names = [b.author.publisher.name for b in books]
+    assert len(names) == 18
+    finding = _one(collector)
+    assert finding.relationship == "Author.publisher"
+    assert finding.parent_root == "Book"
+    assert finding.parent_path == (("Book.author", True),)
+    assert 'Book.objects.select_related("author__publisher")' in (
+        make_finding(finding).message
+    )
+
+
+def test_a_load_below_a_reverse_one_to_one_select_related() -> None:
+    with measure() as collector:
+        authors = Author.objects.select_related("profile")
+        names = [a.profile.author.publisher.name for a in authors]
+    assert len(names) == 6
+    finding = _one(collector)
+    assert finding.relationship == "Author.publisher"

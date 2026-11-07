@@ -148,6 +148,10 @@ _writing: ContextVar[bool] = ContextVar("queryguard_django_writing", default=Fal
 # SQLAlchemy flush number.
 _unit: ContextVar[int | None] = ContextVar("queryguard_django_unit", default=None)
 _units = itertools.count(1)
+# The application line that awaited the async ORM call (aget(), async for)
+# running in this thread through asgiref's sync_to_async: the thread itself
+# has no frame of the application. asgiref copies the context into it.
+_async_site: ContextVar[Any] = ContextVar("queryguard_django_async_site", default=None)
 
 
 class _Rows(threading.local):
@@ -252,6 +256,16 @@ def _install() -> None:
     signals.connection_created.connect(
         _on_connection_created, weak=False, dispatch_uid=_DISPATCH_UID
     )
+    requests = _module("django.core.signals")
+    requests.request_started.connect(
+        _on_request_started, weak=False, dispatch_uid=_DISPATCH_UID
+    )
+    requests.request_finished.connect(
+        _on_request_finished, weak=False, dispatch_uid=_DISPATCH_UID
+    )
+    sync = sys.modules.get("asgiref.sync")
+    if sync is not None and hasattr(sync, "SyncToAsync"):
+        _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
     # Frames of Django, asgiref and DRF are never the application's, also
     # when installed outside site-packages; classify the files again.
     callsite.reset_internal()
@@ -382,7 +396,7 @@ def _record(
             for target in full:
                 target.add_column_load(event)
     if site is None:
-        site = find_callsite()
+        site = find_callsite() or _async_site.get()
     stmt = StatementEvent(
         sql,
         site,
@@ -392,7 +406,7 @@ def _record(
         parameters=None if many else params,
         executemany=bool(many),
         flush=_unit.get() if write else None,
-        scope=listeners.scope_of_connection(context["connection"]),
+        scope=_scope_of(context["connection"]),
         ignores=ignores,
         orm=ORM_DJANGO,
     )
@@ -540,21 +554,71 @@ def _model_iter(original: Callable[[Any], Iterator[Any]]) -> Callable[[Any], Any
 
 
 def _noting(rows: Iterator[Any], queryset: Any) -> Iterator[Any]:
-    """Yield the instances of ``rows``, noting the query line of each."""
+    """Yield the instances of ``rows``, noting the query line of each.
+
+    The objects ``select_related()`` built with each row are noted too, with
+    the relations from the queried class to them, for the fix of a lazy
+    load further down (``select_related("author__publisher")``).
+    """
     local = _rows
     before = local.seq
     origin: _Origin | None = None
+    related: list[tuple[tuple[str, ...], _Origin]] = []
     first = True
     for obj in rows:
         if first:
             first = False
             try:
                 origin = _rows_origin(local, before, queryset)
+                if origin is not None and origin.root is not None:
+                    related = _related_origins(queryset, origin)
             except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
                 _fail(exc, "Django integration (instance origins)")
+                origin, related = None, []
         if origin is not None:
             obj._state.__dict__[_ORIGIN] = origin
+            for caches, step_origin in related:
+                target = obj
+                for cache in caches:
+                    target = target._state.fields_cache.get(cache)
+                    if target is None:
+                        break
+                else:
+                    target._state.__dict__[_ORIGIN] = step_origin
         yield obj
+
+
+def _related_origins(
+    queryset: Any, origin: _Origin
+) -> list[tuple[tuple[str, ...], _Origin]]:
+    """(cache names from the row's object, origin) of each select_related step."""
+    found: list[tuple[tuple[str, ...], _Origin]] = []
+    tree = queryset.query.select_related
+    if not isinstance(tree, dict):
+        return found  # False, or True for every foreign key: not followed
+    walk: list[
+        tuple[Any, dict[str, Any], tuple[str, ...], tuple[tuple[str, bool], ...]]
+    ]
+    walk = [(queryset.model, tree, (), ())]
+    while walk:
+        model, branch, caches, path = walk.pop()
+        for name, below in branch.items():
+            field = model._meta.get_field(name)
+            if field.is_relation and not field.concrete:
+                label = f"{model.__name__}.{field.get_accessor_name()}"
+            else:
+                label = f"{model.__name__}.{field.name}"
+            step_caches = (*caches, field.cache_name)
+            step_path = (*path, (label, True))
+            found.append(
+                (
+                    step_caches,
+                    _Origin(origin.site, origin.root, step_path, origin.noted),
+                )
+            )
+            if isinstance(below, dict) and below:
+                walk.append((field.related_model, below, step_caches, step_path))
+    return found
 
 
 def _rows_origin(local: _Rows, before: int, queryset: Any) -> _Origin | None:
@@ -608,12 +672,37 @@ def _key(instance: Any) -> object:
     return (instance._meta.label, instance.pk)
 
 
+class _Request(threading.local):
+    """The scope of the request this thread is handling, if any."""
+
+    scope: int | None = None
+
+
+_request = _Request()
+
+
+def _on_request_started(sender: Any, **kwargs: Any) -> None:
+    # One scope per request (the test client's included), as a Session is
+    # one for SQLAlchemy: queryguard_scope = session counts each on its own.
+    _request.scope = next(listeners._scopes)
+
+
+def _on_request_finished(sender: Any, **kwargs: Any) -> None:
+    _request.scope = None
+
+
+def _scope_of(connection: Any) -> int | None:
+    """The request being handled, else the connection the statement ran on."""
+    scope = _request.scope
+    return scope if scope is not None else listeners.scope_of_connection(connection)
+
+
 def _scope(instance: Any) -> int | None:
     """The scope of the connection a lazy load of ``instance`` uses (mostly)."""
     connections = _connections
     if connections is None:
         return None
-    return listeners.scope_of_connection(connections[instance._state.db or "default"])
+    return _scope_of(connections[instance._state.db or "default"])
 
 
 # --- lazy loads -------------------------------------------------------------
@@ -925,7 +1014,7 @@ def _execute_sql(
                 mark.key,
                 find_callsite(),
                 False,
-                listeners.scope_of_connection(self.connection),
+                _scope_of(self.connection),
                 _parent(mark.origin),
                 blocks.current(),
                 ORM_DJANGO,
@@ -940,6 +1029,30 @@ def _execute_sql(
         return _run_load(pending, lambda: original(self, *args, **kwargs))
 
     return execute_sql
+
+
+# --- the async ORM ------------------------------------------------------------
+
+
+def _sync_to_async_call(original: Callable[..., Any]) -> Callable[..., Any]:
+    """Note the awaiting application line for the thread the call runs in."""
+
+    @functools.wraps(original)
+    async def __call__(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if not collector._active or _failed():
+            return await original(self, *args, **kwargs)
+        try:
+            site = find_callsite()
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _fail(exc, "Django integration (async call site)")
+            site = None
+        token = _async_site.set(site)
+        try:
+            return await original(self, *args, **kwargs)
+        finally:
+            _async_site.reset(token)
+
+    return __call__
 
 
 # --- units of work for the write-loop rule ----------------------------------

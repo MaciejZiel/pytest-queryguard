@@ -11,4 +11,5 @@ urlpatterns = [
     path("api/books-fixed/", views.BookListFixed.as_view()),
     path("api/authors/", views.AuthorList.as_view()),
     path("books/", views.book_titles),
+    path("books/three/", views.three_books),
 ]

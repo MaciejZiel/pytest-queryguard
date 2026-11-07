@@ -46,3 +46,8 @@ class AuthorList(generics.ListAPIView):
 def book_titles(request: HttpRequest) -> JsonResponse:
     books = Book.objects.all()
     return JsonResponse({"books": [f"{b.title} by {b.author.name}" for b in books]})
+
+
+def three_books(request: HttpRequest) -> JsonResponse:
+    titles = [Book.objects.get(pk=pk).title for pk in (1, 2, 3)]
+    return JsonResponse({"titles": titles})

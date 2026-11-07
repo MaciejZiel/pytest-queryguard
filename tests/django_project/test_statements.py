@@ -152,3 +152,35 @@ def test_a_budget_fails_on_django_statements(queryguard) -> None:  # type: ignor
     with pytest.raises(QueryBudgetExceeded), queryguard.max_queries(1):
         Author.objects.count()
         Book.objects.count()
+
+
+def test_each_request_is_a_scope_of_its_own(client) -> None:  # type: ignore[no-untyped-def]
+    with measure() as collector:
+        for _ in range(2):
+            assert client.get("/books/three/").status_code == 200
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    assert len(gets) == 6
+    assert len({s.scope for s in gets}) == 2
+    (finding,) = detections(collector)
+    assert finding.count == 6
+    assert "across 2 different requests or database connections" in (
+        make_finding(finding).message
+    )
+    assert detections(collector, scope="session") == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_async_orm_has_the_awaiting_line_as_call_site() -> None:
+    import asyncio
+
+    async def titles() -> list[str]:
+        books = [await Book.objects.aget(pk=pk) for pk in (1, 2, 3)]
+        more = [b async for b in Book.objects.filter(author_id=1)]
+        return [b.title for b in books + more]
+
+    with measure() as collector:
+        assert len(asyncio.run(titles())) == 6
+    sites = {
+        (s.callsite.function if s.callsite else None) for s in collector.statements
+    }
+    assert sites == {"titles"}
