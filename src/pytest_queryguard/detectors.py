@@ -210,11 +210,11 @@ def _units(
     With scope "session", each scope. With "test", the scopes begun from
     lines of their own one by one and all others together
     (QueryCollector.unit_of); everything together when no scope's lines are
-    known (a collector built by hand).
+    known (a collector built by hand) or events were left out (``max_events``).
     """
     if scoped:
         return _same
-    if not collector.entries:
+    if not collector.counts_units():
         return None
     return collector.unit_of
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from collections import Counter
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -9,6 +10,7 @@ from dataclasses import dataclass, field
 from . import callsite
 from .blocks import IgnoreBlock, covers
 from .blocks import current as current_blocks
+from .callsite import Entry
 from .events import (
     CallSite,
     CartesianLoadEvent,
@@ -38,6 +40,9 @@ class StrictGroup:
     first: CallSite | None
     parents: set[object] = field(default_factory=set)
     suppressed: bool = False  # its finding is ignored or baselined
+    # with units (QueryCollector.counts_units): the units whose finding is
+    # ignored or baselined, as QueryCollector.unit_of names them
+    suppressed_units: set[object] = field(default_factory=set)
     # (the report's location, parents from other lines), once at the threshold
     report: tuple[CallSite | None, bool] | None = None
 
@@ -108,11 +113,10 @@ class QueryCollector:
     strict_threshold: int = 2
     # count each Session on its own, as queryguard_scope = session does
     strict_by_scope: bool = False
-    # scope -> the number of the application lines it began from
-    # (callsite.find_entry), and how many scopes began from each; see unit_of
-    entries: dict[int, int] = field(default_factory=dict)
-    entry_numbers: dict[tuple[tuple[str, int], ...], int] = field(default_factory=dict)
-    entry_uses: list[int] = field(default_factory=list)
+    # scope -> the application lines it began from (callsite.find_entry),
+    # and how many scopes began from each; see unit_of
+    entries: dict[int, Entry] = field(default_factory=dict)
+    entry_uses: Counter[Entry] = field(default_factory=Counter)
     # (relationship, query site of the parents, Session or None) -> group
     strict_groups: dict[tuple[object, ...], StrictGroup] = field(default_factory=dict)
     # Set by the strict listener when it raises this collector's error: the
@@ -189,7 +193,7 @@ class QueryCollector:
         if self.max_events is None or len(self.cartesian_loads) < self.max_events:
             self.cartesian_loads.append(event)
 
-    def note_entry(self, scope: int, lines: tuple[tuple[str, int], ...]) -> None:
+    def note_entry(self, scope: int, lines: Entry) -> None:
         """Scope ``scope`` began from these application lines (find_entry)."""
         if _FREE_THREADED:
             with self._lock:
@@ -197,15 +201,20 @@ class QueryCollector:
         else:
             self._note_entry(scope, lines)
 
-    def _note_entry(self, scope: int, lines: tuple[tuple[str, int], ...]) -> None:
+    def _note_entry(self, scope: int, lines: Entry) -> None:
         if scope in self.entries or len(self.entries) >= MAX_ENTRIES:
             return
-        number = self.entry_numbers.get(lines)
-        if number is None:
-            number = self.entry_numbers[lines] = len(self.entry_uses)
-            self.entry_uses.append(0)
-        self.entry_uses[number] += 1
-        self.entries[scope] = number
+        self.entries[scope] = lines
+        self.entry_uses[lines] += 1
+
+    def counts_units(self) -> bool:
+        """Whether the scope "test" counts by unit (``unit_of``).
+
+        Only when some scope's lines are known, and every event was stored:
+        past ``max_events`` the stored events are not all there is, and the
+        whole test is counted together, as before.
+        """
+        return bool(self.entries) and not self.truncated
 
     def unit_of(self, scope: int | None) -> int | None:
         """What the count rules count ``scope`` with, by default (scope "test").
@@ -219,8 +228,8 @@ class QueryCollector:
         counted together, whatever lines each began from, so that a loop
         whose passes take two paths is not split in two.
         """
-        number = self.entries.get(scope) if scope is not None else None
-        if number is None or self.entry_uses[number] > 1:
+        lines = self.entries.get(scope) if scope is not None else None
+        if lines is None or self.entry_uses[lines] > 1:
             return None
         return scope
 
@@ -244,38 +253,39 @@ class QueryCollector:
             decided = self._strict_decide(key, load, scope)
         if decided is None:
             return None
-        group, (first, other_lines), parents = decided
-        if load.ignores and covers(load.ignores, KIND_RELATIONSHIP):
-            # inside an ignore() block: the load counts for the group (a
-            # later load outside the block raises), this one never raises
-            return None
+        group, unit, (first, other_lines), parents = decided
         error = self.strict(load, first or group.first, parents, other_lines)
         if error is None:
-            group.suppressed = True
+            if unit is _ALL:
+                group.suppressed = True
+            else:
+                group.suppressed_units.add(unit)
         return error
 
     def _strict_decide(
         self, key: tuple[object, ...], load: RelationshipLoadEvent, scope: object
-    ) -> tuple[StrictGroup, tuple[CallSite | None, bool], int] | None:
-        """(group, report site, parents) once the load makes an N+1, else None.
+    ) -> tuple[StrictGroup, object, tuple[CallSite | None, bool], int] | None:
+        """(group, unit, report site, parents) once the load raises, else None.
 
-        With scope "test" and the lines each Session began from known, the
-        parents are counted in the load's unit only (``unit_of``), as the
-        report counts them: a Session begun from lines of its own is no pass
-        of a loop. Not when loads were left out (``max_events``).
+        With scope "test" and units (``counts_units``), the parents are
+        counted in the load's unit only (``unit_of``), as the report counts
+        them: a Session begun from lines of its own is no pass of a loop. The
+        unit is ``_ALL`` without units. A load inside an
+        ``ignore("relationship-load")`` block counts for the group (a later
+        load outside the block raises) but never raises itself.
         """
         group = self._strict_group(key, load)
         if group is None:
             return None
-        if (
-            self.strict_by_scope
-            or not self.entries
-            or self.relationship_load_count > len(self.relationship_loads)
-        ):
+        if load.ignores and covers(load.ignores, KIND_RELATIONSHIP):
+            return None
+        if self.strict_by_scope or not self.counts_units():
             if group.report is None:
                 group.report = self._report_site(load, scope)
-            return group, group.report, len(group.parents)
+            return group, _ALL, group.report, len(group.parents)
         unit = self.unit_of(load.scope)
+        if unit in group.suppressed_units:
+            return None
         group_line = key[1]
         parents = {load.parent_key}
         for earlier in self.relationship_loads:
@@ -289,7 +299,7 @@ class QueryCollector:
                 parents.add(earlier.parent_key)
         if len(parents) < self.strict_threshold:
             return None
-        return group, self._report_site(load, scope, unit), len(parents)
+        return group, unit, self._report_site(load, scope, unit), len(parents)
 
     def _report_site(
         self, load: RelationshipLoadEvent, scope: object | None, unit: object = _ALL

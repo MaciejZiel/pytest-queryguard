@@ -42,9 +42,10 @@ Requests that the application handles in another thread (Starlette's
 `TestClient` runs it in a portal thread) have no frame of the test on their
 stack: they begin from the same handler lines and are counted together as
 before. Sessions begun before the test (a fixture's) and
-past 100,000 Sessions in one test are counted together too. Two passes of a
-loop that begin their `Session`s from different lines (an `if` in the loop,
-two passes only) look like separate calls.
+past 100,000 Sessions in one test are counted together too. A pass of a loop
+whose `Session` begins from lines no other pass began from (a branch or a
+handler taken in one pass only) counts on its own, outside the loop: two
+passes through an `if` and its `else` look like two separate calls.
 
 ## The option
 

@@ -773,10 +773,11 @@ See also [Limitations](limitations.md).
   loop that reads it on two lines (two branches) counts each line on its own,
   so each needs the threshold.
 - A Session begun from lines no other Session of the test began from is
-  counted on its own (`clean_133`, `clean_134`). Two passes of a loop whose
-  Sessions begin at different lines (an `if` in the loop) look like two
-  separate calls; with three or more passes the lines repeat and the passes
-  add up (`bug_126`). Requests handled in a server thread begin from the
+  counted on its own (`clean_133`, `clean_134`). So is a pass of a loop whose
+  Session begins from lines no other pass began from (a branch or a handler
+  taken in one pass only): two passes through an `if` and its `else` look
+  like two separate calls. Passes whose lines repeat add up, whichever lines
+  each took (`bug_126`). Requests handled in a server thread begin from the
   same lines and are counted together, as before.
 - Strict mode stops the test at the first N+1, so later ones are not
   reported.

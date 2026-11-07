@@ -122,7 +122,10 @@ def _scope_of(owner: Any) -> int | None:
         setattr(owner, _SCOPE_ATTR, scope)
     except (AttributeError, TypeError):
         return None
-    _note_entry(scope)
+    try:
+        _note_entry(scope)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "scope listener (the lines a Session began from)")
     return scope
 
 
@@ -133,7 +136,11 @@ def _note_entry(scope: int) -> None:
     or transaction, so the application lines on the stack are the ones that
     started its unit of work (see QueryCollector.unit_of).
     """
-    targets = collector.full_active()
+    targets = [
+        target
+        for target in collector.full_active()
+        if len(target.entries) < collector.MAX_ENTRIES
+    ]
     if not targets:
         return
     lines = find_entry()

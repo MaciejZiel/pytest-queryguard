@@ -145,6 +145,71 @@ def test_the_entries_kept_are_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     assert c.unit_of(4) is None  # past the bound: counted with the others
 
 
+def test_past_max_events_the_whole_test_counts_together() -> None:
+    c = QueryCollector(max_events=6)
+    _statements(c, range(1, 7), lambda n: (("app.py", 10), ("test_x.py", n)))
+    assert _detect(c) == []
+    c.statement_count = 7  # one more statement, counted but not stored
+    (finding,) = _detect(c)
+    assert isinstance(finding, RepeatFinding)
+
+
+def _strict_collector(ignored: set[str]) -> QueryCollector:
+    """A strict collector whose findings located in ``ignored`` functions pass."""
+    c = QueryCollector()
+    c.strict_threshold = 2
+
+    def strict(
+        load: RelationshipLoadEvent, first: CallSite | None, parents: int, other: bool
+    ) -> BaseException | None:
+        site = first or load.callsite
+        if site is not None and site.function in ignored:
+            return None
+        return NPlusOneDetected(f"{parents} parents")
+
+    c.strict = strict
+    return c
+
+
+def _lazy(c: QueryCollector, scope: int, parent: int, reader: str) -> object:
+    from pytest_queryguard.events import ParentLoad
+
+    load = RelationshipLoadEvent(
+        "Customer.orders",
+        ("customer", parent),
+        CallSite(filename="app.py", lineno=parent, function=reader),
+        scope=scope,
+        parent=ParentLoad(CallSite(filename="store.py", lineno=4, function="_get")),
+    )
+    error = c.strict_check(load)
+    c.relationship_loads.append(load)
+    c.relationship_load_count += 1
+    return error
+
+
+def test_strict_counts_each_unit_on_its_own() -> None:
+    c = _strict_collector(set())
+    for scope in (1, 2):
+        c.note_entry(scope, (("t.py", scope),))
+    assert _lazy(c, 1, 1, "first") is None
+    assert _lazy(c, 2, 2, "second") is None  # another call, not a second pass
+    for scope in (3, 4):
+        c.note_entry(scope, (("t.py", 99),))
+    assert _lazy(c, 3, 3, "loop") is None
+    assert isinstance(_lazy(c, 4, 4, "loop"), NPlusOneDetected)
+
+
+def test_strict_an_ignored_unit_does_not_silence_the_others() -> None:
+    c = _strict_collector({"ignored"})
+    c.note_entry(1, (("t.py", 1),))
+    assert _lazy(c, 1, 1, "ignored") is None
+    assert _lazy(c, 1, 2, "ignored") is None  # an N+1 of its own, ignored
+    for scope in (2, 3):
+        c.note_entry(scope, (("t.py", 99),))
+    assert _lazy(c, 2, 3, "loop") is None
+    assert isinstance(_lazy(c, 3, 4, "loop"), NPlusOneDetected)
+
+
 # ------------------------------------------------------- unit: find_entry
 
 
