@@ -950,13 +950,16 @@ def _on_orm_execute_strict(state: ORMExecuteState) -> None:
         if parent is None or _is_refresh_eager_load(state.execution_options):
             return  # only lazy loads raise
         prop = state.loader_strategy_path[-1]  # type: ignore[index]
+        # whether the load is the test code's, for the collectors that leave
+        # those out (strict_test_code False); strict mode does not split by path
+        wanted = any(not t.strict_test_code for t in full if t.strict is not None)
         load = _relationship_load(
             prop,
             parent,
             state.session,
             None,
             blocks.current(),
-            origin=find_origin(),
+            origin=find_origin() if wanted else NO_ORIGIN,
         )
         for target in full:
             if target.strict is not None:

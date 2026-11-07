@@ -422,3 +422,39 @@ def _app_call() -> callsite.Origin:
     )
     origin: callsite.Origin = namespace["app"]()
     return origin
+
+
+def test_an_installed_application_called_from_the_test_is_reported(
+    project: Any,
+) -> None:
+    # installed non-editable: its frames are in site-packages, not test code
+    installed = project.path / "venv" / "lib" / "site-packages"
+    installed.mkdir(parents=True)
+    (installed / "installedshop.py").write_text(APP)
+    project.makepyfile(
+        test_a="""
+        import sys
+        sys.path.insert(0, "venv/lib/site-packages")
+        from installedshop import customer_names
+        from qgmodels import make_sync_session
+
+
+        def test_app():
+            assert customer_names(make_sync_session())
+        """
+    )
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*Order.customer was lazy-loaded*"])
+    result.stdout.no_fnmatch_line("*in test code left out*")
+
+
+def test_a_test_code_finding_keeps_its_baseline_entry(project: Any) -> None:
+    project.makepyfile(test_a=TEST_LOOP)
+    run = ("--queryguard-baseline=qg.json",)
+    project.runpytest(
+        *run, "-o", "queryguard_test_code=fail", "--queryguard-update-baseline"
+    ).assert_outcomes(passed=1)
+    result = project.runpytest(*run)
+    result.assert_outcomes(passed=1)
+    result.stdout.no_fnmatch_line("*matched no finding*")

@@ -243,18 +243,7 @@ def find_entry() -> Entry | None:
     (or tasks of one fan-out); begun from different lines, they may be calls
     on separate lines. None when no application frame is found.
     """
-    lines: list[tuple[str, int]] = []
-    seen: set[int] = set()  # id() of the code objects: they are on the stack
-    starts = itertools.chain((sys._getframe(1),), _parent_greenlet_frames())
-    for start in starts:
-        for frame in _app_frames(start):
-            code = frame.f_code
-            if id(code) not in seen:
-                seen.add(id(code))
-                lines.append((code.co_filename, frame.f_lineno))
-                if len(lines) >= _MAX_ENTRY_LINES:
-                    return tuple(lines)
-    return tuple(lines) or None
+    return _site_origin(sys._getframe(1), None, False)[1].path
 
 
 class Origin(NamedTuple):
@@ -308,6 +297,7 @@ def _site_origin(
     site: CallSite | None = None
     skipped: FrameType | None = None  # the first method of a Session subclass
     walking = True  # the origin: until the hook call that ran the test
+    library = False  # a _LIBRARY frame since the last application frame
     kinds = _kinds
     frame: FrameType | None = first
     parents: Iterator[FrameType] | None = None
@@ -330,6 +320,8 @@ def _site_origin(
                 walking = False
                 if site is not None or not want_site:
                     break
+            elif kind == _LIBRARY:
+                library = True
             frame = frame.f_back
             continue
         if _is_session_method(frame):
@@ -344,9 +336,12 @@ def _site_origin(
             code = frame.f_code
         if walking:
             ours = _in_test_code(filename, frame)
-            if not ours:
+            if not ours or library:
+                # a library between this test frame and the statement may be
+                # the application, installed in site-packages: not the test's
                 test = False
                 entry.clear()
+                library = False
             if id(code) not in seen:
                 seen.add(id(code))
                 line = (filename, frame.f_lineno)
@@ -366,20 +361,51 @@ def _site_origin(
     return site, Origin(_intern(tuple(lines)), _intern(tuple(entry)), False)
 
 
-# filename -> _APP, _INTERNAL, or _HOOK for pluggy's, where the walk for the
-# origin stops (as _app_frames does): one lookup per frame of the walk.
+# filename -> _APP, _INTERNAL, _HOOK for pluggy's, where the walk for the
+# origin stops (as _app_frames does), or _LIBRARY for an installed package that
+# may be the application itself (installed non-editable): one lookup per frame
+# of the walk. A statement that test code reaches through a _LIBRARY frame is
+# not the test code's own. The packages of _TEST_LIBRARIES (factories, fake
+# data) are test tools, plain _INTERNAL.
 _kinds: dict[str, int] = {}
-_APP, _INTERNAL, _HOOK = 0, 1, 2
+_MAX_KINDS = 4096
+_APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
+_TEST_LIBRARIES = frozenset(
+    {"factory", "polyfactory", "faker", "greenlet", "anyio", "sniffio", "xdist"}
+)
+_INSTALLED = ("site-packages", "dist-packages")
 
 
 def _kind(filename: str) -> int:
     kind = _APP
     if _is_internal(filename):
         stop = _hook_caller()
-        hook = bool(stop) and os.path.normcase(filename).startswith(stop)
-        kind = _HOOK if hook else _INTERNAL
+        if stop and os.path.normcase(filename).startswith(stop):
+            kind = _HOOK
+        else:
+            kind = _INTERNAL if _known_library(filename) else _LIBRARY
+    if len(_kinds) >= _MAX_KINDS:
+        _kinds.clear()
     _kinds[filename] = kind
     return kind
+
+
+def _known_library(filename: str) -> bool:
+    """Whether an internal file is SQLAlchemy, pytest, the standard library,
+    the plugin or a test tool, rather than any installed package."""
+    if filename.startswith("<"):
+        return True
+    global _prefixes
+    if _prefixes is None:
+        _prefixes = _compute_prefixes()
+    if os.path.normcase(filename).startswith(_prefixes):
+        return True
+    parts = Path(filename).parts
+    for i, part in enumerate(parts[:-1]):
+        if part in _INSTALLED:
+            top = parts[i + 1].removesuffix(".py")
+            return top in _TEST_LIBRARIES or top.startswith(("pytest", "_pytest"))
+    return True
 
 
 def _intern(lines: Entry) -> Entry:
@@ -410,7 +436,7 @@ class TestCode:
 
     def __init__(self, root: str | None = None) -> None:
         self.root = (
-            os.path.normcase(os.path.abspath(root)).rstrip(os.sep) + os.sep
+            os.path.normcase(os.path.realpath(root)).rstrip(os.sep) + os.sep
             if root
             else None
         )
@@ -419,13 +445,13 @@ class TestCode:
 
     def add_files(self, paths: Iterable[str]) -> None:
         """Add the collected test modules (absolute paths)."""
-        self.files.update(os.path.normcase(os.path.abspath(p)) for p in paths)
+        self.files.update(os.path.normcase(os.path.realpath(p)) for p in paths)
         self.known.clear()
 
     def classify(self, filename: str, frame: FrameType) -> bool:
         if os.path.basename(filename) == "conftest.py":
             return True
-        path = os.path.normcase(os.path.abspath(filename))
+        path = os.path.normcase(os.path.realpath(filename))
         if path in self.files:
             return True
         root = self.root
@@ -486,6 +512,8 @@ def _in_test_code(filename: str, frame: FrameType) -> bool:
     try:
         return known[filename]
     except KeyError:
+        if len(known) >= _MAX_KINDS:
+            known.clear()
         result = known[filename] = test_code.classify(filename, frame)
         return result
 

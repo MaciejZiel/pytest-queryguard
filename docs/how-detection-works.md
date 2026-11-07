@@ -356,7 +356,9 @@ A function that counts six statuses with one helper, one call per line, runs
 a fixed number of queries whatever the data: no repeated-statement finding.
 The same lookup in a loop is reported as before. A loop shorter than the
 threshold next to calls on separate lines is not reported: four passes and a
-fifth run on a line of its own are four runs of the loop.
+fifth run on a line of its own are four runs of the loop. So is a loop each of
+whose passes takes a path no other pass takes (four items of four classes,
+each with its own method that runs the query): every run is a path of its own.
 
 For a lazy load and a column load the path is only the lines of the test code
 that called the application (see [Test code](#test-code)): a loop over objects
@@ -392,7 +394,11 @@ A file is test code when it is:
   it lives (`myapp/testing/factories.py`).
 
 A statement, lazy load or column load is the test code's when every frame of
-your code on its stack is test code. One frame of the application is enough
+your code on its stack is test code, and no installed package other than a
+test tool (factory_boy, polyfactory, Faker, pytest plugins) lies between the
+test and the statement: an application installed into `site-packages`
+(`pip install .`, tox) has no frame of "your code", so a statement it runs
+for the test stays the application's. One frame of the application is enough
 to make it the application's: a loop in the application that a test helper
 calls, a request handler that a test client in `conftest.py` calls, a model
 event that a factory's flush fires. Those are reported as before.
@@ -409,8 +415,9 @@ queryguard: 422 N+1 findings in test code left out (299 tests): statements of te
 `warn` reports them as a `QueryGuardWarning`, and `fail` counts the statements
 of the test code with the application's, as before 0.9.0. The ignore patterns,
 markers and blocks match them in every mode, so a pattern written for them is
-not stale. They are not in the baseline, the SARIF file or the JSON file with
-`off`. Strict mode does not raise at a lazy load of the test code with `off`
+not stale. With `off` they are not in the SARIF file or the JSON file; a
+baseline entry for one still counts as matched (it is not stale), and
+`--queryguard-update-baseline` keeps it. Strict mode does not raise at a lazy load of the test code with `off`
 or `warn`.
 
 Why a factory counts as test code: a factory's lookup per object (a role

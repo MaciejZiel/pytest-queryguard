@@ -1405,6 +1405,9 @@ def _leave_out_test_code(
     kept = [finding for finding in findings if not finding.test_code]
     if len(kept) < len(findings):
         settings.test_code_left_out[nodeid] = len(findings) - len(kept)
+        if settings.baselining:
+            # still found: a baseline entry for one is not stale
+            settings.seen.update(f.identity for f in findings if f.test_code)
     return kept
 
 
