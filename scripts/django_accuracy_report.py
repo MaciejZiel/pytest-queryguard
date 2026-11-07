@@ -22,9 +22,9 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.django_project.settings")
 django.setup()
 
-from tests.corpus.metrics import known_reason  # noqa: E402
-from tests.django_project.corpus import kit, runner  # noqa: E402
-from tests.django_project.corpus.test_corpus import score  # noqa: E402
+from tests.corpus.metrics import known_reason
+from tests.django_project.corpus import kit, runner
+from tests.django_project.corpus.test_corpus import score
 
 
 def _pct(value: float | None) -> str:
