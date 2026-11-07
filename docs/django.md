@@ -187,3 +187,24 @@ was written together with the integration, so these numbers say that the
 cases it names work, not how often the rules are right on other code; runs
 on real Django projects are still to come. `scripts/django_accuracy_report.py`
 prints them.
+
+## Overhead
+
+`scripts/bench_django_overhead.py` times three workloads in-memory on SQLite
+with Django 6.1 and Python 3.13, each in a fresh process: one `get()` per
+statement, iterating books with `select_related()` (the cost per instance)
+and reading `book.author` of each book (a lazy load each). Median of 7 runs
+on a laptop, in microseconds per operation:
+
+| Workload | Not installed | Installed, not measuring | Measuring |
+|---|---|---|---|
+| `get()` | 139 | 144 (+4 %) | 163 (+17 %) |
+| a row with `select_related()` | 7.5 | 7.3 (noise) | 7.7 (+3 %) |
+| a lazy load | 159 | 167 (+5 %) | 207 (+30 %) |
+
+The cost is per statement and per lazy load (finding the call site, recording
+the event), and is smaller than the SQLAlchemy listeners' (see
+[Performance](performance.md)). On a test suite, where statements are a part
+of each test's time, the share is lower; a whole-suite measurement is still
+to come.
+
