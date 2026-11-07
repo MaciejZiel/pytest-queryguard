@@ -210,6 +210,62 @@ def test_strict_an_ignored_unit_does_not_silence_the_others() -> None:
     assert isinstance(_lazy(c, 3, 4, "loop"), NPlusOneDetected)
 
 
+def test_a_unit_whose_lines_repeat_later_joins_the_shared_count() -> None:
+    c = _strict_collector(set())
+    c.note_entry(1, LOOP)
+    assert _lazy(c, 1, 1, "loop") is None  # a unit of its own so far
+    c.note_entry(2, LOOP)  # the same lines again: both are passes of a loop
+    assert c.unit_of(1) is None
+    assert isinstance(_lazy(c, 2, 2, "loop"), NPlusOneDetected)
+
+
+def test_past_the_bound_a_known_entry_still_counts_as_shared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pytest_queryguard import collector as collector_module
+
+    monkeypatch.setattr(collector_module, "MAX_ENTRIES", 2)
+    c = QueryCollector()
+    c.note_entry(1, (("test_x.py", 1),))
+    c.note_entry(2, LOOP)  # the first pass of a loop, the bound reached
+    c.note_entry(3, LOOP)  # its second pass, past the bound
+    assert c.unit_of(2) is None
+    assert c.unit_of(1) == 1
+
+
+def test_strict_locates_a_unit_at_its_own_load() -> None:
+    sites: list[CallSite | None] = []
+    c = _strict_collector(set())
+    inner = c.strict
+    assert inner is not None
+
+    def strict(
+        load: RelationshipLoadEvent, first: CallSite | None, parents: int, other: bool
+    ) -> BaseException | None:
+        sites.append(first)
+        return inner(load, first, parents, other)
+
+    c.strict = strict
+    for scope in (1, 2):
+        c.note_entry(scope, (("t.py", scope),))
+    assert _lazy(c, 1, 1, "first") is None
+    # an earlier load of unit 2 whose reading line is unknown
+    from pytest_queryguard.events import ParentLoad
+
+    unknown = RelationshipLoadEvent(
+        "Customer.orders",
+        ("customer", 2),
+        None,
+        scope=2,
+        parent=ParentLoad(CallSite(filename="store.py", lineno=4, function="_get")),
+    )
+    assert c.strict_check(unknown) is None
+    c.add_relationship_load(unknown)
+    assert isinstance(_lazy(c, 2, 3, "second"), NPlusOneDetected)
+    assert sites[-1] is not None
+    assert sites[-1].function == "second"  # not unit 1's "first"
+
+
 # ------------------------------------------------------- unit: find_entry
 
 

@@ -41,11 +41,17 @@ a run of three, not of six.
 Requests that the application handles in another thread (Starlette's
 `TestClient` runs it in a portal thread) have no frame of the test on their
 stack: they begin from the same handler lines and are counted together as
-before. Sessions begun before the test (a fixture's) and
-past 100,000 Sessions in one test are counted together too. A pass of a loop
-whose `Session` begins from lines no other pass began from (a branch or a
-handler taken in one pass only) counts on its own, outside the loop: two
-passes through an `if` and its `else` look like two separate calls.
+before. Sessions begun before the test (a fixture's) and those begun from
+lines first seen after 100,000 different ones in one test are counted
+together too. A pass of a loop whose `Session` begins from lines no other
+pass began from (a branch or a handler taken in one pass only) counts on its
+own, outside the loop: two passes through an `if` and its `else` look like
+two separate calls, and so does a call that primes a loop before it
+(`page = store.first()` and then `store.next(page)` in the loop), which then
+needs the threshold without it. As with `queryguard_scope = session`, a
+rule reports one finding per relationship or statement, from the unit with
+the most; another unit's N+1 of the same relationship is reported once that
+one is fixed.
 
 ## The option
 

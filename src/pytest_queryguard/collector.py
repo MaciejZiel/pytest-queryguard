@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import threading
-from collections import Counter
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -28,8 +27,9 @@ from .findings import KIND_RELATIONSHIP
 # keeps the lock, which is only ever redundant.
 _FREE_THREADED = not getattr(sys, "_is_gil_enabled", lambda: True)()
 _ALL = object()  # _report_site: the loads of every unit
-# Most scopes whose entry a collector keeps (note_entry); later ones count
-# with the scopes begun from shared lines, as all scopes did before.
+# Most distinct entries a collector keeps (note_entry); a scope begun from
+# lines first seen later counts with the scopes begun from shared lines, as
+# all scopes did before.
 MAX_ENTRIES = 100_000
 
 
@@ -49,6 +49,10 @@ class StrictGroup:
     # with units (QueryCollector.counts_units): the units whose finding is
     # ignored or baselined, as QueryCollector.unit_of names them
     suppressed_units: set[object] = field(default_factory=set)
+    # with units: unit -> the parents counted in it, as ``parents`` (at most
+    # the threshold each); a unit that turns out to share its lines joins
+    # the unit None (QueryCollector._join_shared)
+    units: dict[object, set[object]] = field(default_factory=dict)
     # (the report's location, parents from other lines), once at the threshold
     report: tuple[CallSite | None, bool] | None = None
 
@@ -119,10 +123,12 @@ class QueryCollector:
     strict_threshold: int = 2
     # count each Session on its own, as queryguard_scope = session does
     strict_by_scope: bool = False
-    # scope -> the application lines it began from (callsite.find_entry),
-    # and how many scopes began from each; see unit_of
+    # The application lines a scope began from (callsite.find_entry), see
+    # unit_of: lines -> the one scope begun from them, None once several
+    # were (at most MAX_ENTRIES lines), and scope -> its lines for the
+    # scopes whose lines no other scope began from.
+    entry_scope: dict[Entry, int | None] = field(default_factory=dict)
     entries: dict[int, Entry] = field(default_factory=dict)
-    entry_uses: Counter[Entry] = field(default_factory=Counter)
     # (relationship, query site of the parents, Session or None) -> group
     strict_groups: dict[tuple[object, ...], StrictGroup] = field(default_factory=dict)
     # Set by the strict listener when it raises this collector's error: the
@@ -212,10 +218,24 @@ class QueryCollector:
             self._note_entry(scope, lines)
 
     def _note_entry(self, scope: int, lines: Entry) -> None:
-        if scope in self.entries or len(self.entries) >= MAX_ENTRIES:
+        if lines in self.entry_scope:
+            first = self.entry_scope[lines]
+            if first is not None and first != scope:
+                # its lines repeat: no longer a unit of its own
+                self.entry_scope[lines] = None
+                del self.entries[first]
+                self._join_shared(first)
             return
-        self.entries[scope] = lines
-        self.entry_uses[lines] += 1
+        if len(self.entry_scope) < MAX_ENTRIES:
+            self.entry_scope[lines] = scope
+            self.entries[scope] = lines
+
+    def _join_shared(self, scope: int) -> None:
+        """Strict mode: the parents counted in unit ``scope`` join unit None."""
+        for group in self.strict_groups.values():
+            moved = group.units.pop(scope, None)
+            if moved:
+                group.units.setdefault(None, set()).update(moved)
 
     def counts_units(self) -> bool:
         """Whether the scope "test" counts by unit (``unit_of``).
@@ -224,7 +244,7 @@ class QueryCollector:
         past ``max_events`` the stored events are not all there is, and the
         whole test is counted together, as before.
         """
-        return bool(self.entries) and not self.truncated
+        return bool(self.entry_scope) and not self.truncated
 
     def unit_of(self, scope: int | None) -> int | None:
         """What the count rules count ``scope`` with, by default (scope "test").
@@ -238,10 +258,7 @@ class QueryCollector:
         counted together, whatever lines each began from, so that a loop
         whose passes take two paths is not split in two.
         """
-        lines = self.entries.get(scope) if scope is not None else None
-        if lines is None or self.entry_uses[lines] > 1:
-            return None
-        return scope
+        return scope if scope is not None and scope in self.entries else None
 
     def strict_check(self, load: RelationshipLoadEvent) -> BaseException | None:
         """The strict-mode exception for this lazy load, or None.
@@ -264,9 +281,7 @@ class QueryCollector:
         if decided is None:
             return None
         group, unit, (first, other_lines), parents = decided
-        error = strict(
-            load, first or group.first or load.callsite, parents, other_lines
-        )
+        error = strict(load, first, parents, other_lines)
         if error is None:
             if unit is _ALL:
                 group.suppressed = True
@@ -277,7 +292,7 @@ class QueryCollector:
     def _strict_decide(
         self, key: tuple[object, ...], load: RelationshipLoadEvent, scope: object
     ) -> tuple[StrictGroup, object, tuple[CallSite | None, bool], int] | None:
-        """(group, unit, report site, parents) once the load raises, else None.
+        """(group, unit, (site, other lines), parents) once the load raises.
 
         With scope "test" and units (``counts_units``), the parents are
         counted in the load's unit only (``unit_of``), as the report counts
@@ -294,29 +309,24 @@ class QueryCollector:
                 group.report = self._report_site(load, scope)
             if load.ignores and covers(load.ignores, KIND_RELATIONSHIP):
                 return None
-            return group, _ALL, group.report, self._strict_count(group, load)
+            first, other_lines = group.report
+            site = first or group.first or load.callsite
+            return group, _ALL, (site, other_lines), self._strict_count(group, load)
         if load.ignores and covers(load.ignores, KIND_RELATIONSHIP):
             return None
         unit = self.unit_of(load.scope)
         if unit in group.suppressed_units:
             return None
-        # the parents of this unit whose lazy load ran (relationship_loads
-        # holds the loads whose SELECT ran), with this load's
-        group_line = key[1]
-        parents = {load.parent_key}
-        for earlier in self.relationship_loads:
-            if (
-                earlier.relationship == load.relationship
-                and earlier.parent is not None
-                and earlier.parent.callsite == group_line
-                and earlier.parent_key is not None
-                and self.unit_of(earlier.scope) == unit
-            ):
-                parents.add(earlier.parent_key)
-        if len(parents) < self.strict_threshold:
+        # the parents of this unit whose lazy load ran (_strict_ran), with
+        # this load's
+        parents = group.units.get(unit, set())
+        count = len(parents) + (load.parent_key not in parents)
+        if count < self.strict_threshold:
             return None
-        count = min(len(parents), self.strict_threshold)
-        return group, unit, self._report_site(load, scope, unit), count
+        first, other_lines = self._report_site(load, scope, unit)
+        # the fallback is this unit's load: group.first may be another unit's
+        site = first or load.callsite
+        return group, unit, (site, other_lines), min(count, self.strict_threshold)
 
     def _report_site(
         self, load: RelationshipLoadEvent, scope: object | None, unit: object = _ALL
@@ -426,10 +436,16 @@ class QueryCollector:
         now counts for the group ``strict_check`` made for it."""
         key = self._strict_key(load)
         group = None if key is None else self.strict_groups.get(key)
-        if group is not None and len(group.parents) < self.strict_threshold:
+        if group is None:
+            return
+        if len(group.parents) < self.strict_threshold:
             group.parents.add(load.parent_key)  # no more is needed
             if group.first is None:
                 group.first = load.callsite
+        # per unit too, for when the test counts by unit (_strict_decide)
+        unit = group.units.setdefault(self.unit_of(load.scope), set())
+        if len(unit) < self.strict_threshold:
+            unit.add(load.parent_key)
 
     def freeze_index_runs(self) -> None:
         """Keep the runs of the scans so far; the statements start afresh.

@@ -136,11 +136,7 @@ def _note_entry(scope: int) -> None:
     or transaction, so the application lines on the stack are the ones that
     started its unit of work (see QueryCollector.unit_of).
     """
-    targets = [
-        target
-        for target in collector.full_active()
-        if len(target.entries) < collector.MAX_ENTRIES
-    ]
+    targets = collector.full_active()
     if not targets:
         return
     lines = find_entry()
