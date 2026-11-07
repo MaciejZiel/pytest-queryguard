@@ -1,0 +1,61 @@
+diff --git a/mlflow/store/tracking/sqlalchemy_store.py b/mlflow/store/tracking/sqlalchemy_store.py
+index 71e8e5a..a68e8b5 100644
+--- a/mlflow/store/tracking/sqlalchemy_store.py
++++ b/mlflow/store/tracking/sqlalchemy_store.py
+@@ -1380,16 +1380,17 @@ class SqlAlchemyStore(
+         """
+         current_time = get_current_time_millis()
+         with self.ManagedSessionMaker() as session:
+-            runs = (
++            rows = (
+                 self
+                 ._get_query(session, SqlRun)
++                .with_entities(SqlRun.run_uuid)
+                 .filter(
+                     SqlRun.lifecycle_stage == LifecycleStage.DELETED,
+                     SqlRun.deleted_time <= (current_time - older_than),
+                 )
+                 .all()
+             )
+-            return [run.run_uuid for run in runs]
++            return [row.run_uuid for row in rows]
+ 
+     def log_metric(self, run_id, metric):
+         # simply call _log_metrics and let it handle the rest
+diff --git a/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py b/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+index 1d948b6..4867ea4 100644
+--- a/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
++++ b/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+@@ -501,6 +501,32 @@ def test_get_deleted_runs(store: SqlAlchemyStore):
+     assert deleted_run_ids == [run.info.run_id]
+ 
+ 
++def test_get_deleted_runs_selects_only_run_ids(store: SqlAlchemyStore):
++    run = _run_factory(store)
++    store.delete_run(run.info.run_id)
++
++    statements = []
++
++    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany):
++        statements.append(statement.lower())
++
++    sqlalchemy.event.listen(store.engine, "before_cursor_execute", capture_statement)
++    try:
++        deleted_run_ids = store._get_deleted_runs()
++    finally:
++        sqlalchemy.event.remove(store.engine, "before_cursor_execute", capture_statement)
++
++    assert deleted_run_ids == [run.info.run_id]
++    (runs_select,) = [
++        statement
++        for statement in statements
++        if statement.lstrip().startswith("select") and "from runs" in statement
++    ]
++    selected_columns = runs_select.split("from runs")[0]
++    assert "runs.run_uuid" in selected_columns
++    assert "," not in selected_columns
++
++
+ def test_log_metric(store: SqlAlchemyStore):
+     run = _run_factory(store)
+ 

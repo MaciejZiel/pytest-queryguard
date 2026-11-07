@@ -1,0 +1,214 @@
+name: Upstream fixes
+
+# Checks the patches in docs/upstream/ against the current default branch of
+# the projects they are for (docs/upstream/README.md). Each job checks out the
+# project, runs the given test files four times (before and after applying the
+# patch, each without and with pytest-queryguard) and puts a comparison on the
+# run's page (scripts/upstream_fixes_summary.py): the patch must not break a
+# test, the tests it adds must pass, and the findings it is about must be gone.
+#
+# It installs and runs third-party code, so it runs only on pushes to the
+# staging branch upstream/fixes, never on pull requests or a schedule, and its
+# token can only read this repository. (workflow_dispatch needs the file on the
+# default branch, which this one is not meant to reach.)
+on:
+  push:
+    branches: [upstream/fixes]
+    paths:
+      - docs/upstream/**
+      - scripts/upstream_fixes_summary.py
+      - .github/workflows/upstream-fixes.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-fixes
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mlflow-get-deleted-runs
+            repository: mlflow/mlflow
+            python: "3.11"
+            install: uv sync --frozen --no-default-groups --group test
+            # applied before the "before" runs (empty: none)
+            base_patches: ""
+            patches: mlflow-get-deleted-runs.patch
+            tests: tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+            lint: uvx ruff@0.16.8 check mlflow/store/tracking/sqlalchemy_store.py tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py && uvx ruff@0.16.8 format --check mlflow/store/tracking/sqlalchemy_store.py tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+            focus_kind: unused-columns
+            focus_message: "in _get_deleted_runs"
+            focus_test: ""
+          - name: mlflow-log-inputs-dataset-columns
+            repository: mlflow/mlflow
+            python: "3.11"
+            install: uv sync --frozen --no-default-groups --group test
+            base_patches: ""
+            patches: mlflow-log-inputs-dataset-columns.patch
+            tests: tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+            lint: uvx ruff@0.16.8 check mlflow/store/tracking/sqlalchemy_store.py tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py && uvx ruff@0.16.8 format --check mlflow/store/tracking/sqlalchemy_store.py tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+            focus_kind: unused-columns
+            focus_message: "^SqlDataset:.*in _log_inputs_impl"
+            focus_test: ""
+          - name: sqladmin-eager-load-dotted-list-columns
+            repository: smithyhq/sqladmin
+            python: "3.12"
+            install: uv sync --frozen --all-groups
+            base_patches: ""
+            patches: sqladmin-eager-load-dotted-list-columns.patch
+            tests: tests
+            lint: ruff check sqladmin tests && ruff format --check sqladmin tests && mypy sqladmin tests
+            focus_kind: relationship-load
+            focus_message: "first at sqladmin/models\\.py:\\d+ in (<lambda>|_lazyload_prop)"
+            focus_test: ""
+          - name: sqladmin-export-load-exported-relationships
+            repository: smithyhq/sqladmin
+            python: "3.12"
+            install: uv sync --frozen --all-groups
+            base_patches: sqladmin-eager-load-dotted-list-columns.patch
+            patches: sqladmin-export-load-exported-relationships.patch
+            tests: tests
+            lint: ruff check sqladmin tests && ruff format --check sqladmin tests && mypy sqladmin tests
+            focus_kind: unused-eager-load
+            focus_message: ""
+            focus_test: "export"
+    env:
+      OUT: ${{ github.workspace }}/out
+      UV_COMPILE_BYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: harness
+          persist-credentials: false
+      # The project's default branch, as it is now
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ matrix.repository }}
+          path: project
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Create the virtual environment
+        run: |
+          mkdir -p "$OUT"
+          uv venv "$RUNNER_TEMP/venv"
+          {
+            echo "VIRTUAL_ENV=$RUNNER_TEMP/venv"
+            echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/venv"
+          } >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+      - name: Install the project
+        working-directory: project
+        env:
+          INSTALL: ${{ matrix.install }}
+        run: bash -euo pipefail -c "$INSTALL"
+      - name: Install the plugin
+        run: |
+          uv pip install "$GITHUB_WORKSPACE/harness"
+          uv pip freeze > "$OUT/freeze.txt"
+          {
+            echo "\`${{ matrix.repository }}\` at \`$(git -C project rev-parse HEAD)\` ($(git -C project log -1 --format=%cs)),"
+            python -c "import sys, sqlalchemy, pytest, pytest_queryguard as q; print(f'Python {sys.version.split()[0]}, SQLAlchemy {sqlalchemy.__version__}, pytest {pytest.__version__}, pytest-queryguard {q.__version__}', end='')"
+            echo " (\`${GITHUB_SHA:0:7}\`)."
+            echo
+            echo "Patches: ${{ matrix.base_patches && format('{0} (applied before both runs), ', matrix.base_patches) || '' }}\`${{ matrix.patches }}\`"
+          } | tee "$OUT/meta.md"
+      - name: Base patches
+        if: matrix.base_patches != ''
+        working-directory: project
+        env:
+          PATCHES: ${{ matrix.base_patches }}
+        run: |
+          for p in $PATCHES; do git apply --verbose "$GITHUB_WORKSPACE/harness/docs/upstream/$p"; done
+      - name: Run the tests before and after the patch, without and with the plugin
+        id: runs
+        working-directory: project
+        env:
+          TESTS: ${{ matrix.tests }}
+          PATCHES: ${{ matrix.patches }}
+          LINT: ${{ matrix.lint }}
+        run: |
+          read -r -a tests <<< "$TESTS"
+          run() {
+            local name=$1 code
+            shift
+            set +e
+            timeout -s INT -k 30 25m python -m pytest "${tests[@]}" "$@" \
+              --junitxml="$OUT/$name.xml" > "$OUT/$name.log" 2>&1
+            code=$?
+            set -e
+            echo "$name: exit $code"
+            echo "::group::$name: last lines"
+            tail -n 20 "$OUT/$name.log"
+            echo "::endgroup::"
+          }
+          with_plugin=(
+            --queryguard-mode=warn
+            -o queryguard_unused_eager_load=warn -o queryguard_unused_columns=warn
+            -W "default::pytest_queryguard.QueryGuardWarning"
+          )
+          lint() {
+            set +e
+            bash -o pipefail -c "$LINT" > "$OUT/lint-$1.log" 2>&1
+            echo $?
+            set -e
+          }
+          lint_before=$(lint before)
+          run before -p no:queryguard
+          run before-qg "${with_plugin[@]}" --queryguard-json="$OUT/before.json"
+          for p in $PATCHES; do git apply --verbose "$GITHUB_WORKSPACE/harness/docs/upstream/$p"; done
+          git diff --stat
+          git diff > "$OUT/applied.diff"
+          lint_after=$(lint after)
+          run after -p no:queryguard
+          run after-qg "${with_plugin[@]}" --queryguard-json="$OUT/after.json"
+          {
+            echo "Lint (\`$LINT\`): exit $lint_before before the patch, $lint_after after it."
+            if [ "$lint_after" != 0 ]; then
+              echo
+              echo '```'
+              tail -n 30 "$OUT/lint-after.log"
+              echo '```'
+            fi
+          } > "$OUT/lint.md"
+          cat "$OUT/lint.md"
+      - name: Summary
+        if: always() && steps.runs.outcome == 'success'
+        env:
+          TITLE: ${{ matrix.name }}
+          FOCUS_KIND: ${{ matrix.focus_kind }}
+          FOCUS_MESSAGE: ${{ matrix.focus_message }}
+          FOCUS_TEST: ${{ matrix.focus_test }}
+        run: |
+          set +e
+          python -I "$GITHUB_WORKSPACE/harness/scripts/upstream_fixes_summary.py" \
+            --dir "$OUT" --title "$TITLE" --focus-kind "$FOCUS_KIND" \
+            --focus-message "$FOCUS_MESSAGE" --focus-test "$FOCUS_TEST" > "$OUT/summary.md"
+          code=$?
+          set -e
+          cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$OUT/summary.md"
+          case $code in
+            0) ;;
+            1) echo "::error::$TITLE: the patch broke a test, a test it adds fails, or a finding it is about is left" ;;
+            2) echo "::error::$TITLE: no finding the patch is about before it: the problem was not reproduced" ;;
+            *) echo "::error::$TITLE: upstream_fixes_summary.py failed ($code)" ;;
+          esac
+          exit "$code"
+      - name: Upload the outputs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: upstream-${{ matrix.name }}
+          path: out/
+          if-no-files-found: ignore
+          retention-days: 30

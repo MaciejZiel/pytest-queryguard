@@ -1,0 +1,132 @@
+diff --git a/sqladmin/models.py b/sqladmin/models.py
+index 2e6126b..10d7ac9 100644
+--- a/sqladmin/models.py
++++ b/sqladmin/models.py
+@@ -875,6 +875,7 @@ class ModelView(BaseView, metaclass=ModelViewMeta):
+         self._list_relations = [
+             getattr(self.model, name) for name in self._list_relation_names
+         ]
++        self._list_relation_loads = self._build_relation_loads(self._list_prop_names)
+ 
+         self._details_prop_names = self.get_details_columns()
+         self._details_relation_names = [
+@@ -997,6 +998,28 @@ class ModelView(BaseView, metaclass=ModelViewMeta):
+     def _get_prop_name(self, prop: MODEL_ATTR) -> str:
+         return prop if isinstance(prop, str) else prop.key
+ 
++    def _build_relation_loads(self, prop_names: Sequence[str]) -> builtins.list[Any]:
++        """`selectinload` options for the relationships that `prop_names` read.
++
++        A dotted name such as `"user.profile.id"` loads each relationship on
++        its path, so reading it for every row of a page does not lazy-load
++        (in a new session) once per row.
++        """
++        loads: builtins.list[Any] = []
++        for name in prop_names:
++            model: Any = self.model
++            load: Any = None
++            for part in name.split("."):
++                mapper = inspect(model)
++                if part not in mapper.relationships:
++                    break
++                attr = getattr(model, part)
++                load = selectinload(attr) if load is None else load.selectinload(attr)
++                model = mapper.relationships[part].mapper.class_
++            if load is not None:
++                loads.append(load)
++        return loads
++
+     def _get_default_sort(self) -> builtins.list[tuple[str, bool]]:
+         if self.column_default_sort:
+             if isinstance(self.column_default_sort, list):
+@@ -1123,8 +1146,7 @@ class ModelView(BaseView, metaclass=ModelViewMeta):
+         search = request.query_params.get("search", None)
+ 
+         stmt = self.list_query(request)
+-        for relation in self._list_relations:
+-            stmt = stmt.options(selectinload(relation))
++        stmt = stmt.options(*self._list_relation_loads)
+ 
+         for filter_ in self.get_filters():
+             filter_param_name = filter_.parameter_name
+@@ -1179,8 +1201,7 @@ class ModelView(BaseView, metaclass=ModelViewMeta):
+         limit = None if limit == 0 else limit
+         stmt = self.list_query(request).limit(limit)
+ 
+-        for relation in self._list_relations:
+-            stmt = stmt.options(selectinload(relation))
++        stmt = stmt.options(*self._list_relation_loads)
+ 
+         rows = await self._run_query(stmt)
+         return rows
+diff --git a/tests/test_views/test_view_sync.py b/tests/test_views/test_view_sync.py
+index f1e0d9c..ae47c11 100644
+--- a/tests/test_views/test_view_sync.py
++++ b/tests/test_views/test_view_sync.py
+@@ -1,6 +1,7 @@
+ import enum
+ import json
+-from collections.abc import Generator
++from collections.abc import Callable, Generator
++from typing import Any
+ 
+ import pytest
+ from sqlalchemy import (
+@@ -12,6 +13,7 @@ from sqlalchemy import (
+     ForeignKey,
+     Integer,
+     String,
++    event,
+     func,
+     select,
+ )
+@@ -1061,6 +1063,49 @@ def test_export_csv_row_count(client: TestClient) -> None:
+     assert row_count(response) == 3
+ 
+ 
++def _statements_during(func: Callable[[], object]) -> list[str]:
++    statements: list[str] = []
++
++    def record(conn: Any, cursor: Any, statement: str, *args: Any) -> None:
++        statements.append(statement)
++
++    event.listen(engine, "before_cursor_execute", record)
++    try:
++        func()
++    finally:
++        event.remove(engine, "before_cursor_execute", record)
++    return statements
++
++
++def test_dotted_list_column_is_loaded_with_the_rows(client: TestClient) -> None:
++    # AddressAdmin lists "user.profile.id": the profiles must be loaded with
++    # the page, not once per row.
++    def add_addresses(count: int) -> None:
++        with session_maker() as session:
++            for _ in range(count):
++                user = User(name="John Doe", profile=Profile())
++                session.add(user)
++                session.flush()
++                session.add(Address(user_id=user.id))
++            session.commit()
++
++    def list_page() -> None:
++        client.get("/admin/address/list").raise_for_status()
++
++    def export_csv() -> None:
++        client.get("/admin/address/export/csv").raise_for_status()
++
++    add_addresses(1)
++    response = client.get("/admin/address/export/csv")
++    assert response.text == "id,user_id,user,user.profile.id\r\n1,1,User 1,1\r\n"
++    list_statements = len(_statements_during(list_page))
++    export_statements = len(_statements_during(export_csv))
++
++    add_addresses(2)
++    assert len(_statements_during(list_page)) == list_statements
++    assert len(_statements_during(export_csv)) == export_statements
++
++
+ def test_export_bad_type_is_404(client: TestClient) -> None:
+     response = client.get("/admin/user/export/bad_type")
+     assert response.status_code == 404

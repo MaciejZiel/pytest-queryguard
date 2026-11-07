@@ -1,0 +1,71 @@
+diff --git a/sqladmin/models.py b/sqladmin/models.py
+index 10d7ac9..e2107f2 100644
+--- a/sqladmin/models.py
++++ b/sqladmin/models.py
+@@ -906,6 +906,9 @@ class ModelView(BaseView, metaclass=ModelViewMeta):
+         self._form_overrides = self._build_column_pairs(self.form_overrides)
+ 
+         self._export_prop_names = self.get_export_columns()
++        self._export_relation_loads = self._build_relation_loads(
++            self._export_prop_names
++        )
+ 
+         self._import_prop_names = self.get_import_columns()
+ 
+@@ -1201,7 +1204,13 @@ class ModelView(BaseView, metaclass=ModelViewMeta):
+         limit = None if limit == 0 else limit
+         stmt = self.list_query(request).limit(limit)
+ 
+-        stmt = stmt.options(*self._list_relation_loads)
++        # Load what the export reads, not what the list page shows. A pretty
++        # export also runs the list formatters, which may read the list
++        # page's relationships, so it keeps loading those as well.
++        loads = self._export_relation_loads
++        if self.use_pretty_export:
++            loads = loads + self._list_relation_loads
++        stmt = stmt.options(*loads)
+ 
+         rows = await self._run_query(stmt)
+         return rows
+diff --git a/tests/test_views/test_view_sync.py b/tests/test_views/test_view_sync.py
+index ae47c11..4f4906c 100644
+--- a/tests/test_views/test_view_sync.py
++++ b/tests/test_views/test_view_sync.py
+@@ -1106,6 +1106,37 @@ def test_dotted_list_column_is_loaded_with_the_rows(client: TestClient) -> None:
+     assert len(_statements_during(export_csv)) == export_statements
+ 
+ 
++def test_export_loads_the_relationships_it_exports() -> None:
++    class UserExportAdmin(ModelView, model=User):
++        column_list = [User.id, User.addresses]
++        column_export_list = [User.name, User.profile]
++
++    local_app = Starlette()
++    local_admin = Admin(app=local_app, engine=engine)
++    local_admin.add_view(UserExportAdmin)
++
++    def add_users(count: int) -> None:
++        with session_maker() as session:
++            for _ in range(count):
++                session.add(User(name="Daniel", profile=Profile()))
++            session.commit()
++
++    with TestClient(app=local_app, base_url="http://testserver") as client:
++
++        def export_csv() -> None:
++            client.get("/admin/user/export/csv").raise_for_status()
++
++        add_users(1)
++        response = client.get("/admin/user/export/csv")
++        assert response.text == "name,profile\r\nDaniel,Profile 1\r\n"
++        statements = _statements_during(export_csv)
++        # The addresses are shown in the list, but not exported
++        assert not any("FROM addresses" in statement for statement in statements)
++
++        add_users(2)
++        assert len(_statements_during(export_csv)) == len(statements)
++
++
+ def test_export_bad_type_is_404(client: TestClient) -> None:
+     response = client.get("/admin/user/export/bad_type")
+     assert response.status_code == 404

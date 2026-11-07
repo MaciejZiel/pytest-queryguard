@@ -1,0 +1,64 @@
+diff --git a/mlflow/store/tracking/sqlalchemy_store.py b/mlflow/store/tracking/sqlalchemy_store.py
+index 71e8e5a..4295a5d 100644
+--- a/mlflow/store/tracking/sqlalchemy_store.py
++++ b/mlflow/store/tracking/sqlalchemy_store.py
+@@ -2554,9 +2554,10 @@ class SqlAlchemyStore(
+             ]
+             # find all datasets with the same name and digest
+             # if the dataset already exists, use the existing dataset uuid
++            # (only these three columns: the schema and profile can be large)
+             existing_datasets = (
+                 session
+-                .query(SqlDataset)
++                .query(SqlDataset.name, SqlDataset.digest, SqlDataset.dataset_uuid)
+                 .filter(SqlDataset.experiment_id == experiment_id)
+                 .filter(SqlDataset.name.in_(dataset_names_to_check))
+                 .filter(SqlDataset.digest.in_(dataset_digests_to_check))
+diff --git a/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py b/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+index 1d948b6..66df521 100644
+--- a/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
++++ b/tests/store/tracking/sqlalchemy_store/test_sqlalchemy_store_runs.py
+@@ -3665,6 +3665,43 @@ def test_log_input_multiple_times_does_not_overwrite_tags_or_dataset(
+         )
+ 
+ 
++def test_log_inputs_does_not_read_dataset_schema_or_profile(store: SqlAlchemyStore):
++    experiment_id = _create_experiments(store, "test exp")
++    run = _run_factory(store, config=_get_run_configs(experiment_id))
++    dataset = entities.Dataset(
++        name="name",
++        digest="digest",
++        source_type="st",
++        source="source",
++        schema="schema",
++        profile="profile",
++    )
++    store.log_inputs(run.info.run_id, [entities.DatasetInput(dataset, [])])
++
++    statements = []
++
++    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany):
++        statements.append(statement.lower())
++
++    sqlalchemy.event.listen(store.engine, "before_cursor_execute", capture_statement)
++    try:
++        # The dataset exists now, so it is looked up by name and digest
++        store.log_inputs(run.info.run_id, [entities.DatasetInput(dataset, [])])
++    finally:
++        sqlalchemy.event.remove(store.engine, "before_cursor_execute", capture_statement)
++
++    dataset_selects = [
++        statement
++        for statement in statements
++        if statement.lstrip().startswith("select") and "from datasets" in statement
++    ]
++    assert dataset_selects
++    assert not any(
++        "dataset_schema" in statement or "dataset_profile" in statement
++        for statement in dataset_selects
++    )
++
++
+ def test_log_inputs_handles_case_when_no_datasets_are_specified(store: SqlAlchemyStore):
+     experiment_id = _create_experiments(store, "test exp")
+     run = _run_factory(store, config=_get_run_configs(experiment_id))
