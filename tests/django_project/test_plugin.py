@@ -1,0 +1,150 @@
+"""The plugin end to end in a pytest-django session: report, strict mode, files.
+
+Each test runs pytest in a subprocess on a test module of its own, with the
+test project's settings, as a Django project runs its suite.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+
+SESSION = """
+import pytest
+from tests.django_project.library.models import Author, Book, Publisher
+from tests.django_project.library.seed import seed
+
+
+@pytest.fixture
+def seeded(db):
+    seed()
+
+
+def test_n_plus_one(seeded):
+    names = [book.author.name for book in Book.objects.all()]
+    assert len(names) == 18
+
+
+def test_clean(seeded):
+    names = [book.author.name for book in Book.objects.select_related("author")]
+    assert len(names) == 18
+
+
+def test_writes(seeded):
+    for i in range(3):
+        Publisher.objects.create(name=f"p{i}")
+"""
+
+
+@pytest.fixture
+def project(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> pytest.Pytester:
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "tests.django_project.settings")
+    monkeypatch.setenv(
+        "PYTHONPATH", os.pathsep.join([str(ROOT), os.environ.get("PYTHONPATH", "")])
+    )
+    pytester.makepyfile(test_books=SESSION)
+    return pytester
+
+
+def _run(project: pytest.Pytester, *args: str) -> pytest.RunResult:
+    return project.runpytest_subprocess(
+        "-p", "no:cacheprovider", "-p", "no:randomly", *args
+    )
+
+
+def test_the_report_names_the_django_fix(project: pytest.Pytester) -> None:
+    result = _run(project)
+    result.assert_outcomes(passed=2, failed=1)
+    out = result.stdout.str()
+    assert "test_n_plus_one" in out
+    assert "Book.author was lazy-loaded 18 times" in out
+    assert 'Book.objects.select_related("author")' in out
+    assert "parents loaded at test_books.py:12 in test_n_plus_one" in out
+
+
+def test_write_loops_when_switched_on(project: pytest.Pytester) -> None:
+    result = _run(project, "-o", "queryguard_write_loop_threshold=2", "-k", "writes")
+    result.assert_outcomes(failed=1, deselected=2)
+    assert "bulk_create(rows)" in result.stdout.str()
+
+
+def test_strict_mode_raises_at_the_access(project: pytest.Pytester) -> None:
+    result = _run(project, "--queryguard-strict", "-k", "n_plus_one")
+    result.assert_outcomes(failed=1, deselected=2)
+    out = result.stdout.str()
+    assert "queryguard strict: Book.author was lazy-loaded for 2 parents" in out
+    assert "test_books.py:12: NPlusOneDetected" in out
+    assert "During handling of the above exception" not in out
+
+
+def test_baseline_json_and_sarif(project: pytest.Pytester) -> None:
+    baseline = project.path / "baseline.json"
+    _run(project, f"--queryguard-baseline={baseline}", "--queryguard-update-baseline")
+    entries = json.loads(baseline.read_text())
+    assert "relationship-load" in json.dumps(entries)
+    result = _run(
+        project,
+        f"--queryguard-baseline={baseline}",
+        "--queryguard-json=out.json",
+        "--queryguard-sarif=out.sarif",
+    )
+    result.assert_outcomes(passed=3)
+    counts = json.loads((project.path / "out.json").read_text())
+    assert counts["complete"] is True
+    test = counts["tests"]["test_books.py::test_n_plus_one"]
+    assert test["statements"] == 19
+    assert test["by_verb"] == {"select": 19}
+    sarif = json.loads((project.path / "out.sarif").read_text())
+    assert sarif["runs"][0]["tool"]["driver"]["name"] == "pytest-queryguard"
+
+
+def test_budgets_are_written_and_enforced(project: pytest.Pytester) -> None:
+    budgets = project.path / "budgets.json"
+    _run(
+        project,
+        "-k",
+        "clean",
+        f"--queryguard-budgets={budgets}",
+        "--queryguard-update-budgets",
+    )
+    written = json.loads(budgets.read_text())
+    assert "1" in json.dumps(written)
+    project.makepyfile(
+        test_books=SESSION.replace(
+            'Book.objects.select_related("author")]',
+            'Book.objects.select_related("author")]\n    Author.objects.count()',
+        )
+    )
+    result = _run(project, "-k", "clean", f"--queryguard-budgets={budgets}")
+    result.assert_outcomes(failed=1, deselected=2)
+    assert "budget" in result.stdout.str()
+
+
+def test_django_is_not_imported_for_sqlalchemy_alone(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DJANGO_SETTINGS_MODULE", raising=False)
+    pytester.makepyfile(
+        test_sa="""
+import sys
+from sqlalchemy import create_engine, text
+from pytest_queryguard import record_queries
+
+
+def test_sqlalchemy_only():
+    engine = create_engine("sqlite://")
+    with record_queries() as log, engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    assert log.count == 1
+    assert "django" not in sys.modules
+"""
+    )
+    result = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-p", "no:django")
+    result.assert_outcomes(passed=1)

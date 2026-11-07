@@ -1,8 +1,28 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 pytest_plugins = ["pytester"]
+
+_DJANGO_PROJECT = Path(__file__).parent / "django_project"
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    """Leave the Django project out unless it is what pytest was asked to run.
+
+    Its conftest configures Django in the process, after which pytest-django
+    takes part in every test of the session; it runs on its own:
+    ``uv run --group django pytest tests/django_project``.
+    """
+    if collection_path != _DJANGO_PROJECT:
+        return None
+    for arg in config.args:
+        target = Path(config.invocation_params.dir, arg.split("::")[0]).resolve()
+        if target == _DJANGO_PROJECT or _DJANGO_PROJECT in target.parents:
+            return None
+    return True
 
 
 @pytest.fixture(autouse=True)
