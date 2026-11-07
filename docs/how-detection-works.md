@@ -116,7 +116,9 @@ two queries from different places read gets no origin; one that a query
 returns from the identity map without reading its row fires no event, so it
 keeps the query that loaded it. Origins are kept per measurement: an object
 loaded before the test body (or before a `record_queries()` block) has none
-there. The in-app mode does not record origins and prints the earlier hint.
+there. A block that starts or ends, in the test or in another thread, does
+not take the test's origins away. The in-app mode does not record origins
+and prints the earlier hint.
 
 #### How a lazy load's statement is attributed
 
@@ -240,13 +242,22 @@ before.
 
 At least `queryguard_column_load_threshold` (default 5) instances of one class
 each go back to the database for columns they already have a row for. There
-are two causes, and the report tells them apart: a deferred column
+are three causes, and the report tells them apart: a deferred column
 (`deferred()`, `defer()`, `load_only()`), where the hint is
-`undefer(Model.column)`; and attributes expired by `commit()`, `expire()` or
+`undefer(Model.column)`; attributes expired by `commit()`, `expire()` or
 `expire_all()`, where the hint is `expire_on_commit=False` (a `refresh()` in a
-loop gets its own hint). The label is the class and its deferred columns
+loop gets its own hint); and the columns of a subclass that a query of its base
+class left out (joined- or single-table inheritance: `select(Employee)` does
+not select `Engineer.language`), where the hint is `selectin_polymorphic` or
+`polymorphic_load="selectin"` for a table of their own, and `with_polymorphic`
+or `polymorphic_load="inline"` for single-table inheritance. SQLAlchemy marks
+those subclass columns as expired, so the plugin tells them from an `expire()`
+by the class each instance was loaded as: a base class of it that maps none of
+the columns. The hint names that class. A `session.expire(obj, [...])` of
+subclass columns of an object loaded through a base-class query gets the
+subclass hint too. The label is the class and its deferred columns
 (`Book.summary`) or the class and the cause (`Book (expired)`,
-`Book (refresh)`). `session.refresh(obj, ["name"])` is a refresh too, although
+`Book (refresh)`, `Engineer (polymorphic)`). `session.refresh(obj, ["name"])` is a refresh too, although
 it expires the names before loading them.
 
 #### Refresh after a write
