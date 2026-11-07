@@ -51,3 +51,8 @@ def book_titles(request: HttpRequest) -> JsonResponse:
 def three_books(request: HttpRequest) -> JsonResponse:
     titles = [Book.objects.get(pk=pk).title for pk in (1, 2, 3)]
     return JsonResponse({"titles": titles})
+
+
+def one_book(request: HttpRequest, pk: int) -> JsonResponse:
+    book = Book.objects.get(pk=pk)
+    return JsonResponse({"title": book.title, "author": book.author.name})

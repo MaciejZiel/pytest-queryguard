@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from .blocks import IgnoreBlock, Sieve, covering
-from .collector import QueryCollector
+from .collector import QueryCollector, boundary
 from .events import (
     CAUSE_DEFERRED,
     ORM_SQLALCHEMY,
@@ -194,12 +194,15 @@ Finding = Detection
 def _split(
     items: Sequence[_T], scope: Callable[[_T], object], scoped: bool
 ) -> list[list[_T]]:
-    """One group with everything, or one group per scope (in order of first use)."""
-    if not scoped:
-        return [list(items)]
+    """One group per scope (in order of first use); unscoped, one group with
+    everything but the scopes that always count on their own (a request of
+    Django's test client, ``collector.boundary``)."""
     groups: dict[object, list[_T]] = {}
+    key = scope if scoped else (lambda item: boundary(scope(item)))
     for item in items:
-        groups.setdefault(scope(item), []).append(item)
+        groups.setdefault(key(item), []).append(item)
+    if not groups and not scoped:
+        return [[]]
     return list(groups.values())
 
 

@@ -117,11 +117,15 @@ and the [GitHub Action](ci.md), [SARIF](sarif.md) and strict mode
 (`queryguard_strict`, which raises `NPlusOneDetected` at the attribute access
 that makes the N+1).
 
-With `queryguard_scope = session`, each request (one call of the test client;
-a view called directly with `RequestFactory` is no request) counts on its own,
-as a Session does for SQLAlchemy; statements outside a request count per
-database connection. Requests of the `AsyncClient` count per connection
-before Django 6.1. See [Several sessions or requests](several-sessions.md).
+Each request of the test client (one call of `client.get()`; a view called
+directly with `RequestFactory` is no request) always counts on its own, also
+with the default `queryguard_scope = test`: a test that calls a view once per
+object makes separate requests, each looking up its session and user once,
+and that is no loop of the application. The rest of the test counts as a
+whole. With `queryguard_scope = session`, statements outside a request also
+count per database connection, as a Session does for SQLAlchemy. Requests of
+the `AsyncClient` count per connection before Django 6.1. See
+[Several sessions or requests](several-sessions.md).
 
 ## How it sees Django
 

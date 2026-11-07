@@ -292,7 +292,7 @@ class QueryCollector:
         parent = load.parent
         if parent is None or parent.callsite is None:
             return None
-        scope = load.scope if self.strict_by_scope else None
+        scope = load.scope if self.strict_by_scope else boundary(load.scope)
         return (load.relationship, parent.callsite, scope)
 
     def _strict_group(
@@ -401,6 +401,23 @@ _active_full: tuple[QueryCollector, ...] = ()
 # listeners read it without a call (listeners._collectors).
 _full_stack: list[QueryCollector] = []
 _generation = 0
+
+
+# Scopes that are always counted on their own, whatever queryguard_scope
+# says: the requests of Django's test client. A loop of the test over
+# requests is not a loop of the application; with queryguard_scope = test
+# everything else still counts together. Scope numbers are never reused.
+_own_scopes: set[object] = set()
+
+
+def note_own_scope(scope: object) -> None:
+    _own_scopes.add(scope)
+
+
+def boundary(scope: object) -> object:
+    """The scope ``scope`` always counts in with ``queryguard_scope = test``:
+    itself when it is counted on its own, else None (the whole test)."""
+    return scope if scope in _own_scopes else None
 
 
 def generation() -> int:

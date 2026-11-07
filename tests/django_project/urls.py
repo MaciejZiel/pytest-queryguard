@@ -12,4 +12,5 @@ urlpatterns = [
     path("api/authors/", views.AuthorList.as_view()),
     path("books/", views.book_titles),
     path("books/three/", views.three_books),
+    path("books/<int:pk>/", views.one_book),
 ]

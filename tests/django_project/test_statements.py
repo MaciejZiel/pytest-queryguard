@@ -162,12 +162,21 @@ def test_each_request_is_a_scope_of_its_own(client) -> None:  # type: ignore[no-
     gets = [s for s in collector.statements if "library_book" in s.sql]
     assert len(gets) == 6
     assert len({s.scope for s in gets}) == 2
-    (finding,) = detections(collector)
-    assert finding.count == 6
-    assert "across 2 different requests or database connections" in (
-        make_finding(finding).message
-    )
+    # three gets in each request: a request counts on its own, also with the
+    # default scope (the test's loop over requests is no loop of the view)
+    assert detections(collector) == []
     assert detections(collector, scope="session") == []
+
+
+def test_statements_outside_requests_still_count_for_the_whole_test(client) -> None:  # type: ignore[no-untyped-def]
+    with measure() as collector:
+        for _ in range(2):
+            assert client.get("/books/three/").status_code == 200
+        for pk in (1, 2, 3, 4, 5):
+            Book.objects.get(pk=pk)
+    (finding,) = detections(collector)
+    # the five gets of the test body, not the six of the two requests
+    assert finding.count == 5
 
 
 @pytest.mark.django_db(transaction=True)

@@ -778,7 +778,9 @@ _request: ContextVar[int | None] = ContextVar("queryguard_django_request", defau
 def _on_request_started(sender: Any, **kwargs: Any) -> None:
     # One scope per request (the test client's included), as a Session is
     # one for SQLAlchemy: queryguard_scope = session counts each on its own.
-    _request.set(next(listeners._scopes))
+    scope = next(listeners._scopes)
+    collector.note_own_scope(scope)
+    _request.set(scope)
 
 
 def _on_request_finished(sender: Any, **kwargs: Any) -> None:
