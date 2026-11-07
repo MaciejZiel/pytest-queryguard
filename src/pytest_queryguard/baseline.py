@@ -9,6 +9,7 @@ more rows does not invalidate an entry.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 from collections.abc import Iterable
@@ -62,12 +63,31 @@ def write(path: Path, identities: Iterable[Identity]) -> None:
     atomic_write_text(path, dumps(identities))
 
 
+_ENTRY_KEYS = ("kind", "label", "file", "function")
+
+
+def _check_misspelled_keys(entry: dict[Any, Any], where: str) -> None:
+    """Reject an unknown key that looks like a missing identity key.
+
+    Other unknown keys are ignored: a later release may add keys to an entry
+    without a new version (docs/stability.md), and this one must still read
+    the file. A misspelled ``file`` or ``function`` would otherwise be read as
+    null, and the entry would quietly match nothing.
+    """
+    missing = [key for key in _ENTRY_KEYS if key not in entry]
+    for key in sorted(str(k) for k in entry if k not in _ENTRY_KEYS):
+        close = difflib.get_close_matches(key.lower(), missing, n=1, cutoff=0.75)
+        if close:
+            raise BaselineError(
+                f"{where} has an unknown key {key!r}; did you mean {close[0]!r}?"
+            )
+
+
 def _entry_identity(entry: Any, index: int, path: Path) -> Identity:
     where = f"{path}: findings[{index}]"
     if not isinstance(entry, dict):
         raise BaselineError(f"{where} must be an object, got {entry!r}")
-    # Other keys are ignored: a later release may add keys to an entry without
-    # a new version (docs/stability.md), and this release must still read it.
+    _check_misspelled_keys(entry, where)
     for key in ("kind", "label"):
         if not isinstance(entry.get(key), str) or not entry[key]:
             raise BaselineError(f"{where}: {key!r} must be a non-empty string")

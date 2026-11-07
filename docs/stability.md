@@ -34,10 +34,11 @@ changes by accident.
 - The meaning of the finding kinds and of the labels and patterns used by
   the `queryguard_ignore` option and marker, so that an existing ignore keeps
   matching the same finding. The label of `repeated-statement` and
-  `write-loop` is the normalized SQL text: how pytest-queryguard normalizes
-  it is covered, the text the ORM sends is not (see "What is not public"), so
-  an ORM upgrade that renders a statement differently can change the label,
-  as [Baseline](baseline.md#what-an-entry-is) explains.
+  `write-loop` is the SQL text the ORM sends, normalized, and that text is
+  not public (see "What is not public"): an ORM upgrade that renders a
+  statement differently can change the label, as
+  [Baseline](baseline.md#what-an-entry-is) explains, and so can a fix to the
+  normalization, which the changelog then names.
 - The pytest entry point name (`queryguard`).
 - The files the plugin writes and reads, and the command-line tools and the
   GitHub Action that work with them, as listed under
@@ -55,7 +56,9 @@ know, with an error that says so. New keys may be added in a minor release
 tools read their own files the same way, so a file that a later 1.x release
 wrote with more keys still reads. A value keeps its type: new data goes into
 a new key, not into a different shape of an existing one (a per-test value in
-the budget file stays a number of queries). Changing the meaning
+the budget file stays a number of queries). A new key never narrows what an
+existing entry matches: a key that would (a baseline entry for one test only,
+say) changes the identity, so it needs a new format number. Changing the meaning
 of a key, removing one, or changing what identifies a finding is an
 incompatible change: the number goes up, and from 1.0 on it needs a major
 release.

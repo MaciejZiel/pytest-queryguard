@@ -25,7 +25,8 @@ class QueryBudgetExceeded(AssertionError):
 
     That is more SQL statements than ``max_queries()`` allows, more database
     time than ``max_db_time()`` allows, or, for the fixture's
-    ``num_queries()``, any other number of statements than expected.
+    ``num_queries()``, any other number of statements than expected (fewer
+    count only when recording was complete: not after an internal error).
     """
 
 

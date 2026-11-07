@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says new keys may be added to a file in a minor release; with the old
   reader, a baseline written by a later 1.x release with one more key would
   have been unreadable by 1.0. An update still writes the four keys only.
+  A key that looks like a misspelled one of the four (`fucntion`, `File`)
+  is still an error, with the key it probably meant.
 
 ### Documentation
 
@@ -22,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the public surface before 1.0.0rc1, ranked, with a recommendation for each
   item and what is left for #357 and for 2.0.
 - [Stability](docs/stability.md): the plugin's own readers ignore keys they
-  do not know, and a value keeps its type (new data goes into a new key);
+  do not know, a value keeps its type (new data goes into a new key), and a
+  key that narrows what an entry matches needs a new format number;
   the text of a finding's `message` in the `--queryguard-json` file is not
   public; the labels of `repeated-statement` and `write-loop` follow the SQL
   text the ORM sends, which an ORM upgrade can change.

@@ -180,9 +180,27 @@ def test_keys_a_later_release_adds_are_ignored() -> None:
         '{"version": 1, "note": "x", "findings": [{"kind": "k", "label": "l", '
         '"file": "a.py", "function": "f", "line": 3, "reason": {"why": 1}}]}'
     )
-    assert baseline.parse(text, Path("b.json")) == {("k", "l", "a.py", "f")}
-    # an update writes the four keys of the identity only
-    assert "reason" not in baseline.dumps(baseline.parse(text, Path("b.json")))
+    identities = baseline.parse(text, Path("b.json"))
+    assert identities == {("k", "l", "a.py", "f")}
+    # an update writes the version and the four keys of the identity only
+    assert json.loads(baseline.dumps(identities)) == {
+        "version": 1,
+        "findings": [{"kind": "k", "label": "l", "file": "a.py", "function": "f"}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("key", "meant"), [("fucntion", "function"), ("File", "file"), ("lable", "label")]
+)
+def test_a_misspelled_identity_key_is_still_an_error(key: str, meant: str) -> None:
+    """Read as null, a misspelled file or function would match nothing, silently."""
+    entry = {"kind": "k", "label": "l", "file": "a.py", "function": "f"}
+    entry[key] = entry.pop(meant)
+    text = json.dumps({"version": 1, "findings": [entry]})
+    with pytest.raises(
+        BaselineError, match=rf"unknown key '{key}'; did you mean '{meant}'"
+    ):
+        baseline.parse(text, Path("b.json"))
 
 
 def test_a_function_that_is_not_a_string_is_rejected() -> None:
