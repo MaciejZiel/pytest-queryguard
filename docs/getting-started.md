@@ -9,7 +9,7 @@ pip install pytest-queryguard
 It needs Python 3.10 or newer, pytest 8 or newer and SQLAlchemy 2.0.13 or
 newer; pip installs pytest and SQLAlchemy with it. The plugin registers itself
 with pytest: there is nothing to import or configure. `pytest -VV` lists it
-(`pytest-queryguard-0.8.0`).
+(`pytest-queryguard-0.9.0`).
 
 The free-threaded builds of CPython (3.13t, 3.14t) are not a supported
 configuration; see the [FAQ](faq.md#does-it-work-on-free-threaded-python).
