@@ -60,7 +60,8 @@ def main() -> int:
                     unexplained += reason is None
                     print(
                         f"  MISMATCH {scenario.name}: expected {sorted(expected)}, "
-                        f"got {sorted(observed)}" + (f" (known: {reason})" if reason else "")
+                        f"got {sorted(observed)}"
+                        + (f" (known: {reason})" if reason else "")
                     )
     return 1 if unexplained else 0
 
