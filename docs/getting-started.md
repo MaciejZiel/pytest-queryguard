@@ -11,6 +11,12 @@ newer; pip installs pytest and SQLAlchemy with it. The plugin registers itself
 with pytest: there is nothing to import or configure. `pytest -VV` lists it
 (`pytest-queryguard-0.9.0`).
 
+`pip install "pytest-queryguard[sqlalchemy]"` installs the same thing today.
+Use it if you want SQLAlchemy to keep coming with the plugin should a later
+minor release make it optional (see [stability](stability.md#what-is-public));
+if your project already lists SQLAlchemy in its own dependencies, the plain
+install is enough.
+
 The free-threaded builds of CPython (3.13t, 3.14t) are not a supported
 configuration; see the [FAQ](faq.md#does-it-work-on-free-threaded-python).
 

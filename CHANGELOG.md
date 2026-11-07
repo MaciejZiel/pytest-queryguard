@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
+  requirement as the core dependency, so installing with it changes nothing
+  today. [Stability](docs/stability.md#what-is-public) now says that a later
+  minor release may move SQLAlchemy from the core dependencies into this
+  extra; installing with `[sqlalchemy]`, or listing SQLAlchemy in your own
+  dependencies, keeps working through that change.
 - The JSON output of the experimental trend
   (`python -m pytest_queryguard.trend --format json`) starts with
   `"format": 1`, like the other JSON files, and its keys are documented in
@@ -316,6 +322,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- The texts that define `queryguard_scope = session`
+  ([configuration](docs/configuration.md), the ini help, llms.txt),
+  `Query.sql`, `Query.relationship` and `record_queries()`
+  ([Python API](docs/python-api.md) and docstrings), and the supported
+  versions in [stability](docs/stability.md#what-is-public) no longer depend
+  on the ORM for their meaning: they say "database session", "as the ORM sent
+  it" and "the releases of each supported ORM", and give the SQLAlchemy
+  meaning in brackets. `Query.relationship` also names every eager loader's
+  extra query, not only `selectinload`'s, as it always did. Behaviour, names
+  and signatures do not change.
 - docs/ci.md lists the permission each action input needs and the action's
   limits: one category per matrix job, the first run without a base
   artifact, the comment size, re-runs and concurrent runs, exit codes,

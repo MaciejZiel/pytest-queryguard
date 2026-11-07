@@ -420,12 +420,14 @@ def check_metadata(
             f"Requires-Python is {one('Requires-Python')!r}, ci.yml tests from {tested[0]}",
         )
     # "pytest>=8", "pytest<10,>=8", "sqlalchemy[asyncio]>=2.0.13; extra == ..."
-    requires: dict[str, str] = {}
+    # Every lower bound counts: the core dependency and the [sqlalchemy] extra
+    # must both be the oldest tested version.
+    requires: dict[str, list[str]] = {}
     for requirement in fields.get("Requires-Dist", []):
         name = re.match(r"[\w.-]+", requirement)
         bound = re.search(r">=\s*([\d.]+)", requirement.split(";", 1)[0])
         if name and bound:
-            requires.setdefault(name.group(0).lower(), bound.group(1))
+            requires.setdefault(name.group(0).lower(), []).append(bound.group(1))
     oldest = oldest_tested(gate)
     problems.check(
         set(oldest) == {"pytest", "sqlalchemy"},
@@ -433,13 +435,14 @@ def check_metadata(
         f"(found {oldest})",
     )
     for name, oldest_version in oldest.items():
-        bound = requires.get(name)
-        if problems.check(bound, f"Requires-Dist has no lower bound for {name}"):
-            problems.check(
-                _same_version(bound, oldest_version),
-                f"Requires-Dist {name}>={bound} is not the oldest version the "
-                f"release gate tests ({oldest_version})",
-            )
+        bounds = requires.get(name)
+        if problems.check(bounds, f"Requires-Dist has no lower bound for {name}"):
+            for bound in bounds or ():
+                problems.check(
+                    _same_version(bound, oldest_version),
+                    f"Requires-Dist {name}>={bound} is not the oldest version the "
+                    f"release gate tests ({oldest_version})",
+                )
     urls = {u.split(",", 1)[0] for u in fields.get("Project-URL", [])}
     for wanted in PROJECT_URLS:
         problems.check(wanted in urls, f"wheel METADATA has no {wanted} URL")
