@@ -395,6 +395,23 @@ EXPECTED_APP_FIELDS = {
     ],
 }
 
+EXPECTED_REPORT_PROPERTIES = ["message", "over_budget", "problems", "truncated"]
+
+
+def test_app_report_properties_and_methods() -> None:
+    from pytest_queryguard.app import RequestReport
+
+    properties = sorted(
+        name
+        for name, value in vars(RequestReport).items()
+        if isinstance(value, property) and not name.startswith("_")
+    )
+    assert properties == EXPECTED_REPORT_PROPERTIES
+    assert str(inspect.signature(RequestReport.to_dict)) == (
+        "(self) -> 'dict[str, Any]'"
+    )
+
+
 # The keys of the panel's requests.json, whose "requests" are
 # RequestReport.to_dict(); the page reads them.
 EXPECTED_PANEL_JSON = [

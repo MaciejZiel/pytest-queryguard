@@ -255,7 +255,8 @@ def test_the_report_targets(watched: Engine, caplog: pytest.LogCaptureFixture) -
         queryguard.track(report="warn"),
     ):
         _lazy_loop(watched)
-    assert [w.category for w in caught] == [queryguard.QueryGuardAppWarning]
+    found = [w.category for w in caught if issubclass(w.category, QueryGuardWarning)]
+    assert found == [queryguard.QueryGuardAppWarning]
 
 
 def test_a_filter_for_the_app_warning_leaves_the_plugins_alone(

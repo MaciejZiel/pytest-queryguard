@@ -61,8 +61,7 @@ release.
 | Budget file (`--queryguard-budgets`, see [Budgets](budgets.md#lock-todays-counts-the-budget-file)) | `"format": 1` | `budgets`: test node id to a number of queries | the order of the entries |
 | Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the order of tests and findings |
 | SARIF file (`--queryguard-sarif`, see [SARIF](sarif.md)) | SARIF 2.1.0 | the rule ids `queryguard/<kind>`, one per finding kind; the fingerprint key `queryguardIdentity/v1` in `partialFingerprints` and the identity it hashes, so code scanning alerts stay the same alerts after an upgrade; the result `properties` `count`, `label`, `tests` and `peakCount` | rule names, descriptions and help, message text, `primaryLocationLineHash`, `codeFlows`, `fixes` (experimental, see below) |
-
-| In-app panel's JSON (`<panel_path>/requests.json`, see [In-application mode](in-app.md#the-panel)) | `"format": 1` | `version`, `watched_engines`, `internal_error` and `requests`, each request with the keys of `RequestReport.to_dict()`: `id`, `name`, `method`, `path`, `route`, `status`, `started`, `duration`, `statement_count`, `truncated`, `db_time`, `budget`, `over_budget`, `error`, `statements` (`sql`, `duration`, `relationship`, `file`, `line`, `function`) and `findings` (`kind`, `label`, `file`, `line`, `function`, `count`, `message`) | the value of `version` (the package version), the `message` text |
+| In-app panel's JSON (`<panel_path>/requests.json`, see [In-application mode](in-app.md#the-panel)) | `"format": 1` | `version`, `watched_engines`, `internal_error` and `requests`, each request with the keys of `RequestReport.to_dict()`: `id`, `name`, `method`, `path`, `route`, `status`, `started`, `duration`, `statement_count`, `truncated`, `db_time`, `budget`, `over_budget`, `error`, `statements` (`sql`, `duration`, `relationship`, `file`, `line`, `function`) and `findings` (`kind`, `label`, `file`, `line`, `function`, `count`, `message`) | the value of `version` (the package version), the `message` text; the panel's own page is served by the same release and does not check `format` |
 
 A new fingerprint key (`queryguardIdentity/v2`) would close every open alert
 and open it again, so it is treated as a removal: from 1.0 on, only in a major
@@ -141,7 +140,10 @@ instead of `"test"`.
 
 `pytest_queryguard.app` was experimental from 0.5.0 until it was promoted
 before 1.0 (#241). Since then it follows the deprecation policy like the
-rest of the public API, and `tests/test_public_api.py` snapshots it:
+rest of the public API. `tests/test_public_api.py` snapshots its names,
+signatures, `Settings` fields and defaults, `RequestReport` fields and
+properties and the panel's JSON keys; `tests/inapp/test_reporters.py`
+checks the reporters' keys:
 
 - The names in `pytest_queryguard.app.__all__` and their signatures, the
   fields of `Settings` with their defaults and accepted values, and the

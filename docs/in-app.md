@@ -309,7 +309,9 @@ do not hide a repeated message, while `once` keeps every distinct message in
 Python's process-wide registry. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and
 `duration`), `statement_count`, `db_time`, `duration`, `findings`, `budget`,
-`over_budget` and `message`. `statements` and `statement_count` are the names
+`over_budget`, `truncated` (more statements than `max_events` stored),
+`problems`, `error` (an internal error made the report incomplete),
+`sampled` and `message`. `statements` and `statement_count` are the names
 the panel's JSON, OpenTelemetry and Sentry use too; in a test, `QueryLog`
 calls the same `Query` objects `queries` and their number `count`.
 
