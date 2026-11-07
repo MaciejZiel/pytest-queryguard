@@ -410,7 +410,7 @@ def test_find_origin_tells_the_test_lines_apart(tmp_path: Path) -> None:
     # through a frame of another file: the application's, entered from here
     assert not in_app.test_code
     assert in_app.entry is not None
-    assert all(filename == test_file for filename, _ in in_app.entry)
+    assert all(filename == test_file for filename, _, _ in in_app.entry)
     assert in_app.path is not None and in_app.path[0][0] != test_file
 
 
@@ -458,3 +458,53 @@ def test_a_test_code_finding_keeps_its_baseline_entry(project: Any) -> None:
     result = project.runpytest(*run)
     result.assert_outcomes(passed=1)
     result.stdout.no_fnmatch_line("*matched no finding*")
+
+
+def test_an_installed_session_subclass_is_no_application(project: Any) -> None:
+    # SQLModel's Session.exec() lives in site-packages: a loop of the test that
+    # runs its queries through it is still the test's own
+    installed = project.path / "venv" / "lib" / "site-packages"
+    (installed / "fakesqlmodel").mkdir(parents=True)
+    (installed / "fakesqlmodel" / "__init__.py").write_text(
+        "from sqlalchemy.orm import Session as _Session\n\n\n"
+        "class Session(_Session):\n"
+        "    def exec(self, statement):\n"
+        "        return self.execute(statement)\n"
+    )
+    project.makepyfile(
+        test_a="""
+        import sys
+        sys.path.insert(0, "venv/lib/site-packages")
+        from fakesqlmodel import Session
+        from sqlalchemy import select
+        from qgmodels import Customer, make_sync_session
+
+
+        def test_loop():
+            session = Session(make_sync_session().get_bind())
+            for name in ["c1", "c2", "c3", "c4", "c5"]:
+                session.exec(select(Customer).where(Customer.name == name)).first()
+        """
+    )
+    result = project.runpytest()
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines([SUMMARY])
+
+
+def test_an_update_adds_no_test_code_finding_to_the_baseline(project: Any) -> None:
+    project.makepyfile(test_a=TEST_LOOP)
+    run = ("--queryguard-baseline=qg.json",)
+    project.runpytest(*run, "--queryguard-update-baseline").assert_outcomes(passed=1)
+    assert "test_loop" not in (project.path / "qg.json").read_text()
+    # so fail reports it, instead of finding it in the baseline
+    result = project.runpytest(*run, "-o", "queryguard_test_code=fail")
+    result.assert_outcomes(failed=1)
+
+
+def test_warn_gives_test_code_findings_their_patch(project: Any) -> None:
+    project.makepyfile(test_a=TEST_LOOP)
+    result = project.runpytest(
+        "-o", "queryguard_test_code=warn", "--queryguard-write-patch=qg.patch"
+    )
+    result.assert_outcomes(passed=1, warnings=1)
+    assert "joinedload(Order.customer)" in (project.path / "qg.patch").read_text()

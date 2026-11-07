@@ -122,21 +122,29 @@ statement up to the test function (the hook call that ran it), not only to the
 first frame of the application: the call path of every statement tells a loop
 from calls on separate lines, and the files on it tell the test code from the
 application (see [How detection works](how-detection-works.md#calls-on-separate-lines)).
-The call site comes from the same walk. Measured on the laptop above with
-Python 3.13.18, `scripts/bench_overhead.py --runs 15`, `main` (7c7f2a8) and
-the change back to back, twice each:
+The call site comes from the same walk.
 
-| Statement | Measurement off | `main`: added | 0.9.0: added |
-|---|---|---|---|
-| Core `select` by key | 40 to 41 us | +15.4 us, +14.4 us | +20.1 us, +20.1 us |
-| ORM `select` by primary key | 76 to 79 us | +28.6 us, +26.5 us | +45.3 us, +45.1 us |
+The walk from the first application frame to the test is the same for every
+pass of a loop, so its result is kept per measurement, looked up by the code
+object of each frame on that stretch and the instruction it is at: the
+passes after the first walk those frames without classifying them or
+computing their lines. Nothing in the key can change without the result
+changing, so it cannot go stale. Measured on the laptop above with Python
+3.13.18, `scripts/bench_overhead.py --runs 9`, `main` (679e494) and the
+change interleaved, twice each:
 
-The walk costs about 0.3 to 0.6 microseconds per frame on the stack, so a
-deep stack (a request through a web framework's test client) costs more than
-this loop at the top level of a script. A cache keyed by `id()` replaced the
-one keyed by the code object for the methods of a `Session` subclass: a code
-object hashes its bytecode and constants, which made the first version of
-the walk twice as slow.
+| Statement | Measurement off | `main`: added | 0.9.0, first version | 0.9.0: added |
+|---|---|---|---|---|
+| Core `select` by key | 40 to 42 us | +13.3 us, +13.5 us | +19.6 us, +19.6 us | +16.5 us, +15.7 us |
+| ORM `select` by primary key | 76 to 78 us | +27.9 us, +26.6 us | +43.2 us, +43.6 us | +33.6 us, +36.3 us |
+
+The first version classified every application frame and computed its line
+for every statement (about 0.5 microseconds a frame); the walk of a deep
+stack (a request through a web framework's test client) still costs more
+than this loop at the top level of a script. A cache keyed by `id()`
+replaced the one keyed by the code object for the methods of a `Session`
+subclass: a code object hashes its bytecode and constants, which made the
+first version of the walk twice as slow.
 
 ## What did not help
 

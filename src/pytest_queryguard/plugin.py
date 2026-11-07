@@ -1406,8 +1406,13 @@ def _leave_out_test_code(
     if len(kept) < len(findings):
         settings.test_code_left_out[nodeid] = len(findings) - len(kept)
         if settings.baselining:
-            # still found: a baseline entry for one is not stale
-            settings.seen.update(f.identity for f in findings if f.test_code)
+            # still found: a baseline entry for one is not stale, and an
+            # update keeps it. One that is not in the baseline is not added:
+            # the run never showed it, and with warn or fail later it must be.
+            baseline = settings.baseline or frozenset()
+            settings.seen.update(
+                f.identity for f in findings if f.test_code and f.identity in baseline
+            )
     return kept
 
 
@@ -1433,14 +1438,19 @@ def _findings(
             _with_fix(finding, detection, root, settings.started)
             for finding, detection in zip(findings, detections, strict=True)
         ]
-    if split:
+    if split and _has_test_code(collector):
         # the test code's own N+1s: warnings, or only counted (_analyse)
-        findings.extend(
+        detections = _detect(collector, settings, sieve, True)
+        side = [
             replace(finding, test_code=True)
-            for finding in make_findings(
-                _detect(collector, settings, sieve, True), cwd=root
-            )
-        )
+            for finding in make_findings(detections, cwd=root)
+        ]
+        if fixes and settings.fixing and settings.test_code == "warn":
+            side = [
+                _with_fix(finding, detection, root, settings.started)
+                for finding, detection in zip(side, detections, strict=True)
+            ]
+        findings.extend(side)
     if trackers.eager is not None:
         findings.extend(eager.findings(trackers.eager, cwd=root, sieve=sieve))
     if trackers.columns is not None:
@@ -1450,6 +1460,19 @@ def _findings(
     if settings.cartesian != "off" and collector.cartesian_loads:
         findings.extend(cartesian.findings(collector, cwd=root, sieve=sieve))
     return findings
+
+
+def _has_test_code(collector: QueryCollector) -> bool:
+    """Whether any statement or load of the test ran in test code."""
+    return any(
+        event.test_code
+        for events in (
+            collector.statements,
+            collector.relationship_loads,
+            collector.column_loads,
+        )
+        for event in events
+    )
 
 
 def _detect(
@@ -2099,11 +2122,14 @@ def pytest_testnodedown(node: Any, error: object) -> None:
             settings.stale_markers.extend(markers)
         if output.get("queryguard_deselected", False):
             settings.deselected = True
-        for nodeid, left_out in output.get("queryguard_test_code", ()):
-            settings.test_code_left_out.setdefault(str(nodeid), int(left_out))
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.ignores_incomplete = True
         record_error(exc, "merging the results of a pytest-xdist worker")
+    try:
+        for nodeid, left_out in output.get("queryguard_test_code", ()):
+            settings.test_code_left_out.setdefault(str(nodeid), int(left_out))
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "merging the test-code counts of a pytest-xdist worker")
     try:
         if (
             settings.index_check

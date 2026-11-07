@@ -287,7 +287,7 @@ def test_the_entry_is_the_application_lines_up_to_the_test() -> None:
     assert in_loop[0] == in_loop[1] == in_loop[2]
     assert isinstance(first, tuple)
     assert first[0][0] == __file__
-    assert all("_pytest" not in filename for filename, _ in first)
+    assert all("_pytest" not in filename for filename, _, _ in first)
 
 
 def test_recursion_does_not_make_each_depth_a_new_entry() -> None:

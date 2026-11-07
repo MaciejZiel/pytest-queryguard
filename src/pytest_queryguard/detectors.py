@@ -210,7 +210,10 @@ def _split(
     five requests one after the other) runs it once per path, and is no loop.
     The events whose path repeats are the passes of a loop and count
     together, whatever path each has, so that a loop whose passes take two
-    paths is not split in two. An event without a path counts with them.
+    paths is not split in two. So do the events whose path parts from
+    another one at a call of another function (``_dispatched``): a loop
+    whose passes each call a method of their own. An event without a path
+    counts with them.
 
     The path of a statement is its whole call path (``StatementEvent.path``).
     The path of a lazy load or a column load is only the test lines that
@@ -243,7 +246,9 @@ def _path_of(item: object) -> object:
 
 
 def _repeated_paths(items: Sequence[Any]) -> set[object]:
-    """The call paths that more than one of ``items`` has."""
+    """The call paths of the passes of a loop: those that more than one of
+    ``items`` has, and those that part from another at a call of another
+    function (``_dispatched``)."""
     seen: set[object] = set()
     repeated: set[object] = set()
     for item in items:
@@ -254,7 +259,38 @@ def _repeated_paths(items: Sequence[Any]) -> set[object]:
             repeated.add(path)
         else:
             seen.add(path)
+    if len(seen) > 1 and len(seen) > len(repeated):  # a path of its own
+        repeated |= _dispatched(seen)
     return repeated
+
+
+def _dispatched(paths: set[Any]) -> set[Any]:
+    """The paths that part from another one at a call of another function.
+
+    A path is ``(filename, line, first line of the function)`` per frame,
+    innermost first, and paths of one test end in the same frames (the test
+    function). Two paths that share their outer frames, down to a line that
+    called the code, and then go on in different functions (a method chosen
+    by the type of each item, a handler looked up in a dict; or one of them
+    ends there, a recursion one level less deep) are passes of one loop over
+    those items. Two that go on at different lines of one function are
+    calls on separate lines, and are not paired here.
+    """
+    # the outer frames shared -> the function each path goes on in -> paths
+    below: dict[tuple[Any, ...], dict[object, list[Any]]] = {}
+    for path in paths:
+        depth = len(path)
+        for shared in range(1, depth + 1):
+            outer = path[depth - shared :]
+            inner = path[depth - shared - 1] if shared < depth else None
+            function = None if inner is None else (inner[0], inner[2])
+            below.setdefault(outer, {}).setdefault(function, []).append(path)
+    found: set[Any] = set()
+    for functions in below.values():
+        if len(functions) > 1:
+            for group in functions.values():
+                found.update(group)
+    return found
 
 
 def _same(scope: int | None) -> int | None:

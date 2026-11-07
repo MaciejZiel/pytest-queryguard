@@ -18,8 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `QueryGuardWarning`, `fail` as before. A loop in the application that test
   code calls (through a helper, a test client in `conftest.py`, a factory's
   flush that fires a model event) is still reported. Strict mode does not
-  raise at a lazy load of the test code unless the option is `fail`. See
-  docs/how-detection-works.md#test-code.
+  raise at a lazy load of the test code unless the option is `fail`. An
+  installed `Session` subclass (SQLModel's `Session.exec()`) does not make
+  the test's own queries the application's. `--queryguard-update-baseline`
+  keeps the entries of test-code findings already in the baseline and adds
+  none. See docs/how-detection-works.md#test-code.
 
 - The JSON output of the experimental trend
   (`python -m pytest_queryguard.trend --format json`) starts with
@@ -47,13 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   differ. A function that runs one count per line, or a test that sends
   requests on separate lines, is no longer a repeated-statement or
   relationship-load finding; a loop, in the application or in the test, is
-  reported as before. A loop shorter than the threshold next to a run on a
-  line of its own is no longer reported (four passes and a fifth call are four
-  runs). Strict mode still counts the lazy loads of all test lines together.
+  reported as before, also when its passes call a method of their own (paths
+  that part at one line into different functions). A loop shorter than the
+  threshold next to a run on a line of its own is no longer reported (four
+  passes and a fifth call are four runs). Strict mode still counts the lazy loads of all test lines together.
   Corpus: 6 new scenarios (280); by default relationship-load 52/0/0 and
   repeated-statement 47/1/3 (TP/FP/FN), from 52/3/0 and 48/4/2 on the same
   scenarios. Each statement now walks the stack to the test once (with the
-  call site), which adds about 5 microseconds per Core statement and 17 per
+  call site), which adds about 3 microseconds per Core statement and 8 per
   ORM statement on the in-memory SQLite micro-benchmark (docs/performance.md). See
   docs/how-detection-works.md#calls-on-separate-lines.
 - The GitHub Action checks its switches: `fail`, `upload`, `compare` and

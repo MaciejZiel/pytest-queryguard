@@ -350,15 +350,18 @@ other through one shared `Session`, runs it from six paths. So:
   and never reaches a threshold alone;
 - the runs whose path repeats count together, whatever path each has, so a
   loop whose passes take two paths (an `if`/`else` in the loop body) is not
-  split in two.
+  split in two;
+- so do the runs whose paths part at one line into different functions: a
+  loop whose passes each call a method of their own (five items of five
+  classes, a handler looked up in a dict per item) calls them all from the
+  line of the loop. Paths that part at different lines of one function are
+  calls on separate lines.
 
 A function that counts six statuses with one helper, one call per line, runs
 a fixed number of queries whatever the data: no repeated-statement finding.
 The same lookup in a loop is reported as before. A loop shorter than the
 threshold next to calls on separate lines is not reported: four passes and a
-fifth run on a line of its own are four runs of the loop. So is a loop each of
-whose passes takes a path no other pass takes (four items of four classes,
-each with its own method that runs the query): every run is a path of its own.
+fifth run on a line of its own are four runs of the loop.
 
 For a lazy load and a column load the path is only the lines of the test code
 that called the application (see [Test code](#test-code)): a loop over objects
@@ -395,8 +398,9 @@ A file is test code when it is:
 
 A statement, lazy load or column load is the test code's when every frame of
 your code on its stack is test code, and no installed package other than a
-test tool (factory_boy, polyfactory, Faker, pytest plugins) lies between the
-test and the statement: an application installed into `site-packages`
+test tool (factory_boy, polyfactory, Faker, pytest plugins) or a `Session`
+subclass (SQLModel's `Session.exec()`) lies between the test and the
+statement: an application installed into `site-packages`
 (`pip install .`, tox) has no frame of "your code", so a statement it runs
 for the test stays the application's. One frame of the application is enough
 to make it the application's: a loop in the application that a test helper
@@ -417,7 +421,8 @@ of the test code with the application's, as before 0.9.0. The ignore patterns,
 markers and blocks match them in every mode, so a pattern written for them is
 not stale. With `off` they are not in the SARIF file or the JSON file; a
 baseline entry for one still counts as matched (it is not stale), and
-`--queryguard-update-baseline` keeps it. Strict mode does not raise at a lazy load of the test code with `off`
+`--queryguard-update-baseline` keeps it, but adds none that is not there
+yet. Strict mode does not raise at a lazy load of the test code with `off`
 or `warn`.
 
 Why a factory counts as test code: a factory's lookup per object (a role

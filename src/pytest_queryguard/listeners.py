@@ -52,7 +52,6 @@ from .callsite import (
     find_callsite,
     find_entry,
     find_flush,
-    find_origin,
     find_site_origin,
 )
 from .events import (
@@ -953,13 +952,15 @@ def _on_orm_execute_strict(state: ORMExecuteState) -> None:
         # whether the load is the test code's, for the collectors that leave
         # those out (strict_test_code False); strict mode does not split by path
         wanted = any(not t.strict_test_code for t in full if t.strict is not None)
+        site, origin = find_site_origin() if wanted else (None, NO_ORIGIN)
         load = _relationship_load(
             prop,
             parent,
             state.session,
             None,
             blocks.current(),
-            origin=find_origin() if wanted else NO_ORIGIN,
+            origin=origin,
+            site=site,
         )
         for target in full:
             if target.strict is not None:
