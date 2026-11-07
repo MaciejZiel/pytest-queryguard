@@ -212,20 +212,24 @@ under each of [django-zeal](#comparison) and nplusone (the `django` suite of
 the first one, before the fixes below:
 [42416001785](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42416001785).
 
-| Project | Tests run | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings | Overhead (one run) |
+| Project | Tests run | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings | Overhead, two runs |
 |---|---|---|---|---|---|---|
-| Django REST framework 3.18.3 (Django 6.1) | all | 1655 / 0 / 9 | none | 0 / 0 | 38: 32 relationship-load, 6 repeated-statement | noise (7 s suite) |
-| Read the Docs 2026.11.03 | api, projects, builds, organizations | 585 / 0 / 5 | none | 0 / 0 | 45: 15 relationship-load, 28 repeated-statement, 2 column-load | +1.7 % |
-| django-cms 5.1.3 | all | 1781 / 1 / 70 | none | 0 / 0 | 2539: 521 relationship-load, 2017 repeated-statement, 1 column-load | +15.9 % |
-| pretix 2026.9.0 | `tests/api` | 1654 / 1 / 0 | none | 0 / 0 | 378: 124 relationship-load, 254 repeated-statement | +2.2 % |
-| saleor 3.23.47 (PostgreSQL) | the query-count benchmarks and product queries | 1487 / 0 / 0 | none | 0 / 0 | 258: 233 relationship-load, 25 repeated-statement | noise |
-| django-oscar 4.2.1 (PostgreSQL) | functional and integration | 1697 / 0 / 0 | none | 0 / 0 | 641: 278 relationship-load, 363 repeated-statement | +3.7 % |
+| Django REST framework 3.18.3 (Django 6.1) | all | 1655 / 0 / 9 | none | 0 / 0 | 38: 32 relationship-load, 6 repeated-statement | −5.7 %, −2.9 % (a 6 s suite) |
+| Read the Docs 2026.11.03 | api, projects, builds, organizations | 585 / 0 / 5 | none | 0 / 0 | 45: 15 relationship-load, 28 repeated-statement, 2 column-load | +1.7 %, −0.3 % |
+| django-cms 5.1.3 | all | 1781 / 1 / 70 | none | 0 / 0 | 2539: 521 relationship-load, 2017 repeated-statement, 1 column-load | +15.9 %, +8.6 % |
+| pretix 2026.9.0 | `tests/api` | 1654 / 1 / 0 | none | 0 / 0 | 378: 124 relationship-load, 254 repeated-statement | +2.2 %, −2.0 % |
+| saleor 3.23.47 (PostgreSQL) | the query-count benchmarks and product queries | 1487 / 0 / 0 | none | 0 / 0 | 258: 233 relationship-load, 25 repeated-statement | −1.4 %, −2.9 % |
+| django-oscar 4.2.1 (PostgreSQL) | functional and integration | 1697 / 0 / 0 | none | 0 / 0 | 641: 278 relationship-load, 363 repeated-statement | +3.7 %, +8.4 % |
 
 The plugin changed no test's outcome and reported no internal error in any of
-the 7,000-odd tests. django-cms runs about 90 statements in each test body, so
-the cost per statement shows there (about 15 µs on a laptop: finding the call
-site and recording the statement); the overheads are one run each, and the
-runs without a tool vary by up to 30 % between runs of the workflow.
+the 8,800-odd tests, in either run. The overheads are of single runs (the
+first before SQLAlchemy was imported lazily, the second in
+[run 42422111060](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42422111060)
+with the final code), and the runs without any tool vary by up to 30 %
+between runs of the workflow, so only django-cms stands out: it runs about 90
+statements in each test body, and the cost per statement (about 15 µs on a
+laptop: finding the call site and recording the statement) shows there.
+django-zeal and nplusone added between −8 % and +3 % in the same runs.
 
 **Triage.** All 38 findings of Django REST framework and 12 distinct finding
 sites drawn at random from each other project (98 in all) were read in the
