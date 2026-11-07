@@ -267,23 +267,30 @@ def _repeated_paths(items: Sequence[Any]) -> set[object]:
 def _dispatched(paths: set[Any]) -> set[Any]:
     """The paths that part from another one at a call of another function.
 
-    A path is ``(filename, line, first line of the function)`` per frame,
-    innermost first, and paths of one test end in the same frames (the test
-    function). Two paths that share their outer frames, down to a line that
-    called the code, and then go on in different functions (a method chosen
-    by the type of each item, a handler looked up in a dict; or one of them
-    ends there, a recursion one level less deep) are passes of one loop over
-    those items. Two that go on at different lines of one function are
-    calls on separate lines, and are not paired here.
+    A path is ``callsite.Entry``: per frame, innermost first, its file, line,
+    the first line of its function and whether it called the next frame
+    through other code; the paths of one test end in the same frames (the
+    test function). Two paths that share their outer frames down to a line
+    that called, directly, two different functions (a method chosen by the
+    type of each item, a handler looked up in a dict) are passes of one loop
+    over those items. Two that go on at different lines of one function are
+    calls on separate lines, and so are two that a framework called from one
+    line of the test (a request hook and the view of one request): the
+    frames of the framework lie between. Not for more than ``_MAX_DISPATCH``
+    paths, where the pairing would cost more than it is worth.
     """
+    if len(paths) > _MAX_DISPATCH:
+        return set()
     # the outer frames shared -> the function each path goes on in -> paths
     below: dict[tuple[Any, ...], dict[object, list[Any]]] = {}
     for path in paths:
         depth = len(path)
-        for shared in range(1, depth + 1):
+        for shared in range(1, depth):
             outer = path[depth - shared :]
-            inner = path[depth - shared - 1] if shared < depth else None
-            function = None if inner is None else (inner[0], inner[2])
+            if outer[0][3]:
+                continue  # called the next one through other code
+            inner = path[depth - shared - 1]
+            function = (inner[0], inner[2])
             below.setdefault(outer, {}).setdefault(function, []).append(path)
     found: set[Any] = set()
     for functions in below.values():
@@ -291,6 +298,9 @@ def _dispatched(paths: set[Any]) -> set[Any]:
             for group in functions.values():
                 found.update(group)
     return found
+
+
+_MAX_DISPATCH = 256
 
 
 def _same(scope: int | None) -> int | None:

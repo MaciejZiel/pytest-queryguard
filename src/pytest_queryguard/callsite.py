@@ -229,17 +229,19 @@ def _callers(frame: FrameType | None, depth: int) -> tuple[CallSite, ...]:
     )
 
 
-# (filename, line, first line of the function) of each frame, innermost first:
-# the first line tells two functions of one file apart (detectors._dispatched)
-Entry = tuple[tuple[str, int, int], ...]
+# Per application frame, innermost first: (filename, line, first line of the
+# function, whether frames of other code lie between it and the application
+# frame it called). The first line tells two functions of one file apart, and
+# the last item a direct call from a framework's dispatch (detectors._dispatched).
+Entry = tuple[tuple[str, int, int, bool], ...]
 _MAX_ENTRY_LINES = 64
 
 
 def find_entry() -> Entry | None:
     """The application lines the running statement came from, up to the test.
 
-    ``(filename, line, first line of the function)`` of each application
-    frame, innermost first, as ``_app_frames`` walks them, through the parent
+    ``(filename, line, first line of the function, called through other
+    code)`` of each application frame (see ``Entry``), innermost first, as ``_app_frames`` walks them, through the parent
     greenlets of an async session.
     A function that is on the stack more than once (recursion) is kept at its
     innermost frame only, so each depth of a recursive walk has the same
@@ -385,10 +387,11 @@ def _origin(
 
 def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
     """The origin of ``frames`` (see ``_origin``), innermost first."""
-    lines: list[tuple[str, int, int]] = []
-    entry: list[tuple[str, int, int]] = []  # the test lines since the last other
+    lines: list[tuple[str, int, int, bool]] = []
+    entry: list[tuple[str, int, int, bool]] = []  # the test lines since the last other
     seen: set[int] = set()  # id() of the code objects: they are on the stack
     test = True
+    gap = True  # a frame not of the application since the last line
     kinds = _kinds
     for frame in frames:
         code = frame.f_code
@@ -397,10 +400,12 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
         if kind is None:
             kind = _kind(filename)
         if kind:
+            gap = True
             if kind == _LIBRARY and not _is_session_method(frame):
                 library = True
             continue
         if _is_session_method(frame):
+            gap = True
             continue
         if code.co_name in _INLINED:
             frame = _outer(frame)  # the function it is written in
@@ -414,7 +419,8 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
             library = False
         if id(code) not in seen:
             seen.add(id(code))
-            line = (filename, frame.f_lineno, code.co_firstlineno)
+            line = (filename, frame.f_lineno, code.co_firstlineno, gap)
+            gap = False
             if len(lines) < _MAX_ENTRY_LINES:
                 lines.append(line)
             if ours and len(entry) < _MAX_ENTRY_LINES:

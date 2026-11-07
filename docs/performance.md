@@ -128,8 +128,10 @@ The walk from the first application frame to the test is the same for every
 pass of a loop, so its result is kept per measurement, looked up by the code
 object of each frame on that stretch and the instruction it is at: the
 passes after the first walk those frames without classifying them or
-computing their lines. Nothing in the key can change without the result
-changing, so it cannot go stale. Measured on the laptop above with Python
+computing their lines. The result depends on nothing else than the key and
+on answers kept per code object and per file for the whole session (is it a
+method of a `Session` subclass, is it test code), so the cache does not go
+stale; it is emptied when a measurement starts. Measured on the laptop above with Python
 3.13.18, `scripts/bench_overhead.py --runs 9`, `main` (679e494) and the
 change interleaved, twice each:
 

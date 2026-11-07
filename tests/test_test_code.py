@@ -410,7 +410,7 @@ def test_find_origin_tells_the_test_lines_apart(tmp_path: Path) -> None:
     # through a frame of another file: the application's, entered from here
     assert not in_app.test_code
     assert in_app.entry is not None
-    assert all(filename == test_file for filename, _, _ in in_app.entry)
+    assert all(filename == test_file for filename, *_ in in_app.entry)
     assert in_app.path is not None and in_app.path[0][0] != test_file
 
 

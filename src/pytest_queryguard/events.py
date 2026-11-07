@@ -74,7 +74,7 @@ class StatementEvent:
     # The application lines it ran from, innermost first, up to the test
     # (callsite.find_origin): runs with the same lines are passes of one
     # loop. None when unknown.
-    path: tuple[tuple[str, int, int], ...] | None = None
+    path: tuple[tuple[str, int, int, bool], ...] | None = None
     # True when every application frame it ran from is test code: the test
     # module, a conftest.py, a factory, a helper under tests/ (callsite.TestCode).
     test_code: bool = False
@@ -108,7 +108,7 @@ class RelationshipLoadEvent:
     ignores: tuple[IgnoreBlock, ...] = ()
     # The test lines that called the application (callsite.Origin.entry):
     # lazy loads are told apart by these only, see detectors._split.
-    entry: tuple[tuple[str, int, int], ...] | None = None
+    entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
 
 
@@ -137,7 +137,7 @@ class ColumnLoadEvent:
     single_table: bool = False  # CAUSE_POLYMORPHIC: the columns are in its table
     # The test lines that called the application (callsite.Origin.entry):
     # lazy loads are told apart by these only, see detectors._split.
-    entry: tuple[tuple[str, int, int], ...] | None = None
+    entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
 
 

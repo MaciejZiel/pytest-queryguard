@@ -351,11 +351,13 @@ other through one shared `Session`, runs it from six paths. So:
 - the runs whose path repeats count together, whatever path each has, so a
   loop whose passes take two paths (an `if`/`else` in the loop body) is not
   split in two;
-- so do the runs whose paths part at one line into different functions: a
-  loop whose passes each call a method of their own (five items of five
-  classes, a handler looked up in a dict per item) calls them all from the
-  line of the loop. Paths that part at different lines of one function are
-  calls on separate lines.
+- so do the runs whose paths part at one line that calls different
+  functions directly: a loop whose passes each call a method of their own
+  (five items of five classes, a handler looked up in a dict per item) calls
+  them all from the line of the loop. Paths that part at different lines of
+  one function are calls on separate lines, and so are a request hook and a
+  view that a framework calls for one request: the framework's frames lie
+  between the test line and each of them.
 
 A function that counts six statuses with one helper, one call per line, runs
 a fixed number of queries whatever the data: no repeated-statement finding.

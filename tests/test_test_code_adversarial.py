@@ -345,3 +345,46 @@ def page(session):
         """
     )
     project.runpytest().assert_outcomes(passed=1)
+
+
+def test_a_framework_calling_a_hook_and_a_view_is_no_loop(project: Any) -> None:
+    # a framework installed in site-packages calls a request hook and then the
+    # view, from one line of the test: they run the lookup on lines of their
+    # own (one in the hook, four in the view), which is no loop
+    installed = project.path / "venv" / "lib" / "site-packages"
+    installed.mkdir(parents=True)
+    (installed / "fakeframework.py").write_text(
+        "def request(session, hooks, view):\n"
+        "    for hook in hooks:\n"
+        "        hook(session)\n"
+        "    return view(session)\n"
+    )
+    project.makepyfile(
+        shop=APP
+        + """
+
+def before_request(session):
+    lookup(session, "c1")
+
+
+def view(session):
+    lookup(session, "c1")
+    lookup(session, "c2")
+    lookup(session, "c3")
+    lookup(session, "c4")
+"""
+    )
+    project.makepyfile(
+        test_a="""
+        import sys
+        sys.path.insert(0, "venv/lib/site-packages")
+        from fakeframework import request
+        from qgmodels import make_sync_session
+        from shop import before_request, view
+
+
+        def test_request():
+            request(make_sync_session(), [before_request], view)
+        """
+    )
+    project.runpytest().assert_outcomes(passed=1)
