@@ -53,6 +53,26 @@ rule reports one finding per relationship or statement, from the unit with
 the most; another unit's N+1 of the same relationship is reported once that
 one is fixed.
 
+## Requests on separate lines in one Session
+
+A test whose requests all use one `Session` (an application context pushed
+once for the suite, a scoped session that the requests share) has one scope,
+and the `Session`s cannot tell the requests apart:
+
+```python
+def test_update_then_read(client):
+    client.post("/vulns", json=VULN)     # each request: the same workspace
+    client.patch("/vulns/1", json=EDIT)  # lookup and one lazy load, in the
+    client.get("/vulns/1")               # Session all requests share
+```
+
+The default scope tells them apart by the call path of each statement (see
+[Calls on separate lines](how-detection-works.md#calls-on-separate-lines)):
+the requests sent from separate lines of the test are calls on separate
+lines, and each request's lookup and lazy load count on their own. Requests
+sent in a loop of the test have one call path, as an N+1 in the application
+has, and add up; so do requests handled in another thread, as above.
+
 ## The option
 
 ```toml
@@ -118,8 +138,8 @@ recorded block; like the thresholds it does not read the ini option.
 
 - One `Session` is one scope. If a test passes the same `Session` to every
   request (a dependency override that returns the fixture's session), the
-  requests are one scope and the repeats add up again. Give each request its
-  own `Session` in the override, or keep `test`. To keep the test's
+  requests are one scope and the repeats of requests sent in a loop add up
+  again. Give each request its own `Session` in the override, or keep `test`. To keep the test's
   rolled-back transaction, bind each request's `Session` to the test's
   connection with `join_transaction_mode="create_savepoint"`; see
   [A session per request in a test transaction](recipes-test-transaction.md).

@@ -32,7 +32,8 @@ it saw.
 The findings are then filtered by the `queryguard_ignore` option, the
 `queryguard_ignore` marker and the [baseline](baseline.md), and reported as a
 failure, a `QueryGuardWarning` or a line in the [SARIF file](sarif.md),
-depending on `queryguard_mode` and `queryguard_fail_on`.
+depending on `queryguard_mode` and `queryguard_fail_on`. The N+1s of the test
+code itself are left out by default (see [Test code](#test-code)).
 
 ## The rules
 
@@ -334,6 +335,94 @@ lines, is not a loop. With `session`, each SQLAlchemy `Session`, or each
 connection checkout for statements no `Session` ran, is counted on its own,
 and a finding needs one scope to reach the threshold. See [Tests with several
 sessions or requests](several-sessions.md#sessions-begun-on-separate-lines).
+
+#### Calls on separate lines
+
+Within a scope, the rules also tell a loop from calls on separate lines. Each
+statement is stored with its call path: the line of every frame of your code
+on the stack, up to the test function (a recursive function counts at its
+innermost frame, so every depth of a recursion has the same path). The passes
+of a loop run a statement from the same path; code that calls the same helper
+on six lines of its own, or a test that sends six requests one after the
+other through one shared `Session`, runs it from six paths. So:
+
+- a statement whose call path no other run of it has is counted on its own,
+  and never reaches a threshold alone;
+- the runs whose path repeats count together, whatever path each has, so a
+  loop whose passes take two paths (an `if`/`else` in the loop body) is not
+  split in two.
+
+A function that counts six statuses with one helper, one call per line, runs
+a fixed number of queries whatever the data: no repeated-statement finding.
+The same lookup in a loop is reported as before. A loop shorter than the
+threshold next to calls on separate lines is not reported: four passes and a
+fifth run on a line of its own are four runs of the loop.
+
+For a lazy load and a column load the path is only the lines of the test code
+that called the application (see [Test code](#test-code)): a loop over objects
+that are already in the `Session` lazy-loads some of them only, so a single
+lazy load at a line of the application can still be a pass of a loop. Two
+requests the test sends from separate lines are not: each lazy-loads the
+customer of its own order, and the two loads are not an N+1. Lazy loads that
+test code runs itself (no application frame) are not split. In strict mode the
+lazy loads of all test lines count together, as strict mode decides at the
+load, before the later loads show which lines call the application again.
+
+Not split: requests that the application handles in another thread
+(Starlette's `TestClient`), whose stack does not reach the test, and the
+statements of a test past `queryguard_max_events`.
+
+### Test code
+
+A test exercises the application, and also runs code of its own: factories
+that create its rows, helpers that build the expected values, a test client
+that sends requests. That code never runs in production, so an N+1 in it is
+not a defect of the application, and by default
+(`queryguard_test_code = off`) it does not fail the test.
+
+A file is test code when it is:
+
+- a Python test module that pytest collected (its test functions, its
+  helpers, a unittest `setUp`);
+- a `conftest.py`;
+- below a directory named `tests` or `test` inside pytest's rootdir
+  (`tests/factories.py`, `tests/utils/client.py`);
+- a module that defines a [factory_boy](https://factoryboy.readthedocs.io/)
+  or [polyfactory](https://polyfactory.litestar.dev/) factory class, wherever
+  it lives (`myapp/testing/factories.py`).
+
+A statement, lazy load or column load is the test code's when every frame of
+your code on its stack is test code. One frame of the application is enough
+to make it the application's: a loop in the application that a test helper
+calls, a request handler that a test client in `conftest.py` calls, a model
+event that a factory's flush fires. Those are reported as before.
+
+The count rules then run twice: once on the application's statements and
+loads, whose findings fail the test as usual, and once on those of the test
+code. With `queryguard_test_code = off` the second findings are only counted,
+in one line at the end of the run:
+
+```
+queryguard: 422 N+1 findings in test code left out (299 tests): statements of test modules, conftest.py, factories and helpers under tests/, not of the application; queryguard_test_code = warn shows them
+```
+
+`warn` reports them as a `QueryGuardWarning`, and `fail` counts the statements
+of the test code with the application's, as before 0.9.0. The ignore patterns,
+markers and blocks match them in every mode, so a pattern written for them is
+not stale. They are not in the baseline, the SARIF file or the JSON file with
+`off`. Strict mode does not raise at a lazy load of the test code with `off`
+or `warn`.
+
+Why a factory counts as test code: a factory's lookup per object (a role
+looked up by name for every user it creates) slows the suite, but it is not
+in the application, and fixing it does not change what production does. The
+same goes for a helper that builds the expected values with lazy loads. Where
+a factory or a helper is shared with production code, or the application
+lives below a `tests` directory, set `queryguard_test_code = fail`.
+
+What it cannot tell apart: an application function defined in a test module
+(the shortest example in a bug report) is test code; move it to a module of
+its own, or set `queryguard_test_code = fail`.
 
 ### unused-eager-load (experimental)
 

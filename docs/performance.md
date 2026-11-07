@@ -115,6 +115,29 @@ gets smaller, not larger.
 Behaviour is unchanged: the existing tests, the public API snapshot and the
 accuracy corpus give the same results, and each change has a regression test.
 
+## The call path (0.9.0)
+
+Since 0.9.0 the `before_cursor_execute` listener walks the stack from the
+statement up to the test function (the hook call that ran it), not only to the
+first frame of the application: the call path of every statement tells a loop
+from calls on separate lines, and the files on it tell the test code from the
+application (see [How detection works](how-detection-works.md#calls-on-separate-lines)).
+The call site comes from the same walk. Measured on the laptop above with
+Python 3.13.18, `scripts/bench_overhead.py --runs 15`, `main` (7c7f2a8) and
+the change back to back, twice each:
+
+| Statement | Measurement off | `main`: added | 0.9.0: added |
+|---|---|---|---|
+| Core `select` by key | 40 to 41 us | +15.4 us, +14.4 us | +20.1 us, +20.1 us |
+| ORM `select` by primary key | 76 to 79 us | +28.6 us, +26.5 us | +45.3 us, +45.1 us |
+
+The walk costs about 0.3 to 0.6 microseconds per frame on the stack, so a
+deep stack (a request through a web framework's test client) costs more than
+this loop at the top level of a script. A cache keyed by `id()` replaced the
+one keyed by the code object for the methods of a `Session` subclass: a code
+object hashes its bytecode and constants, which made the first version of
+the walk twice as slow.
+
 ## What did not help
 
 - Registering the cursor listener with `retval=True` to skip SQLAlchemy's
