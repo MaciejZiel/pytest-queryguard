@@ -133,6 +133,10 @@ jobs:
         id: runs
         working-directory: project
         env:
+          # MLflow builds and serves a wheel of itself for every session when CI
+          # is true (tests/conftest.py, --serve-wheel); the store tests do not
+          # need it
+          CI: "false"
           TESTS: ${{ matrix.tests }}
           PATCHES: ${{ matrix.patches }}
           LINT: ${{ matrix.lint }}
