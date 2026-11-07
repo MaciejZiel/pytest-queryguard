@@ -872,19 +872,17 @@ The true findings were not reported to the projects.
 Flask-SQLAlchemy on PostgreSQL 16, its tests through a test client defined in
 `conftest.py` and factory_boy factories) and
 [openFEC](https://github.com/fecgov/openFEC) (71f5dbb, 702 tests) ran in a
-temporary workflow with `main` at 7c7f2a8, run
-[42418957328](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42418957328),
-and with the rules for test code and calls on separate lines, run
-[42420442191](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42420442191),
+temporary workflow, one job with `main` at 7c7f2a8 and one with the rules for
+test code and calls on separate lines, run
+[42422988856](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42422988856),
 both with the default configuration (mode `fail`).
 
 | project | failed by the plugin, `main` | failed, after | findings in test code left out |
 |---|---|---|---|
-| Faraday | 552 | 79 | 547 in 334 tests |
+| Faraday | 551 | 79 | 547 in 334 tests |
 | openFEC | 5 | 2 | 3 in 3 tests |
 
-(Faraday's `main` job of the second run hit an unrelated race on its
-`server.ini` in 911 tests; the first run's numbers are used.) On `main`,
+On `main`,
 Faraday's failures were nearly all noise: the user factory's
 `post_generation` hook looks the role up for every user it creates (422
 findings), helpers and tests that read relationships lazily, the statistics of
@@ -907,7 +905,7 @@ pages. No test failed for another reason with the plugin.
 The six projects of `realworld.yml` ran with `main` at 7c7f2a8, run
 [42418975007](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42418975007),
 and with the branch, run
-[42418976938](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42418976938):
+[42422956906](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42422956906):
 the same findings in every project (MLflow 114, SQLAdmin 51, the others none),
 no finding of test code left out, no test outcome changed and no internal
 warning.

@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- First install on a real suite: Faraday's 2112 tests failed 552 with the
+- First install on a real suite: Faraday's 2112 tests failed 551 with the
   defaults of `main`, nearly all for test code or for calls on separate
   lines, and fail 79 now. By default (`queryguard_test_code = off`) the
   N+1s of test code no longer fail a test: a factory that looks a row up for
