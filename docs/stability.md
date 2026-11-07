@@ -4,7 +4,8 @@ pytest-queryguard follows [Semantic Versioning](https://semver.org/spec/v2.0.0.h
 This page says what that covers, how deprecations work, and which tests
 enforce it.
 
-**In short:** the names in `pytest_queryguard.__all__`, the pytest options,
+**In short:** the names in `pytest_queryguard.__all__` and
+`pytest_queryguard.app.__all__`, the pytest options,
 flags and markers, the finding kinds, and the files and tools
 [listed below](#files-tools-and-the-action) are public; the wording of
 messages is not. A deprecated name keeps working with a
@@ -35,6 +36,8 @@ changes by accident.
   the `queryguard_ignore` option and marker, so that an existing ignore keeps
   matching the same finding.
 - The pytest entry point name (`queryguard`).
+- The in-application mode, `pytest_queryguard.app`, as described under
+  [The in-application mode](#the-in-application-mode).
 - The files the plugin writes and reads, and the command-line tools and the
   GitHub Action that work with them, as listed under
   [Files, tools and the action](#files-tools-and-the-action).
@@ -58,6 +61,8 @@ release.
 | Budget file (`--queryguard-budgets`, see [Budgets](budgets.md#lock-todays-counts-the-budget-file)) | `"format": 1` | `budgets`: test node id to a number of queries | the order of the entries |
 | Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the order of tests and findings |
 | SARIF file (`--queryguard-sarif`, see [SARIF](sarif.md)) | SARIF 2.1.0 | the rule ids `queryguard/<kind>`, one per finding kind; the fingerprint key `queryguardIdentity/v1` in `partialFingerprints` and the identity it hashes, so code scanning alerts stay the same alerts after an upgrade; the result `properties` `count`, `label`, `tests` and `peakCount` | rule names, descriptions and help, message text, `primaryLocationLineHash`, `codeFlows`, `fixes` (experimental, see below) |
+
+| In-app panel's JSON (`<panel_path>/requests.json`, see [In-application mode](in-app.md#the-panel)) | `"format": 1` | `version`, `watched_engines`, `internal_error` and `requests`, each request with the keys of `RequestReport.to_dict()`: `id`, `name`, `method`, `path`, `route`, `status`, `started`, `duration`, `statement_count`, `truncated`, `db_time`, `budget`, `over_budget`, `error`, `statements` (`sql`, `duration`, `relationship`, `file`, `line`, `function`) and `findings` (`kind`, `label`, `file`, `line`, `function`, `count`, `message`) | the value of `version` (the package version), the `message` text |
 
 A new fingerprint key (`queryguardIdentity/v2`) would close every open alert
 and open it again, so it is treated as a removal: from 1.0 on, only in a major
@@ -109,7 +114,7 @@ follows them too:
   ignore patterns) and never change.
 - Every time is in seconds, as a float: the `max_db_time` marker and context
   manager, `Query.duration`, `QueryLog.db_time`, `db_time` in the
-  `--queryguard-json` file, and in the experimental in-application mode
+  `--queryguard-json` file, and in the in-application mode
   `Settings.min_db_time`, `RequestReport.duration` and
   `RequestReport.db_time` (`RequestReport.started` is a Unix time). The MCP
   server's `timeout` is in seconds too.
@@ -120,18 +125,75 @@ follows them too:
   different, because `0` is a valid budget (no query at all):
   `queryguard_max_queries` is off when it is empty.
 - Each file has a key with the number of its format at the top level:
-  `format` in the `--queryguard-json` file, the budget file and the JSON
-  output of the static check and the trend, and `version` in the baseline
-  file (the oldest of them; renaming it would make every baseline unreadable
-  by older releases, so it stays). The experimental in-app panel's
-  `requests.json` has no format number: its `version` key is the package
-  version.
+  `format` in the `--queryguard-json` file, the budget file, the in-app
+  panel's `requests.json` and the JSON output of the static check and the
+  trend, and `version` in the baseline file (the oldest of them; renaming it
+  would make every baseline unreadable by older releases, so it stays). In
+  `requests.json`, `version` is the package version.
 
 The plugin and the in-application mode share the detection thresholds and
 their defaults. Two defaults differ on purpose: `Settings.max_events` is
 1000 statements per request (the plugin keeps 10000 per test), because a
 server keeps the reports of many requests; and the scope is `"request"`
 instead of `"test"`.
+
+### The in-application mode
+
+`pytest_queryguard.app` was experimental from 0.5.0 until it was promoted
+before 1.0 (#241). Since then it follows the deprecation policy like the
+rest of the public API, and `tests/test_public_api.py` snapshots it:
+
+- The names in `pytest_queryguard.app.__all__` and their signatures, the
+  fields of `Settings` with their defaults and accepted values, and the
+  fields and properties of `RequestReport` (`over_budget`, `truncated`,
+  `problems`, `message`, `to_dict()`). A new setting with a default, or a
+  new report field, is not a breaking change. A test of a `report` callable
+  may build a `RequestReport` with keyword arguments: `id` and `name` are
+  required, every other field has a default.
+- `RequestReport.statements` and `statement_count` keep their names,
+  although `QueryLog` calls the same `Query` objects `queries` and their
+  number `count`: they are also the keys of the panel's JSON and of the
+  Sentry context, and the OpenTelemetry attribute
+  `queryguard.statement_count`, so the number has one name wherever a
+  request report shows it.
+- `track` is a class that is used like a function. Calling it, its
+  `start()` and `stop()`, and using what it returns as a context manager
+  (also `async with`) or a decorator are public; subclassing it and
+  `isinstance(..., track)` are not.
+- `report="warn"` issues `QueryGuardAppWarning`, a subclass of
+  `QueryGuardWarning`: a filter for `pytest_queryguard.QueryGuardWarning`
+  matches the findings of the plugin and of the application, a filter for
+  `pytest_queryguard.app.QueryGuardAppWarning` only the application's.
+- The ready-made reporters: the OpenTelemetry attribute and event names
+  (`queryguard.*`, listed in [In-application mode](in-app.md#reporting-to-opentelemetry-and-sentry)),
+  and the Sentry fingerprint, tag and context keys. The text of the log
+  record, the warning and the Sentry message title is not public, as for
+  every message.
+
+What the mode guarantees to the application it runs in, each checked by
+`tests/inapp/` (`test_hardening.py` above all):
+
+- Importing `pytest_queryguard.app`, creating `Settings`, `track()` or the
+  middleware registers no listener and does not import pytest; `watch()`
+  registers them, and `unwatch()` of the last watched engine removes them.
+- An invalid setting raises `ValueError` when `Settings`, `track()` or the
+  middleware is created, never during a request; a reporter whose library
+  is missing raises `ImportError` when it is created.
+- Nothing the mode does changes a response or replaces the application's
+  exception. An internal error logs one ERROR record on the
+  `pytest_queryguard.app` logger and switches the mode off for the process
+  (`internal_error()` returns it), apart from the pytest plugin's own error
+  state. An exception in a `report` callable is logged, and the other
+  targets still run. The only exception the mode raises is a
+  `QueryGuardAppWarning` that the application's own warning filters turned
+  into an error: when the unit ends, after an ASGI response has been sent,
+  and never over the application's own exception; the WSGI middleware logs
+  it instead.
+- Nothing of a request is kept after its report: the statements, their
+  bound parameters and the call sites are dropped once the report is made,
+  also when a thread or task started by the request outlives it. Memory
+  stays flat over many requests, apart from the reports the panel keeps
+  (`panel_history`) and the `report` targets' own.
 
 ### Deprecated names
 
@@ -162,8 +224,8 @@ cannot parse is skipped with a message.
 ## What is not public
 
 - Everything in a module whose name starts with an underscore, and any name
-  not exported from `pytest_queryguard`. The submodules (`collector`,
-  `listeners`, `detectors`, `indexes`, `messages`, `plugin`, ...) are
+  not exported from `pytest_queryguard` or `pytest_queryguard.app`. The
+  submodules (`collector`, `listeners`, `detectors`, `indexes`, `messages`, `plugin`, ...) are
   implementation details even though they can be imported. That includes
   their exception classes (`BaselineError`, `BudgetFileError`,
   `CompareError`, ...), which reach users only as pytest usage errors or as
@@ -179,6 +241,8 @@ cannot parse is skipped with a message.
   Actions and pytest. `PYTEST_QUERYGUARD_MCP_ROOTDIR` is set by the MCP server
   for the pytest it starts, and `-p pytest_queryguard.mcp` is how that pytest
   loads its hook; both are internal.
+- The in-app panel's HTML page (only its JSON is public) and the markup of
+  the findings `page_report` adds to a page.
 - The wording and layout of failure messages, warnings, summaries and
   reports. They are written for people and improve between releases; do not
   parse them. Use `QueryLog`, the SARIF file, the baseline file or the
@@ -257,12 +321,10 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   [Unused columns](unused-columns.md).
 - The missing-index check on MySQL and MariaDB (tested in CI on MySQL 8.4 and
   MariaDB 11.8; see [the MySQL and MariaDB page](index-check-mysql.md)).
-- The in-application mode: every name in `pytest_queryguard.app` (`watch`,
-  `unwatch`, `is_watched`, `QueryGuardASGI`, `QueryGuardWSGI`, `track`,
-  `set_route`, `Settings`, `RequestReport`, `Finding`, `Query`, `CallSite`,
-  `internal_error`, `opentelemetry_reporter`, `sentry_reporter`) and the
-  panel's JSON. See
-  [In-application mode](in-app.md).
+- The in-application mode's `page_report` setting (since 0.8.0): its
+  values and which responses get the findings. The setting itself stays in
+  the `Settings` snapshot. See
+  [Findings in the page](in-app.md#findings-in-the-page).
 - The fix patch (since 0.8.0): `queryguard_show_patch`,
   `--queryguard-show-patch`, `--queryguard-write-patch`, which findings get a
   patch, the content of the diff, and the `fixes` entries of the SARIF file.
@@ -282,9 +344,7 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini options and
-their defaults, and the names, signatures and fields of `pytest_queryguard.app` and
-the keys of the panel's JSON, so a change to them is deliberate and visible in
-review.
+their defaults, so a change to them is deliberate and visible in review.
 
 ## Failing open
 
@@ -331,10 +391,11 @@ checks the outcome of every test of a small suite.
   format numbers of the baseline file, the budget file and the
   `--queryguard-json` file, the SARIF rule ids, fingerprint key and result
   properties, the compare tool's arguments and marker, the action's inputs
-  and outputs, and the deprecated names with their removal release. For the
-  experimental parts it snapshots the arguments of the trend and static-check
-  tools, the trend's JSON keys, the MCP tool names and arguments, and the
-  defaults of `app.Settings`. Their own tests (`tests/test_baseline.py`,
+  and outputs, the in-app names, signatures, `Settings` defaults and the
+  keys and format number of the panel's JSON, and the deprecated names with
+  their removal release. For the experimental parts it snapshots the
+  arguments of the trend and static-check tools, the trend's JSON keys, and
+  the MCP tool names and arguments. Their own tests (`tests/test_baseline.py`,
   `test_budget_file.py`, `test_testjson.py`, `test_sarif.py`,
   `test_compare.py`, `test_action_args.py`) check how they behave.
 - CI runs the suite on Python 3.10 to 3.15,

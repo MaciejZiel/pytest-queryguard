@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `pytest_queryguard.app.QueryGuardAppWarning`, the warning `report="warn"`
+  issues for a request's findings or budget. It is a `QueryGuardWarning`
+  subclass, so existing filters still match it; a filter for
+  `pytest_queryguard.app.QueryGuardAppWarning` matches the in-application
+  mode's findings and not the pytest plugin's. The WSGI middleware's ERROR
+  record for such a warning turned into an error now starts with
+  `QueryGuardAppWarning:` (#241).
+- The in-app panel's `requests.json` starts with `"format": 1`, like the
+  other JSON files; its keys are listed in
+  [Stability](docs/stability.md#files-tools-and-the-action) (#241).
 - The JSON output of the experimental trend
   (`python -m pytest_queryguard.trend --format json`) starts with
   `"format": 1`, like the other JSON files, and its keys are documented in
@@ -22,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The in-application mode (`pytest_queryguard.app`) is no longer
+  experimental: its names, `Settings` and their defaults, `RequestReport`,
+  the reporters' OpenTelemetry and Sentry keys and the panel's JSON follow
+  the deprecation policy, and
+  [Stability](docs/stability.md#the-in-application-mode) lists what the mode
+  guarantees to the application it runs in. No name changes:
+  `RequestReport.statements` and `statement_count` stay, as in the panel's
+  JSON and the `queryguard.statement_count` OpenTelemetry attribute.
+  `page_report` stays experimental (#241).
 - The GitHub Action checks its switches: `fail`, `upload`, `compare` and
   `comment` must be `true` or `false` (any case), and `trend` `false`, `true`
   or 2 to 100; anything else, the empty string included, stops the action

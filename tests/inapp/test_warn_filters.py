@@ -120,7 +120,7 @@ def test_wsgi_logs_the_error_instead_of_cutting_the_body_short(
         result.close()  # the server's close() raises nothing either
     (record,) = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert "expected at most 0 queries" in record.getMessage()
-    assert "QueryGuardWarning" in record.getMessage()
+    assert record.getMessage().startswith("QueryGuardAppWarning: ")
 
 
 @pytest.mark.usefixtures("warnings_are_errors")
