@@ -181,9 +181,9 @@ def _lazy(c: QueryCollector, scope: int, parent: int, reader: str) -> object:
         scope=scope,
         parent=ParentLoad(CallSite(filename="store.py", lineno=4, function="_get")),
     )
+    # in the listeners' order: the check, then the load once its SELECT ran
     error = c.strict_check(load)
-    c.relationship_loads.append(load)
-    c.relationship_load_count += 1
+    c.add_relationship_load(load)
     return error
 
 

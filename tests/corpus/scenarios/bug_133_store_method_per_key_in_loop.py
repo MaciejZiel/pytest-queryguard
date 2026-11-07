@@ -4,7 +4,7 @@ From MLflow 2.22.0 (``test_log_batch_limits`` calls ``get_metric_history``
 for each of 1000 metric keys): the store opens a Session per method, and a
 report builds its table by calling the store once per product. One SELECT per
 product, each in a Session of its own; one ``IN`` query for all the products
-replaces them. Unlike ``clean_134_store_methods_at_separate_lines``, every
+replaces them. Unlike ``clean_137_store_methods_at_separate_lines``, every
 call comes from the same line, so the Sessions add up.
 """
 
