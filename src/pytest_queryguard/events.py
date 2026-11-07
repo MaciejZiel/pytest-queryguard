@@ -71,6 +71,13 @@ class StatementEvent:
     # unknown. See listeners.scope_of_connection().
     scope: int | None = None
     ignores: tuple[IgnoreBlock, ...] = ()
+    # The application lines it ran from, innermost first, up to the test
+    # (callsite.find_origin): runs with the same lines are passes of one
+    # loop. None when unknown.
+    path: tuple[tuple[str, int], ...] | None = None
+    # True when every application frame it ran from is test code: the test
+    # module, a conftest.py, a factory, a helper under tests/ (callsite.TestCode).
+    test_code: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +106,10 @@ class RelationshipLoadEvent:
     scope: int | None = None  # the Session that lazy-loaded it
     parent: ParentLoad | None = None  # None when nothing is known about it
     ignores: tuple[IgnoreBlock, ...] = ()
+    # The test lines that called the application (callsite.Origin.entry):
+    # lazy loads are told apart by these only, see detectors._split.
+    entry: tuple[tuple[str, int], ...] | None = None
+    test_code: bool = False  # as StatementEvent.test_code
 
 
 # What made the instance load columns again.
@@ -124,6 +135,10 @@ class ColumnLoadEvent:
     ignores: tuple[IgnoreBlock, ...] = ()
     base: str | None = None  # the class the query selected, for CAUSE_POLYMORPHIC
     single_table: bool = False  # CAUSE_POLYMORPHIC: the columns are in its table
+    # The test lines that called the application (callsite.Origin.entry):
+    # lazy loads are told apart by these only, see detectors._split.
+    entry: tuple[tuple[str, int], ...] | None = None
+    test_code: bool = False  # as StatementEvent.test_code
 
 
 @dataclass(frozen=True, slots=True)

@@ -140,6 +140,10 @@ class Finding:
     # the change that adds the loader option to it. Made only when a patch or
     # SARIF is asked for. Not part of the identity.
     fix: SourceFix | None = field(default=None, compare=False)
+    # True when every statement of the finding ran in test code (a test
+    # module, conftest.py, a factory or a helper under tests/), not in the
+    # application; see queryguard_test_code. Not part of the identity.
+    test_code: bool = field(default=False, compare=False)
 
     @property
     def identity(self) -> tuple[str, str, str | None, str | None]:

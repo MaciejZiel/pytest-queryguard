@@ -64,6 +64,7 @@ def test_nothing_recorded_without_active_collector(
         raise RuntimeError("must not be called without a collector")
 
     monkeypatch.setattr(listeners, "find_callsite", boom)
+    monkeypatch.setattr(listeners, "find_site_origin", boom)
     for order in session.scalars(select(Order)).all():
         _ = order.customer
     assert listeners.internal_error() is None
@@ -151,6 +152,7 @@ def test_listener_error_is_swallowed_and_disables(
         raise RuntimeError("boom")
 
     monkeypatch.setattr(listeners, "find_callsite", boom)
+    monkeypatch.setattr(listeners, "find_site_origin", boom)
     assert listeners.internal_error() is None
     assert len(session.execute(select(Customer)).all()) == 3
     assert isinstance(listeners.internal_error(), RuntimeError)
