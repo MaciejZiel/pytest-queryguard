@@ -187,6 +187,78 @@ TOOLS["nplusone-sa20"] = replace(
     extra=SQLALCHEMY_20,
 )
 
+# The Django corpus (tests/django_project/corpus) under the Django N+1 tools
+# (scripts/head_to_head/django_corpus.py). Its kinds are REL, REPEAT, COLUMN
+# and WRITE; the pytest-queryguard configurations are those of
+# tests/django_project/corpus/runner.py.
+DJANGO_TOOLS: dict[str, Tool] = {
+    tool.key: tool
+    for tool in (
+        replace(
+            TOOLS["none"],
+            notes="Every plugin off: a scenario that fails here fails on its own.",
+        ),
+        Tool(
+            key="queryguard",
+            label="pytest-queryguard, defaults",
+            requirement="",
+            args=(),
+            supported=frozenset({REL, REPEAT, COLUMN}),
+            reports_kinds=True,
+            config="default",
+            notes="No option set.",
+        ),
+        Tool(
+            key="queryguard-all",
+            label="pytest-queryguard, write loops on",
+            requirement="",
+            args=(),
+            supported=frozenset({REL, REPEAT, COLUMN, WRITE}),
+            reports_kinds=True,
+            config="write-loop",
+            notes="`queryguard_write_loop_threshold = 2` (the corpus's write-loop configuration).",
+        ),
+        Tool(
+            key="zeal",
+            label="django-zeal",
+            requirement="django-zeal==2.3.0",
+            args=("-p", "no:queryguard"),
+            # N+1s of relations, of deferred fields and of get()
+            supported=frozenset({REL, COLUMN, REPEAT}),
+            reports_kinds=True,
+            markers=("NPlusOneError", "N+1 detected on"),
+            notes=(
+                "`zeal` in `INSTALLED_APPS`, `zeal_context()` around each test call, "
+                "its defaults (raises `NPlusOneError`, threshold 2). The kind of a report "
+                "comes from the field it names: `get()` is `repeated-statement`, a field "
+                "that is no relation `column-load`, any other `relationship-load`."
+            ),
+        ),
+        Tool(
+            key="nplusone-django",
+            label="nplusone (Django)",
+            requirement="nplusone==1.0.0",
+            args=("-p", "no:queryguard"),
+            supported=frozenset({REL, UNUSED}),
+            reports_kinds=True,
+            markers=(
+                "NPlusOneError",
+                "Potential n+1 query",
+                "Potential unnecessary eager load",
+            ),
+            kind_patterns=(
+                (r"Potential n\+1 query detected", REL),
+                (r"Potential unnecessary eager load detected", UNUSED),
+            ),
+            notes=(
+                "`nplusone.ext.django` in `INSTALLED_APPS` and `profiler.Profiler()` "
+                "around each test call (raises `NPlusOneError`)."
+            ),
+        ),
+    )
+}
+DJANGO_COMPARED = ("queryguard", "queryguard-all", "zeal", "nplusone-django")
+
 # The tools the summary compares, in this order; "none" is the baseline.
 COMPARED = (
     "queryguard",
@@ -221,13 +293,17 @@ def parse_kinds(tool: Tool, text: str) -> frozenset[str]:
 
 
 def classify(
-    tool: Tool, phases: list[dict[str, str]], findings: frozenset[str] | None = None
+    tool: Tool,
+    phases: list[dict[str, str]],
+    findings: frozenset[str] | None = None,
+    reported: frozenset[str] = frozenset(),
 ) -> Verdict:
     """The verdict of one scenario from the JSON lines ``session_plugin`` wrote.
 
     ``phases`` are that scenario's lines; ``findings`` the kinds
-    pytest-queryguard recorded (only for its own runs). A scenario with no
-    line never ran: an error.
+    pytest-queryguard recorded (only for its own runs); ``reported`` the kinds
+    another tool's reports were resolved to while it ran (django-zeal's). A
+    scenario with no line never ran: an error.
     """
     if not phases:
         return Verdict(ERROR, detail="did not run (the session stopped before it)")
@@ -241,7 +317,11 @@ def classify(
         return Verdict(PASSED)
     if failed:
         if tool.markers and any(marker in text for marker in tool.markers):
-            kinds = parse_kinds(tool, text) if tool.reports_kinds else frozenset()
+            kinds = (
+                parse_kinds(tool, text) | reported
+                if tool.reports_kinds
+                else frozenset()
+            )
             return Verdict(
                 FLAGGED, kinds or frozenset({UNKNOWN_KIND}), first_line(text)
             )
@@ -396,7 +476,12 @@ def kind_cell(tool: Tool, tally: KindScore | None) -> str:
     return f"- / {pct(KindScore.ratio(tally.flagged, tally.total))}"
 
 
-def accuracy_tables(scores: dict[str, ToolScore]) -> list[str]:
+def accuracy_tables(
+    scores: dict[str, ToolScore],
+    tools: dict[str, Tool] | None = None,
+    kinds: tuple[str, ...] = KINDS,
+) -> list[str]:
+    tools = TOOLS if tools is None else tools
     lines = [
         (
             "| tool | BUG flagged | BUG missed | BUG error | CLEAN passed | CLEAN flagged "
@@ -406,7 +491,7 @@ def accuracy_tables(scores: dict[str, ToolScore]) -> list[str]:
     ]
     for key, s in scores.items():
         lines.append(
-            f"| {TOOLS[key].label} | {s.bug_flagged} | {s.bug_missed} | {s.bug_error} "
+            f"| {tools[key].label} | {s.bug_flagged} | {s.bug_missed} | {s.bug_error} "
             f"| {s.clean_passed} | {s.clean_flagged} | {s.clean_error} "
             f"| {pct(s.precision)} | {pct(s.recall)} | {pct(s.in_scope_recall)} |"
         )
@@ -419,14 +504,14 @@ def accuracy_tables(scores: dict[str, ToolScore]) -> list[str]:
             "that kind it flagged (for any reason) is given."
         ),
         "",
-        "| tool | " + " | ".join(f"`{k}`" for k in KINDS) + " |",
-        "|---|" + "---|" * len(KINDS),
+        "| tool | " + " | ".join(f"`{k}`" for k in kinds) + " |",
+        "|---|" + "---|" * len(kinds),
     ]
     for key, s in scores.items():
-        tool = TOOLS[key]
+        tool = tools[key]
         lines.append(
             f"| {tool.label} | "
-            + " | ".join(kind_cell(tool, s.kinds[k]) for k in KINDS)
+            + " | ".join(kind_cell(tool, s.kinds[k]) for k in kinds)
             + " |"
         )
     return lines

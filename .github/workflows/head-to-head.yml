@@ -7,11 +7,22 @@ name: Head-to-head
 # results together (docs/comparison.md#head-to-head). The tools, their pinned
 # versions and how each one is set up are in scripts/head_to_head/common.py.
 #
+# With suite=django (by hand only) it measures the Django corpus
+# (tests/django_project/corpus) instead, under pytest-queryguard, django-zeal
+# and nplusone on Django 5.2 and 6.1, and the overhead of each on a
+# pytest-django suite (docs/django.md#comparison; scripts/head_to_head/django_*.py).
+#
 # It installs third-party packages, so its token can only read this
 # repository and the checkout keeps no credentials. Started by hand, and once
 # a month to notice when a new release of a tool changes the numbers.
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: "Which corpus: the SQLAlchemy one or the Django one"
+        type: choice
+        options: [sqlalchemy, django]
+        default: sqlalchemy
   schedule:
     - cron: "17 4 3 * *"
 
@@ -28,6 +39,7 @@ env:
 jobs:
   corpus:
     name: corpus (${{ matrix.tool }})
+    if: inputs.suite != 'django'
     runs-on: ubuntu-latest
     # about 1 minute of corpus per tool on a runner, plus the install
     timeout-minutes: 30
@@ -67,6 +79,7 @@ jobs:
           retention-days: 90
 
   overhead:
+    if: inputs.suite != 'django'
     runs-on: ubuntu-latest
     # six environments, then 15 rounds of six micro runs and six 300-test suites
     timeout-minutes: 60
@@ -91,7 +104,7 @@ jobs:
 
   aggregate:
     needs: [corpus, overhead]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && inputs.suite != 'django' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -115,4 +128,95 @@ jobs:
           path: |
             head-to-head.md
             head-to-head.json
+          retention-days: 90
+
+  django-corpus:
+    name: django corpus (${{ matrix.tool }}, Django ${{ matrix.django }})
+    if: inputs.suite == 'django'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [none, queryguard, queryguard-all, zeal, nplusone-django]
+        django: ["5.2", "6.1"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --group django
+      - name: Install Django ${{ matrix.django }} and the tool
+        env:
+          TOOL: ${{ matrix.tool }}
+          DJANGO: ${{ matrix.django }}
+        run: |
+          mapfile -t packages < <(uv run --no-sync python -c "import sys; sys.path.insert(0, 'scripts/head_to_head'); import common; print('\n'.join(common.DJANGO_TOOLS[sys.argv[1]].install))" "$TOOL")
+          # not under the project's exclude-newer: the tool is pinned exactly
+          uv pip install --no-config --python .venv/bin/python "django==${DJANGO}.*" ${packages[0]:+"${packages[@]}"}
+          uv pip list --python .venv/bin/python
+      - name: Run the corpus
+        env:
+          TOOL: ${{ matrix.tool }}
+          DJANGO: ${{ matrix.django }}
+        run: uv run --no-sync python scripts/head_to_head/django_corpus.py "$TOOL" --out "results/django-$TOOL-$DJANGO.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: django-corpus-${{ matrix.tool }}-${{ matrix.django }}
+          path: results/
+          retention-days: 90
+
+  django-overhead:
+    if: inputs.suite == 'django'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen --group django
+      - name: Install Django 5.2 and both tools
+        run: |
+          uv pip install --no-config --python .venv/bin/python "django==5.2.*" django-zeal==2.3.0 nplusone==1.0.0
+          uv pip list --python .venv/bin/python
+      - name: Measure
+        run: uv run --no-sync python scripts/head_to_head/django_overhead.py --rounds 9 --out results/django-overhead.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: django-overhead
+          path: results/
+          retention-days: 90
+
+  django-aggregate:
+    needs: [django-corpus, django-overhead]
+    if: ${{ !cancelled() && inputs.suite == 'django' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: django-*
+          path: results
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Aggregate
+        run: |
+          uv run --no-project python scripts/head_to_head/aggregate.py results --suite django \
+            --markdown head-to-head-django.md --json head-to-head-django.json
+          cat head-to-head-django.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: head-to-head-django
+          path: |
+            head-to-head-django.md
+            head-to-head-django.json
           retention-days: 90

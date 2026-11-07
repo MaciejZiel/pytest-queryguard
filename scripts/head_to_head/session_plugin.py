@@ -80,3 +80,30 @@ if TOOL in ("nplusone", "nplusone-sa20"):
     def pytest_runtest_call(item: pytest.Item) -> object:
         with profiler.Profiler():
             return (yield)
+
+
+# --- the Django corpus (django_corpus.py) ------------------------------------
+#
+# Both tools are in INSTALLED_APPS through the session's settings, which
+# django_corpus.py writes; here each one watches the test call only, not the
+# setup fixture, as pytest-queryguard does. Both raise at the report, so the
+# report is in the failed test's text.
+
+if TOOL == "zeal":
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_runtest_call(item: pytest.Item) -> object:
+        from zeal import zeal_context
+
+        with zeal_context():
+            return (yield)
+
+
+if TOOL == "nplusone-django":
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_runtest_call(item: pytest.Item) -> object:
+        from nplusone.core import profiler
+
+        with profiler.Profiler():
+            return (yield)
