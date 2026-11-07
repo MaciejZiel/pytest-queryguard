@@ -2,36 +2,46 @@ from __future__ import annotations
 
 import contextlib
 import glob
+import importlib
 import importlib.metadata
 import os
 import shlex
+import sys
 import time
 import warnings as std_warnings
 from collections.abc import Callable, Generator, Sequence
 from dataclasses import dataclass, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+
+if TYPE_CHECKING:
+    from . import eager, unused_columns
 
 from . import baseline as baselines
 from . import (
     blocks,
-    cartesian,
     catalog,
-    eager,
     fixpatch,
     hypopg,
     indexes,
     sarif,
     testjson,
-    unused_columns,
 )
 from . import budgets as budget_files
 from . import groups as finding_groups
 from .api import NPlusOneDetected, QueryGuardFixture, add_to_strict_error
-from .backends import install, install_index_check
+from .backends import (
+    disable_cartesian,
+    disable_strict,
+    enable_cartesian,
+    enable_strict,
+    install,
+    install_index_check,
+)
+from .backends import ready as backends_ready
 from .baseline import BaselineError, Identity, sorted_identities
 from .callsite import DEFAULT_STACK_DEPTH, swap_stack_depth, trim_to_user_code
 from .collector import QueryCollector, pop, push
@@ -43,6 +53,12 @@ from .detectors import (
     Detection,
     RelationshipFinding,
     detect,
+)
+from .errors import (
+    internal_error,
+    internal_failure,
+    record_error,
+    swap_error,
 )
 from .events import CallSite, RelationshipLoadEvent, ScanEvent
 from .fileio import atomic_write_text
@@ -60,14 +76,6 @@ from .findings import (
 )
 from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
 from .indexes import scan_key, select_findings
-from .listeners import (
-    disable_strict,
-    enable_strict,
-    internal_error,
-    internal_failure,
-    record_error,
-    swap_error,
-)
 from .messages import (
     _display_path,
     format_budget,
@@ -92,6 +100,16 @@ from .warnings import (
     QueryGuardWarning,
     warn_internal,
 )
+
+
+def _sqlalchemy_check(name: str) -> Any:
+    """The module of an opt-in SQLAlchemy check, imported when first used.
+
+    They import SQLAlchemy; a project that does not switch them on (or uses
+    only Django) never imports it through them.
+    """
+    return importlib.import_module(f"pytest_queryguard.{name}")
+
 
 _MODES = ("fail", "warn", "off")
 _EAGER_MODES = ("off", "warn", "fail")
@@ -1099,6 +1117,13 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def _configure(config: pytest.Config) -> None:
+    if config.pluginmanager.has_plugin("pytester"):
+        # pytester's in-process sessions unload the modules they import; the
+        # compiled modules of SQLAlchemy cannot be imported a second time, so
+        # it is imported here, outside them, as before SQLAlchemy was loaded
+        # only when the project imports it (backends._sqlalchemy).
+        with contextlib.suppress(ImportError):
+            importlib.import_module("sqlalchemy.orm")
     config.stash[_outer_stopped] = indexes.swap_stopped(None)
     config.stash[_outer_catalog_error] = indexes.swap_catalog_error(None)
     config.stash[_outer_no_plpgsql] = indexes.swap_no_plpgsql(indexes.EngineSet())
@@ -1121,13 +1146,13 @@ def _configure(config: pytest.Config) -> None:
             install_index_check()
         if settings.unused_eager != "off":
             config.stash[_eager_enabled] = True  # set first: undone even if it fails
-            eager.enable()
+            _sqlalchemy_check("eager").enable()
         if settings.unused_columns != "off":
             config.stash[_columns_enabled] = True  # set first: undone even if it fails
-            unused_columns.enable()
+            _sqlalchemy_check("unused_columns").enable()
         if settings.cartesian != "off":
             config.stash[_cartesian_enabled] = True
-            cartesian.enable()
+            enable_cartesian()
         if settings.strict:
             # a do_orm_execute listener, so it raises before the engine runs
             config.stash[_strict_enabled] = True
@@ -1196,7 +1221,7 @@ def _restore_stack_depth(config: pytest.Config) -> None:
 def _disable_cartesian(config: pytest.Config) -> None:
     if config.stash.get(_cartesian_enabled, False):
         config.stash[_cartesian_enabled] = False
-        cartesian.disable()
+        disable_cartesian()
 
 
 def _disable_strict(config: pytest.Config) -> None:
@@ -1208,13 +1233,13 @@ def _disable_strict(config: pytest.Config) -> None:
 def _disable_columns(config: pytest.Config) -> None:
     if config.stash.get(_columns_enabled, False):
         config.stash[_columns_enabled] = False
-        unused_columns.disable()
+        _sqlalchemy_check("unused_columns").disable()
 
 
 def _disable_eager(config: pytest.Config) -> None:
     if config.stash.get(_eager_enabled, False):
         config.stash[_eager_enabled] = False
-        eager.disable()
+        _sqlalchemy_check("eager").disable()
 
 
 def _report_internal_error(config: pytest.Config) -> None:
@@ -1389,13 +1414,19 @@ def _findings(
             for finding, detection in zip(findings, detections, strict=True)
         ]
     if trackers.eager is not None:
-        findings.extend(eager.findings(trackers.eager, cwd=root, sieve=sieve))
+        findings.extend(
+            _sqlalchemy_check("eager").findings(trackers.eager, cwd=root, sieve=sieve)
+        )
     if trackers.columns is not None:
         findings.extend(
-            unused_columns.findings(trackers.columns, cwd=root, sieve=sieve)
+            _sqlalchemy_check("unused_columns").findings(
+                trackers.columns, cwd=root, sieve=sieve
+            )
         )
     if settings.cartesian != "off" and collector.cartesian_loads:
-        findings.extend(cartesian.findings(collector, cwd=root, sieve=sieve))
+        findings.extend(
+            _sqlalchemy_check("cartesian").findings(collector, cwd=root, sieve=sieve)
+        )
     return findings
 
 
@@ -2140,6 +2171,15 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
             settings.failed.add(report.nodeid)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "budget update")
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Hook in the ORMs the collected tests imported, before any fixture runs
+    (SQLAlchemy is installed only once the project has imported it)."""
+    try:
+        backends_ready()
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "ORM integration (after collection)")
 
 
 @pytest.hookimpl(wrapper=True, tryfirst=True)
@@ -3020,20 +3060,27 @@ class _Trackers:
     def stop(self) -> None:
         try:
             if self.eager is not None:
-                eager.stop(self.eager)
+                _sqlalchemy_check("eager").stop(self.eager)
         finally:
             if self.columns is not None:
-                unused_columns.stop(self.columns)
+                _sqlalchemy_check("unused_columns").stop(self.columns)
 
 
 def _start_trackers(settings: _Settings) -> _Trackers:
     if settings.mode == "off":
         return _Trackers()
-    tracker = eager.start() if eager.is_enabled() else None
+    # the checks of SQLAlchemy that are opt-in; not imported while off
+    eager = sys.modules.get("pytest_queryguard.eager")
+    unused_columns = sys.modules.get("pytest_queryguard.unused_columns")
+    tracker = eager.start() if eager is not None and eager.is_enabled() else None
     try:
-        columns = unused_columns.start() if unused_columns.is_enabled() else None
+        columns = (
+            unused_columns.start()
+            if unused_columns is not None and unused_columns.is_enabled()
+            else None
+        )
     except BaseException:
-        if tracker is not None:
+        if tracker is not None and eager is not None:
             eager.stop(tracker)
         raise
     return _Trackers(tracker, columns)

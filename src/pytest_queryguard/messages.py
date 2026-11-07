@@ -9,6 +9,7 @@ from .detectors import (
     RelationshipFinding,
     WriteLoopFinding,
 )
+from .errors import Failure
 from .events import (
     CAUSE_DEFERRED,
     CAUSE_POLYMORPHIC,
@@ -37,7 +38,6 @@ from .findings import (
     docs_url,
 )
 from .indexes import table_label
-from .listeners import Failure
 
 _SQL_LIMIT = 200
 _REPEAT_FIX = [

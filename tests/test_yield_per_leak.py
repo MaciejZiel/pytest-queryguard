@@ -34,7 +34,7 @@ from sqlalchemy.orm import (
     selectinload,
 )
 
-from pytest_queryguard import app, eager, listeners
+from pytest_queryguard import app, eager, errors, listeners
 from pytest_queryguard.app import _core as app_core
 
 LEAKS = listeners._leaks_load_options()
@@ -307,7 +307,7 @@ def test_a_bug_in_the_heal_is_reported_not_raised() -> None:
     saved = listeners.swap_error(None)
     try:
         listeners._on_orm_execute_heal(Broken())
-        assert isinstance(listeners._error, RuntimeError)
+        assert isinstance(errors._error, RuntimeError)
     finally:
         listeners.swap_error(saved)
 

@@ -4,7 +4,7 @@ import sys
 import threading
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import callsite
 from .blocks import IgnoreBlock, covers
@@ -418,6 +418,18 @@ def boundary(scope: object) -> object:
     """The scope ``scope`` always counts in with ``queryguard_scope = test``:
     itself when it is counted on its own, else None (the whole test)."""
     return scope if scope in _own_scopes else None
+
+
+def for_target(
+    load: RelationshipLoadEvent, target: QueryCollector
+) -> RelationshipLoadEvent:
+    """``load`` as ``target`` records it: without the parent's origin when that
+    was noted before ``target`` started (an object loaded before a
+    ``record_queries()`` block has none there)."""
+    parent = load.parent
+    if parent is None or parent.noted >= target.since:
+        return load
+    return replace(load, parent=None)
 
 
 def generation() -> int:

@@ -8,7 +8,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from types import CodeType, FrameType
 
-from ._compat import FLUSH_CONTEXT, FLUSH_FUNCTION, SESSION_FILE
 from .events import CallSite
 
 
@@ -308,7 +307,22 @@ def _first_external(
 # `flush_context`. It sits behind a generated "warned" wrapper, so the frame is
 # found by function name and file. If a SQLAlchemy release renames either, no
 # statement is tagged and the write-loop rule counts every statement, as before.
-_SESSION_FILE = SESSION_FILE
+# The names _compat.py lists (tests/test_compat.py checks them); not imported
+# from there, which would import SQLAlchemy into a project that uses only
+# Django. find_flush only runs inside SQLAlchemy's listeners.
+FLUSH_FUNCTION = "_flush"
+FLUSH_CONTEXT = "flush_context"
+_SESSION_FILE: str | None = None
+
+
+def _session_file() -> str | None:
+    global _SESSION_FILE
+    if _SESSION_FILE is None:
+        module = sys.modules.get("sqlalchemy.orm.session")
+        _SESSION_FILE = getattr(module, "__file__", None)
+    return _SESSION_FILE
+
+
 _flush_numbers = itertools.count(1)
 _MAX_FLUSH_DEPTH = 60
 
@@ -319,14 +333,15 @@ def find_flush() -> int | None:
     The statements of one flush share a number: a unit of work cannot make them
     fewer, so they are not a loop of the application's own writes.
     """
-    if _SESSION_FILE is None:
+    session_file = _session_file()
+    if session_file is None:
         return None
     frame: FrameType | None = sys._getframe(1)
     for _ in range(_MAX_FLUSH_DEPTH):
         if frame is None:
             return None
         code = frame.f_code
-        if code.co_name == FLUSH_FUNCTION and code.co_filename == _SESSION_FILE:
+        if code.co_name == FLUSH_FUNCTION and code.co_filename == session_file:
             context = frame.f_locals.get(FLUSH_CONTEXT)
             if context is None:
                 return None

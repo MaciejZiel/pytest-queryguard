@@ -9,8 +9,8 @@ from .backends import install
 from .blocks import Sieve
 from .collector import QueryCollector, pop, pop_local, push, push_local
 from .detectors import SCOPES, detect
+from .errors import internal_error, record_error
 from .events import CallSite, StatementEvent
-from .listeners import internal_error, record_error
 from .messages import (
     display_root,
     format_budget,

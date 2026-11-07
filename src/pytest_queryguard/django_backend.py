@@ -55,7 +55,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextvars import ContextVar
 from typing import Any
 
-from . import blocks, callsite, collector, listeners, sqltext
+from . import blocks, callsite, collector, errors, sqltext
 from .callsite import find_callsite
 from .events import (
     CAUSE_DEFERRED,
@@ -174,11 +174,11 @@ _rows = _Rows()
 
 
 def _failed() -> bool:
-    return listeners.internal_error() is not None
+    return errors._error is not None
 
 
 def _fail(exc: Exception, source: str) -> None:
-    listeners.record_error(exc, source)
+    errors.record_error(exc, source)
 
 
 # --- installing -----------------------------------------------------------
@@ -484,7 +484,7 @@ def _record(
         if isinstance(event, RelationshipLoadEvent):
             relationship = event.relationship
             for target in full:
-                target.add_relationship_load(listeners._for_target(event, target))
+                target.add_relationship_load(collector.for_target(event, target))
         else:
             column_load = True
             event.sql = sql
@@ -778,7 +778,7 @@ _request: ContextVar[int | None] = ContextVar("queryguard_django_request", defau
 def _on_request_started(sender: Any, **kwargs: Any) -> None:
     # One scope per request (the test client's included), as a Session is
     # one for SQLAlchemy: queryguard_scope = session counts each on its own.
-    scope = next(listeners._scopes)
+    scope = next(errors.scopes)
     collector.note_own_scope(scope)
     _request.set(scope)
 
@@ -795,7 +795,7 @@ def _site() -> Any:
 def _scope_of(connection: Any) -> int | None:
     """The request being handled, else the connection the statement ran on."""
     scope = _request.get()
-    return scope if scope is not None else listeners.scope_of_connection(connection)
+    return scope if scope is not None else errors.scope_of(connection)
 
 
 def _scope(instance: Any) -> int | None:
@@ -848,14 +848,14 @@ def _begin(event: RelationshipLoadEvent) -> None:
     raiser: collector.QueryCollector | None = None
     for target in full:
         if target.strict is not None:
-            error = target.strict_check(listeners._for_target(event, target))
+            error = target.strict_check(collector.for_target(event, target))
             if strict is None and error is not None:
                 strict, raiser = error, target
     if strict is None:
         return
     # a load that raises runs no SELECT: it is recorded here
     for target in full:
-        target.add_relationship_load(listeners._for_target(event, target))
+        target.add_relationship_load(collector.for_target(event, target))
     if raiser is not None:
         raiser.strict_raised = True
     # raised inside Django's ``except KeyError`` of an uncached relation: that
