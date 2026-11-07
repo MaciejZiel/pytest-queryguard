@@ -222,7 +222,7 @@ the first one, before the fixes below:
 | django-oscar 4.2.1 (PostgreSQL) | functional and integration | 1697 / 0 / 0 | none | 0 / 0 | 641: 278 relationship-load, 363 repeated-statement | +3.7 %, +8.4 % |
 
 The plugin changed no test's outcome and reported no internal error in any of
-the 8,800-odd tests, in either run. The overheads are of single runs (the
+the 8,945 tests, in either run. The overheads are of single runs (the
 first before SQLAlchemy was imported lazily, the second in
 [run 42422111060](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42422111060)
 with the final code), and the runs without any tool vary by up to 30 %
