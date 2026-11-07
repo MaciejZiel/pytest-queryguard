@@ -192,31 +192,65 @@ def _outer(frame: FrameType) -> FrameType:
     return frame
 
 
-def _callers(frame: FrameType | None, depth: int) -> tuple[CallSite, ...]:
-    """Up to ``depth`` application frames from ``frame`` outwards.
+def _app_frames(frame: FrameType | None) -> Iterator[FrameType]:
+    """The application frames from ``frame`` outwards.
 
-    The walk ends at the first pluggy frame: the hook call that ran the test
-    or the fixture. Above it is pytest itself and its console script.
+    A comprehension's frame (before 3.12) is given as the function it is
+    written in. The walk ends at the first pluggy frame: the hook call that
+    ran the test or the fixture. Above it is pytest itself and its console
+    script.
     """
-    found: list[CallSite] = []
     stop = _hook_caller()
-    while frame is not None and len(found) < depth:
+    while frame is not None:
         code = frame.f_code
         if stop and os.path.normcase(code.co_filename).startswith(stop):
-            break
+            return
         if not _is_internal(code.co_filename) and not _is_session_method(frame):
             if code.co_name in _INLINED:
                 frame = _outer(frame)
-                code = frame.f_code
-            found.append(
-                CallSite(
-                    filename=code.co_filename,
-                    lineno=frame.f_lineno,
-                    function=code.co_name,
-                )
-            )
+            yield frame
         frame = frame.f_back
-    return tuple(found)
+
+
+def _callers(frame: FrameType | None, depth: int) -> tuple[CallSite, ...]:
+    """Up to ``depth`` application frames from ``frame`` outwards."""
+    return tuple(
+        CallSite(
+            filename=app.f_code.co_filename,
+            lineno=app.f_lineno,
+            function=app.f_code.co_name,
+        )
+        for app in itertools.islice(_app_frames(frame), depth)
+    )
+
+
+Entry = tuple[tuple[str, int], ...]
+_MAX_ENTRY_LINES = 64
+
+
+def find_entry() -> Entry | None:
+    """The application lines the running statement came from, up to the test.
+
+    ``(filename, line)`` of each application frame, innermost first, as
+    ``_app_frames`` walks them, through the parent greenlets of an async session.
+    A function that is on the stack more than once (recursion) is kept at its
+    innermost frame only, so each depth of a recursive walk has the same
+    lines. Two units of work begun from the same lines are passes of one loop
+    (or tasks of one fan-out); begun from different lines, they may be calls
+    on separate lines. None when no application frame is found.
+    """
+    lines: list[tuple[str, int]] = []
+    seen: set[CodeType] = set()
+    starts = itertools.chain((sys._getframe(1),), _parent_greenlet_frames())
+    for start in starts:
+        for frame in _app_frames(start):
+            code = frame.f_code
+            if code not in seen:
+                seen.add(code)
+                lines.append((code.co_filename, frame.f_lineno))
+                if len(lines) >= _MAX_ENTRY_LINES:
+                    return tuple(lines)
+    return tuple(lines) or None
 
 
 def _site(frame: FrameType, sites: Sites) -> CallSite:

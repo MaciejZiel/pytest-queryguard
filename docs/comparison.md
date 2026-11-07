@@ -310,7 +310,7 @@ best and the median are given.
 
 The head-to-head above runs the scenarios of the
 [accuracy page](accuracy.md) under every tool (252 on the day it ran; the page
-now has 268, with precision and recall per finding kind). The smaller table
+now has 274, with precision and recall per finding kind). The smaller table
 below is the first comparison, of 2026-10-12.
 
 I ran 45 scenarios in `tests/scenarios` (SQLAlchemy ORM and Core, sync and
