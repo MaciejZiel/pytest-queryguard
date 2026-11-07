@@ -83,11 +83,17 @@ pytest; the pipeline itself was not run on GitLab.
 
 ## pre-commit
 
-pre-commit does not fit. A hook there runs on the files of a commit, and
-pytest-queryguard looks at the SQL that a test run sends, so there is nothing
-it can check in a changed file without running the tests against a database.
-Run it in CI and in your normal test command, and use a `pytest` hook in
-`repo: local` only if you already run your suite from pre-commit.
+The pytest plugin does not fit pre-commit. A hook there runs on the files of a
+commit, and the plugin looks at the SQL that a test run sends, so there is
+nothing it can check in a changed file without running the tests against a
+database. Run it in CI and in your normal test command, and use a `pytest`
+hook in `repo: local` only if you already run your suite from pre-commit.
+
+The experimental [static check](static-check.md) does fit: it reads the
+changed files without a database. The repository has a `queryguard-lint`
+hook for it; see [Static check](static-check.md#pre-commit) for its
+configuration (it needs `--models`, and the models must be importable in the
+hook's environment).
 
 ## Keep the baseline honest
 

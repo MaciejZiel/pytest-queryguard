@@ -9,10 +9,13 @@ line, on stdin and stdout. It needs no dependency beyond the plugin. Tools:
   findings of each test, the patch for the relationship-load findings whose
   parent query line is certain, and the end of pytest's output;
 - ``explain_finding``: what a finding kind means and how to fix it;
-- ``compare``: compare two ``--queryguard-json`` files.
+- ``compare``: compare two ``--queryguard-json`` files;
+- ``lint``: run the static check (``python -m pytest_queryguard.lint``) on
+  source files, without a database and without running tests.
 
-The server only ever starts ``python -m pytest`` with the interpreter it runs
-on, in its working directory, without a shell. Every answer is bounded in
+The server only ever starts ``python -m pytest`` and ``python -m
+pytest_queryguard.lint`` with the interpreter it runs on, in its working
+directory, without a shell. Every answer is bounded in
 size and says when something was cut.
 """
 
@@ -48,6 +51,7 @@ MAX_PATCH = 20_000
 MAX_OUTPUT = 4_000
 MAX_REPORT = 20_000
 DEFAULT_TIMEOUT = 300
+DEFAULT_LINT_TIMEOUT = 120
 MAX_TIMEOUT = 1_800
 
 _OWN_FLAGS = ("--queryguard-json", "--queryguard-write-patch")
@@ -163,6 +167,15 @@ def _statements(entry: dict[str, Any]) -> int:
     return value if isinstance(value, int) else 0
 
 
+def _timeout(arguments: dict[str, Any], default: float) -> float:
+    timeout = arguments.get("timeout", default)
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise ToolError("timeout must be a number of seconds")
+    if not 0 < timeout <= MAX_TIMEOUT:
+        raise ToolError(f"timeout must be between 0 and {MAX_TIMEOUT} seconds")
+    return float(timeout)
+
+
 def run_tests(arguments: dict[str, Any]) -> dict[str, Any]:
     args = _strings(arguments, "args")
     paths = _strings(arguments, "paths")
@@ -170,11 +183,7 @@ def run_tests(arguments: dict[str, Any]) -> dict[str, Any]:
         raise ToolError("paths must not start with '-'; put options in args")
     if any(a.startswith(_OWN_FLAGS) for a in args):
         raise ToolError(f"args must not contain {' or '.join(_OWN_FLAGS)}")
-    timeout = arguments.get("timeout", DEFAULT_TIMEOUT)
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
-        raise ToolError("timeout must be a number of seconds")
-    if not 0 < timeout <= MAX_TIMEOUT:
-        raise ToolError(f"timeout must be between 0 and {MAX_TIMEOUT} seconds")
+    timeout = _timeout(arguments, DEFAULT_TIMEOUT)
     with tempfile.TemporaryDirectory(prefix="queryguard-mcp-") as tmp:
         out = Path(tmp)
         env = dict(os.environ)
@@ -187,7 +196,7 @@ def run_tests(arguments: dict[str, Any]) -> dict[str, Any]:
             *args,
             *paths,
         ]
-        status, output = _run(command, float(timeout), env)
+        status, output = _run(command, timeout, env)
         doc = _read(out / "run.json")
         patch = _text(out / "fix.patch")
         rootdir = _text(out / "rootdir") or None
@@ -278,6 +287,61 @@ def compare(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def lint(arguments: dict[str, Any]) -> dict[str, Any]:
+    models = _strings(arguments, "models")
+    paths = _strings(arguments, "paths")
+    if not models:
+        raise ToolError(
+            "models must name at least one module that defines the mapped "
+            "classes, e.g. ['app.models']"
+        )
+    if not paths:
+        raise ToolError("paths must name at least one file or directory")
+    if any(m.startswith("-") for m in models):
+        raise ToolError("models must not start with '-'")
+    timeout = _timeout(arguments, DEFAULT_LINT_TIMEOUT)
+    with tempfile.TemporaryDirectory(prefix="queryguard-mcp-") as tmp:
+        report_file = Path(tmp) / "lint.json"
+        # a process of its own: the models are imported fresh on every call,
+        # and their import-time code does not run inside the server
+        command = [sys.executable, "-m", "pytest_queryguard.lint", "--format=json"]
+        command.append(f"--output={report_file}")
+        for module in models:
+            command.append(f"--models={module}")
+        command += ["--", *paths]  # a path that starts with "-" is a path
+        status, output = _run(command, timeout, dict(os.environ))
+        doc = _read(report_file)
+    if not isinstance(doc, dict):
+        # exit status 2 (a module that cannot be imported, a missing path) or
+        # a crash: the reason is in the output, which is all there is
+        output_text, _ = _clip(output, MAX_OUTPUT, tail=True)
+        return {
+            "exit_code": status,
+            "timed_out": status is None,
+            "files": 0,
+            "errors": [],
+            "findings_total": 0,
+            "findings": [],
+            "findings_truncated": False,
+            "output_tail": output_text,
+        }
+    raw = doc.get("findings")
+    findings = [f for f in raw if isinstance(f, dict)] if isinstance(raw, list) else []
+    errors = doc.get("errors")
+    errors = [str(e) for e in errors] if isinstance(errors, list) else []
+    files = doc.get("files")
+    return {
+        "exit_code": status,
+        "timed_out": status is None,
+        "files": files if isinstance(files, int) else 0,
+        "errors": [_clip(e, MAX_MESSAGE)[0] for e in errors[:MAX_FINDINGS]],
+        "findings_total": len(findings),
+        "findings": findings[:MAX_FINDINGS],
+        "findings_truncated": len(findings) > MAX_FINDINGS,
+        "output_tail": "",
+    }
+
+
 class Tool(NamedTuple):
     run: Callable[[dict[str, Any]], dict[str, Any]]
     description: str
@@ -339,6 +403,35 @@ TOOLS: dict[str, Tool] = {
             },
         },
         ["base_json", "head_json"],
+    ),
+    "lint": Tool(
+        lint,
+        (
+            "Run pytest-queryguard's experimental static check on source files, "
+            "without a database and without running tests: it imports the "
+            "models modules, parses the paths and reports loops over an ORM "
+            "query that read a lazy relationship of each row (likely N+1), with "
+            "file, line, column, function, relationship and the fixed query "
+            "(fix). Exit code 1 means findings, 2 that it could not run "
+            "(see output_tail)."
+        ),
+        {
+            "models": {
+                **_STRING_LIST,
+                "description": "modules that define or import the mapped classes, "
+                "e.g. ['app.models']",
+            },
+            "paths": {
+                **_STRING_LIST,
+                "description": "source files or directories to check",
+            },
+            "timeout": {
+                "type": "number",
+                "description": f"seconds, default {DEFAULT_LINT_TIMEOUT}, "
+                f"at most {MAX_TIMEOUT}",
+            },
+        },
+        ["models", "paths"],
     ),
 }
 
@@ -409,7 +502,9 @@ def handle(message: Any) -> dict[str, Any] | None:
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": "pytest-queryguard", "version": __version__},
                 "instructions": "Run the project's tests with run_tests to find "
-                "N+1 queries; apply the returned patch with git apply.",
+                "N+1 queries; apply the returned patch with git apply. lint "
+                "checks source files without running tests (an early warning; "
+                "run_tests measures).",
             }
         elif method == "ping":
             result = {}

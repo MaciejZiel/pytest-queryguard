@@ -83,7 +83,8 @@ the category turned into `-`), which later runs of older and newer versions of
 the action download, and the pull-request comment it updates in place (found
 by the compare marker above). The action is versioned with the package: pin it to a
 release tag or a commit. The `trend` input and the `trend-report` output are
-experimental. What the job summary and the pull-request comment say is not
+experimental, and so are the `lint`, `lint-models` and `lint-paths` inputs
+and the `lint-exit-code` output (since 1.0.0). What the job summary and the pull-request comment say is not
 public.
 
 ### Names, values and units
@@ -273,12 +274,22 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   `--queryguard-json` files, whose format is public. See
   [CI](ci.md#query-counts-over-the-last-runs).
 - The static check (since 0.8.0), `python -m pytest_queryguard.lint`: its options, what it
-  reports, its text output, and the rule `queryguard/static-relationship-load`
+  reports, its text output, its `github` output (`--format github`, since
+  1.0.0), and the rule `queryguard/static-relationship-load`
   in its SARIF output. Its JSON output has a `format` key; a change to the
   documented keys increments it. See [Static check](static-check.md).
-- The MCP server, `python -m pytest_queryguard.mcp`: its tools, their
+- The pre-commit hook `queryguard-lint` in `.pre-commit-hooks.yaml` (since
+  1.0.0): its id, the command it runs and its settings. See
+  [Static check](static-check.md#pre-commit).
+- The MCP server, `python -m pytest_queryguard.mcp`: its tools (`run_tests`,
+  `explain_finding`, `compare`, and `lint` since 1.0.0), their
   arguments and the fields of their results. See
   [MCP server](mcp.md).
+
+The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
+[Coding agents](agents.md) and the editor settings in
+[In your editor](editor.md) are documentation, not API: they follow the
+output they read and may change in any release.
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini options and
@@ -333,7 +344,8 @@ checks the outcome of every test of a small suite.
   properties, the compare tool's arguments and marker, the action's inputs
   and outputs, and the deprecated names with their removal release. For the
   experimental parts it snapshots the arguments of the trend and static-check
-  tools, the trend's JSON keys, the MCP tool names and arguments, and the
+  tools, the trend's JSON keys, the MCP tool names and arguments, the
+  pre-commit hook's id and command, and the
   defaults of `app.Settings`. Their own tests (`tests/test_baseline.py`,
   `test_budget_file.py`, `test_testjson.py`, `test_sarif.py`,
   `test_compare.py`, `test_action_args.py`) check how they behave.

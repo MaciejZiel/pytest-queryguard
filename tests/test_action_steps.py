@@ -93,6 +93,7 @@ def run_script(
     *,
     check: bool = True,
     bin_dir: Path | None = None,
+    cwd: Path | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
     output = tmp_path / "github_output"
     output.write_text("")
@@ -113,6 +114,7 @@ def run_script(
         capture_output=True,
         text=True,
         check=False,
+        cwd=cwd,
     )
     if check:
         assert result.returncode == 0, result.stdout + result.stderr
@@ -130,6 +132,8 @@ def inputs(**overrides: str) -> dict[str, str]:
         "QG_COMMENT": "true",
         "QG_TREND": "false",
         "QG_CATEGORY": "pytest-queryguard",
+        "QG_LINT": "false",
+        "QG_LINT_MODELS": "",
     }
     values.update(overrides)
     return values
@@ -207,6 +211,55 @@ class TestInputs:
         artifact = outputs["artifact"]
         assert artifact == "queryguard-json--language-python-db=-pg------x--end"
         assert not set('":<>|*?\\/\r\n') & set(artifact)
+
+    @pytest.mark.parametrize(
+        ("value", "mode"),
+        [("false", ""), ("FALSE", ""), ("true", "all"), ("True", "all")]
+        + [("changed", "changed"), ("Changed", "changed")],
+    )
+    def test_valid_lint(self, tmp_path: Path, value: str, mode: str) -> None:
+        _, outputs = run_script(
+            "Check the inputs",
+            tmp_path,
+            inputs(QG_LINT=value, QG_LINT_MODELS="app.models"),
+        )
+        assert outputs["lint"] == mode
+
+    @pytest.mark.parametrize("value", ["yes", "1", "", "true ", "all"])
+    def test_invalid_lint(self, tmp_path: Path, value: str) -> None:
+        result, _ = run_script(
+            "Check the inputs",
+            tmp_path,
+            inputs(QG_LINT=value, QG_LINT_MODELS="app.models"),
+            check=False,
+        )
+        assert result.returncode == 1
+        assert "::error::input lint must be" in result.stdout
+
+    @pytest.mark.parametrize(
+        "models", ["app.models", " app.models  other_app.db.models ", "_m"]
+    )
+    def test_valid_lint_models(self, tmp_path: Path, models: str) -> None:
+        run_script(
+            "Check the inputs", tmp_path, inputs(QG_LINT="true", QG_LINT_MODELS=models)
+        )
+
+    @pytest.mark.parametrize(
+        "models",
+        ["", " ", "app..models", "app.", "1app", "-x", "app,models", "$(id)", "a;b"],
+    )
+    def test_invalid_lint_models(self, tmp_path: Path, models: str) -> None:
+        result, _ = run_script(
+            "Check the inputs",
+            tmp_path,
+            inputs(QG_LINT="changed", QG_LINT_MODELS=models),
+            check=False,
+        )
+        assert result.returncode == 1
+        assert "::error::input lint-models must be" in result.stdout
+
+    def test_lint_models_are_not_checked_without_lint(self, tmp_path: Path) -> None:
+        run_script("Check the inputs", tmp_path, inputs(QG_LINT_MODELS="$(id)"))
 
 
 def fake_python(tmp_path: Path, code: int) -> Path:
@@ -500,3 +553,200 @@ class TestComment:
         assert len(posted) <= 65536
         assert posted.count("<details>") == posted.count("</details>") == 1
         assert posted.index("</details>") < posted.index("_The whole comparison")
+
+
+LINT_MODELS = """\
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Customer(Base):
+    __tablename__ = "customer"
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.id"))
+    customer: Mapped[Customer] = relationship()
+"""
+
+LINT_ORDERS = """\
+from sqlalchemy import select
+
+from lintapp.models import Order
+
+
+def names(session):
+    return [o.customer.id for o in session.scalars(select(Order))]
+"""
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required")
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell")
+class TestLint:
+    """The static-check step, with the real check and a fake gh."""
+
+    @pytest.fixture
+    def workspace(self, tmp_path: Path) -> Path:
+        # the repository root; the action runs in its "repo" subdirectory
+        root = tmp_path / "workspace"
+        app = root / "repo" / "lintapp"
+        app.mkdir(parents=True)
+        (app / "__init__.py").write_text("")
+        (app / "models.py").write_text(LINT_MODELS)
+        (app / "orders.py").write_text(LINT_ORDERS)
+        (app / "clean.py").write_text("x = 1\n")
+        return root
+
+    def run(
+        self,
+        tmp_path: Path,
+        workspace: Path,
+        *,
+        mode: str = "all",
+        paths: str = "lintapp",
+        models: str = "lintapp.models",
+        pr: str = "",
+        files: list[dict[str, object]] | None = None,
+        **env: str,
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, str], list[str]]:
+        # a directory per call, so that a test can run the step twice
+        tmp_path = tmp_path / f"call{len(list(tmp_path.glob('call*')))}"
+        tmp_path.mkdir()
+        bin_dir = fake_gh(tmp_path)
+        # the interpreter of the tests, which has the plugin installed (not a
+        # symlink: a virtual environment is found next to the path run)
+        python = bin_dir / "python"
+        python.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+        python.chmod(0o755)
+        pages = tmp_path / "files.json"
+        pages.write_text(json.dumps([files or []]))
+        log = tmp_path / "gh.log"
+        log.write_text("")
+        tmp = tmp_path / "temp"
+        tmp.mkdir()
+        result, outputs = run_script(
+            "Run the static check",
+            tmp_path,
+            {
+                "QG_LINT": mode,
+                "QG_LINT_MODELS": models,
+                "QG_LINT_PATHS": paths,
+                "QG_PR": pr,
+                "QG_REPO": "owner/repo",
+                "QG_TMP": str(tmp),
+                "GITHUB_WORKSPACE": str(workspace),
+                "FAKE_LOG": str(log),
+                "FAKE_COMMENTS": str(pages),
+                **env,
+            },
+            check=False,
+            bin_dir=bin_dir,
+            cwd=workspace / "repo",
+        )
+        annotations = [
+            line for line in result.stdout.splitlines() if line.startswith("::")
+        ]
+        return result, outputs, annotations
+
+    def test_findings_are_annotations_relative_to_the_repository(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        result, outputs, annotations = self.run(tmp_path, workspace)
+        # findings are warnings: the step passes, the exit code is an output
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert outputs["exit-code"] == "1"
+        (warning,) = annotations
+        assert warning.startswith(
+            "::warning file=repo/lintapp/orders.py,line=7,col=15,"
+        )
+        assert "joinedload(Order.customer)" in warning
+        assert "1 finding in 4 files" in result.stdout
+
+    def test_changed_checks_only_the_changed_python_files_in_the_paths(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        (workspace / "elsewhere.py").write_text(LINT_ORDERS)
+        files = [
+            {"filename": "repo/lintapp/clean.py", "status": "modified"},
+            {"filename": "repo/lintapp/gone.py", "status": "removed"},
+            {"filename": "repo/README.md", "status": "added"},
+            {"filename": "elsewhere.py", "status": "added"},  # not in lint-paths
+        ]
+        result, outputs, annotations = self.run(
+            tmp_path, workspace, mode="changed", pr="7", files=files
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert outputs["exit-code"] == "0"
+        assert annotations == []
+        assert "0 findings in 1 file" in result.stdout
+        files.append({"filename": "repo/lintapp/orders.py", "status": "renamed"})
+        result, outputs, annotations = self.run(
+            tmp_path, workspace, mode="changed", pr="7", files=files
+        )
+        assert outputs["exit-code"] == "1"
+        assert annotations[0].startswith("::warning file=repo/lintapp/orders.py,")
+        assert "1 finding in 2 files" in result.stdout
+
+    def test_changed_without_a_changed_python_file_does_not_run(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        files = [{"filename": "repo/README.md", "status": "modified"}]
+        result, outputs, _ = self.run(
+            tmp_path, workspace, mode="changed", pr="7", files=files
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "exit-code" not in outputs
+        assert "did not run" in result.stdout
+
+    def test_changed_outside_a_pull_request_checks_everything(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        _, outputs, annotations = self.run(tmp_path, workspace, mode="changed")
+        assert outputs["exit-code"] == "1"
+        assert len(annotations) == 1
+
+    def test_a_refused_file_list_checks_everything(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        result, outputs, annotations = self.run(
+            tmp_path, workspace, mode="changed", pr="7", FAKE_LIST_FAIL="1"
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert outputs["exit-code"] == "1"
+        assert annotations[0].startswith("::warning::the changed files")
+        assert annotations[1].startswith("::warning file=repo/lintapp/orders.py,")
+
+    def test_a_model_module_that_cannot_be_imported_fails_the_step(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        result, outputs, annotations = self.run(
+            tmp_path, workspace, models="lintapp.nothing"
+        )
+        assert result.returncode == 1
+        assert outputs["exit-code"] == "2"
+        assert "cannot import lintapp.nothing" in result.stderr
+        assert annotations[-1].startswith("::error::the static check could not run")
+
+    def test_paths_are_split_like_pytest_args(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        odd = workspace / "repo" / "my dir"
+        odd.mkdir()
+        (odd / "-x.py").write_text(LINT_ORDERS)
+        _, outputs, annotations = self.run(
+            tmp_path, workspace, paths="'my dir/-x.py' lintapp/clean.py"
+        )
+        assert outputs["exit-code"] == "1"
+        assert annotations[0].startswith("::warning file=repo/my dir/-x.py,")
+        result, outputs, _ = self.run(tmp_path, workspace, paths="'my dir")
+        assert result.returncode == 1
+        assert "exit-code" not in outputs
+        assert "lint-paths cannot be split" in result.stdout

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Tooling around the experimental static check
+  (`python -m pytest_queryguard.lint`), all experimental:
+  - `--format github` prints GitHub Actions workflow commands
+    (`::warning file=...,line=...,col=...::`), one annotation per finding,
+    with paths relative to the repository root. See
+    [Static check](docs/static-check.md#github-annotations).
+  - A pre-commit hook, `queryguard-lint`, in `.pre-commit-hooks.yaml`. It
+    needs `--models` in `args`, and the models must be importable in the
+    hook's environment (`additional_dependencies`, or a `local` hook with
+    `language: system`). See [Static check](docs/static-check.md#pre-commit).
+  - The GitHub Action's `lint` input (`true`, `changed` or `false`, the
+    default) runs the check after pytest with `--format github`, on
+    `lint-paths` or only on the Python files a pull request changed, with the
+    models of `lint-models`; the `lint-exit-code` output is its exit code.
+    Findings do not fail the job. See [CI](docs/ci.md#the-static-check-as-annotations).
+  - The MCP server's `lint` tool runs the check on given paths, without a
+    database or a test run. See [MCP server](docs/mcp.md#lint).
+- An agent skill, `skills/pytest-queryguard/SKILL.md`, and an `AGENTS.md`
+  section and a Cursor rule in [Coding agents](docs/agents.md), which tell a
+  coding agent to run the tests with `--queryguard-json`, apply the loader
+  option or the patch, and run them again.
+- [In your editor](docs/editor.md): VS Code tasks with problem matchers for
+  the test report and the static check, the SARIF file in the SARIF Viewer,
+  and what works in PyCharm.
+
+### Changed
+
+- `docs/recipes-ci.md` no longer says that pre-commit does not apply: it
+  does not for the plugin, and it does for the static check.
+
 ## [0.9.0] - 2026-11-07
 
 ### Added

@@ -144,7 +144,12 @@ def _payload(result: dict[str, Any]) -> dict[str, Any]:
 
 def test_initialize_and_list_tools(server: Server) -> None:
     tools = server.request("tools/list")["result"]["tools"]
-    assert [t["name"] for t in tools] == ["run_tests", "explain_finding", "compare"]
+    assert [t["name"] for t in tools] == [
+        "run_tests",
+        "explain_finding",
+        "compare",
+        "lint",
+    ]
     for tool in tools:
         assert tool["inputSchema"]["type"] == "object"
     assert server.request("ping")["result"] == {}
@@ -286,6 +291,85 @@ def test_compare(server: Server, project: Path) -> None:
     )
     assert missing["isError"] is True
     assert "cannot read nope.json" in missing["content"][0]["text"]
+
+
+def test_lint_reports_the_loop_without_running_tests(
+    server: Server, project: Path
+) -> None:
+    result = _payload(server.call("lint", {"models": ["app"], "paths": ["."]}))
+    assert result["exit_code"] == 1
+    assert result["timed_out"] is False
+    assert result["files"] == 2
+    assert result["errors"] == []
+    assert result["findings_total"] == 1
+    assert result["findings_truncated"] is False
+    (finding,) = result["findings"]
+    assert finding["file"] == "app.py"
+    assert finding["line"] == 26
+    assert finding["function"] == "names"
+    assert finding["relationship"] == "Order.customer"
+    assert finding["fix"] == "select(Order).options(joinedload(Order.customer))"
+    # nothing ran: no test session, no database file
+    assert not (project / ".pytest_cache").exists()
+    clean = _payload(server.call("lint", {"models": ["app"], "paths": ["test_app.py"]}))
+    assert clean["exit_code"] == 0
+    assert clean["findings"] == []
+
+
+def test_lint_sees_an_edit_between_calls(server: Server, project: Path) -> None:
+    first = _payload(server.call("lint", {"models": ["app"], "paths": ["app.py"]}))
+    assert first["findings_total"] == 1
+    # the fix the finding suggests; the models are imported again, so a
+    # change to them is seen too
+    fixed = APP.replace(
+        "session.scalars(select(Order))",
+        "session.scalars(select(Order).options(joinedload(Order.customer)))",
+    ).replace("relationship\n", "relationship, joinedload\n", 1)
+    (project / "app.py").write_text(fixed, encoding="utf-8")
+    second = _payload(server.call("lint", {"models": ["app"], "paths": ["app.py"]}))
+    assert second["exit_code"] == 0, second
+    assert second["findings"] == []
+
+
+def test_lint_reports_why_it_could_not_run(server: Server) -> None:
+    result = _payload(
+        server.call("lint", {"models": ["no_such_models"], "paths": ["app.py"]})
+    )
+    assert result["exit_code"] == 2
+    assert result["findings"] == []
+    assert "cannot import no_such_models" in result["output_tail"]
+    missing = _payload(server.call("lint", {"models": ["app"], "paths": ["nope.py"]}))
+    assert missing["exit_code"] == 2
+    assert "nope.py does not exist" in missing["output_tail"]
+
+
+def test_lint_paths_that_look_like_options_are_paths(
+    server: Server, project: Path
+) -> None:
+    (project / "-x.py").write_text("x = 1\n", encoding="utf-8")
+    result = _payload(server.call("lint", {"models": ["app"], "paths": ["-x.py"]}))
+    assert result["exit_code"] == 0, result
+    assert result["files"] == 1
+
+
+@pytest.mark.parametrize(
+    ("arguments", "error"),
+    [
+        ({"paths": ["app.py"]}, "models must name at least one module"),
+        ({"models": [], "paths": ["app.py"]}, "models must name at least one module"),
+        ({"models": ["app"]}, "paths must name at least one"),
+        ({"models": ["--help"], "paths": ["app.py"]}, "models must not start with"),
+        ({"models": "app", "paths": ["app.py"]}, "models must be a list of strings"),
+        ({"models": ["app"], "paths": ["a"], "timeout": 0}, "timeout must be between"),
+        ({"models": ["app"], "paths": ["a"], "args": []}, "unknown arguments: args"),
+    ],
+)
+def test_lint_rejects_bad_arguments(
+    server: Server, arguments: dict[str, Any], error: str
+) -> None:
+    result = server.call("lint", arguments)
+    assert result["isError"] is True
+    assert error in result["content"][0]["text"]
 
 
 def test_protocol_errors(server: Server) -> None:
