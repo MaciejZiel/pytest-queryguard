@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-07
-
 ### Added
 
 - An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
@@ -25,16 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The in-app panel's `requests.json` starts with `"format": 1`, like the
   other JSON files; its keys are listed in
   [Stability](docs/stability.md#files-tools-and-the-action) (#241).
-- The JSON output of the experimental trend
-  (`python -m pytest_queryguard.trend --format json`) starts with
-  `"format": 1`, like the other JSON files, and its keys are documented in
-  [CI](docs/ci.md#query-counts-over-the-last-runs).
-- `--no-queryguard-strict` and `--no-queryguard-show-patch` turn
-  `queryguard_strict` and `queryguard_show_patch` off for one run, as
-  `--no-queryguard-index-check` does for the index check; of a flag and its
-  `--no-` form, the last one wins. An invalid `queryguard_strict` or
-  `queryguard_show_patch` value in the ini file is now reported even when a
-  flag overrides it, as for `queryguard_index_check`.
 
 ### Changed
 
@@ -51,6 +39,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filter turned into an error starts with `QueryGuardAppWarning:` instead of
   `QueryGuardWarning:`; update a log alert that matches the old prefix
   (#241).
+
+### Documentation
+
+- The texts that define `queryguard_scope = session`
+  ([configuration](docs/configuration.md), the ini help, llms.txt),
+  `Query.sql`, `Query.relationship` and `record_queries()`
+  ([Python API](docs/python-api.md) and docstrings), and the supported
+  versions in [stability](docs/stability.md#what-is-public) no longer depend
+  on the ORM for their meaning: they say "database session", "as the ORM sent
+  it" and "the releases of each supported ORM", and give the SQLAlchemy
+  meaning in brackets. `Query.relationship` also names every eager loader's
+  extra query, not only `selectinload`'s, as it always did. Behaviour, names
+  and signatures do not change.
+
+### Internal
+
+- `tests/inapp/test_cursor_loads.py` adds tests for the in-app load
+  attribution that 0.8.0 shipped; nothing changes for users. A `SELECT` run
+  by an `after_begin` hook does not take the next lazy load's label, the
+  in-app report labels lazy, `selectin`, deferred and refresh loads as
+  `record_queries()` does, `watch()` leaves an application's own
+  `do_orm_execute` listeners alone, and `yield_per` with `selectinload()`
+  works through `AsyncSession.stream_scalars()` while the engine is watched
+  (#293).
+
+## [0.9.0] - 2026-11-07
+
+### Added
+
+- The JSON output of the experimental trend
+  (`python -m pytest_queryguard.trend --format json`) starts with
+  `"format": 1`, like the other JSON files, and its keys are documented in
+  [CI](docs/ci.md#query-counts-over-the-last-runs).
+- `--no-queryguard-strict` and `--no-queryguard-show-patch` turn
+  `queryguard_strict` and `queryguard_show_patch` off for one run, as
+  `--no-queryguard-index-check` does for the index check; of a flag and its
+  `--no-` form, the last one wins. An invalid `queryguard_strict` or
+  `queryguard_show_patch` value in the ini file is now reported even when a
+  flag overrides it, as for `queryguard_index_check`.
+
+### Changed
+
 - The GitHub Action checks its switches: `fail`, `upload`, `compare` and
   `comment` must be `true` or `false` (any case), and `trend` `false`, `true`
   or 2 to 100; anything else, the empty string included, stops the action
@@ -343,16 +373,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
-- The texts that define `queryguard_scope = session`
-  ([configuration](docs/configuration.md), the ini help, llms.txt),
-  `Query.sql`, `Query.relationship` and `record_queries()`
-  ([Python API](docs/python-api.md) and docstrings), and the supported
-  versions in [stability](docs/stability.md#what-is-public) no longer depend
-  on the ORM for their meaning: they say "database session", "as the ORM sent
-  it" and "the releases of each supported ORM", and give the SQLAlchemy
-  meaning in brackets. `Query.relationship` also names every eager loader's
-  extra query, not only `selectinload`'s, as it always did. Behaviour, names
-  and signatures do not change.
 - docs/ci.md lists the permission each action input needs and the action's
   limits: one category per matrix job, the first run without a base
   artifact, the comment size, re-runs and concurrent runs, exit codes,
@@ -429,14 +449,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- `tests/inapp/test_cursor_loads.py` adds tests for the in-app load
-  attribution that 0.8.0 shipped; nothing changes for users. A `SELECT` run
-  by an `after_begin` hook does not take the next lazy load's label, the
-  in-app report labels lazy, `selectin`, deferred and refresh loads as
-  `record_queries()` does, `watch()` leaves an application's own
-  `do_orm_execute` listeners alone, and `yield_per` with `selectinload()`
-  works through `AsyncSession.stream_scalars()` while the engine is watched
-  (#293).
 - CI runs one job against the newest pytest and SQLAlchemy on PyPI, not only the versions in uv.lock, so an upstream release that breaks the plugin fails CI before users see it.
 - `.github/workflows/head-to-head.yml` (started by hand and monthly) runs
   the accuracy corpus under queryspy, pytest-querycount, n-plus-one-sniffer
