@@ -42,7 +42,9 @@ def test_the_getting_started_example(
     (pytester.path / "tests" / "__init__.py").write_text("")
     (pytester.path / "settings.py").write_text(SETTINGS)
     pytester.makeini("[pytest]\nDJANGO_SETTINGS_MODULE = settings\npythonpath = .\n")
-    result = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-p", "no:randomly")
+    result = pytester.runpytest_subprocess(
+        "-p", "no:cacheprovider", "-p", "no:randomly"
+    )
     result.assert_outcomes(failed=1)
     (shown,) = _blocks("text")
     out = result.stdout.str()

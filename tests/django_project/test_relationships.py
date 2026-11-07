@@ -211,3 +211,33 @@ def test_instances_are_never_compared() -> None:
     assert names == ["author 0"] * 3
     assert fussies == [3, 0, 0, 0, 0, 0]
     assert labels(collector) == {(REL, "Fussy.owner"), (REL, "Author.fussies")}
+
+
+def test_generic_relation_in_a_loop() -> None:
+    from django.contrib.contenttypes.models import ContentType
+
+    from .library.models import Bookmark
+
+    book_type = ContentType.objects.get_for_model(Book)
+    Bookmark.objects.bulk_create(
+        [Bookmark(content_type=book_type, object_id=pk) for pk in range(1, 7)]
+    )
+    with measure() as collector:
+        counts = [len(b.bookmarks.all()) for b in Book.objects.all()]
+    assert sum(counts) == 6
+    assert labels(collector) == {(REL, "Book.bookmarks")}
+    with measure() as collector:
+        books = Book.objects.prefetch_related("bookmarks")
+        counts = [len(b.bookmarks.all()) for b in books]
+    assert detections(collector) == []
+
+
+def test_async_manager_methods_stay_coroutine_functions() -> None:
+    import inspect
+
+    author = Author.objects.get(pk=1)
+    for name in ("aadd", "aset", "acreate", "aget_or_create"):
+        assert inspect.iscoroutinefunction(getattr(author.books, name)), name
+    book = Book.objects.get(pk=1)
+    assert inspect.iscoroutinefunction(book.tags.aset)
+    assert getattr(author.books.create, "alters_data", False)

@@ -58,6 +58,7 @@ def run(directory: Path, names: list[str], config: str) -> dict[str, Result]:
         **os.environ,
         **session_env(names, out, "queryguard"),
         "DJANGO_SETTINGS_MODULE": SETTINGS,
+        "QUERYGUARD_DJANGO_TEST_NAME": "test_qg_corpus_" + config.replace("-", "_"),
         "PYTHONPATH": f"{ROOT}{os.pathsep}{os.environ.get('PYTHONPATH', '')}",
     }
     env.pop("PYTEST_ADDOPTS", None)

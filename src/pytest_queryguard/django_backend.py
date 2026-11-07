@@ -45,7 +45,9 @@ SQLAlchemy listeners).
 
 from __future__ import annotations
 
+import functools
 import importlib
+import inspect
 import itertools
 import sys
 import threading
@@ -247,11 +249,17 @@ def _install() -> None:
 
 def _patch_factories(descriptors: Any) -> None:
     """Instrument every related manager class, also those made already."""
-    for name in (
-        "create_reverse_many_to_one_manager",
-        "create_forward_many_to_many_manager",
-    ):
-        original = getattr(descriptors, name)
+    factories = [
+        (descriptors, "create_reverse_many_to_one_manager"),
+        (descriptors, "create_forward_many_to_many_manager"),
+    ]
+    generic = sys.modules.get("django.contrib.contenttypes.fields")
+    if generic is not None:
+        factories.append((generic, "create_generic_related_manager"))
+    for module, name in factories:
+        original = getattr(module, name, None)
+        if original is None:
+            continue
         if getattr(original, _ORIGINAL, None) is not None:
             continue
 
@@ -261,7 +269,7 @@ def _patch_factories(descriptors: Any) -> None:
             return cls
 
         setattr(factory, _ORIGINAL, original)
-        setattr(descriptors, name, factory)
+        setattr(module, name, factory)
     # Descriptors cache their manager class (related_manager_cls); those
     # built before the patch are instrumented here.
     apps = _module("django.apps").apps
@@ -391,8 +399,85 @@ def _record(
     return stmt
 
 
+class _Connection:
+    """What the index checks read from an SQLAlchemy ``Connection``.
+
+    ``engine`` is the Django connection (per alias and thread): the explained
+    statements and the catalog are cached per engine. ``dialect`` is read by
+    the PostgreSQL check only.
+    """
+
+    __slots__ = ("connection", "dialect", "engine")
+
+    def __init__(self, wrapper: Any, dialect: Any = None) -> None:
+        self.engine = wrapper
+        self.connection = _DbapiHolder(wrapper.connection)
+        self.dialect = dialect
+
+
+class _DbapiHolder:
+    __slots__ = ("dbapi_connection",)
+
+    def __init__(self, dbapi_connection: Any) -> None:
+        self.dbapi_connection = dbapi_connection
+
+
+class _PostgresDialect:
+    """The few dialect attributes the PostgreSQL check reads."""
+
+    __slots__ = ("driver", "server_version_info")
+    name = "postgresql"
+    paramstyle = "pyformat"
+    is_async = False
+
+    def __init__(self, wrapper: Any) -> None:
+        database = getattr(wrapper, "Database", None)
+        self.driver = getattr(database, "__name__", "psycopg").split(".")[0]
+        self.server_version_info = tuple(wrapper.get_database_version())
+
+
+def _raw_cursor(cursor: Any) -> Any:
+    """The DB-API cursor under Django's cursor wrappers."""
+    for _ in range(3):
+        inner = getattr(cursor, "cursor", None)
+        if inner is None:
+            break
+        cursor = inner
+    return cursor
+
+
 def _check_index(sql: str, params: Any, many: bool, context: Any) -> None:
-    """The missing-index check of one statement (not implemented yet)."""
+    """The missing-index check of one statement that ran."""
+    from . import catalog, indexes, mysql_index, sqlite_index
+
+    if catalog.changes_catalog(sql):
+        catalog.clear()  # DDL: the cached catalog and explains are stale
+    targets = [target for target in collector.active() if target.index_check]
+    if not targets:
+        return
+    wrapper = context["connection"]
+    vendor = wrapper.vendor
+    if vendor == "sqlite":
+        statement = sql
+        if params is not None:
+            names = list(params) if isinstance(params, dict) else None
+            statement = _raw_cursor(context["cursor"]).convert_query(
+                sql, param_names=names
+            )
+        sqlite_index.check(_Connection(wrapper), statement, params, many, targets)
+    elif vendor == "mysql":
+        cursor = _raw_cursor(context["cursor"])
+        mysql_index.check(_Connection(wrapper), cursor, sql, params, many, targets)
+    elif vendor == "postgresql":
+        dialect = _PostgresDialect(wrapper)
+        indexes.check(_Connection(wrapper, dialect), sql, many, targets)
+    else:
+        notice = (
+            f"{vendor} statements were not checked: the index check supports "
+            f"{indexes.SUPPORTED_DATABASES}"
+        )
+        for target in targets:
+            target.index_notices[notice] = None
 
 
 # --- where instances come from -----------------------------------------------
@@ -580,8 +665,10 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
             instance is None
             or not _collectors
             or self.field.attname in instance.__dict__
+            or getattr(self.field, "generated", False)
             or _failed()
         ):
+            # a GeneratedField is reloaded by Django itself after save()
             return original(self, instance, cls)
         try:
             event = ColumnLoadEvent(
@@ -606,21 +693,15 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
 # --- related managers (reverse foreign keys, many-to-many) ------------------
 
 # Their methods that write; the SELECTs inside are not a read of the relation.
+# The async ones (aadd, aset, ...) run these in a thread (sync_to_async).
 _MANAGER_WRITES = (
     "add",
-    "aadd",
     "remove",
-    "aremove",
     "clear",
-    "aclear",
     "set",
-    "aset",
     "create",
-    "acreate",
     "get_or_create",
-    "aget_or_create",
     "update_or_create",
-    "aupdate_or_create",
 )
 
 
@@ -647,7 +728,7 @@ def _instrument_manager(cls: Any) -> None:
         cls.constrained_target = property(_constrained(target.fget))
     for name in _MANAGER_WRITES:
         method = cls.__dict__.get(name)
-        if method is not None:
+        if method is not None and not inspect.iscoroutinefunction(method):
             setattr(cls, name, _writing_method(method))
     setattr(cls, _INSTRUMENTED, True)
 
@@ -671,6 +752,9 @@ def _constrained(original: Callable[[Any], Any]) -> Callable[[Any], Any]:
 
 
 def _writing_method(original: Callable[..., Any]) -> Callable[..., Any]:
+    # functools.wraps keeps alters_data and queryset_only (the function's
+    # __dict__) visible to templates and managers
+    @functools.wraps(original)
     def method(self: Any, *args: Any, **kwargs: Any) -> Any:
         token = _writing.set(True)
         try:
@@ -678,10 +762,6 @@ def _writing_method(original: Callable[..., Any]) -> Callable[..., Any]:
         finally:
             _writing.reset(token)
 
-    method.__name__ = getattr(original, "__name__", "method")
-    method.__doc__ = getattr(original, "__doc__", None)
-    # alters_data and queryset_only stay visible to templates and managers
-    method.__dict__.update(getattr(original, "__dict__", {}))
     return method
 
 
@@ -693,7 +773,10 @@ def _manager_label(manager: Any) -> str:
         return str(label)
     # instance attributes: Manager proxies QuerySet methods such as reverse()
     attributes = vars(manager)
-    if "query_field_name" in attributes:  # many-to-many, either side
+    if "content_type_field_name" in attributes:  # a GenericRelation
+        field = manager.instance._meta.get_field(manager.prefetch_cache_name)
+        label = f"{field.model.__name__}.{field.name}"
+    elif "query_field_name" in attributes:  # many-to-many, either side
         if attributes["reverse"]:
             field = manager.model._meta.get_field(manager.query_field_name)
             rel = field.remote_field
@@ -757,6 +840,7 @@ def _execute_sql(
 
 
 def _in_unit(original: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(original)
     def method(self: Any, *args: Any, **kwargs: Any) -> Any:
         if _unit.get() is not None or not collector._active:
             return original(self, *args, **kwargs)
@@ -766,7 +850,4 @@ def _in_unit(original: Callable[..., Any]) -> Callable[..., Any]:
         finally:
             _unit.reset(token)
 
-    method.__name__ = getattr(original, "__name__", "method")
-    method.__doc__ = getattr(original, "__doc__", None)
-    method.__dict__.update(getattr(original, "__dict__", {}))
     return method

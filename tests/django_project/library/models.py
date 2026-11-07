@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
@@ -44,6 +44,7 @@ class Book(models.Model):
     pages = models.IntegerField(default=100)
     author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name="books")
     tags = models.ManyToManyField(Tag, related_name="books", blank=True)
+    bookmarks = GenericRelation("Bookmark")
 
     class Meta:
         ordering = ["id"]
@@ -101,3 +102,14 @@ class Bookmark(models.Model):
 
     class Meta:
         ordering = ["id"]
+
+
+class Square(models.Model):
+    """A generated field, which Django reloads by itself after save()."""
+
+    side = models.IntegerField()
+    area = models.GeneratedField(
+        expression=models.F("side") * models.F("side"),
+        output_field=models.IntegerField(),
+        db_persist=True,
+    )

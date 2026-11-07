@@ -68,3 +68,13 @@ def test_fetch_peers_loads_the_field_for_all_at_once() -> None:
     assert len(bodies) == 18
     assert len(collector.statements) == 2
     assert detections(collector) == []
+
+
+def test_a_generated_field_reloaded_after_save_is_no_column_load() -> None:
+    from .library.models import Square
+
+    with measure() as collector:
+        squares = [Square.objects.create(side=i) for i in range(6)]
+        areas = [s.area for s in squares]
+    assert areas == [i * i for i in range(6)]
+    assert collector.column_loads == []

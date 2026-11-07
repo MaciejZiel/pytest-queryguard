@@ -104,7 +104,8 @@ jobs:
         run: uv pip install "pytest==8.0.*"
       # coverage run (not --cov) so the module-level lines of the entry-point plugin count
       - run: uv run --no-sync coverage run -m pytest
-      - run: uv run --no-sync coverage report
+      # without the Django integration, which the django job measures
+      - run: uv run --no-sync coverage report --omit="*/pytest_queryguard/django_backend.py"
 
   # Free-threaded Python 3.14 starts threads with the creator's context
   # (sys.flags.thread_inherit_context), which changes how the in-app mode
@@ -269,7 +270,8 @@ jobs:
         if: matrix.driver == 'psycopg'
         run: uv pip install "psycopg[binary]==3.3.6"
       - run: uv run --no-sync coverage run -m pytest -rs
-      - run: uv run --no-sync coverage report
+      # without the Django integration, which the django job measures
+      - run: uv run --no-sync coverage report --omit="*/pytest_queryguard/django_backend.py"
 
   # The Django integration (tests/django_project, with the "django" dependency
   # group: Django, pytest-django and Django REST framework) against each

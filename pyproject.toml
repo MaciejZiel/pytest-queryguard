@@ -172,9 +172,6 @@ files = ["src"]
 
 [tool.coverage.run]
 source = ["pytest_queryguard"]
-# Measured by the "django" CI job, which runs tests/django_project with Django
-# installed; the main test jobs do not load it.
-omit = ["*/pytest_queryguard/django_backend.py"]
 
 [tool.coverage.report]
 fail_under = 90

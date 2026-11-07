@@ -46,6 +46,7 @@ def project(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> pytest.Pytester:
     monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "tests.django_project.settings")
+    monkeypatch.setenv("QUERYGUARD_DJANGO_TEST_NAME", "test_qg_inner")
     monkeypatch.setenv(
         "PYTHONPATH", os.pathsep.join([str(ROOT), os.environ.get("PYTHONPATH", "")])
     )
@@ -148,3 +149,22 @@ def test_sqlalchemy_only():
     )
     result = pytester.runpytest_subprocess("-p", "no:cacheprovider", "-p", "no:django")
     result.assert_outcomes(passed=1)
+
+
+def test_the_index_check(project: pytest.Pytester) -> None:
+    project.makepyfile(
+        test_titles="""
+from tests.django_project.library.models import Book
+from tests.django_project.library.seed import seed
+
+
+def test_by_title(db):
+    seed()
+    assert Book.objects.filter(title="book 1.1").count() == 1
+"""
+    )
+    result = _run(project, "--queryguard-index-check", "test_titles.py")
+    result.assert_outcomes(failed=1)
+    out = result.stdout.str()
+    assert "missing-index" in out
+    assert "library_book" in out

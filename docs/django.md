@@ -84,9 +84,10 @@ writes are not measured: only the test function's body is, as for SQLAlchemy.
 
 | Kind | Django code it reports | Fix the message names |
 |---|---|---|
-| `relationship-load` | a foreign key, a one-to-one relation (either side, multi-table inheritance included), a reverse foreign key or a many-to-many relation read for 2 or more objects of one query line; also `.filter()`, `.count()`, `.exists()` and `.values()` on such a relation | `select_related()` or `prefetch_related()` with the lookup, through a chain (`"author__publisher"`) |
+| `relationship-load` | a foreign key, a one-to-one relation (either side, multi-table inheritance included), a reverse foreign key, a many-to-many relation or a `GenericRelation` read for 2 or more objects of one query line; also `.filter()`, `.count()`, `.exists()` and `.values()` on such a relation | `select_related()` or `prefetch_related()` with the lookup, through a chain (`"author__publisher"`) |
 | `column-load` | a field left out by `.only()` or `.defer()` read for 5 or more objects | name it in `.only()`, or leave it out of `.defer()` |
 | `repeated-statement` | one SELECT shape run 5 or more times: `get()`, `filter(...).exists()`, `refresh_from_db()` or a serializer method that queries, per item | `in_bulk(ids)` or `filter(pk__in=ids)` |
+| `missing-index` (off by default) | a SELECT that no index serves, on SQLite, PostgreSQL (psycopg 2 or 3) and MySQL; see [Index check](index-check.md) | the index to create |
 | `write-loop` (off by default) | one INSERT, UPDATE or DELETE per row: `save()`, `create()`, `delete()` in a loop | `bulk_create()`, `bulk_update()`, `queryset.update()`, `filter(pk__in=ids).delete()` |
 
 The rules, thresholds, options, markers and files are the ones described in
@@ -109,7 +110,8 @@ Not reported:
 
 Everything that works from these kinds works for Django: budgets
 (`max_queries`, the `queryguard` fixture, the budget file), `record_queries()`,
-`ignore()` blocks, the `queryguard_ignore` marker and option, the
+`ignore()` blocks, the `queryguard_ignore` marker and option,
+`--queryguard-index-check` with the index advisor, the
 [baseline](baseline.md), `--queryguard-json` with the pull-request comparison
 and the [GitHub Action](ci.md), [SARIF](sarif.md) and strict mode
 (`queryguard_strict`, which raises `NPlusOneDetected` at the attribute access
@@ -142,11 +144,16 @@ that makes the N+1).
 
 ## Limitations
 
-- **Missing indexes** (`--queryguard-index-check`) are not checked for Django
-  statements yet.
-- **Generic foreign keys** (`GenericForeignKey`) are not hooked: a loop over
-  them is reported as a `repeated-statement` (from 5 rows), not as a
-  `relationship-load`.
+- **Generic foreign keys** (`GenericForeignKey`, the forward side) are not
+  hooked: a loop over them is reported as a `repeated-statement` (from 5
+  rows), not as a `relationship-load`. A `GenericRelation` (the reverse side)
+  is.
+- **Values Django reloads by itself**: on a database without `RETURNING`
+  (MySQL), a field saved as an expression (`F("pages") + 1`) is reloaded on
+  its next read; such reads in a loop are reported as a `column-load` whose
+  fix names `.only()`. Generated fields are left out.
+- **Durations** include the time of other `execute_wrapper`s, since the
+  plugin's wrapper is the outermost.
 - **`queryguard_scope = session`** counts per database connection, which in a
   test is usually one: it does not split a test's requests as it does
   SQLAlchemy Sessions.
@@ -158,9 +165,10 @@ that makes the N+1).
 
 ## Accuracy
 
-The Django corpus in `tests/django_project/corpus` has 60 scenarios, 30 with
-an N+1 or another finding and 30 without, run in five configurations:
+The Django corpus in `tests/django_project/corpus` has 62 scenarios, 31 with
+an N+1 or another finding and 31 without, run in five configurations:
 foreign keys, reverse relations, many-to-many relations, one-to-one relations,
+generic relations,
 multi-table inheritance, `select_related()`, `prefetch_related()` and
 `Prefetch` objects, `.only()` and `.defer()`, Django REST framework
 serializers, admin list, change and delete pages, templates, `get()` and
@@ -170,7 +178,7 @@ cascades, signals, `iterator()` and pagination. On SQLite, with Django 5.2 and
 
 | Kind | Precision | Recall |
 |---|---|---|
-| `relationship-load` | 100 % | 94 % (16 of 17) |
+| `relationship-load` | 100 % | 94 % (17 of 18) |
 | `column-load` | 100 % | 100 % |
 | `repeated-statement` | 88 % (7 of 8) | 100 % |
 | `write-loop` (threshold 2) | 100 % | 100 % |
