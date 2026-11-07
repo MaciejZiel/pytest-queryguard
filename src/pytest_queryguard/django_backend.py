@@ -595,7 +595,7 @@ def _raw_cursor(cursor: Any) -> Any:
 
 def _check_index(sql: str, params: Any, many: bool, context: Any) -> None:
     """The missing-index check of one statement that ran."""
-    from . import catalog, indexes, mysql_index, sqlite_index
+    from . import catalog, indexes, sqlite_index
 
     if catalog.changes_catalog(sql):
         catalog.clear()  # DDL: the cached catalog and explains are stale
@@ -615,6 +615,10 @@ def _check_index(sql: str, params: Any, many: bool, context: Any) -> None:
             )
         sqlite_index.check(_adapter(wrapper), statement, params, many, targets)
     elif vendor == "mysql":
+        # imported here: it imports SQLAlchemy (_compat), which a Django
+        # project need not have imported
+        from . import mysql_index
+
         cursor = _raw_cursor(context["cursor"])
         mysql_index.check(_adapter(wrapper), cursor, sql, params, many, targets)
     elif vendor == "postgresql":
@@ -778,9 +782,7 @@ _request: ContextVar[int | None] = ContextVar("queryguard_django_request", defau
 def _on_request_started(sender: Any, **kwargs: Any) -> None:
     # One scope per request (the test client's included), as a Session is
     # one for SQLAlchemy: queryguard_scope = session counts each on its own.
-    scope = next(errors.scopes)
-    collector.note_own_scope(scope)
-    _request.set(scope)
+    _request.set(collector.RequestScope(next(errors.scopes)))
 
 
 def _on_request_finished(sender: Any, **kwargs: Any) -> None:
@@ -969,8 +971,12 @@ def _cached_target(
 
 
 def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
+    # Django's own __get__ returns a loaded value from the instance's dict;
+    # another wrapper installed before ours is always called
+    own = getattr(original, "__module__", None) == "django.db.models.query_utils"
+
     def __get__(self: Any, instance: Any, cls: Any = None) -> Any:
-        if instance is not None:
+        if own and instance is not None:
             # the value is loaded: what Django returns, without a second call
             # (save() reads every field through here)
             data = instance.__dict__

@@ -307,20 +307,23 @@ def _first_external(
 # `flush_context`. It sits behind a generated "warned" wrapper, so the frame is
 # found by function name and file. If a SQLAlchemy release renames either, no
 # statement is tagged and the write-loop rule counts every statement, as before.
-# The names _compat.py lists (tests/test_compat.py checks them); not imported
-# from there, which would import SQLAlchemy into a project that uses only
-# Django. find_flush only runs inside SQLAlchemy's listeners.
-FLUSH_FUNCTION = "_flush"
-FLUSH_CONTEXT = "flush_context"
-_SESSION_FILE: str | None = None
+# (Session._flush's file, its name, its local) from _compat.py, which
+# tests/test_compat.py checks; read on first use, not imported at the top:
+# _compat imports SQLAlchemy, and find_flush only runs inside its listeners.
+_flush_names: tuple[str | None, str, str] | None = None
 
 
 def _session_file() -> str | None:
-    global _SESSION_FILE
-    if _SESSION_FILE is None:
-        module = sys.modules.get("sqlalchemy.orm.session")
-        _SESSION_FILE = getattr(module, "__file__", None)
-    return _SESSION_FILE
+    global _flush_names
+    if _flush_names is None:
+        from . import _compat
+
+        _flush_names = (
+            _compat.SESSION_FILE,
+            _compat.FLUSH_FUNCTION,
+            _compat.FLUSH_CONTEXT,
+        )
+    return _flush_names[0]
 
 
 _flush_numbers = itertools.count(1)
@@ -336,13 +339,15 @@ def find_flush() -> int | None:
     session_file = _session_file()
     if session_file is None:
         return None
+    assert _flush_names is not None
+    _, flush_function, flush_context = _flush_names
     frame: FrameType | None = sys._getframe(1)
     for _ in range(_MAX_FLUSH_DEPTH):
         if frame is None:
             return None
         code = frame.f_code
-        if code.co_name == FLUSH_FUNCTION and code.co_filename == session_file:
-            context = frame.f_locals.get(FLUSH_CONTEXT)
+        if code.co_name == flush_function and code.co_filename == session_file:
+            context = frame.f_locals.get(flush_context)
             if context is None:
                 return None
             number = getattr(context, "_queryguard_flush", None)

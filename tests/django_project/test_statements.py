@@ -238,3 +238,10 @@ def test_async_client_requests_are_scopes_that_end() -> None:
         # the scope they set never reaches the request, which counts per
         # connection (the one of asgiref's thread)
         assert len({s.scope for s in gets}) == 1
+
+
+def test_only_a_request_is_a_boundary_with_the_test_scope() -> None:
+    from pytest_queryguard.collector import RequestScope, boundary
+
+    assert boundary(RequestScope(3)) == 3
+    assert boundary(3) is None

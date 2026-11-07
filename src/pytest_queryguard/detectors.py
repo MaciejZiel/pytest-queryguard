@@ -369,9 +369,12 @@ def _relationship_findings(
         for stmt in collector.statements:
             if stmt.relationship != name:
                 continue
-            rank = (2 if stmt.lazy_load else 1) * 2 + (
-                1 if not scoped or stmt.scope == scope else 0
+            same = (
+                stmt.scope == scope
+                if scoped
+                else boundary(stmt.scope) == boundary(scope)
             )
+            rank = (2 if stmt.lazy_load else 1) * 2 + (1 if same else 0)
             if rank > best_rank:
                 sample, best_rank = stmt.sql, rank
                 if rank == 5:

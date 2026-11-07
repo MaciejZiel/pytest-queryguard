@@ -69,3 +69,27 @@ def test_nothing_imports_sqlalchemy():
 """
     )
     _run(pytester, "-o", "queryguard_strict=true").assert_outcomes(passed=1)
+
+
+def test_sqlalchemy_first_imported_in_the_test_body_is_checked(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(
+        qgmodels=MODELS,
+        test_a="""
+import sys
+
+
+def test_loop():
+    assert "sqlalchemy" not in sys.modules
+    from qgmodels import Order, make_sync_session
+
+    session = make_sync_session()
+    for order in session.query(Order).all():
+        _ = order.customer.name
+    assert sys.modules["sqlalchemy"].__spec__.loader.__class__.__name__ != "_Loader"
+""",
+    )
+    result = _run(pytester)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*Order.customer was lazy-loaded*"])

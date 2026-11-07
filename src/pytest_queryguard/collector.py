@@ -251,7 +251,11 @@ class QueryCollector:
             for earlier in self.relationship_loads
             if earlier.relationship == load.relationship
             and earlier.parent_key is not None
-            and (scope is None or earlier.scope == scope)
+            and (
+                (scope is None or earlier.scope == scope)
+                if self.strict_by_scope
+                else boundary(earlier.scope) == scope
+            )
         ]
         # the lines that read this group's relationship: a parent of unknown
         # origin joins the group when read at one of them (or at no known line)
@@ -403,21 +407,21 @@ _full_stack: list[QueryCollector] = []
 _generation = 0
 
 
-# Scopes that are always counted on their own, whatever queryguard_scope
-# says: the requests of Django's test client. A loop of the test over
-# requests is not a loop of the application; with queryguard_scope = test
-# everything else still counts together. Scope numbers are never reused.
-_own_scopes: set[object] = set()
+class RequestScope(int):
+    """The scope number of a request of Django's test client.
 
+    Always counted on its own, whatever queryguard_scope says: a loop of the
+    test over requests is not a loop of the application. With
+    queryguard_scope = test everything else still counts together.
+    """
 
-def note_own_scope(scope: object) -> None:
-    _own_scopes.add(scope)
+    __slots__ = ()
 
 
 def boundary(scope: object) -> object:
     """The scope ``scope`` always counts in with ``queryguard_scope = test``:
-    itself when it is counted on its own, else None (the whole test)."""
-    return scope if scope in _own_scopes else None
+    itself for a request, else None (the whole test)."""
+    return scope if isinstance(scope, RequestScope) else None
 
 
 def for_target(
