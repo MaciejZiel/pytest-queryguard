@@ -723,6 +723,19 @@ What the findings were:
   all 132. Fixed: a Session begun from lines no other Session of the test
   began from is counted on its own (scenarios `clean_133`, `clean_134`; see
   [Sessions begun on separate lines](#sessions-begun-on-separate-lines-before-and-after)).
+  With the fix, run
+  [42396355573](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42396355573)
+  has 114 MLflow findings instead of 179: 49 repeated-statements instead of
+  113 and 58 relationship-loads instead of 59, in 48 tests instead of 78.
+  Of the 32 tests that lost findings, 27 call the store on separate lines
+  with no loop over it (read in the test file); 5 also have a short loop over
+  the store (two or three passes, as `test_search_vanilla`'s three runs or
+  `test_log_batch`'s two metric histories), which, without the separate
+  calls, stays below the threshold of 5. The tests left have a loop over the
+  store in the test or in a helper (`test_log_batch_limits`,
+  `test_update_run_info`, the trace seeding) or are the true findings above. SQLAdmin's 51 findings did not change: its
+  requests run in the test client's portal thread, so they all begin from
+  the same lines.
 - **SQLAdmin, 5 relationship-loads, true.** The list and export pages read a
   relationship that the query did not load for each row through
   `_lazyload_prop`, which opens a new Session per row (`models.py:883`,
