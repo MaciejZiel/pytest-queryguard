@@ -108,6 +108,20 @@ class RelationshipLoadEvent:
     parent: ParentLoad | None = None  # None when nothing is known about it
     ignores: tuple[IgnoreBlock, ...] = ()
     orm: str = "sqlalchemy"  # see StatementEvent.orm
+    # For a parent whose query is unknown: the application lines from the
+    # read outwards to the test, as (file, line). Loads of such parents are
+    # grouped by it, so one helper that two lines of the test call is not a
+    # loop. None: grouped by the reading line alone (SQLAlchemy).
+    read_path: tuple[tuple[str, int], ...] | None = field(default=None, compare=False)
+
+
+def read_key(load: RelationshipLoadEvent) -> object:
+    """How loads of parents of unknown origin are grouped: by the reading line,
+    and by the call path to it when the integration records one (Django);
+    None for a load read at no line of the application."""
+    if load.callsite is None:
+        return None
+    return (load.callsite, load.read_path)
 
 
 # What made the instance load columns again.

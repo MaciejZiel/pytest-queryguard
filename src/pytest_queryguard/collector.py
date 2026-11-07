@@ -16,6 +16,7 @@ from .events import (
     RelationshipLoadEvent,
     ScanEvent,
     StatementEvent,
+    read_key,
 )
 from .findings import KIND_RELATIONSHIP
 
@@ -262,17 +263,17 @@ class QueryCollector:
         reads.add(load.callsite)
         # the parents of unknown origin per reading line, as the report groups
         # them; one read at no known line counts for every line
-        unknown: dict[CallSite | None, set[object]] = {}
+        unknown: dict[object, set[object]] = {}
         for earlier in loads:
             if earlier.parent is None or earlier.parent.callsite is None:
-                unknown.setdefault(earlier.callsite, set()).add(earlier.parent_key)
+                unknown.setdefault(read_key(earlier), set()).add(earlier.parent_key)
         anywhere = unknown.get(None, set())
         for earlier in loads:
             parent = earlier.parent
             line = None if parent is None else parent.callsite
             if line is None and earlier.callsite is not None:
                 if earlier.callsite not in reads and (
-                    len(unknown[earlier.callsite] | anywhere) < self.strict_threshold
+                    len(unknown[read_key(earlier)] | anywhere) < self.strict_threshold
                 ):
                     continue  # read elsewhere, too few to be an N+1 of its own
             elif line is not None and line != here:

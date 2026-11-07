@@ -797,16 +797,27 @@ def _scope(instance: Any) -> int | None:
 def _relationship_event(
     label: str, instance: Any, scalar: bool, scope: int | None, origin: _Origin | None
 ) -> RelationshipLoadEvent:
+    parent = _parent(origin)
     return RelationshipLoadEvent(
         label,
         _key(instance),
         _site(),
         scalar,
         scope,
-        _parent(origin),
+        parent,
         blocks.current(),
         ORM_DJANGO,
+        _read_path(parent),
     )
+
+
+def _read_path(parent: ParentLoad | None) -> tuple[tuple[str, int], ...] | None:
+    """The call path of a read whose parent's query is unknown (see
+    ``RelationshipLoadEvent.read_path``): objects the test created and read
+    through one helper at two lines of the test are two reads, not a loop."""
+    if parent is not None and parent.callsite is not None:
+        return None
+    return callsite.read_path()
 
 
 def _begin(event: RelationshipLoadEvent) -> None:
@@ -1037,6 +1048,8 @@ def _writing_method(original: Callable[..., Any]) -> Callable[..., Any]:
     # __dict__) visible to templates and managers
     @functools.wraps(original)
     def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if not _collectors:
+            return original(self, *args, **kwargs)
         token = _writing.set(True)
         try:
             return original(self, *args, **kwargs)
@@ -1095,15 +1108,17 @@ def _execute_sql(
         ):
             return original(self, *args, **kwargs)
         try:
+            parent = _parent(mark.origin)
             event = RelationshipLoadEvent(
                 mark.label,
                 mark.key,
                 _site(),
                 False,
                 _scope_of(self.connection),
-                _parent(mark.origin),
+                parent,
                 blocks.current(),
                 ORM_DJANGO,
+                _read_path(parent),
             )
             pending: _Pending | None = (
                 event,

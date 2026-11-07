@@ -237,6 +237,33 @@ def _callers(frame: FrameType | None, depth: int) -> tuple[CallSite, ...]:
     return tuple(found)
 
 
+_MAX_READ_PATH = 32
+
+
+def read_path() -> tuple[tuple[str, int], ...]:
+    """The application lines from the caller outwards, as (file, line).
+
+    Up to the pluggy frame that ran the test or the fixture (see _callers),
+    at most 32. Cheaper than call sites: nothing is cached or built per line.
+    """
+    found: list[tuple[str, int]] = []
+    stop = _hook_caller()
+    frame: FrameType | None = sys._getframe(1)
+    internal = _internal
+    while frame is not None and len(found) < _MAX_READ_PATH:
+        filename = frame.f_code.co_filename
+        if stop and os.path.normcase(filename).startswith(stop):
+            break
+        try:
+            skip = internal[filename]
+        except KeyError:
+            skip = internal[filename] = _classify(filename)
+        if not skip:
+            found.append((filename, frame.f_lineno))
+        frame = frame.f_back
+    return tuple(found)
+
+
 def _site(frame: FrameType, sites: Sites) -> CallSite:
     code = frame.f_code
     key = (code.co_filename, frame.f_lineno, code.co_name)

@@ -16,6 +16,7 @@ from .events import (
     ColumnLoadEvent,
     RelationshipLoadEvent,
     StatementEvent,
+    read_key,
 )
 from .findings import (
     KIND_COLUMN_LOAD,
@@ -271,23 +272,27 @@ def _n_plus_one_groups(
     so an unknown origin never hides a loop; a load read where no line of the
     application is known counts for every group.
     """
-    unknown: dict[CallSite | None, list[RelationshipLoadEvent]] = {}
+    unknown: dict[object, list[RelationshipLoadEvent]] = {}
     groups: dict[CallSite, list[RelationshipLoadEvent]] = {}
     for load in loads:
         parent = load.parent
         if parent is None or parent.callsite is None:
-            unknown.setdefault(load.callsite, []).append(load)
+            unknown.setdefault(read_key(load), []).append(load)
         else:
             groups.setdefault(parent.callsite, []).append(load)
     # read at an unknown line (no frame of the application): may be any line
     anywhere = unknown.pop(None, [])
+    # every load of an unknown parent read at a line, whatever its call path
+    at_line: dict[CallSite | None, list[RelationshipLoadEvent]] = {}
+    for group in unknown.values():
+        at_line.setdefault(group[0].callsite, []).extend(group)
     candidates = []
     for group in groups.values():
         lines = dict.fromkeys(load.callsite for load in group)
         candidates.append(
             [
                 *group,
-                *(load for line in lines for load in unknown.get(line, ())),
+                *(load for line in lines for load in at_line.get(line, ())),
                 *anywhere,
             ]
         )

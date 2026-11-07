@@ -216,6 +216,34 @@ def _seconds_cell(runs: list[float], base: list[float]) -> str:
     return f"{(best - base_best) / base_best:+.1%} / {(mid - base_mid) / base_mid:+.1%}"
 
 
+def _median(values: list[float]) -> float:
+    return sorted(values)[len(values) // 2]
+
+
+def _split_rows(data: dict, keys: list[str]) -> list[str]:
+    """The fixed cost (a one-test suite) and the cost per test, against no tool."""
+    runs, one = data["suite_seconds"], data.get("one_test_seconds") or {}
+    tests = int(data.get("tests") or 0)
+    if not one.get("none") or not runs.get("none") or tests < 2:
+        return []
+    base_one, base_all = _median(one["none"]), _median(runs["none"])
+    base_each = (base_all - base_one) / (tests - 1)
+    fixed, each = [], []
+    for key in keys:
+        if not one.get(key) or not runs.get(key):
+            fixed.append("failed")
+            each.append("failed")
+            continue
+        tool_one, tool_all = _median(one[key]), _median(runs[key])
+        fixed.append(f"{(tool_one - base_one) * 1000:+.0f} ms")
+        extra = (tool_all - tool_one) / (tests - 1) - base_each
+        each.append(f"{extra * 1e6:+.0f} us ({extra / base_each:+.1%})")
+    return [
+        "| fixed cost (one-test suite, median) | " + " | ".join(fixed) + " |",
+        "| added per test (median) | " + " | ".join(each) + " |",
+    ]
+
+
 def build_django(
     corpus: dict[str, dict[str, dict]], overheads: list[dict], run_url: str = ""
 ) -> tuple[str, dict]:
@@ -325,7 +353,8 @@ def build_django(
             (
                 f"Django {data['versions'].get('django')}, a {data.get('tests')}-test "
                 f"pytest-django suite, {data.get('rounds')} interleaved rounds on one runner: "
-                "added wall time against no tool, best round / median round."
+                "added wall time against no tool, best round / median round; then that "
+                "time split into a fixed cost per pytest run and a cost per test."
             ),
             "",
             "| | " + " | ".join(tools[k].label for k in keys) + " |",
@@ -333,6 +362,7 @@ def build_django(
             "| added wall time | "
             + " | ".join(_seconds_cell(runs.get(k) or [], base) for k in keys)
             + " |",
+            *_split_rows(data, keys),
             "",
         ]
         for key, error in (data.get("failed") or {}).items():

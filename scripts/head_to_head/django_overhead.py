@@ -7,7 +7,9 @@ Run it with the Python of an environment that has the corpus's dependencies
 workflow does that in GitHub Actions, on one runner, so the tools share the
 machine. Each round runs the suite once with no tool and once under each
 tool, in the same order; a tool's number is the wall time of a whole pytest
-process, best and median round.
+process, best and median round. Each round also runs a suite of one test
+under each tool: its time against the one-test run with no tool is the
+tool's fixed cost (imports, set-up), and the rest is the cost per test.
 
 The suite (written to a temporary directory) has ``--tests`` tests of the
 test project's models with no N+1 in them, so no tool reports anything and
@@ -91,6 +93,7 @@ def main() -> int:
     args = parser.parse_args()
     tools = [t for t in args.tools.split(",") if t]
     seconds: dict[str, list[float]] = {tool: [] for tool in tools}
+    one: dict[str, list[float]] = {tool: [] for tool in tools}
     failed: dict[str, str] = {}
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
@@ -98,10 +101,19 @@ def main() -> int:
         (work / "test_suite.py").write_text(
             SUITE.format(tests=args.tests), encoding="utf-8"
         )
+        (work / "test_one.py").write_text(SUITE.format(tests=1), encoding="utf-8")
         (work / "h2h_django_settings.py").write_text(SETTINGS, encoding="utf-8")
         shutil.copy(HERE / "session_plugin.py", work / "session_plugin.py")
         for round_ in range(args.rounds):
-            for key in tools:
+            runs = [
+                (name, suite, times)
+                for name in tools
+                for suite, times in (
+                    ("test_suite.py", seconds[name]),
+                    ("test_one.py", one[name]),
+                )
+            ]
+            for key, suite, times in runs:
                 if key in failed:
                     continue
                 tool = common.DJANGO_TOOLS[key]
@@ -120,6 +132,7 @@ def main() -> int:
                 command = [
                     sys.executable, "-m", "pytest", "-p", "no:cacheprovider",
                     "-p", "no:randomly", "-q", "-p", "session_plugin", *tool.args,
+                    suite,
                 ]  # fmt: skip
                 start = time.perf_counter()
                 proc = subprocess.run(
@@ -134,7 +147,7 @@ def main() -> int:
                 if proc.returncode != 0:
                     failed[key] = (proc.stdout[-2000:] + proc.stderr[-2000:]).strip()
                     continue
-                seconds[key].append(round(elapsed, 3))
+                times.append(round(elapsed, 3))
             print(
                 f"round {round_ + 1}: "
                 + ", ".join(f"{k} {v[-1:]}" for k, v in seconds.items())
@@ -144,6 +157,7 @@ def main() -> int:
         "tests": args.tests,
         "rounds": args.rounds,
         "suite_seconds": {k: v for k, v in seconds.items() if v},
+        "one_test_seconds": {k: v for k, v in one.items() if v},
         "failed": failed,
         "versions": versions(),
     }
