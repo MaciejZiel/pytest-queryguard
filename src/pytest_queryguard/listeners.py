@@ -45,7 +45,7 @@ from ._compat import (
     load_option_attribute,
 )
 from .blocks import IgnoreBlock
-from .callsite import Sites, find_callsite, find_flush
+from .callsite import Sites, find_callsite, find_entry, find_flush
 from .events import (
     CAUSE_DEFERRED,
     CAUSE_EXPIRED,
@@ -116,12 +116,34 @@ def _scope_of(owner: Any) -> int | None:
     """The scope number of a Session or Connection, assigned on first use."""
     try:
         scope = owner.__dict__.get(_SCOPE_ATTR)
-        if scope is None:
-            scope = next(_scopes)
-            setattr(owner, _SCOPE_ATTR, scope)
-        return scope  # type: ignore[no-any-return]
+        if scope is not None:
+            return scope  # type: ignore[no-any-return]
+        scope = next(_scopes)
+        setattr(owner, _SCOPE_ATTR, scope)
     except (AttributeError, TypeError):
         return None
+    try:
+        _note_entry(scope)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "scope listener (the lines a Session began from)")
+    return scope
+
+
+def _note_entry(scope: int) -> None:
+    """Tell the measuring collectors which lines the new scope began from.
+
+    Called once per Session or connection checkout, from its first statement
+    or transaction, so the application lines on the stack are the ones that
+    started its unit of work (see QueryCollector.unit_of).
+    """
+    targets = collector.full_active()
+    if not targets:
+        return
+    lines = find_entry()
+    if lines is None:
+        return
+    for target in targets:
+        target.note_entry(scope, lines)
 
 
 def scope_of_session(session: Any) -> int | None:

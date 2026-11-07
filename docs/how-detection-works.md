@@ -327,10 +327,13 @@ detection is updated.
 
 The relationship, repeated-statement, column-load and write-loop rules count
 over a scope. By default (`queryguard_scope = test`) the scope is the
-whole test. With `session`, each SQLAlchemy `Session`, or each connection
-checkout for statements no `Session` ran, is counted on its own, and a finding
-needs one scope to reach the threshold. See [Tests with several sessions or
-requests](several-sessions.md).
+whole test, except that a `Session` (or connection checkout) begun from
+application lines that no other `Session` of the test began from is counted on
+its own: a store method that opens a `Session` per call, called on separate
+lines, is not a loop. With `session`, each SQLAlchemy `Session`, or each
+connection checkout for statements no `Session` ran, is counted on its own,
+and a finding needs one scope to reach the threshold. See [Tests with several
+sessions or requests](several-sessions.md#sessions-begun-on-separate-lines).
 
 ### unused-eager-load (experimental)
 

@@ -1,7 +1,7 @@
 # Accuracy on a corpus of realistic code
 
 How often does pytest-queryguard report code that is fine, and how often does it
-miss code that is not? This page measures that on a corpus of 268 small
+miss code that is not? This page measures that on a corpus of 274 small
 scenarios, publishes the numbers, and lists every disagreement. The scenarios
 were written by the author of the plugin, so read the numbers as a regression
 baseline and a list of known limits, not as a benchmark of how the plugin does on
@@ -9,9 +9,9 @@ your code.
 
 ## Method
 
-- The corpus is in `tests/corpus/scenarios`: one module per scenario, 132 marked
+- The corpus is in `tests/corpus/scenarios`: one module per scenario, 134 marked
   **BUG** (an N+1, a row-by-row write, a cartesian load, an eager load or columns
-  loaded for nothing: what a reviewer would ask to fix) and 136 marked **CLEAN**
+  loaded for nothing: what a reviewer would ask to fix) and 140 marked **CLEAN**
   (code that is fine, including the fixes: `selectinload`, `joinedload`,
   `contains_eager`, `load_only`, bulk statements, pagination, caches). The
   docstring of each module says which, and why. The verdict is mine, from reading
@@ -101,27 +101,27 @@ the review of every disagreement (see
 same machine and packages with Python 3.14.4; the two runs differ only in the
 scenarios that review changed.
 SQLModel was not installed (it needs SQLAlchemy below 2.1 and is only installed
-in the SQLAlchemy 2.0 CI job), so 266 of the 268 scenarios ran: 131 BUG and 135
-CLEAN. All numbers on this page are for those 266 and SQLite, except the
+in the SQLAlchemy 2.0 CI job), so 272 of the 274 scenarios ran: 133 BUG and 139
+CLEAN. All numbers on this page are for those 272 and SQLite, except the
 PostgreSQL run, which is the earlier 141-scenario measurement and says so,
 and the comparison with other tools, which ran the 252 scenarios the corpus
 had on that day in GitHub Actions.
 
 ## Results, default configuration
 
-114 of the 117 BUG scenarios that the default rules can report are flagged
+116 of the 119 BUG scenarios that the default rules can report are flagged
 (the other 14 BUG scenarios are write loops, unused eager loads and unused
-columns, which are opt-in), and 2 of the 149 scenarios without an expected
+columns, which are opt-in), and 2 of the 153 scenarios without an expected
 default kind are flagged.
 
 | kind | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|
 | relationship-load | 51 | 0 | 0 | 100% | 100% |
-| repeated-statement | 45 | 1 | 2 | 98% | 96% |
+| repeated-statement | 47 | 1 | 2 | 98% | 96% |
 | column-load | 12 | 0 | 1 | 100% | 92% |
 | cartesian-load | 7 | 1 | 0 | 88% | 100% |
 
-The small counts (51, 47, 13, 7) mean that one scenario moves a percentage by
+The small counts (51, 49, 13, 7) mean that one scenario moves a percentage by
 several points. The relationship-load row is 51 scenarios, not a claim about
 every ORM pattern.
 
@@ -138,6 +138,40 @@ configuration, so they add 8 relationship-load true positives (51 instead of
 43) and true negatives only; 6 of the 8 get a patch from
 `--queryguard-write-patch` (26 of 51 in all). The other tables on this page
 were not run again; only the relationship-load counts were updated.
+
+### Sessions begun on separate lines, before and after
+
+The [real-world run](#real-projects) of MLflow's tracking store found false
+findings of one shape: every store method opens its own `Session` and runs a
+shared lookup, and a test calls the store on separate lines with no loop.
+With the whole test one unit, the lookups of separate calls added up like the
+passes of a loop. Two CLEAN scenarios have that shape
+(`clean_133_service_calls_at_separate_lines`, a relationship read per call;
+`clean_137_store_methods_at_separate_lines`, a lookup six times), and two BUG
+scenarios loop over such a store (`bug_133_store_method_per_key_in_loop`, the
+shape of MLflow's `test_log_batch_limits`;
+`bug_134_store_methods_alternating_in_loop`, a loop whose passes call two
+methods in turn). The fix: a `Session` begun from application lines that no
+other `Session` of the test began from is counted on its own; those begun
+from repeated lines are counted together, as before.
+
+| configuration, kind | before: TP, FP, FN | after: TP, FP, FN |
+|---|---|---|
+| default, `relationship-load` | 51, 1, 0 | 51, 0, 0 |
+| default, `repeated-statement` | 47, 2, 2 | 47, 1, 2 |
+| small-repeat = 2, `repeated-statement` | 49, 4, 0 | 49, 2, 0 |
+| write-loop = 2, `write-loop` | 8, 4, 0 | 8, 3, 0 |
+| strict = true, `relationship-load` | 51, 1, 0 | 51, 0, 0 |
+| strict = true, `repeated-statement` | 46, 2, 3 | 46, 1, 3 |
+
+Both runs have the four scenarios of this shape (272 ran after; the
+relationship-load rows of the "before" column add the 8 static-check BUG
+scenarios, which agree with their verdict in every configuration without the
+change). The rows of the default
+kinds change the same way with the other opt-in rules on. No other scenario
+changed in any configuration; both BUG scenarios are reported before and after, except
+with `queryguard_scope = session`, which counts each `Session` on its own by
+design.
 
 ### Every disagreement reviewed (2026-11-07)
 
@@ -313,16 +347,16 @@ reported by the small-repeat rule either.
 
 | configuration | kind | TP | FP | FN | precision | recall |
 |---|---|---|---|---|---|---|
-| small-repeat = 2 | repeated-statement | 47 | 2 | 0 | 96% | 100% |
+| small-repeat = 2 | repeated-statement | 49 | 2 | 0 | 96% | 100% |
 | write-loop = 2 | write-loop | 8 | 3 | 0 | 73% | 100% |
-| column-load threshold 2 | column-load | 13 | 1 | 0 | 93% | 100% |
+| column-load threshold 2 | column-load | 13 | 2 | 0 | 87% | 100% |
 | unused-eager-load = fail | unused-eager-load | 5 | 1 | 0 | 83% | 100% |
 | unused-columns = fail | unused-columns | 8 | 0 | 1 | 100% | 89% |
-| repeat scope `session` | repeated-statement | 41 | 1 | 6 | 98% | 87% |
+| repeat scope `session` | repeated-statement | 41 | 1 | 8 | 98% | 84% |
 | strict = true | relationship-load | 51 | 0 | 0 | 100% | 100% |
-| strict = true | repeated-statement | 44 | 1 | 3 | 98% | 94% |
-| all five rules | repeated-statement | 47 | 2 | 0 | 96% | 100% |
-| all five rules | column-load | 13 | 1 | 0 | 93% | 100% |
+| strict = true | repeated-statement | 46 | 1 | 3 | 98% | 94% |
+| all five rules | repeated-statement | 49 | 2 | 0 | 96% | 100% |
+| all five rules | column-load | 13 | 2 | 0 | 87% | 100% |
 | all five rules | write-loop | 8 | 3 | 0 | 73% | 100% |
 | all five rules | unused-eager-load | 5 | 1 | 0 | 83% | 100% |
 | all five rules | unused-columns | 8 | 0 | 1 | 100% | 89% |
@@ -336,15 +370,19 @@ reused by a page that needs less, an async handler) against CLEAN scenarios
 where the eager load is read by some rows only, by Pydantic, by an
 `association_proxy`, or by a delete cascade. Its one false positive is
 `clean_124_collection_checked_through_inspect` (a read through `inspect()`,
-see below). With all rules on, 130 of 131 BUG scenarios are flagged, and 8 of
-135 CLEAN scenarios are.
+see below). With all rules on, 132 of 133 BUG scenarios are flagged, and 9 of
+139 CLEAN scenarios are.
 
 **Effect of `queryguard_scope = session`** (added after the first run of this
 corpus): the scenarios that run each lookup in its own `Session`
 (`bug_47_session_per_item`, `bug_48_threadpool_lookups`,
-`bug_52_async_gather_session_per_task`, `bug_53_celery_task_per_id`) are no longer
-reported, which is what the option is for; they were reported before, and the four
-false negatives are the price. In both scopes the only CLEAN scenario the default
+`bug_52_async_gather_session_per_task`, `bug_53_celery_task_per_id`,
+`bug_133_store_method_per_key_in_loop`,
+`bug_134_store_methods_alternating_in_loop`) are no longer reported, which is
+what the option is for; they are reported by default, and the six false
+negatives are the price. Calls on separate lines, each with a `Session` of its
+own, need no option (`clean_133_service_calls_at_separate_lines`, `clean_137`): see
+[Sessions begun on separate lines](#sessions-begun-on-separate-lines-before-and-after). In both scopes the only CLEAN scenario the default
 rules report is the polling loop, which repeats one statement inside one `Session`.
 
 ## Every disagreement
@@ -358,8 +396,9 @@ rules report is the polling loop, which repeats one statement inside one `Sessio
 | `clean_16_polling_loop` | CLEAN: polling a status on purpose | `repeated-statement` | Every run has the same parameters, like the loop-invariant query of `bug_55_loop_invariant_query`, which is a bug. The statements cannot tell them apart. Use the `queryguard_ignore` marker. |
 | `clean_20_cached_lookup` | CLEAN | `repeated-statement` with small-repeat on | Two statements of one shape from one line are what the rule reports. |
 | `clean_22_expire_on_commit_two_objects` | CLEAN | `column-load` with threshold 2 | Two reloads after a commit are the threshold. |
+| `clean_132_new_objects_read_one_by_one` | CLEAN | `column-load` with threshold 2 | Three refreshes after one commit: of the rows of one flush only the first refresh is let through. |
 | `clean_18_factory_boy_seed_in_body`, `clean_30_savepoint_per_row_insert`, `clean_77_refresh_after_each_create` | CLEAN: seeding, per-row inserts with their own error handling, eight creates each refreshed | `write-loop` with the rule on | The rule cannot tell them from a write loop. |
-| `bug_47_session_per_item`, `bug_48_threadpool_lookups`, `bug_52_async_gather_session_per_task`, `bug_53_celery_task_per_id` | BUG | not reported with scope `session` | By design of the option. |
+| `bug_47_session_per_item`, `bug_48_threadpool_lookups`, `bug_52_async_gather_session_per_task`, `bug_53_celery_task_per_id`, `bug_133_store_method_per_key_in_loop`, `bug_134_store_methods_alternating_in_loop` | BUG | not reported with scope `session` | By design of the option. |
 | `clean_93_two_single_object_lookups` | CLEAN: one order from `session.get`, another from a `select`, each showing its customer | `relationship-load` in every configuration before #307, nothing after | Fixed by [#307](https://github.com/MaciejZiel/pytest-queryguard/issues/307): the report groups the parents of a relationship by the query line that loaded them, as strict mode does, so two single-object lookups at two lines are no N+1. |
 | `clean_82_two_small_collections_joined` | CLEAN: a user's two roles and two e-mail addresses joined in one login query | `cartesian-load` (a warning) | The rule reads the loader strategies, not how many rows the collections hold. A product of 2 x 2 rows is reported like one of 20 x 20. |
 | `bug_77_cartesian_mapping_lazy_joined` | BUG: two collections with `lazy="joined"` on the mapping | not reported before the fix; `cartesian-load` after | Fixed on 2026-11-07: the rule follows the loader strategies of the mapping, not only the options of the query. |
@@ -509,12 +548,14 @@ recall of a finding kind is below the minimum recorded in
 `scripts/accuracy_thresholds.json`, when fewer than 250 scenarios ran, or when a
 disagreement with a verdict is not documented in the scenario. The minimums are
 the values measured on 2026-11-07 (SQLAlchemy 2.1.1, pytest 9.1.1, SQLModel not
-installed, 252 of the 254 scenarios), rounded down to a multiple of 10%:
+installed, 252 of the 254 scenarios), rounded down to a multiple of 10%. Measured
+again with the later scenarios of 2026-11-07 (272 of 274), every value is at
+or above its minimum:
 
 | kind | minimum precision | minimum recall | measured |
 |---|---|---|---|
-| `relationship-load` | 100% | 100% | 43 TP, 0 FP, 0 FN (100% and 100%) |
-| `repeated-statement` | 90% | 90% | 45 TP, 1 FP, 2 FN (98% and 96%) |
+| `relationship-load` | 100% | 100% | 51 TP, 0 FP, 0 FN (100% and 100%) |
+| `repeated-statement` | 90% | 90% | 47 TP, 1 FP, 2 FN (98% and 96%) |
 | `column-load` | 100% | 90% | 12 TP, 0 FP, 1 FN (100% and 92%) |
 | `cartesian-load` | 80% | 100% | 7 TP, 1 FP, 0 FN (88% and 100%) |
 
@@ -726,11 +767,26 @@ What the findings were:
   keys; tests seed traces and runs in loops): the shape of
   `bug_47_session_per_item`, an N+1 of the test's own loop, counted as
   debatable. About 78 come from calls on separate lines with no loop
-  (`test_set_experiment_tag`): false, a known limit (scenario `clean_133`):
-  the parents are grouped by the query line in the shared `_get_experiment()`,
-  not by the lines that called it, and by default the test is one unit. The
-  split is by reading the first stack of each finding, so approximate.
-  `queryguard_scope = session` removes all 132.
+  (`test_set_experiment_tag`): false. The parents were grouped by the query
+  line in the shared `_get_experiment()`, not by the lines that called it,
+  and by default the test was one unit. The split is by reading the first
+  stack of each finding, so approximate. `queryguard_scope = session` removes
+  all 132. Fixed: a Session begun from lines no other Session of the test
+  began from is counted on its own (scenarios `clean_133_service_calls_at_separate_lines`, `clean_137`; see
+  [Sessions begun on separate lines](#sessions-begun-on-separate-lines-before-and-after)).
+  With the fix, run
+  [42396355573](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42396355573)
+  has 114 MLflow findings instead of 179: 49 repeated-statements instead of
+  113 and 58 relationship-loads instead of 59, in 48 tests instead of 78.
+  Of the 32 tests that lost findings, 27 call the store on separate lines
+  with no loop over it (read in the test file); 5 also have a short loop over
+  the store (fewer than five passes, as `test_search_vanilla`'s three runs or
+  `test_log_batch`'s two metric histories), which, without the separate
+  calls, stays below the threshold of 5. The tests left have a loop over the
+  store in the test or in a helper (`test_log_batch_limits`,
+  `test_update_run_info`, the trace seeding) or are the true findings above. SQLAdmin's 51 findings did not change: its
+  requests run in the test client's portal thread, so they all begin from
+  the same lines.
 - **SQLAdmin, 5 relationship-loads, true.** The list and export pages read a
   relationship that the query did not load for each row through
   `_lazyload_prop`, which opens a new Session per row (`models.py:883`,
@@ -779,16 +835,21 @@ See also [Limitations](limitations.md).
   grouped by the line that read the relationship: reading it through one
   helper for a few objects on separate lines is reported like a loop, and a
   loop that reads it on two lines (two branches) counts each line on its own,
-  so each needs the threshold. A service that opens a Session per call and is
-  called on separate lines is reported under the default scope
-  (`clean_133`).
+  so each needs the threshold.
+- A Session begun from lines no other Session of the test began from is
+  counted on its own (`clean_133_service_calls_at_separate_lines`, `clean_137`). So is a pass of a loop whose
+  Session begins from lines no other pass began from (a branch or a handler
+  taken in one pass only): two passes through an `if` and its `else` look
+  like two separate calls. Passes whose lines repeat add up, whichever lines
+  each took (`bug_134`). Requests handled in a server thread begin from the
+  same lines and are counted together, as before.
 - Strict mode stops the test at the first N+1, so later ones are not
   reported.
 - `--queryguard-write-patch` writes a patch only for a `select(Class)` (or
   `select(module.Class)`) written on the line that ran it, or assigned once to
   the variable that line runs, and not inside a comprehension: 26 of the 51
   relationship-load BUG scenarios.
-- The corpus is small and written by one person; precision and recall from 268
+- The corpus is small and written by one person; precision and recall from 274
   scenarios have wide error bars. It ran on SQLite, and its first 141 scenarios
   on PostgreSQL 17 (pg8000 and asyncpg); other PostgreSQL versions, MySQL and
   other drivers were not run.
