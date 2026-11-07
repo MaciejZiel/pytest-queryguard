@@ -35,7 +35,7 @@ from ..collector import QueryCollector
 from ..detectors import SCOPE_SESSION, SCOPE_TEST, detect
 from ..findings import Finding
 from ..messages import display_root, format_budget, format_findings, make_findings
-from ..warnings import QueryGuardWarning, default, renamed
+from ..warnings import QueryGuardAppWarning, default, renamed
 
 logger = logging.getLogger("pytest_queryguard.app")
 
@@ -92,7 +92,7 @@ class Settings:
     first matching key wins. ``default_budget`` applies when no key matches.
 
     ``report`` is ``"log"`` (a WARNING record on the ``pytest_queryguard.app``
-    logger), ``"warn"`` (``QueryGuardWarning``), a callable that receives the
+    logger), ``"warn"`` (``QueryGuardAppWarning``), a callable that receives the
     ``RequestReport``, or a sequence of those. It is used only for requests
     with findings or over their budget.
 
@@ -450,7 +450,7 @@ class Tracker:
         # runs it at the same time.
         self.sites: Sites = {}
         self._started = time.perf_counter()
-        # The QueryGuardWarning a warning filter turned into an error, for the
+        # The QueryGuardAppWarning a warning filter turned into an error, for the
         # caller to raise once the unit itself has ended without an exception.
         self.warning: Warning | None = None
 
@@ -612,8 +612,8 @@ def _emit(report: RequestReport, settings: Settings) -> Warning | None:
             caller = sys._getframe(1)
             try:
                 warnings.warn_explicit(
-                    QueryGuardWarning(report.message),
-                    QueryGuardWarning,
+                    QueryGuardAppWarning(report.message),
+                    QueryGuardAppWarning,
                     caller.f_code.co_filename,
                     caller.f_lineno,
                     module=caller.f_globals.get("__name__"),
@@ -674,7 +674,7 @@ class track:  # a function to its callers, as in 0.5.0
         report = unit.stop()
 
     The ``RequestReport`` is filled and reported when the unit ends. A
-    ``QueryGuardWarning`` that a warning filter turned into an error is
+    ``QueryGuardAppWarning`` that a warning filter turned into an error is
     raised when the unit ends without an exception of its own.
 
     One object can be entered by several threads or tasks at once (a
