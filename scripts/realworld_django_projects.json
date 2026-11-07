@@ -45,7 +45,6 @@
         "POSTGRES_USER": "saleor",
         "POSTGRES_PASSWORD": "saleor",
         "POSTGRES_DB": "saleor",
-        "DATABASE_URL": "postgres://saleor:saleor@127.0.0.1:5432/saleor",
         "SECRET_KEY": "only-for-the-tests"
       }
     },
