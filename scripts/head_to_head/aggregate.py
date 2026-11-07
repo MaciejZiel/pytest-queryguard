@@ -228,6 +228,8 @@ def _split_rows(data: dict, keys: list[str]) -> list[str]:
         return []
     base_one, base_all = _median(one["none"]), _median(runs["none"])
     base_each = (base_all - base_one) / (tests - 1)
+    if base_each <= 0:
+        return ["| fixed cost and cost per test | not measurable (too noisy) |"]
     fixed, each = [], []
     for key in keys:
         if not one.get(key) or not runs.get(key):

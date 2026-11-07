@@ -59,16 +59,6 @@ DISTRIBUTIONS = (
     "nplusone",
 )
 
-SETTINGS = '''\
-"""The corpus settings, with the app of the tool under measurement."""
-import os
-
-from tests.django_project.settings import *  # noqa: F403
-
-_APPS = {"zeal": "zeal", "nplusone-django": "nplusone.ext.django"}
-if os.environ.get("H2H_TOOL") in _APPS:
-    INSTALLED_APPS = [*INSTALLED_APPS, _APPS[os.environ["H2H_TOOL"]]]  # noqa: F405
-'''
 
 ZEAL_REPORT = re.compile(r"N\+1 detected on (\w+)\.(\w+)\.(\S+?)(?: at |\s|$)")
 
@@ -111,7 +101,9 @@ def write_session(work: Path, ini: str) -> Path:
     (work / "pytest.ini").write_text(f"[pytest]\n{ini}", encoding="utf-8")
     body = (ROOT / "tests/django_project/corpus/session_body.py").read_text("utf-8")
     (work / "test_session.py").write_text(body, encoding="utf-8")
-    (work / "h2h_django_settings.py").write_text(SETTINGS, encoding="utf-8")
+    (work / "h2h_django_settings.py").write_text(
+        common.DJANGO_SETTINGS, encoding="utf-8"
+    )
     shutil.copy(HERE / "session_plugin.py", work / "session_plugin.py")
     return work / "corpus_out.json"
 

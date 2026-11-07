@@ -257,6 +257,19 @@ DJANGO_TOOLS: dict[str, Tool] = {
         ),
     )
 }
+# The settings module of a Django corpus or overhead session, written next to
+# it: the corpus's settings, with the app of the tool under measurement.
+DJANGO_SETTINGS = '''\
+"""The corpus settings, with the app of the tool under measurement."""
+import os
+
+from tests.django_project.settings import *  # noqa: F403
+
+_APPS = {"zeal": "zeal", "nplusone-django": "nplusone.ext.django"}
+if os.environ.get("H2H_TOOL") in _APPS:
+    INSTALLED_APPS = [*INSTALLED_APPS, _APPS[os.environ["H2H_TOOL"]]]  # noqa: F405
+'''
+
 DJANGO_COMPARED = ("queryguard", "queryguard-all", "zeal", "nplusone-django")
 
 # The tools the summary compares, in this order; "none" is the baseline.

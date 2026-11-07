@@ -39,7 +39,6 @@ ROOT = HERE.parent.parent
 sys.path.insert(0, str(HERE))
 
 import common
-from django_corpus import SETTINGS
 
 TOOLS = ("none", "queryguard", "zeal", "nplusone-django")
 
@@ -102,7 +101,9 @@ def main() -> int:
             SUITE.format(tests=args.tests), encoding="utf-8"
         )
         (work / "test_one.py").write_text(SUITE.format(tests=1), encoding="utf-8")
-        (work / "h2h_django_settings.py").write_text(SETTINGS, encoding="utf-8")
+        (work / "h2h_django_settings.py").write_text(
+            common.DJANGO_SETTINGS, encoding="utf-8"
+        )
         shutil.copy(HERE / "session_plugin.py", work / "session_plugin.py")
         for round_ in range(args.rounds):
             runs = [

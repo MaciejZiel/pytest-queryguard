@@ -445,11 +445,6 @@ def on_idle(hook: Callable[[], None]) -> None:
         _idle_hooks.append(hook)
 
 
-def idle() -> bool:
-    """Whether no collector of any kind is open."""
-    return not _stack and not _live_local
-
-
 def _maybe_idle() -> None:
     if not _stack and not _live_local:
         for hook in _idle_hooks:

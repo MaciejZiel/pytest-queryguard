@@ -373,7 +373,7 @@ def attach() -> None:
     For a context-local collector (``record_queries()``, the fixture), which
     may open outside the test's measurement. Never raises.
     """
-    if _installed_for is None:
+    if not _usable():
         return
     try:
         _attach_all()
@@ -391,17 +391,30 @@ def detach() -> None:
     another thread keeps its wrapper (it was wrapped as it was created).
     Never raises.
     """
-    if _installed_for is None:
+    if not _usable():
         return
     try:
-        connections = _module("django.db").connections
-        for connection in connections.all(initialized_only=True):
+        for connection in _connections.all(initialized_only=True):
             wrappers = connection.execute_wrappers
             for i in range(len(wrappers) - 1, -1, -1):
                 if wrappers[i] is _execute:
                     del wrappers[i]
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "Django integration (detach)")
+
+
+def _usable() -> bool:
+    """Whether the Django the patches were installed on is still the one
+    loaded and ready: attach() and detach() run between measurements, after
+    a test may have unloaded Django or its settings; they then do nothing."""
+    if _installed_for is None or _connections is None:
+        return False
+    if sys.modules.get("django.db.models.query") is not _installed_for:
+        return False
+    try:
+        return _ready()
+    except Exception:  # noqa: BLE001  # settings that fail to load: not ready
+        return False
 
 
 def _attach(connection: Any) -> None:
@@ -814,10 +827,16 @@ def _relationship_event(
 def _read_path(parent: ParentLoad | None) -> tuple[tuple[str, int], ...] | None:
     """The call path of a read whose parent's query is unknown (see
     ``RelationshipLoadEvent.read_path``): objects the test created and read
-    through one helper at two lines of the test are two reads, not a loop."""
+    through one helper at two lines of the test are two reads, not a loop.
+    In an asgiref thread (the async ORM) the path is the awaiting line's."""
     if parent is not None and parent.callsite is not None:
         return None
-    return callsite.read_path()
+    path = callsite.read_path()
+    if not path:
+        site = _async_site.get()
+        if site is not None:
+            path = tuple((s.filename, s.lineno) for s in (site, *site.callers))
+    return path
 
 
 def _begin(event: RelationshipLoadEvent) -> None:

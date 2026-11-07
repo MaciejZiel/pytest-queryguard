@@ -500,9 +500,9 @@ def other_tools(directory: Path, baseline: Run, samples: int = 5) -> dict[str, T
             "",
         ]
         for event in setup_errors[:1]:
+            lines = str(event.get("message", "")).strip().splitlines()
             report += [
-                "It did not set up: "
-                + _one_line(str(event.get("message", "")).strip().splitlines()[-1]),
+                "It did not set up: " + (_one_line(lines[-1]) if lines else "?"),
                 "",
             ]
         if messages:

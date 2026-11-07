@@ -230,17 +230,27 @@ jobs:
             # two runs above did not have it. zeal's own warning is ignored by
             # its text: some projects turn warnings into errors.
             cp "$GITHUB_WORKSPACE/harness/scripts/realworld_django_tools.py" "$RUNNER_TEMP/probe/"
+            # Measured, never judged: a tool that does not install, or a
+            # run of it that fails, is a warning, and the summary still runs.
             for tool in zeal nplusone; do
               case $tool in
-                zeal) uv pip install django-zeal==2.3.0 ;;
-                nplusone) uv pip install nplusone==1.0.0 ;;
+                zeal) package=django-zeal==2.3.0 ;;
+                nplusone) package=nplusone==1.0.0 ;;
               esac
-              PYTHONPATH="$RUNNER_TEMP/probe${PYTHONPATH:+:$PYTHONPATH}" \
-              REALWORLD_TOOL=$tool REALWORLD_TOOL_OUT="$OUT/$tool.jsonl" \
-              run "$tool" -p no:queryguard -p realworld_django_tools \
-                -W "ignore:N+1 detected on:UserWarning"
+              if ! uv pip install "$package"; then
+                echo "::warning::$package did not install"
+                continue
+              fi
+              if ! (
+                export PYTHONPATH="$RUNNER_TEMP/probe${PYTHONPATH:+:$PYTHONPATH}"
+                export REALWORLD_TOOL=$tool REALWORLD_TOOL_OUT="$OUT/$tool.jsonl"
+                run "$tool" -p no:queryguard -p realworld_django_tools \
+                  -W "ignore:N+1 detected on:UserWarning"
+              ); then
+                echo "::warning::the run under $tool did not finish"
+              fi
             done
-            uv pip freeze > "$OUT/freeze-tools.txt"
+            uv pip freeze > "$OUT/freeze-tools.txt" || true
           fi
       # Exit status 1: the plugin broke something; 2: the project's tests did
       # not run without the plugin either (the harness). Findings are never a

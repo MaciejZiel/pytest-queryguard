@@ -243,25 +243,23 @@ _MAX_READ_PATH = 32
 def read_path() -> tuple[tuple[str, int], ...]:
     """The application lines from the caller outwards, as (file, line).
 
-    Up to the pluggy frame that ran the test or the fixture (see _callers),
-    at most 32. Cheaper than call sites: nothing is cached or built per line.
+    Up to the pluggy frame that ran the test or the fixture (see _callers).
+    A line is kept once (recursion repeats the line of its call: every depth
+    of one walk gets the same path), and of a deeper stack the outermost 32
+    lines are kept: those near the test are the ones two calls differ in.
     """
-    found: list[tuple[str, int]] = []
+    found: dict[tuple[str, int], None] = {}
     stop = _hook_caller()
     frame: FrameType | None = sys._getframe(1)
-    internal = _internal
-    while frame is not None and len(found) < _MAX_READ_PATH:
+    while frame is not None:
         filename = frame.f_code.co_filename
         if stop and os.path.normcase(filename).startswith(stop):
             break
-        try:
-            skip = internal[filename]
-        except KeyError:
-            skip = internal[filename] = _classify(filename)
-        if not skip:
-            found.append((filename, frame.f_lineno))
+        if not _is_internal(filename):
+            found[(filename, frame.f_lineno)] = None
         frame = frame.f_back
-    return tuple(found)
+    path = tuple(found)
+    return path[-_MAX_READ_PATH:]
 
 
 def _site(frame: FrameType, sites: Sites) -> CallSite:
