@@ -476,22 +476,46 @@ def _current_origin(state: Any) -> tuple[Any, ...] | None:
     return origin  # type: ignore[no-any-return]
 
 
+# (id of the parent's call site, its load path, relationship) -> ParentLoad:
+# the lazy loads of an N+1 share one, instead of building it for every load.
+# The entry holds the call site, so its id is not reused while it is here.
+# Only for the measurement (collector generation) whose origins it was built
+# from: emptied when an origin of another one is seen, so nothing is served
+# across tests. Past _MAX_PARENT_LOADS distinct entries in one measurement it
+# starts again; a miss only costs what every load cost without the cache.
+_parent_loads: dict[tuple[int, Any, Any], ParentLoad | None] = {}
+_parent_loads_generation = -1
+_MAX_PARENT_LOADS = 1024
+
+
 def _parent_load(parent: Any, prop: Any) -> ParentLoad | None:
     """Where the parent of this lazy load came from; None when unknown."""
+    global _parent_loads_generation
     origin = _current_origin(parent)
     if origin is None:
         return None
-    site, path, _ = origin
+    site, path, generation = origin
+    if generation != _parent_loads_generation:
+        _parent_loads.clear()
+        _parent_loads_generation = generation
+    key = (id(site), getattr(path, "path", None), prop)
+    found = _parent_loads.get(key, _MISSING)
+    if found is not _MISSING:
+        return found  # type: ignore[return-value]
     root, chain = _loader_path(path, prop)
-    if site is None and root is None:
-        return None
-    return ParentLoad(site, root, chain)
+    found = None if site is None and root is None else ParentLoad(site, root, chain)
+    if len(_parent_loads) >= _MAX_PARENT_LOADS:
+        _parent_loads.clear()
+    _parent_loads[key] = found
+    return found
 
 
 def _reset_for_tests() -> None:
-    global _error, _failure
+    global _error, _failure, _parent_loads_generation
     _error = None
     _failure = None
+    _parent_loads.clear()
+    _parent_loads_generation = -1
 
 
 class OrmSelect(NamedTuple):
@@ -573,17 +597,17 @@ def column_load_of(
             f"SQLAlchemy's column-load compile options have no {ONLY_LOAD_PROPS}; "
             "this SQLAlchemy version is not supported by the column-load kind"
         )
-    expired = instance.expired_attributes
-    columns = {prop.key for prop in instance.mapper.column_attrs}
     # session.refresh(obj, ["name"]) expires the names before it loads them,
     # so without the flag it would look like an expired load.
     user_refresh = bool(getattr(load_options, IS_USER_REFRESH, False))
     if only is None or user_refresh:
         cause, names = CAUSE_REFRESH, ()
-    elif instance.expired or (only and set(only) <= expired):
+    elif instance.expired or (only and set(only) <= instance.expired_attributes):
         cause, names = CAUSE_EXPIRED, ()
     else:
         cause = CAUSE_DEFERRED
+        # the mapper's column names, only needed here
+        columns = {prop.key for prop in instance.mapper.column_attrs}
         names = tuple(sorted(set(only) & columns or only))
     key = instance.key if instance.key is not None else id(instance)
     load = ColumnLoadEvent(

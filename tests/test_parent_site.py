@@ -538,3 +538,30 @@ def test_a_new_select_per_iteration_keeps_the_site_once_the_map_is_full(
     finding = _finding(rec, "Order.customer")
     assert finding.parent_site is not None
     assert finding.parent_site.lineno == _line("past-the-cap")
+
+
+def test_the_lazy_loads_of_one_query_share_where_their_parents_came_from(
+    engine: Engine,
+) -> None:
+    # One ParentLoad per (query line, load path, relationship) in a
+    # measurement, not one per lazy load; a new measurement builds its own.
+    def run() -> list[object]:
+        rec = collector.QueryCollector()
+        collector.push(rec)
+        try:
+            with Session(engine) as session:
+                for order in session.scalars(select(Order)).all():  # shared-parents
+                    _ = order.customer
+        finally:
+            collector.pop(rec)
+        return [load.parent for load in rec.relationship_loads]
+
+    first = run()
+    assert len(first) == 3
+    assert first[0] is not None
+    assert first[0].callsite is not None
+    assert first[0].callsite.lineno == _line("shared-parents")
+    assert all(parent is first[0] for parent in first)
+    second = run()
+    assert second[0] == first[0]
+    assert second[0] is not first[0]

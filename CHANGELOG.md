@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Lower overhead of lazy loads and column loads with measurement on: the
+  plugin's own time in the cursor listener fell by about 10 % for each, and
+  the time a lazy load or column load adds by about 4 to 5 % (in-memory
+  SQLite, against 0.8.0, back-to-back runs). The lazy loads of one query now
+  share one record of where their parents came from, and a column load builds
+  the set of the mapper's columns only for a deferred column. Core and other
+  ORM statements, and statements outside a measured test, cost the same as
+  before. Detection is unchanged.
+
 ### Fixed
 
 - Strict mode no longer drops a query or database-time budget failure: a
