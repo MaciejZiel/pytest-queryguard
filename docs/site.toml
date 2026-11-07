@@ -11,6 +11,7 @@ title = "Start"
 pages = [
   { title = "Overview", file = "index.md", description = "pytest-queryguard fails tests that run N+1 queries, enforces query budgets and finds missing indexes for SQLAlchemy 2, in sync, async and FastAPI code." },
   { title = "Getting started", file = "getting-started.md", description = "Install pytest-queryguard, see a first N+1 failure and its fix, and use it with async code and FastAPI." },
+  { title = "Django (experimental)", file = "django.md", description = "Use pytest-queryguard with the Django ORM and pytest-django: what it reports, how it sees Django, and its limits." },
   { title = "A test failed: now what", file = "when-a-test-fails.md", description = "Read a pytest-queryguard failure, check that the finding is real, fix it, or leave it out on purpose." },
   { title = "How detection works", file = "how-detection-works.md", description = "The rules pytest-queryguard applies to find N+1 queries, repeated statements, column loads and write loops, and why the thresholds are what they are." },
 ]

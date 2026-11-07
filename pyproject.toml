@@ -50,6 +50,10 @@ classifiers = [
 ]
 dependencies = ["pytest>=8", "sqlalchemy>=2.0.13"]
 
+[project.optional-dependencies]
+# The Django integration (experimental); docs/django.md.
+django = ["django>=5.2"]
+
 [project.urls]
 Homepage = "https://github.com/MaciejZiel/pytest-queryguard"
 Repository = "https://github.com/MaciejZiel/pytest-queryguard"
