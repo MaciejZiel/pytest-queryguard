@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The accuracy corpus has 57 more scenarios (254): inheritance (single,
+- The accuracy corpus has 63 more scenarios (260): inheritance (single,
   concrete, `selectin_polymorphic`, polymorphic collections), association
   proxies, `deferred_group`, `query_expression`, `WriteOnlyMapped`,
   `viewonly` relationships, composite keys, `lazy="immediate"`, `"subquery"`
@@ -59,6 +59,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- By default (`queryguard_scope = test`), a `Session` or connection checkout
+  begun from application lines that no other one of the test began from is
+  counted on its own by the relationship-load, repeated-statement,
+  column-load and write-loop rules, and by strict mode. A store whose
+  methods each open a `Session` and run a shared lookup, called on separate
+  lines with no loop, was reported as an N+1: the lookups of the separate
+  calls added up like the passes of a loop. About 78 findings of the
+  real-world run in MLflow's tracking store were of this shape. `Session`s
+  begun from the same lines (a loop, a comprehension, `asyncio.gather`, a
+  thread pool, each depth of a recursion) are still counted together, and
+  so are all others whose lines repeat, so a loop whose passes call two
+  methods in turn is not split in two. The lines are those on the stack when
+  the `Session` begins, up to the test, read once per `Session`. See
+  [Tests with several sessions or
+  requests](docs/several-sessions.md#sessions-begun-on-separate-lines).
 - The relationship-load rule groups the parents whose query is unknown
   (objects the test created, loaded before the test body or read by two
   queries) by the line that read the relationship, as it groups the others by

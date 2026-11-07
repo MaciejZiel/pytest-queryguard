@@ -14,6 +14,38 @@ def test_five_requests(client, org):
 Every request opens its own `Session`, runs the same lookups, and closes it.
 The statement runs five times in the test and once in each request.
 
+## Sessions begun on separate lines
+
+A store or service that opens a `Session` per call, called on separate lines
+of a test with no loop, runs its shared lookup once per call:
+
+```python
+def test_set_tag(store):
+    store.set_tag(1, "a", "x")       # each call: its own Session, and the
+    store.set_tag(2, "a", "y")       # same lookup in a shared helper
+    assert store.get_tags(1) == {"a": "x"}
+    assert store.get_tags(2) == {"a": "y"}
+```
+
+The default scope counts these on their own, without any option. When a
+`Session` (or a connection checkout) begins, the plugin notes the application
+lines on the stack, from its first statement up to the test, as for a call
+site's callers. A `Session` begun from lines that no other `Session` of the
+test began from is counted alone. The `Session`s begun from the same lines (a
+loop, a comprehension, `asyncio.gather`, a thread pool, each depth of a
+recursion) are counted together, and so are all others whose lines repeat,
+whatever lines each began from: a loop whose passes call two store methods in
+turn is not split in two. A loop of three passes and three separate calls is
+a run of three, not of six.
+
+Requests that the application handles in another thread (Starlette's
+`TestClient` runs it in a portal thread) have no frame of the test on their
+stack: they begin from the same handler lines and are counted together as
+before. Sessions begun before the test (a fixture's) and
+past 100,000 Sessions in one test are counted together too. Two passes of a
+loop that begin their `Session`s from different lines (an `if` in the loop,
+two passes only) look like separate calls.
+
 ## The option
 
 ```toml
@@ -23,7 +55,7 @@ queryguard_scope = "session"
 
 | Value | What is counted together |
 |---|---|
-| `test` (default) | Everything the test runs, as in 0.3. |
+| `test` (default) | Everything the test runs, except `Session`s begun from lines of their own (see above). |
 | `session` | The statements, lazy loads, column loads and writes of one scope. A finding needs one scope to reach the threshold. |
 
 It applies to four kinds: `repeated-statement` (also the small-repeat rule),

@@ -25,6 +25,10 @@ from .findings import KIND_RELATIONSHIP
 # extension that needs it) but never off, so a build that starts without it
 # keeps the lock, which is only ever redundant.
 _FREE_THREADED = not getattr(sys, "_is_gil_enabled", lambda: True)()
+_ALL = object()  # _report_site: the loads of every unit
+# Most scopes whose entry a collector keeps (note_entry); later ones count
+# with the scopes begun from shared lines, as all scopes did before.
+MAX_ENTRIES = 100_000
 
 
 @dataclass(slots=True, eq=False)
@@ -104,6 +108,11 @@ class QueryCollector:
     strict_threshold: int = 2
     # count each Session on its own, as queryguard_scope = session does
     strict_by_scope: bool = False
+    # scope -> the number of the application lines it began from
+    # (callsite.find_entry), and how many scopes began from each; see unit_of
+    entries: dict[int, int] = field(default_factory=dict)
+    entry_numbers: dict[tuple[tuple[str, int], ...], int] = field(default_factory=dict)
+    entry_uses: list[int] = field(default_factory=list)
     # (relationship, query site of the parents, Session or None) -> group
     strict_groups: dict[tuple[object, ...], StrictGroup] = field(default_factory=dict)
     # Set by the strict listener when it raises this collector's error: the
@@ -180,6 +189,41 @@ class QueryCollector:
         if self.max_events is None or len(self.cartesian_loads) < self.max_events:
             self.cartesian_loads.append(event)
 
+    def note_entry(self, scope: int, lines: tuple[tuple[str, int], ...]) -> None:
+        """Scope ``scope`` began from these application lines (find_entry)."""
+        if _FREE_THREADED:
+            with self._lock:
+                self._note_entry(scope, lines)
+        else:
+            self._note_entry(scope, lines)
+
+    def _note_entry(self, scope: int, lines: tuple[tuple[str, int], ...]) -> None:
+        if scope in self.entries or len(self.entries) >= MAX_ENTRIES:
+            return
+        number = self.entry_numbers.get(lines)
+        if number is None:
+            number = self.entry_numbers[lines] = len(self.entry_uses)
+            self.entry_uses.append(0)
+        self.entry_uses[number] += 1
+        self.entries[scope] = number
+
+    def unit_of(self, scope: int | None) -> int | None:
+        """What the count rules count ``scope`` with, by default (scope "test").
+
+        A Session (or connection checkout) begun from application lines that
+        no other scope of the measurement began from is a unit of work of its
+        own: a call on a line of its own, such as a store method that opens a
+        Session per call. Its number is returned, and it is counted alone.
+        The scopes begun from shared lines (the passes of a loop, the tasks of
+        a fan-out) and those whose lines are unknown return None and are
+        counted together, whatever lines each began from, so that a loop
+        whose passes take two paths is not split in two.
+        """
+        number = self.entries.get(scope) if scope is not None else None
+        if number is None or self.entry_uses[number] > 1:
+            return None
+        return scope
+
     def strict_check(self, load: RelationshipLoadEvent) -> BaseException | None:
         """The strict-mode exception for this lazy load, or None.
 
@@ -195,28 +239,60 @@ class QueryCollector:
         key = (load.relationship, parent.callsite, scope)
         if _FREE_THREADED:
             with self._lock:
-                group = self._strict_group(key, load)
-                if group is not None and group.report is None:
-                    group.report = self._report_site(load, scope)
+                decided = self._strict_decide(key, load, scope)
         else:
-            group = self._strict_group(key, load)
-            if group is not None and group.report is None:
-                group.report = self._report_site(load, scope)
-        if group is None:
+            decided = self._strict_decide(key, load, scope)
+        if decided is None:
             return None
+        group, (first, other_lines), parents = decided
         if load.ignores and covers(load.ignores, KIND_RELATIONSHIP):
             # inside an ignore() block: the load counts for the group (a
             # later load outside the block raises), this one never raises
             return None
-        assert group.report is not None
-        first, other_lines = group.report
-        error = self.strict(load, first or group.first, len(group.parents), other_lines)
+        error = self.strict(load, first or group.first, parents, other_lines)
         if error is None:
             group.suppressed = True
         return error
 
+    def _strict_decide(
+        self, key: tuple[object, ...], load: RelationshipLoadEvent, scope: object
+    ) -> tuple[StrictGroup, tuple[CallSite | None, bool], int] | None:
+        """(group, report site, parents) once the load makes an N+1, else None.
+
+        With scope "test" and the lines each Session began from known, the
+        parents are counted in the load's unit only (``unit_of``), as the
+        report counts them: a Session begun from lines of its own is no pass
+        of a loop. Not when loads were left out (``max_events``).
+        """
+        group = self._strict_group(key, load)
+        if group is None:
+            return None
+        if (
+            self.strict_by_scope
+            or not self.entries
+            or self.relationship_load_count > len(self.relationship_loads)
+        ):
+            if group.report is None:
+                group.report = self._report_site(load, scope)
+            return group, group.report, len(group.parents)
+        unit = self.unit_of(load.scope)
+        group_line = key[1]
+        parents = {load.parent_key}
+        for earlier in self.relationship_loads:
+            if (
+                earlier.relationship == load.relationship
+                and earlier.parent is not None
+                and earlier.parent.callsite == group_line
+                and earlier.parent_key is not None
+                and self.unit_of(earlier.scope) == unit
+            ):
+                parents.add(earlier.parent_key)
+        if len(parents) < self.strict_threshold:
+            return None
+        return group, self._report_site(load, scope, unit), len(parents)
+
     def _report_site(
-        self, load: RelationshipLoadEvent, scope: object | None
+        self, load: RelationshipLoadEvent, scope: object | None, unit: object = _ALL
     ) -> tuple[CallSite | None, bool]:
         """(where the report puts this N+1, whether other lines loaded parents).
 
@@ -229,7 +305,8 @@ class QueryCollector:
         those read at their line are an N+1 of their own, as in the report.
         When parents of other lines are in it, the
         report's finding has no patch, so neither has the strict error.
-        Computed once per group, when it reaches the threshold.
+        Computed once per group, when it reaches the threshold, or, with
+        ``unit``, from the loads of that unit only (see ``_strict_decide``).
         """
         here = load.parent.callsite if load.parent is not None else None
         first: CallSite | None = None
@@ -240,7 +317,16 @@ class QueryCollector:
             if earlier.relationship == load.relationship
             and earlier.parent_key is not None
             and (scope is None or earlier.scope == scope)
+            and (unit is _ALL or self.unit_of(earlier.scope) == unit)
         ]
+        # with a unit, its parents per query line, as the report counts them
+        per_line: dict[CallSite, set[object]] = {}
+        if unit is not _ALL:
+            for earlier in loads:
+                if earlier.parent is not None and earlier.parent.callsite is not None:
+                    per_line.setdefault(earlier.parent.callsite, set()).add(
+                        earlier.parent_key
+                    )
         # the lines that read this group's relationship: a parent of unknown
         # origin joins the group when read at one of them (or at no known line)
         reads = {
@@ -265,8 +351,12 @@ class QueryCollector:
                 ):
                     continue  # read elsewhere, too few to be an N+1 of its own
             elif line is not None and line != here:
-                group = self.strict_groups.get((load.relationship, line, scope))
-                if group is None or len(group.parents) < self.strict_threshold:
+                if unit is _ALL:
+                    group = self.strict_groups.get((load.relationship, line, scope))
+                    count = 0 if group is None else len(group.parents)
+                else:
+                    count = len(per_line.get(line, ()))
+                if count < self.strict_threshold:
                     continue  # a line with too few parents is no N+1
             if first is None and earlier.callsite is not None:
                 first = earlier.callsite

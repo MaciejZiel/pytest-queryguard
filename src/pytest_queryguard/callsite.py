@@ -219,6 +219,44 @@ def _callers(frame: FrameType | None, depth: int) -> tuple[CallSite, ...]:
     return tuple(found)
 
 
+Entry = tuple[tuple[str, int], ...]
+_MAX_ENTRY_LINES = 64
+
+
+def find_entry() -> Entry | None:
+    """The application lines the running statement came from, up to the test.
+
+    ``(filename, line)`` of each application frame, innermost first, as
+    ``_callers`` walks them, through the parent greenlets of an async session.
+    A function that is on the stack more than once (recursion) is kept at its
+    innermost frame only, so each depth of a recursive walk has the same
+    lines. Two units of work begun from the same lines are passes of one loop
+    (or tasks of one fan-out); begun from different lines, they may be calls
+    on separate lines. None when no application frame is found.
+    """
+    lines: list[tuple[str, int]] = []
+    seen: set[CodeType] = set()
+    stop = _hook_caller()
+    starts = itertools.chain((sys._getframe(1),), _parent_greenlet_frames())
+    for start in starts:
+        frame: FrameType | None = start
+        while frame is not None:
+            code = frame.f_code
+            if stop and os.path.normcase(code.co_filename).startswith(stop):
+                return tuple(lines) or None
+            if not _is_internal(code.co_filename) and not _is_session_method(frame):
+                if code.co_name in _INLINED:
+                    frame = _outer(frame)
+                    code = frame.f_code
+                if code not in seen:
+                    seen.add(code)
+                    lines.append((code.co_filename, frame.f_lineno))
+                    if len(lines) >= _MAX_ENTRY_LINES:
+                        return tuple(lines)
+            frame = frame.f_back
+    return tuple(lines) or None
+
+
 def _site(frame: FrameType, sites: Sites) -> CallSite:
     code = frame.f_code
     key = (code.co_filename, frame.f_lineno, code.co_name)
