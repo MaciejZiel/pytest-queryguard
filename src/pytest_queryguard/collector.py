@@ -126,9 +126,12 @@ class QueryCollector:
     # The application lines a scope began from (callsite.find_entry), see
     # unit_of: lines -> the one scope begun from them, None once several
     # were (at most MAX_ENTRIES lines), and scope -> its lines for the
-    # scopes whose lines no other scope began from.
-    entry_scope: dict[Entry, int | None] = field(default_factory=dict)
-    entries: dict[int, Entry] = field(default_factory=dict)
+    # scopes whose lines no other scope began from. Made at the first entry,
+    # not with the collector: most collectors never get one, and a dict made
+    # and dropped per test changes what tracemalloc attributes on Python
+    # before 3.14 (the memory stress test).
+    entry_scope: dict[Entry, int | None] | None = None
+    entries: dict[int, Entry] | None = None
     # (relationship, query site of the parents, Session or None) -> group
     strict_groups: dict[tuple[object, ...], StrictGroup] = field(default_factory=dict)
     # Set by the strict listener when it raises this collector's error: the
@@ -218,17 +221,21 @@ class QueryCollector:
             self._note_entry(scope, lines)
 
     def _note_entry(self, scope: int, lines: Entry) -> None:
-        if lines in self.entry_scope:
-            first = self.entry_scope[lines]
+        entry_scope, entries = self.entry_scope, self.entries
+        if entry_scope is None or entries is None:
+            entry_scope = self.entry_scope = {}
+            entries = self.entries = {}
+        if lines in entry_scope:
+            first = entry_scope[lines]
             if first is not None and first != scope:
                 # its lines repeat: no longer a unit of its own
-                self.entry_scope[lines] = None
-                del self.entries[first]
+                entry_scope[lines] = None
+                del entries[first]
                 self._join_shared(first)
             return
-        if len(self.entry_scope) < MAX_ENTRIES:
-            self.entry_scope[lines] = scope
-            self.entries[scope] = lines
+        if len(entry_scope) < MAX_ENTRIES:
+            entry_scope[lines] = scope
+            entries[scope] = lines
 
     def _join_shared(self, scope: int) -> None:
         """Strict mode: the parents counted in unit ``scope`` join unit None."""
@@ -258,7 +265,10 @@ class QueryCollector:
         counted together, whatever lines each began from, so that a loop
         whose passes take two paths is not split in two.
         """
-        return scope if scope is not None and scope in self.entries else None
+        entries = self.entries
+        if scope is None or entries is None or scope not in entries:
+            return None
+        return scope
 
     def strict_check(self, load: RelationshipLoadEvent) -> BaseException | None:
         """The strict-mode exception for this lazy load, or None.
