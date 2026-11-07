@@ -729,7 +729,7 @@ What the findings were:
   113 and 58 relationship-loads instead of 59, in 48 tests instead of 78.
   Of the 32 tests that lost findings, 27 call the store on separate lines
   with no loop over it (read in the test file); 5 also have a short loop over
-  the store (two or three passes, as `test_search_vanilla`'s three runs or
+  the store (fewer than five passes, as `test_search_vanilla`'s three runs or
   `test_log_batch`'s two metric histories), which, without the separate
   calls, stays below the threshold of 5. The tests left have a loop over the
   store in the test or in a helper (`test_log_batch_limits`,
