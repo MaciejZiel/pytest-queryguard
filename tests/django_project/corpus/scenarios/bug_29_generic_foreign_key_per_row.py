@@ -11,12 +11,6 @@ from ..kit import BUG, REL
 
 VERDICT = BUG
 KINDS = frozenset({REL})
-KNOWN = {
-    "*": (
-        "generic foreign keys are not hooked yet: the lookups are a "
-        "repeated-statement, not a relationship-load"
-    )
-}
 
 
 def setup() -> None:

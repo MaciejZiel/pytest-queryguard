@@ -14,15 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   budgets, `record_queries()`, the `queryguard` fixture, the baseline,
   `--queryguard-json`, SARIF and the `repeated-statement` and `write-loop`
   rules work for Django; `relationship-load` for foreign keys, one-to-one
-  relations both ways, reverse foreign keys and many-to-many relations,
+  relations both ways, reverse foreign keys, many-to-many relations and
+  generic relations,
   grouped by the line of the parents' query as for SQLAlchemy;
   `column-load` for fields left out by `.only()` or `.defer()`; strict mode;
   `missing-index` with `--queryguard-index-check`.
   The fix names `select_related()`, `prefetch_related()`, `only()`,
   `bulk_create()` and `bulk_update()`. Deletes with their cascades and
   batched bulk writes count as one write. Django 5.2, 6.0 and 6.1 on
-  SQLite, PostgreSQL and MySQL. Not yet for Django: generic foreign keys,
-  the in-app mode and patches.
+  SQLite, PostgreSQL and MySQL. Not yet for Django: the in-app mode,
+  patches and the experimental unused-eager-load and unused-columns checks.
 - The JSON output of the experimental trend
   (`python -m pytest_queryguard.trend --format json`) starts with
   `"format": 1`, like the other JSON files, and its keys are documented in

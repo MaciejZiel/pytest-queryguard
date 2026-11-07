@@ -241,3 +241,28 @@ def test_async_manager_methods_stay_coroutine_functions() -> None:
     book = Book.objects.get(pk=1)
     assert inspect.iscoroutinefunction(book.tags.aset)
     assert getattr(author.books.create, "alters_data", False)
+
+
+def test_generic_foreign_key_in_a_loop() -> None:
+    from django.contrib.contenttypes.models import ContentType
+
+    from .library.models import Bookmark
+
+    book_type = ContentType.objects.get_for_model(Book)
+    Bookmark.objects.bulk_create(
+        [Bookmark(content_type=book_type, object_id=pk) for pk in range(1, 7)]
+    )
+    ContentType.objects.clear_cache()
+    with measure() as collector:
+        titles = [m.target.title for m in Bookmark.objects.all()]
+    assert len(titles) == 6
+    (finding,) = detections(collector)
+    assert isinstance(finding, RelationshipFinding)
+    assert finding.relationship == "Bookmark.target"
+    assert finding.count == 6
+    assert (
+        'Bookmark.objects.prefetch_related("target")' in make_finding(finding).message
+    )
+    with measure() as collector:
+        titles = [m.target.title for m in Bookmark.objects.prefetch_related("target")]
+    assert detections(collector) == []

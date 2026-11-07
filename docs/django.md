@@ -84,7 +84,7 @@ writes are not measured: only the test function's body is, as for SQLAlchemy.
 
 | Kind | Django code it reports | Fix the message names |
 |---|---|---|
-| `relationship-load` | a foreign key, a one-to-one relation (either side, multi-table inheritance included), a reverse foreign key, a many-to-many relation or a `GenericRelation` read for 2 or more objects of one query line; also `.filter()`, `.count()`, `.exists()` and `.values()` on such a relation | `select_related()` or `prefetch_related()` with the lookup, through a chain (`"author__publisher"`) |
+| `relationship-load` | a foreign key, a one-to-one relation (either side, multi-table inheritance included), a reverse foreign key, a many-to-many relation, a generic foreign key or a `GenericRelation` read for 2 or more objects of one query line; also `.filter()`, `.count()`, `.exists()` and `.values()` on such a relation | `select_related()` or `prefetch_related()` with the lookup, through a chain (`"author__publisher"`) |
 | `column-load` | a field left out by `.only()` or `.defer()` read for 5 or more objects | name it in `.only()`, or leave it out of `.defer()` |
 | `repeated-statement` | one SELECT shape run 5 or more times: `get()`, `filter(...).exists()`, `refresh_from_db()` or a serializer method that queries, per item | `in_bulk(ids)` or `filter(pk__in=ids)` |
 | `missing-index` (off by default) | a SELECT that no index serves, on SQLite, PostgreSQL (psycopg 2 or 3) and MySQL; see [Index check](index-check.md) | the index to create |
@@ -144,10 +144,6 @@ that makes the N+1).
 
 ## Limitations
 
-- **Generic foreign keys** (`GenericForeignKey`, the forward side) are not
-  hooked: a loop over them is reported as a `repeated-statement` (from 5
-  rows), not as a `relationship-load`. A `GenericRelation` (the reverse side)
-  is.
 - **Values Django reloads by itself**: on a database without `RETURNING`
   (MySQL), a field saved as an expression (`F("pages") + 1`) is reloaded on
   its next read; such reads in a loop are reported as a `column-load` whose
@@ -165,8 +161,8 @@ that makes the N+1).
 
 ## Accuracy
 
-The Django corpus in `tests/django_project/corpus` has 62 scenarios, 31 with
-an N+1 or another finding and 31 without, run in five configurations:
+The Django corpus in `tests/django_project/corpus` has 68 scenarios, 34 with
+an N+1 or another finding and 34 without, run in five configurations:
 foreign keys, reverse relations, many-to-many relations, one-to-one relations,
 generic relations,
 multi-table inheritance, `select_related()`, `prefetch_related()` and
@@ -178,11 +174,16 @@ cascades, signals, `iterator()` and pagination. On SQLite, with Django 5.2 and
 
 | Kind | Precision | Recall |
 |---|---|---|
-| `relationship-load` | 100 % | 94 % (17 of 18) |
-| `column-load` | 100 % | 100 % |
-| `repeated-statement` | 88 % (7 of 8) | 100 % |
-| `write-loop` (threshold 2) | 100 % | 100 % |
+| `relationship-load` | 100 % (19 of 19) | 100 % |
+| `column-load` | 100 % (5 of 5) | 100 % |
+| `repeated-statement` | 100 % (7 of 7) | 100 % |
+| `write-loop` (threshold 2) | 100 % (5 of 5) | 100 % |
 
-The one mismatch is the generic foreign key above, which is reported as a
-`repeated-statement`. `scripts/django_accuracy_report.py` prints these
-numbers.
+The same holds in the other four configurations (small repeats, a column-load
+threshold of 2, write loops, strict mode) and on PostgreSQL 17 and MySQL 8.4,
+except for one scenario with two N+1s in strict mode: the test stops at the
+first, before the second is complete. The corpus
+was written together with the integration, so these numbers say that the
+cases it names work, not how often the rules are right on other code; runs
+on real Django projects are still to come. `scripts/django_accuracy_report.py`
+prints them.

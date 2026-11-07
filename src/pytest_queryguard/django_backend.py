@@ -237,6 +237,16 @@ def _install() -> None:
     _patch(query.QuerySet, "bulk_create", _in_unit)
     _patch(query.QuerySet, "bulk_update", _in_unit)
     _patch_factories(descriptors)
+    generic = sys.modules.get("django.contrib.contenttypes.fields")
+    if generic is not None:
+        # Django 6.1 moved __get__ to a descriptor class of its own
+        owner = getattr(generic, "GenericForeignKeyDescriptor", None)
+        if owner is not None:
+            _patch(owner, "__get__", lambda o: _generic_get(o, lambda d: d.field))
+        else:
+            _patch(
+                generic.GenericForeignKey, "__get__", lambda o: _generic_get(o, None)
+            )
     signals.connection_created.connect(
         _on_connection_created, weak=False, dispatch_uid=_DISPATCH_UID
     )
@@ -654,6 +664,40 @@ def _reverse_one_get(original: Callable[..., Any]) -> Callable[..., Any]:
             True,
             _scope(instance),
         )
+        return _run_load(pending, lambda: original(self, instance, cls))
+
+    return __get__
+
+
+def _generic_get(
+    original: Callable[..., Any], field_of: Callable[[Any], Any] | None
+) -> Callable[..., Any]:
+    """A generic foreign key: the object its content type and id point to."""
+
+    def __get__(self: Any, instance: Any, cls: Any = None) -> Any:
+        if instance is None or not _collectors or _failed():
+            return original(self, instance, cls)
+        field = self if field_of is None else field_of(self)
+        if field.is_cached(instance):
+            return original(self, instance, cls)
+        pending = None
+        try:
+            ct_field = field.model._meta.get_field(field.ct_field)
+            ct_id = getattr(instance, ct_field.attname, None)
+            if ct_id is not None and getattr(instance, field.fk_field) is not None:
+                # the content type first, outside the load: Django caches it,
+                # so a loop looks it up once
+                field.get_content_type(id=ct_id, using=instance._state.db)
+                # scalar False: the fix is prefetch_related, not select_related
+                pending = _prepare(
+                    f"{field.model.__name__}.{field.name}",
+                    instance,
+                    False,
+                    _scope(instance),
+                )
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _fail(exc, "Django integration (generic foreign key)")
+            pending = None
         return _run_load(pending, lambda: original(self, instance, cls))
 
     return __get__
