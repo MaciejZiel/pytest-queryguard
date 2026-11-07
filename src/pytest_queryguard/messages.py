@@ -83,8 +83,9 @@ def _scope_hint(finding: Detection) -> list[str]:
         return []
     if _django(finding):
         return [
-            "  note: if each belongs to a separate request, this is not a loop; set",
-            "  queryguard_scope = session to count each request on its own",
+            "  note: if each belongs to a separate request or thread, this is not a",
+            "  loop; set queryguard_scope = session to count each request (and,",
+            "  outside a request, each database connection) on its own",
             "  (QueryLog.assert_no_nplusone: scope='session')",
         ]
     return [

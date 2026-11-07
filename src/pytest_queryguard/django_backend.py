@@ -192,6 +192,8 @@ def ensure(*, index_check: bool = False) -> None:
         if query is None or query is not _installed_for:
             _install()
         _attach_all()
+        # a streaming response never read to its end sends no request_finished
+        _request.set(None)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "Django integration (install)")
 
@@ -396,7 +398,7 @@ def _record(
             for target in full:
                 target.add_column_load(event)
     if site is None:
-        site = find_callsite() or _async_site.get()
+        site = _site()
     stmt = StatementEvent(
         sql,
         site,
@@ -570,11 +572,13 @@ def _noting(rows: Iterator[Any], queryset: Any) -> Iterator[Any]:
             first = False
             try:
                 origin = _rows_origin(local, before, queryset)
-                if origin is not None and origin.root is not None:
-                    related = _related_origins(queryset, origin)
             except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
                 _fail(exc, "Django integration (instance origins)")
-                origin, related = None, []
+            if origin is not None and origin.root is not None:
+                try:
+                    related = _related_origins(queryset, origin)
+                except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+                    _fail(exc, "Django integration (select_related origins)")
         if origin is not None:
             obj._state.__dict__[_ORIGIN] = origin
             for caches, step_origin in related:
@@ -604,7 +608,7 @@ def _related_origins(
         model, branch, caches, path = walk.pop()
         for name, below in branch.items():
             field = model._meta.get_field(name)
-            if field.is_relation and not field.concrete:
+            if hasattr(field, "get_accessor_name"):  # a reverse relation
                 label = f"{model.__name__}.{field.get_accessor_name()}"
             else:
                 label = f"{model.__name__}.{field.name}"
@@ -672,28 +676,30 @@ def _key(instance: Any) -> object:
     return (instance._meta.label, instance.pk)
 
 
-class _Request(threading.local):
-    """The scope of the request this thread is handling, if any."""
-
-    scope: int | None = None
-
-
-_request = _Request()
+# The scope of the request being handled in this context, if any. A context
+# variable, not a thread-local: asgiref copies it into the threads that run
+# an async request's sync code and back, so it follows the request.
+_request: ContextVar[int | None] = ContextVar("queryguard_django_request", default=None)
 
 
 def _on_request_started(sender: Any, **kwargs: Any) -> None:
     # One scope per request (the test client's included), as a Session is
     # one for SQLAlchemy: queryguard_scope = session counts each on its own.
-    _request.scope = next(listeners._scopes)
+    _request.set(next(listeners._scopes))
 
 
 def _on_request_finished(sender: Any, **kwargs: Any) -> None:
-    _request.scope = None
+    _request.set(None)
+
+
+def _site() -> Any:
+    """The call site; in an asgiref thread, the line that awaited the call."""
+    return find_callsite() or _async_site.get()
 
 
 def _scope_of(connection: Any) -> int | None:
     """The request being handled, else the connection the statement ran on."""
-    scope = _request.scope
+    scope = _request.get()
     return scope if scope is not None else listeners.scope_of_connection(connection)
 
 
@@ -714,7 +720,7 @@ def _relationship_event(
     return RelationshipLoadEvent(
         label,
         _key(instance),
-        find_callsite(),
+        _site(),
         scalar,
         scope,
         _parent(origin),
@@ -871,7 +877,7 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
                 (self.field.name,),
                 CAUSE_DEFERRED,
                 _key(instance),
-                find_callsite(),
+                _site(),
                 scope=_scope(instance),
                 ignores=blocks.current(),
                 orm=ORM_DJANGO,
@@ -1012,7 +1018,7 @@ def _execute_sql(
             event = RelationshipLoadEvent(
                 mark.label,
                 mark.key,
-                find_callsite(),
+                _site(),
                 False,
                 _scope_of(self.connection),
                 _parent(mark.origin),
@@ -1034,12 +1040,29 @@ def _execute_sql(
 # --- the async ORM ------------------------------------------------------------
 
 
+def _is_orm_call(adapter: Any) -> bool:
+    """Whether a SyncToAsync runs a method of a queryset, manager or model:
+    the async ORM (aget(), acount(), async for, asave(), ...). Django's other
+    uses (signals, middleware, closing a response) are left alone."""
+    owner = getattr(getattr(adapter, "func", None), "__self__", None)
+    if owner is None:
+        return False
+    models = sys.modules.get("django.db.models")
+    if models is None:
+        return False
+    manager = sys.modules.get("django.db.models.manager")
+    kinds: tuple[type, ...] = (models.QuerySet, models.Model)
+    if manager is not None:
+        kinds = (*kinds, manager.BaseManager)
+    return isinstance(owner, kinds)
+
+
 def _sync_to_async_call(original: Callable[..., Any]) -> Callable[..., Any]:
     """Note the awaiting application line for the thread the call runs in."""
 
     @functools.wraps(original)
     async def __call__(self: Any, *args: Any, **kwargs: Any) -> Any:
-        if not collector._active or _failed():
+        if not collector._active or _failed() or not _is_orm_call(self):
             return await original(self, *args, **kwargs)
         try:
             site = find_callsite()

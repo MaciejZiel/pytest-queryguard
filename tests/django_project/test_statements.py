@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import django
 import pytest
 from django.db import connection, transaction
 
@@ -184,3 +185,47 @@ def test_the_async_orm_has_the_awaiting_line_as_call_site() -> None:
         (s.callsite.function if s.callsite else None) for s in collector.statements
     }
     assert sites == {"titles"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_async_relation_loads_have_the_awaiting_line() -> None:
+    import asyncio
+
+    async def shelves() -> list[list[str]]:
+        authors = [a async for a in Author.objects.all()]
+        shelves = []
+        for author in authors:
+            shelves.append([b.title async for b in author.books.all()])
+        return shelves
+
+    with measure() as collector:
+        assert len(asyncio.run(shelves())) == 6
+    loads = collector.relationship_loads
+    assert len(loads) == 6
+    assert {load.callsite.function for load in loads if load.callsite} == {"shelves"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_async_client_requests_are_scopes_that_end() -> None:
+    import asyncio
+
+    from django.test import AsyncClient
+
+    async def two_requests() -> None:
+        client = AsyncClient()
+        for _ in range(2):
+            assert (await client.get("/books/three/")).status_code == 200
+
+    with measure() as collector:
+        asyncio.run(two_requests())
+        Author.objects.count()
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    after = collector.statements[-1]
+    if django.VERSION >= (6, 1):
+        assert len({s.scope for s in gets}) == 2
+        assert after.scope not in {s.scope for s in gets}
+    else:
+        # before 6.1, Signal.asend runs sync receivers in tasks of their own:
+        # the scope they set never reaches the request, which counts per
+        # connection (the one of asgiref's thread)
+        assert len({s.scope for s in gets}) == 1

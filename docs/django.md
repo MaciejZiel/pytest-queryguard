@@ -120,7 +120,8 @@ that makes the N+1).
 With `queryguard_scope = session`, each request (one call of the test client;
 a view called directly with `RequestFactory` is no request) counts on its own,
 as a Session does for SQLAlchemy; statements outside a request count per
-database connection. See [Several sessions or requests](several-sessions.md).
+database connection. Requests of the `AsyncClient` count per connection
+before Django 6.1. See [Several sessions or requests](several-sessions.md).
 
 ## How it sees Django
 
