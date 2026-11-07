@@ -569,6 +569,7 @@ _SHADOWS_CATALOG = re.compile(
 )
 
 
+@functools.lru_cache(maxsize=512)
 def is_catalog_statement(sql: str) -> bool:
     """True for schema reflection that the repeat rules do not count."""
     sql = _SQL_COMMENT.sub(" ", sql)

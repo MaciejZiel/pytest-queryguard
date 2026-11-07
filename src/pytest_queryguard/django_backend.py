@@ -968,10 +968,16 @@ def _cached_target(
 
 def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
     def __get__(self: Any, instance: Any, cls: Any = None) -> Any:
+        if instance is not None:
+            # the value is loaded: what Django returns, without a second call
+            # (save() reads every field through here)
+            data = instance.__dict__
+            name = self.field.attname
+            if name in data:
+                return data[name]
         if (
             instance is None
             or not _collectors
-            or self.field.attname in instance.__dict__
             or _failed()
             or (
                 getattr(self.field, "generated", False)
@@ -1117,10 +1123,11 @@ def _execute_sql(
     original: Callable[..., Any], writes: tuple[type, ...]
 ) -> Callable[..., Any]:
     def execute_sql(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if not _collectors:
+            return original(self, *args, **kwargs)
         mark = self.query.__dict__.get(_MARK)
         if (
             mark is None
-            or not _collectors
             or not isinstance(mark, _Load)
             or isinstance(self, writes)
             or _failed()

@@ -2998,6 +2998,8 @@ def _hide_escalated_warning(
 def _emit_warnings(item: pytest.Item, texts: list[str]) -> None:
     """Emit each finding as a ``QueryGuardWarning`` located at the test."""
     __tracebackhide__ = _hide_escalated_warning
+    if not texts:
+        return  # reportinfo() is not free: once per test, for nothing
     path, line, _ = item.reportinfo()
     for text in texts:
         std_warnings.warn_explicit(
