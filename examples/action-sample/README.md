@@ -1,5 +1,5 @@
 A tiny project with one N+1 query, used by the `action` job in
 `.github/workflows/ci.yml` to exercise the GitHub Action in `action/`.
-`queryguard-baseline.json` accepts the finding, for the run that checks the
-baseline input. The loop is in the test itself, so `pytest.ini` sets
-`queryguard_test_code = fail` to report it.
+The loop is in `library.py`, the application, so the plugin reports it with
+its defaults. `queryguard-baseline.json` accepts the finding, for the run
+that checks the baseline input.
