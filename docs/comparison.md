@@ -47,7 +47,7 @@ and [choosing](#choosing) have the details.
 
 | Tool | Version (release date) | First release on PyPI | Targets | License |
 |---|---|---|---|---|
-| pytest-queryguard | 0.8.0 (2026-11-06) | 2026-10-10 | SQLAlchemy 2 | MIT |
+| pytest-queryguard | 0.9.0 (2026-11-07) | 2026-10-10 | SQLAlchemy 2 | MIT |
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.6.0 (2026-10-22) | 2026-08-04 | SQLAlchemy 2.0+, Python 3.11+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |
@@ -141,8 +141,9 @@ not work.
   an optional request panel (modules `queryspy.asgi`, `queryspy.wsgi` are in
   the installed package), and fastapi-nplusone is a FastAPI middleware.
   nplusone and django-zeal run inside Django, Flask and WSGI apps.
-  pytest-queryguard's in-application mode (see [In-application mode](in-app.md))
-  is experimental and ships from 0.5.0.
+  pytest-queryguard has had an in-application mode (see
+  [In-application mode](in-app.md)) since 0.5.0; it is no longer
+  experimental from 1.0.0.
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI runs the
@@ -182,7 +183,10 @@ or worked around them since.
   setup ([prosopite#22](https://github.com/charkost/prosopite/issues/22)).
   pytest-queryguard measures only the test function body; fixtures are not
   measured (see [How detection works](how-detection-works.md) and the
-  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)).
+  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)). From 1.0.0 it
+  also leaves out, by default, the N+1s of test code run in the body (a
+  factory, a helper under `tests/`, the test's own loop) and counts them at
+  the end of the run (see [Test code](how-detection-works.md#test-code)).
 - **No useful location.** nplusone's most requested feature is the call stack
   of a finding ([nplusone#22](https://github.com/jmcarp/nplusone/issues/22));
   Bullet users ask for the same
@@ -473,7 +477,7 @@ pytest-queryguard only.
   built for that, and it has a baseline and SARIF for adoption.
 - You also want N+1 findings in a running FastAPI, Starlette, Flask or WSGI
   app: both pytest-queryguard (its [in-application mode](in-app.md),
-  experimental since 0.5.0) and queryspy have ASGI and WSGI middleware and a
+  since 0.5.0) and queryspy have ASGI and WSGI middleware and a
   request panel; the two were not compared on running apps. I did not test
   running queryspy together with pytest-queryguard.
 - You use queryspy in tests and want to move: see

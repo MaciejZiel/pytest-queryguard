@@ -43,6 +43,12 @@ each entry of `findings` has:
 
 `"complete": false` means the run stopped early: fix that first.
 
+No finding, but the run ends with a `queryguard: test code` section: the
+loop is in test code (the test function, `conftest.py`, a factory, a helper
+under `tests/`), whose N+1s are left out by default. To reproduce an N+1 in
+a new test, put the loop in the application and call it from the test; to
+see the test code's findings, add `-o queryguard_test_code=warn`.
+
 ## 3. Fix
 
 - `relationship-load`: add the loader option on the query that loaded the

@@ -28,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test code, with no frame of the application on the stack (a test module, a
   `conftest.py`, a file below a `tests` or `test` directory of the rootdir, a
   module that defines a factory_boy or polyfactory factory), is left out and
-  counted in one line of the terminal summary; `warn` reports it as a
+  counted in a `queryguard: test code` section of the terminal summary,
+  which says how to see them (`pytest -o queryguard_test_code=warn`), links
+  to the docs and names up to five tests; `warn` reports it as a
   `QueryGuardWarning`, `fail` as before. A loop in the application that test
   code calls (through a helper, a test client in `conftest.py`, a factory's
   flush that fires a model event) is still reported. Strict mode does not
@@ -117,6 +119,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inspector per connection was reported as an N+1. Budgets still count them.
 
 ### Documentation
+
+- README rewritten for a first visit: what it catches, the head-to-head
+  numbers of [Comparison](docs/comparison.md) with their bias, a quick start
+  on `examples/sync-n-plus-one`, and "Coming from nplusone?" and "Coming
+  from queryspy?" sections. Its links stay absolute for PyPI.
+- [Migrating from nplusone](docs/migrating-from-nplusone.md) and
+  [from queryspy](docs/migrating-from-queryspy.md) have a find-and-replace
+  table; the examples put the N+1 in application code, which is reported by
+  default, and both pages say what happens to loops in test code. The
+  nplusone results on SQLAlchemy 2.0.54 and 2.1 and queryspy 0.6.0's options
+  were checked again on 2026-11-08.
+- `examples/action-sample` keeps its N+1 in `library.py`, the application,
+  and no longer sets `queryguard_test_code = fail`.
+- Getting started, the FAQ ("Why was nothing reported for my test?"),
+  llms.txt, the agent skill and the AGENTS.md snippet say that an N+1 in
+  test code is left out by default and how to see it.
+- `queryguard_test_code` and the call path are documented as new in 1.0.0,
+  not 0.9.0; the FAQ gives the added cost per statement of the call path;
+  the comparison names 0.9.0 as the current release and the in-application
+  mode as no longer experimental from 1.0.0.
+- The docs navigation has a "Choosing and switching" section (comparison,
+  accuracy, performance, the migration guides, limitations, FAQ) after
+  "Start".
 
 - The texts that define `queryguard_scope = session`
   ([configuration](docs/configuration.md), the ini help, llms.txt),

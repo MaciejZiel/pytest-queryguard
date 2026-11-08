@@ -28,7 +28,7 @@
   files below a `tests` or `test` directory of the rootdir, and modules that
   define a factory_boy or polyfactory factory. Application code kept in such
   a file (a function written in the test module, a package named `test`) is
-  taken for test code, and its N+1s are only counted in the summary line by
+  taken for test code, and its N+1s are only counted in the summary at the end of the run by
   default; a helper of the tests kept elsewhere (a `testing.py` next to the
   application) is taken for the application. `queryguard_test_code = fail`
   reports both. Strict mode counts the lazy loads of all test lines together
