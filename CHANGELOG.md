@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
+  requirement as the core dependency, so installing with it changes nothing
+  today. [Stability](docs/stability.md#what-is-public) now says that a later
+  minor release may move SQLAlchemy from the core dependencies into this
+  extra; installing with `[sqlalchemy]`, or listing SQLAlchemy in your own
+  dependencies, keeps working through that change.
+- `pytest_queryguard.app.QueryGuardAppWarning`, the warning `report="warn"`
+  issues for a request's findings or budget. It is a `QueryGuardWarning`
+  subclass, so existing filters still match it; a filter for
+  `pytest_queryguard.app.QueryGuardAppWarning` matches the in-application
+  mode's findings and not the pytest plugin's (#241).
+- The in-app panel's `requests.json` starts with `"format": 1`, like the
+  other JSON files; its keys are listed in
+  [Stability](docs/stability.md#files-tools-and-the-action) (#241).
+
+### Changed
+
+- The in-application mode (`pytest_queryguard.app`) is no longer
+  experimental: its names, `Settings` and their defaults, `RequestReport`,
+  the reporters' OpenTelemetry and Sentry keys and the panel's JSON follow
+  the deprecation policy, and
+  [Stability](docs/stability.md#the-in-application-mode) lists what the mode
+  guarantees to the application it runs in. No name changes:
+  `RequestReport.statements` and `statement_count` stay, as in the panel's
+  JSON and the `queryguard.statement_count` OpenTelemetry attribute.
+  `page_report` stays experimental (#241).
+- The WSGI middleware's ERROR record for a `report="warn"` warning that a
+  filter turned into an error starts with `QueryGuardAppWarning:` instead of
+  `QueryGuardWarning:`; update a log alert that matches the old prefix
+  (#241).
+
+### Documentation
+
+- The texts that define `queryguard_scope = session`
+  ([configuration](docs/configuration.md), the ini help, llms.txt),
+  `Query.sql`, `Query.relationship` and `record_queries()`
+  ([Python API](docs/python-api.md) and docstrings), and the supported
+  versions in [stability](docs/stability.md#what-is-public) no longer depend
+  on the ORM for their meaning: they say "database session", "as the ORM sent
+  it" and "the releases of each supported ORM", and give the SQLAlchemy
+  meaning in brackets. `Query.relationship` also names every eager loader's
+  extra query, not only `selectinload`'s, as it always did. Behaviour, names
+  and signatures do not change.
+
+### Internal
+
+- `tests/inapp/test_cursor_loads.py` adds tests for the in-app load
+  attribution that 0.8.0 shipped; nothing changes for users. A `SELECT` run
+  by an `after_begin` hook does not take the next lazy load's label, the
+  in-app report labels lazy, `selectin`, deferred and refresh loads as
+  `record_queries()` does, `watch()` leaves an application's own
+  `do_orm_execute` listeners alone, and `yield_per` with `selectinload()`
+  works through `AsyncSession.stream_scalars()` while the engine is watched
+  (#293).
+
 ## [0.9.0] - 2026-11-07
 
 ### Added

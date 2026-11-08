@@ -251,10 +251,28 @@ def test_the_report_targets(watched: Engine, caplog: pytest.LogCaptureFixture) -
         _lazy_loop(watched)
     assert "queryguard: logged: 6 statements" in caplog.text
     with (
-        pytest.warns(QueryGuardWarning, match="Order.customer"),
+        pytest.warns(QueryGuardWarning, match="Order.customer") as caught,
         queryguard.track(report="warn"),
     ):
         _lazy_loop(watched)
+    found = [w.category for w in caught if issubclass(w.category, QueryGuardWarning)]
+    assert found == [queryguard.QueryGuardAppWarning]
+
+
+def test_a_filter_for_the_app_warning_leaves_the_plugins_alone(
+    watched: Engine,
+) -> None:
+    """``error::pytest_queryguard.app.QueryGuardAppWarning`` is in-app only."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.filterwarnings("error", category=queryguard.QueryGuardAppWarning)
+        warnings.warn("from the plugin", QueryGuardWarning, stacklevel=1)
+        with (
+            pytest.raises(queryguard.QueryGuardAppWarning, match="Order.customer"),
+            queryguard.track(report="warn"),
+        ):
+            _lazy_loop(watched)
+    assert [w.category for w in caught] == [QueryGuardWarning]
 
 
 def test_a_failing_callback_is_logged_not_raised(

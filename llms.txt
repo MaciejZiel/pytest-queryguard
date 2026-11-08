@@ -10,7 +10,7 @@ It watches the SQL each test function body sends (fixture setup and teardown are
 pip install pytest-queryguard
 ```
 
-This file describes 0.9.0. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
+This file describes 0.9.0. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. `pytest-queryguard[sqlalchemy]` installs the same today, and keeps SQLAlchemy installed if a later minor release moves it out of the core dependencies (docs/stability.md). For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
 
 ## Quick start
 
@@ -106,7 +106,7 @@ def test_orders_use_one_query(session):  # 50 orders in the database
 Here `list_orders` is the fixed function from the README (`select(Order).options(joinedload(Order.customer))`), not the N+1 version above: that one sends 51 queries for 50 orders and fails `assert_no_nplusone()`.
 
 - `record_queries()` records the statements a block sends, from any thread, and yields a `QueryLog`. It works outside pytest and changes nothing else.
-- `log.queries` is a tuple of `Query` objects (`sql`, `callsite` as a `CallSite` with `filename`, `lineno` and `function`, or `None`, and `relationship`, such as `"Order.customer"`, or `None`). `log.count`, `len(log)`, iteration and indexing also work; a `QueryLog` is not a `collections.abc.Sequence`.
+- `log.queries` is a tuple of `Query` objects (`sql`, `callsite` as a `CallSite` with `filename`, `lineno` and `function`, or `None`, and `relationship`, the model relationship the statement loaded as `Class.attribute`, such as `"Order.customer"`, or `None`). `log.count`, `len(log)`, iteration and indexing also work; a `QueryLog` is not a `collections.abc.Sequence`.
 - `log.assert_no_nplusone()` raises `NPlusOneDetected` (a subclass of `AssertionError`) with the plugin's two rules. Thresholds are the keyword arguments `relationship_threshold=2`, `repeat_threshold=5`, `column_load_threshold=5`, `small_repeat_threshold` and `write_loop_threshold`, and `scope="test"` or `"session"` (like `queryguard_scope`; `repeat_scope=` is its deprecated name since 0.8.0); the `queryguard_*` ini options, `queryguard_mode` and the `queryguard_ignore` marker are not read.
 - After an internal error, a block that ends normally issues `QueryGuardInternalWarning` (the log may be incomplete), and `assert_no_nplusone()` raises `RuntimeError` instead of passing.
 - `QueryGuardDeprecationWarning` (a `DeprecationWarning`, not a `QueryGuardWarning`) is what a later release uses to announce an option or name it removes; a `filterwarnings` entry for `QueryGuardWarning` does not match it. Deprecated since 0.8.0, removed in 2.0: `queryguard_repeat_scope` (use `queryguard_scope`), `repeat_scope=` (use `scope=`), `max_queries(n=...)` (use a positional limit or `limit=`).
@@ -115,7 +115,7 @@ Here `list_orders` is the fixed function from the README (`select(Order).options
 
 `python -m pytest_queryguard.lint --models app.models [--format text|json|sarif] [--output FILE] PATHS...` reads source code without running it. It imports the `--models` modules (their import-time code runs) to read every mapped class and its relationships, parses PATHS with `ast`, and reports a `for` loop, `async for` loop or comprehension over one ORM query of one class (`session.scalars(select(C))`, `session.execute(select(C)).scalars()`, `session.query(C)`, `C.query`, awaited async calls, optionally via a variable assigned once in the same function) that reads a `lazy="select"` relationship with no covering loader option (`joinedload`, `selectinload`, `subqueryload`, `immediateload`, `raiseload`, `noload`, `contains_eager`; `lazyload`/`defaultload` do not cover). Follows chains (`o.customer.address`) and nested loops over collections. One function at a time; unknown options, reassigned variables and reads that run once (block ends with `return`/`raise`/`break`) are not reported. Fix line as in the plugin. Exit 1 on findings, 2 on import or usage errors. Suppress with `# queryguard: ignore` on the read or the loop line. JSON `format` 1 keys: `files`, `errors`, `findings` (`rule`, `file`, `line`, `column`, `loop_line`, `query_line`, `function`, `relationship`, `path`, `query_class`, `fix`). SARIF rule `queryguard/static-relationship-load`, level warning. See docs/static-check.md.
 
-## In-application mode (experimental, from 0.5.0)
+## In-application mode (from 0.5.0)
 
 ```python
 from pytest_queryguard import app as queryguard
@@ -125,10 +125,10 @@ app.add_middleware(queryguard.QueryGuardASGI, budgets={"GET /orders/{order_id}":
 flask_app.wsgi_app = queryguard.QueryGuardWSGI(flask_app.wsgi_app)
 ```
 
-- `pytest_queryguard.app` runs the same N+1 rules and per-route query budgets on every HTTP request of a running application, without pytest: `QueryGuardASGI` (pure ASGI, for FastAPI and Starlette; budgets match the route template from `scope["route"]`), `QueryGuardWSGI` (Flask and any WSGI app; `set_route()` names the Flask rule) and `track(name)` for other units of work. Findings go to the `pytest_queryguard.app` logger (`report="log"`, the default), to `QueryGuardWarning` (`"warn"`), to a callable that receives a `RequestReport`, or to the ready-made `opentelemetry_reporter()` (events on the current span) and `sentry_reporter()` (one Sentry message per finding, fingerprinted by its identity). `sample_rate` measures a random fraction of requests; `min_db_time` skips the N+1 rules for requests with less database time. `scope="session"` counts each Session on its own (`repeat_scope=` is its deprecated name since 0.8.0). Since 0.8.0, `page_report="footer"` or `"console"` adds the findings to the request's own HTML page (complete, uncompressed `text/html` responses with a `Content-Length` only).
+- `pytest_queryguard.app` runs the same N+1 rules and per-route query budgets on every HTTP request of a running application, without pytest: `QueryGuardASGI` (pure ASGI, for FastAPI and Starlette; budgets match the route template from `scope["route"]`), `QueryGuardWSGI` (Flask and any WSGI app; `set_route()` names the Flask rule) and `track(name)` for other units of work. Findings go to the `pytest_queryguard.app` logger (`report="log"`, the default), to `QueryGuardAppWarning` (`"warn"`; a subclass of `QueryGuardWarning`, so a filter for either matches it, and `error::pytest_queryguard.app.QueryGuardAppWarning` only the application's), to a callable that receives a `RequestReport` (`statements` and `statement_count`, as in the panel JSON and the `queryguard.statement_count` OpenTelemetry attribute; `QueryLog` says `queries` and `count`), or to the ready-made `opentelemetry_reporter()` (events on the current span) and `sentry_reporter()` (one Sentry message per finding, fingerprinted by its identity). `sample_rate` measures a random fraction of requests; `min_db_time` skips the N+1 rules for requests with less database time. `scope="session"` counts each Session on its own (`repeat_scope=` is its deprecated name since 0.8.0). Since 0.8.0 and experimental, `page_report="footer"` or `"console"` adds the findings to the request's own HTML page (complete, uncompressed `text/html` responses with a `Content-Length` only).
 - Each request's statements go to a collector in a `contextvars.ContextVar`, so concurrent requests, asyncio tasks and threads that copy the context never mix; a thread started without the context is not counted.
-- `panel=True` serves `/_queryguard/` (a self-contained HTML page) and `/_queryguard/requests.json` with the last 50 requests, to loopback clients by default. Off by default; never enable it in production.
-- Nothing is registered until `watch()`; an internal error logs once and switches the mode off without affecting the application or the pytest plugin. Experimental: listed under "Experimental" in docs/stability.md, so names may change in a minor release. See docs/in-app.md.
+- `panel=True` serves `/_queryguard/` (a self-contained HTML page) and `/_queryguard/requests.json` (`"format": 1`; each request is `RequestReport.to_dict()`) with the last 50 requests, to loopback clients by default. Off by default; never enable it in production.
+- Nothing is registered until `watch()`; an internal error logs once and switches the mode off without affecting the application or the pytest plugin. Invalid settings raise `ValueError` at startup, a failing report callable is logged, and no statement or parameter of a request is kept after its report. Public API under the deprecation policy (docs/stability.md, "The in-application mode"); only `page_report` is experimental. See docs/in-app.md.
 
 ## MCP server for coding agents (experimental)
 
@@ -146,7 +146,7 @@ Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, 
 | `queryguard_small_repeat_threshold` | `0` or integer >= 2 | `0` (off) |
 | `queryguard_column_load_threshold` | integer >= 2 | `5` |
 | `queryguard_write_loop_threshold` | `0` or integer >= 2 | `0` (off) |
-| `queryguard_scope` | since 0.8.0 (before: `queryguard_repeat_scope`, deprecated); `test` (everything a test runs counts together) or `session` (each Session or connection checkout on its own) | `test` |
+| `queryguard_scope` | since 0.8.0 (before: `queryguard_repeat_scope`, deprecated); `test` (everything a test runs counts together) or `session` (each database session on its own; for SQLAlchemy, each Session or connection checkout) | `test` |
 | `queryguard_unused_eager_load` | `off`, `warn`, `fail` | `off` |
 | `queryguard_unused_columns` | `off`, `warn`, `fail` | `off` |
 | `queryguard_cartesian_load` | `off`, `warn`, `fail`: one SELECT that joins two collections side by side (kind `cartesian-load`) | `warn` |
