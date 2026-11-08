@@ -165,6 +165,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [In your editor](docs/editor.md): VS Code tasks with problem matchers for
   the test report and the static check, the SARIF file in the SARIF Viewer,
   and what works in PyCharm.
+- The release gate checks the experimental static check too
+  (`release_gate.py lint-accuracy`): linted on the accuracy corpus, its
+  relationship-load precision must stay at 100% and its recall at least at
+  the measured 69%, with at least 270 scenarios, minimums recorded in
+  `scripts/lint_accuracy_thresholds.json`. See
+  [Static check](docs/static-check.md#release-thresholds).
 
 ## [0.9.0] - 2026-11-07
 

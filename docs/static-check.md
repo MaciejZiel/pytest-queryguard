@@ -212,6 +212,25 @@ As for the plugin, the corpus is small and written by one person, and these
 shapes were written with the check in mind: read the numbers as a regression
 baseline, not as what the check finds in your code.
 
+### Release thresholds
+
+The release gate (`scripts/release_gate.py lint-accuracy`, see
+[Releasing](releasing.md)) lints the corpus and fails when the precision or
+the recall of the check is below the minimum recorded in
+`scripts/lint_accuracy_thresholds.json`, when fewer than 270 scenarios were
+linted, or when a disagreement with a verdict is not documented. The minimum
+precision is 100%: a check people run in CI must not report clean code. The
+minimum recall is the value measured on 2026-11-08 (278 scenarios, SQLModel
+not installed), rounded down to two decimals:
+
+| rule | minimum precision | minimum recall | measured |
+|---|---|---|---|
+| `relationship-load` | 100% | 69% | 36 TP, 0 FP, 16 FN (100% and 69.2%) |
+
+The one positive added since the table above,
+`bug_135_app_loop_called_from_a_test_helper`, is found, and none of the
+negatives added with it is reported.
+
 ## Ignoring a finding
 
 Put `# queryguard: ignore` on the line of the read or on the `for` line (for

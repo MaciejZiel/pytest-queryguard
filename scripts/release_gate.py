@@ -3,6 +3,7 @@
     uv build --out-dir dist
     uv run python scripts/release_gate.py consistency
     uv run python scripts/release_gate.py accuracy
+    uv run python scripts/release_gate.py lint-accuracy
     uv run python scripts/release_gate.py contents dist
     uv run python scripts/release_gate.py install dist
     uv run python scripts/release_gate.py upgrade dist
@@ -34,6 +35,7 @@ import venv
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
@@ -293,6 +295,47 @@ def check_accuracy() -> list[str]:
             )
     unexplained = [m.scenario for m in result.mismatches if not m.known]
     problems.check(not unexplained, f"unexplained corpus mismatches: {unexplained}")
+    return problems
+
+
+# -- 9: static check thresholds ---------------------------------------------
+
+
+def check_lint_accuracy(thresholds: dict[str, Any] | None = None) -> list[str]:
+    """The static check (``pytest_queryguard.lint``) on the accuracy corpus.
+
+    Nothing runs: each scenario module is linted (tests/corpus/lint_accuracy.py).
+    """
+    sys.path.insert(0, str(ROOT))
+    from tests.corpus import runner
+    from tests.corpus.lint_accuracy import measure
+
+    if thresholds is None:
+        thresholds = json.loads(
+            (SCRIPTS / "lint_accuracy_thresholds.json").read_text(encoding="utf-8")
+        )
+    problems = Problems()
+    scenarios = runner.load()
+    result = measure(scenarios)
+    problems.check(
+        result.scenarios >= thresholds["min_scenarios"],
+        f"only {result.scenarios} corpus scenarios were linted, at least {thresholds['min_scenarios']} are required"
+        f" (skipped: {runner.SKIPPED})",
+    )
+    wanted = thresholds["relationship-load"]
+    print(f"relationship-load: {result.tp} TP, {result.fp} FP, {result.fn} FN")
+    for metric in ("precision", "recall"):
+        value = getattr(result, metric)
+        shown = "n/a" if value is None else f"{value:.3f}"
+        print(f"relationship-load {metric}: {shown} (minimum {wanted[metric]})")
+        problems.check(
+            value is not None and value + 1e-9 >= wanted[metric],
+            f"relationship-load {metric} {shown} is below the recorded minimum {wanted[metric]}",
+        )
+    unexplained = [d.scenario for d in result.disagreements if d.reason is None]
+    problems.check(
+        not unexplained, f"undocumented static check disagreements: {unexplained}"
+    )
     return problems
 
 
@@ -812,6 +855,7 @@ def check_bench() -> list[str]:
 CHECKS: dict[str, str] = {
     "consistency": "version, changelog entry, date, links, docs version and action pin agree",
     "accuracy": "accuracy corpus precision and recall are at least the recorded minimums",
+    "lint-accuracy": "static check precision and recall on the corpus are at least the recorded minimums",
     "contents": "wheel and sdist contain what they should and nothing else",
     "install": "wheel and sdist install into clean environments and work",
     "upgrade": "the previous PyPI release upgrades to the wheel and works",
@@ -831,6 +875,7 @@ def main(argv: list[str] | None = None) -> int:
     steps: dict[str, Callable[[], list[str]]] = {
         "consistency": check_consistency,
         "accuracy": check_accuracy,
+        "lint-accuracy": check_lint_accuracy,
         "contents": lambda: check_contents(*find_dist(args.dist, version), version),
         "install": lambda: check_install(*find_dist(args.dist, version), version),
         "upgrade": lambda: check_upgrade(find_dist(args.dist, version)[0], version),

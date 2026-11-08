@@ -69,8 +69,9 @@ Only a maintainer releases, and a release never starts with a tag: it starts
 with the release gate, the workflow `.github/workflows/release-gate.yml`. It
 runs the whole CI matrix and adds the oldest SQLAlchemy and pytest on Windows
 and macOS, the accuracy corpus against the minimums recorded in
-`scripts/accuracy_thresholds.json`, the code examples in the documentation, a
-clean-environment install of the wheel and the sdist, an upgrade from the
+`scripts/accuracy_thresholds.json` and the static check against those in
+`scripts/lint_accuracy_thresholds.json`, the code examples in the
+documentation, a clean-environment install of the wheel and the sdist, an upgrade from the
 previous PyPI release, the overhead budget against `scripts/bench_baseline.json`,
 the contents of the wheel and the sdist, and the agreement of the version, the
 changelog entry, its date and its links. It runs on a pull request that

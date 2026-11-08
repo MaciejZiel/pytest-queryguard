@@ -199,6 +199,34 @@ def test_the_accuracy_thresholds_are_recorded_in_the_docs() -> None:
     assert str(thresholds["min_scenarios"]) in page
 
 
+def test_the_lint_accuracy_thresholds_are_recorded_in_the_docs() -> None:
+    thresholds = json.loads(
+        (ROOT / "scripts" / "lint_accuracy_thresholds.json").read_text(encoding="utf-8")
+    )
+    page = (ROOT / "docs" / "static-check.md").read_text(encoding="utf-8")
+    wanted = thresholds["relationship-load"]
+    assert wanted["precision"] == 1.0, "the static check must not report clean code"
+    row = (
+        f"| `relationship-load` | {100 * wanted['precision']:.0f}% "
+        f"| {100 * wanted['recall']:.0f}% |"
+    )
+    assert row in page, row
+    assert f"fewer than {thresholds['min_scenarios']} scenarios" in page
+
+
+def test_the_lint_accuracy_check_passes_and_fails_on_a_higher_minimum(
+    gate: ModuleType,
+) -> None:
+    assert gate.check_lint_accuracy() == []
+    stricter = {
+        "min_scenarios": 10_000,
+        "relationship-load": {"precision": 1.0, "recall": 1.0},
+    }
+    problems = gate.check_lint_accuracy(stricter)
+    assert any("scenarios were linted" in p for p in problems), problems
+    assert any("recall" in p and "below the recorded minimum" in p for p in problems)
+
+
 # -- wheel METADATA ---------------------------------------------------------
 
 CI_MATRIX = """\
