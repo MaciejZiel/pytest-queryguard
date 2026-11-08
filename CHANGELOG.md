@@ -196,6 +196,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- The walk of the stack that finds each statement's call path (#356) is
+  cheaper: SQLAlchemy's frames are passed with one dictionary lookup and
+  one comparison, and a stack that ends in the main greenlet no longer
+  creates a generator for the parent greenlets. Nothing a report shows
+  changes. Measured on GitHub's runners (off and on interleaved, mean of
+  three gate runs per job, against main in the same job), the Core and ORM
+  overhead ratio went from 0.424-0.432 to 0.402-0.415 (Core) and from
+  0.377-0.384 to 0.360-0.371 (ORM) on AMD EPYC 9V74, from 0.392 to 0.386
+  (Core) on EPYC 7763, and stayed the same on Intel Xeon 8370C and 8573C.
 - CI runs the whole test suite on MySQL 8.4 and MariaDB 11.8, not only the
   index check: the `mysql` job sets `QUERYGUARD_TEST_DB_URL`, which gives
   every SQLite engine the tests create a fresh database on the server
