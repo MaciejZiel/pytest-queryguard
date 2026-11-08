@@ -207,19 +207,19 @@ Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_
 
 ## Limitations
 
-- SQLAlchemy 2 only. Raw DB-API connections and other ORMs are not seen.
+- SQLAlchemy 2, and the Django ORM experimentally (docs/django.md: Django 5.2+ next to pytest-django, `pip install "pytest-queryguard[django]"`; excluded from the stability guarantees). Raw DB-API connections and other ORMs are not seen.
 - Code in `site-packages` counts as library code; a non-editable install of your app makes call sites point to the test file.
 - One measurement per process at a time. Under pytest-xdist detection, budgets, baselines and SARIF work (workers send what they saw to the controller), but the report and the index-check summary are not shown.
 - unittest `setUp`/`tearDown` queries are counted. A non-strict `xfail` test with an N+1 is reported as xfailed.
 - The index check needs PostgreSQL 16 or newer and a sync engine or an async engine on asyncpg; other async drivers (such as psycopg async) are skipped with a notice. It reads index and column definitions from the catalog once per session and drops that cache on DDL it sees through SQLAlchemy; DDL run another way is not seen. It checks only `SELECT` and `WITH` statements and judges plans, not data. Join conditions alone are never reported.
 - Partitioned tables are reported under the partition's name.
 - The SQLite index check reads the plan SQLite chose, so it is less precise than the PostgreSQL one (see docs/index-check-sqlite.md).
-- Unused eager loads are detected only by the experimental, off-by-default check. No Django support. A baseline records the SQL text of `repeated-statement` findings, which SQLAlchemy 2.0 and 2.1 render differently.
+- Unused eager loads are detected only by the experimental, off-by-default check, and not for Django. A baseline records the SQL text of `repeated-statement` findings, which SQLAlchemy 2.0 and 2.1 render differently.
 
 ## Docs
 
 - [README](https://github.com/MaciejZiel/pytest-queryguard/blob/main/README.md): overview and a first example
-- [Documentation pages](https://github.com/MaciejZiel/pytest-queryguard/tree/main/docs): getting started, how detection works, configuration reference, budgets, in-application mode, MCP server, ignoring, baseline, CI and SARIF, index check (PostgreSQL, SQLite, MySQL and MariaDB), index advisor, unused eager loads, unused columns, static check, limitations, FAQ, comparison with other tools, migration from nplusone, stability policy
+- [Documentation pages](https://github.com/MaciejZiel/pytest-queryguard/tree/main/docs): getting started, how detection works, configuration reference, budgets, in-application mode, MCP server, ignoring, baseline, CI and SARIF, index check (PostgreSQL, SQLite, MySQL and MariaDB), index advisor, Django (experimental), unused eager loads, unused columns, static check, limitations, FAQ, comparison with other tools, migration from nplusone, stability policy
 - [Examples](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples): runnable projects
 - [CHANGELOG](https://github.com/MaciejZiel/pytest-queryguard/blob/main/CHANGELOG.md): changes per release
 - [PyPI](https://pypi.org/project/pytest-queryguard/): released versions

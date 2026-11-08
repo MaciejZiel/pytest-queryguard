@@ -37,7 +37,7 @@ queryguard: N+1 detected
 pip install pytest-queryguard
 ```
 
-Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+.
+Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html).
 
 | Check | Default | Fails a test when |
 |---|---|---|
@@ -255,8 +255,8 @@ within run-to-run noise. Method, numbers and the cost of the opt-in checks:
 
 ## Limitations
 
-- SQLAlchemy only; raw DB-API connections (`sqlite3` and the like) and other
-  ORMs (Django ORM, Peewee) are not seen, and nothing says so.
+- SQLAlchemy, and Django experimentally; raw DB-API connections (`sqlite3`
+  and the like) and other ORMs (Peewee) are not seen, and nothing says so.
 - Only the test function body is measured, not fixtures. One measurement is
   active per process; under pytest-xdist each worker measures its own tests.
 - The PostgreSQL index check needs PostgreSQL 16 or newer and a sync engine or

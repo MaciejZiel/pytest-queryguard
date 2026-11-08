@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of Django's own test cases; loads of objects the test created are grouped
   by the call path of the read. Measured on six open-source Django projects
   and against django-zeal and nplusone ([Django](docs/django.md#real-projects)).
+  Like the static check, it is listed under
+  [Experimental](docs/stability.md#experimental): its findings and options
+  may change in a minor release.
 - An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
   requirement as the core dependency, so installing with it changes nothing
   today. [Stability](docs/stability.md#what-is-public) now says that a later

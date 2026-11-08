@@ -173,7 +173,7 @@ budgets work on them, and CI runs psycopg's async mode too.
 - the code under test ran in a fixture, not in the test body (see
   [the next question](#the-code-i-want-to-check-runs-in-a-fixture));
 - the statements did not come through SQLAlchemy (a raw `sqlite3` or other
-  DB-API connection, the Django ORM, Peewee, Tortoise ORM): the plugin does not
+  DB-API connection, Peewee, Tortoise ORM): the plugin does not
   see them, and `--queryguard-report` shows 0 statements for the test;
 - `queryguard_mode = off`, or the finding is in the baseline or an ignore
   pattern;
@@ -267,8 +267,8 @@ The numbers depend on your machine and database.
 
 ## Does it work with Django, Peewee or raw SQL?
 
-Not with Django's ORM, Peewee or Tortoise ORM: only SQLAlchemy 2 is supported (the
-[comparison](comparison.md) lists tools for Django). Raw SQL that
+Django's ORM, experimentally: see [Django](django.md). Not with Peewee or
+Tortoise ORM. Raw SQL that
 goes through SQLAlchemy (`text()`, Core) is seen; a raw DB-API connection that
 SQLAlchemy does not manage is not.
 
@@ -354,9 +354,9 @@ open, so a race there costs accuracy, not the test run.
 
 ## When should I not use it?
 
-- Your data access does not go through SQLAlchemy 2: Django ORM, Peewee,
-  Tortoise ORM, raw DB-API connections. The plugin sees nothing there, and
-  says nothing. For Django see [django-zeal](comparison.md).
+- Your data access goes through neither SQLAlchemy 2 nor the Django ORM:
+  Peewee, Tortoise ORM, raw DB-API connections. The plugin sees nothing
+  there, and says nothing.
 - You want to see N+1 queries in production: the
   [in-application mode](in-app.md) is for development and staging only. An
   APM tool fits production better.

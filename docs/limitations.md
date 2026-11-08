@@ -1,14 +1,14 @@
 # Limitations
 
 
-- SQLAlchemy only. The plugin listens to SQLAlchemy's events, so a statement
-  that does not go through SQLAlchemy is not counted, not budgeted and not
+- SQLAlchemy, and the Django ORM experimentally ([Django](django.md)). The
+  plugin listens to SQLAlchemy's events and Django's execute wrapper, so a
+  statement that goes through neither is not counted, not budgeted and not
   checked for indexes, and nothing says so. That covers a raw `sqlite3`,
-  `psycopg` or `asyncpg` connection used directly, and the Django ORM, Peewee,
+  `psycopg` or `asyncpg` connection used directly, and Peewee,
   Tortoise ORM and any other ORM. SQLModel and Flask-SQLAlchemy build on
   SQLAlchemy sessions, so their statements should be seen (not tested here). If your suite passes but you expect findings, run
-  with `--queryguard-report`: a test that shows 0 statements was not seen. For
-  Django see the [comparison](comparison.md).
+  with `--queryguard-report`: a test that shows 0 statements was not seen.
 - The repeat rules count per test by default, so a test that makes several
   independent requests in a loop, or through a server thread, can report a
   repeat that is no loop. A `Session` begun from lines of its own (a store

@@ -3,8 +3,9 @@
 pytest-queryguard checks Django ORM code as it checks SQLAlchemy code: it
 fails a test that runs an N+1, enforces query budgets, and writes the same
 baseline, JSON and SARIF files. The Django support is **experimental** in this
-release: its findings and options may still change in a minor release (see
-[Stability](stability.md)).
+release, outside the stability guarantees like the static check: its
+findings and options may still change in a minor release (see
+[Stability](stability.md#experimental)).
 
 It is not related to the `django-query-guard` and `django-queryguard-n1`
 packages on PyPI.
