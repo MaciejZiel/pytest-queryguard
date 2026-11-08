@@ -66,6 +66,8 @@ pages = [
   { title = "Litestar", file = "recipes-litestar.md", description = "Catch N+1 queries in Litestar handlers with an overridden async session dependency." },
   { title = "pytest-asyncio pitfalls", file = "recipes-pytest-asyncio.md", description = "Configuration mistakes with pytest-asyncio that look like database problems: strict mode, fixtures, event loop scopes." },
   { title = "Budgets for hot endpoints", file = "recipes-budgets.md", description = "Put a query budget on the endpoints where a regression costs most, and choose the number." },
+  { title = "The query count must not grow with N", file = "recipes-query-count-scaling.md", description = "Run the same function or endpoint with 1, 10 and 50 rows and check that it sends the same number of statements, for SQLAlchemy and Django." },
+  { title = "From a Sentry N+1 issue to a test", file = "recipes-sentry.md", description = "Read a Sentry N+1 Query issue, find the endpoint and the loop, and write a test that fails before the fix and passes after it." },
   { title = "A session per request in a test transaction", file = "recipes-test-transaction.md", description = "Give each request in a test its own Session inside the test's rolled-back transaction, so that requests sharing one Session are not reported as a loop." },
   { title = "GraphQL resolvers", file = "recipes-graphql.md", description = "Find the N+1 of a resolver that runs once per object, and fix it with a batch loader or with selectinload." },
   { title = "Background tasks in tests", file = "recipes-background-tasks.md", description = "What pytest-queryguard reports when a test runs a background task in its body, and how to test the task on its own." },

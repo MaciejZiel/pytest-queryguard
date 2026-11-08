@@ -253,7 +253,7 @@ The full list is on the [Limitations](https://maciejziel.github.io/pytest-queryg
 | [Configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html) | Ini options, flags, markers |
 | [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html) | `max_queries`, `max_db_time`, a budget file |
 | [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html), [CI and Action](https://maciejziel.github.io/pytest-queryguard/ci.html), [SARIF](https://maciejziel.github.io/pytest-queryguard/sarif.html) | Adoption and code scanning |
-| [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html) | FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, Factory Boy, legacy projects, CI |
+| [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html) | FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, Factory Boy, query counts that must not grow, Sentry N+1 issues, legacy projects, CI |
 | [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html) | The same rules per request in a running app; a development panel |
 | [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html), [Limitations](https://maciejziel.github.io/pytest-queryguard/limitations.html) | `raiseload`, false positives, xdist, drivers |
 | [Comparison](https://maciejziel.github.io/pytest-queryguard/comparison.html), [accuracy](https://maciejziel.github.io/pytest-queryguard/accuracy.html) | Other tools, precision and recall |

@@ -51,6 +51,7 @@ and [choosing](#choosing) have the details.
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.6.0 (2026-10-22) | 2026-08-04 | SQLAlchemy 2.0+, Python 3.11+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |
+| [nplus1](https://github.com/huynguyengl99/nplus1) | 1.1.5 (2026-06-17) | 2026-05-22 | Django, SQLAlchemy, Flask-SQLAlchemy, Peewee, Celery; Python 3.11+ | MIT |
 | [django-zeal](https://github.com/taobojlen/django-zeal) | 2.3.0 (2026-10-14) | 2024-07-20 | Django | MIT |
 | [fastapi-nplusone](https://pypi.org/project/fastapi-nplusone/) | 0.1.0 (2026-02-10) | 2026-02-06 | FastAPI with SQLAlchemy | BSD-3-Clause |
 | [pytest-capquery](https://pypi.org/project/pytest-capquery/) | 0.3.3 (2026-04-04) | 2026-04-01 | SQLAlchemy, Python 3.13+ | CC BY-NC-SA 4.0 (see below) |
@@ -61,7 +62,8 @@ and [choosing](#choosing) have the details.
 
 Release dates come from the PyPI JSON API on 2026-10-12, re-checked on 2026-10-13 and 2026-11-05;
 the rows of pytest-queryguard, django-nplus1, django-query-doctor and
-n-plus-one-sniffer were read on 2026-11-07 (PyPI and GitHub). Most of these
+n-plus-one-sniffer were read on 2026-11-07 (PyPI and GitHub), the row of
+nplus1 on 2026-11-08. Most of these
 projects are young: pytest-queryguard, queryspy and pytest-querycount shipped
 their first release in the last three months, so expect all of them to change. This
 table will be out of date; check the projects' own pages.
@@ -79,8 +81,22 @@ read in a loop over a query inside one function, and an experimental
 [MCP server](mcp.md), whose tools run the test suite and return the findings
 the tests produce. The two static checks were not compared.
 
-Three tools found on 2026-11-07 are not in the matrix below. What follows was
-read in their READMEs on that date; none of them was run:
+Four tools are not in the matrix below. For the first three, found on
+2026-11-07, what follows was read in their READMEs on that date, and none of
+them was run. nplus1 was read and run on 2026-11-08:
+
+- **nplus1**: a rewrite of nplusone, published on PyPI as `nplus1` but
+  installed under nplusone's import name, `nplusone` (v: the files of the
+  1.1.5 wheel), so a project can swap the package and keep its imports and
+  `NPLUSONE_*` settings. Its README lists Python 3.11+, SQLAlchemy 2.0+,
+  Django 4.2 to 5.2, Flask-SQLAlchemy, Peewee and Celery, call sites in its
+  messages and a batch report mode (r). Its SQLAlchemy integration patches
+  the same places as nplusone's, and behaves like it (v, Python 3.15,
+  nplus1 1.1.5): on SQLAlchemy 2.0.54 a loop over `session.query(Order)` is
+  reported, a loop over `session.scalars(select(Order))` is not; on
+  SQLAlchemy 2.1.1 `import nplusone.ext.sqlalchemy` fails with
+  `AttributeError: module 'sqlalchemy.orm.strategies' has no attribute 'LazyLoader'`.
+  Its Django integration was not run.
 
 - **django-nplus1**: a Django-only fork of nplusone. Besides per-request
   detection, its README describes a "corpus mode"
@@ -490,4 +506,6 @@ pytest-queryguard only.
   (read, not run; see above).
 - You want to assert exact SQL: pytest-capquery, after checking its license.
 - You have nplusone on an old SQLAlchemy: see
-  [Migrating from nplusone](migrating-from-nplusone.md).
+  [Migrating from nplusone](migrating-from-nplusone.md). If you only want
+  nplusone to keep working, nplus1 (above) installs under the same import
+  name; on SQLAlchemy it sees `session.query()` loops on 2.0 only.

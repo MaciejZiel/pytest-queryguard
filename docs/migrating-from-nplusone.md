@@ -4,7 +4,34 @@
 SQLAlchemy and Peewee. Its last release, 1.0.0, is from 2018-05-21. This page
 is for projects that used it with SQLAlchemy and now move to SQLAlchemy 2 and
 pytest-queryguard. If you use nplusone with Django, see
-[Comparison](comparison.md) for tools that cover it; pytest-queryguard does not.
+[Django](django.md): pytest-queryguard's Django support is experimental, and
+[Comparison](comparison.md) lists other tools that cover Django.
+
+## If you only want nplusone to keep working
+
+[nplus1](https://pypi.org/project/nplus1/) is a rewrite of nplusone that
+installs under the same import name, `nplusone`. Replace `nplusone` with
+`nplus1` in your requirements and the imports, the `Profiler`, the
+`NPLUSONE_*` settings and the whitelist stay as they are. That is the
+smallest change, and for Django, Flask or Peewee it may be all you need.
+
+On SQLAlchemy it does not get you to 2.1 or to 2.0-style queries. I ran
+nplus1 1.1.5 on 2026-11-08 with the loop from [the table
+below](#why-a-migration-is-needed): on SQLAlchemy 2.0.54 it reports the loop
+over `session.query(Order)` and nothing for `session.scalars(select(Order))`;
+on 2.1.1 `import nplusone.ext.sqlalchemy` fails with the same `AttributeError`
+as nplusone 1.0.0.
+
+What moving to pytest-queryguard adds, besides SQLAlchemy 2.0 and 2.1 with
+`select()`, async sessions and Core:
+
+- every test is checked with no fixture, and the failure names the
+  application line, the test line that called it and the fix;
+- repeated statements (`session.get()` in a loop, Core and `text()`), column
+  loads and, opt-in, write loops, not only lazy relationships;
+- query budgets (`max_queries`, a budget file) and a missing-index check;
+- a [baseline](baseline.md) to adopt it on a suite with existing findings,
+  and SARIF and JSON output for CI.
 
 ## Why a migration is needed
 
