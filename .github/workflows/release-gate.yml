@@ -16,6 +16,7 @@ on:
       - .github/workflows/release-gate.yml
       - scripts/release_gate.py
       - scripts/accuracy_thresholds.json
+      - scripts/lint_accuracy_thresholds.json
       - scripts/bench_gate.py
       - scripts/bench_overhead.py
       - scripts/bench_baseline.json
@@ -64,8 +65,8 @@ jobs:
       - run: uv run --no-sync python -c "import sqlalchemy, pytest; print('sqlalchemy', sqlalchemy.__version__, 'pytest', pytest.__version__)"
       - run: uv run --no-sync pytest -rs
 
-  # 8, 2 and 3: the release metadata, the accuracy corpus and the examples in
-  # the documentation.
+  # 8, 2, 9 and 3: the release metadata, the accuracy corpus of the plugin and
+  # of the static check, and the examples in the documentation.
   content:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -79,6 +80,8 @@ jobs:
         run: uv run --no-sync python scripts/release_gate.py consistency
       - name: Accuracy corpus is at least the recorded minimum
         run: uv run --no-sync python scripts/release_gate.py accuracy
+      - name: Static check accuracy is at least the recorded minimum
+        run: uv run --no-sync python scripts/release_gate.py lint-accuracy
       - name: Every example in README.md and docs/ parses, the projects run
         env:
           QUERYGUARD_REQUIRE_DOC_EXAMPLES: "1"

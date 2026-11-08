@@ -210,6 +210,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [In your editor](docs/editor.md): VS Code tasks with problem matchers for
   the test report and the static check, the SARIF file in the SARIF Viewer,
   and what works in PyCharm.
+- The release gate checks the experimental static check too
+  (`release_gate.py lint-accuracy`): linted on the accuracy corpus, its
+  relationship-load precision must stay at 100% and its recall at least at
+  the measured 69%, with at least 270 scenarios, minimums recorded in
+  `scripts/lint_accuracy_thresholds.json`. See
+  [Static check](docs/static-check.md#release-thresholds).
+- The release gate's overhead baseline (`scripts/bench_baseline.json`) is
+  recorded again with the cost #356 accepted, by the new `bench_gate.py
+  --record --accept-cost`, which reads the failed gate logs of the pull
+  request that accepts it. See
+  [Releasing](docs/releasing.md#when-a-threshold-has-to-change).
+- The release gate's install check puts the tiny project's N+1 in its
+  application module: one in the test module is test code, left out by
+  default since #356.
 
 ## [0.9.0] - 2026-11-07
 

@@ -23,6 +23,7 @@ pull request's copy of the gate.
 | 6 | Overhead: the per-statement overhead of the measurement is at most 125 % of `scripts/bench_baseline.json` (Core and ORM loops), measured as in [How the overhead is measured](#how-the-overhead-is-measured). | `release_gate.py bench` |
 | 7 | The wheel has `py.typed`, `LICENSE`, the entry point and only the package; no tests, docs, scripts, caches or scratch files. The wheel's METADATA has the license expression and file, a Markdown long description, the Homepage, Documentation, Changelog and Issues URLs, `Framework :: Pytest` and `Typing :: Typed`; its Python classifiers are the versions `ci.yml` tests (less a pre-release interpreter listed in `PRE_RELEASE_PYTHONS`) and `Requires-Python` the oldest of them; the lower bounds of `pytest` and `sqlalchemy` are the versions the `oldest-versions` job installs; a final release from 1.0.0 on says `Development Status :: 5 - Production/Stable`, any other release does not. The sdist has the license, README, changelog, `pyproject.toml` and sources and no scratch files. The release workflow runs this check again on the files it publishes. | `release_gate.py contents` |
 | 8 | `__version__`, the top entry of `CHANGELOG.md`, its date (a valid date, not in the future, not older than the entry below it) and the link references at the bottom (`[Unreleased]` compares the newest tag with `HEAD`, each entry compares the previous tag with itself) agree, and so does the version the documentation says it describes (`docs/index.md`, `docs/getting-started.md`, `llms.txt`). The workflow in `docs/ci.md` pins the action to `@v` plus `__version__` (for a pre-release, the newest final release in the changelog). | `release_gate.py consistency` |
+| 9 | Static check accuracy: on the same corpus, linted without running it, the precision and recall of the experimental static check (`python -m pytest_queryguard.lint`) are at least the minimums in `scripts/lint_accuracy_thresholds.json` (see [Static check](static-check.md#release-thresholds)), at least as many scenarios are linted as it records, and no disagreement with a verdict is undocumented. | `release_gate.py lint-accuracy` |
 
 ## Running it
 
@@ -39,9 +40,9 @@ uv build --out-dir dist
 uv run python scripts/release_gate.py all dist
 ```
 
-or one at a time: `consistency`, `accuracy`, `contents dist`, `install dist`,
-`upgrade dist`, `bench`. `install` and `upgrade` create virtual environments
-in a temporary directory and need network access to PyPI.
+or one at a time: `consistency`, `accuracy`, `lint-accuracy`, `contents dist`,
+`install dist`, `upgrade dist`, `bench`. `install` and `upgrade` create
+virtual environments in a temporary directory and need network access to PyPI.
 `QUERYGUARD_REQUIRE_DOC_EXAMPLES=1 uv run pytest tests/test_doc_examples.py`
 makes a missing package a failure instead of a skip for the documentation
 projects (only Litestar, pytest-asyncio and SQLModel may be missing).
@@ -106,9 +107,9 @@ larger regression fails there.
 
 ## When a threshold has to change
 
-The accuracy minimums and the overhead baseline are floors against
-regressions. Raise them in the pull request that improves the result. Lower
-them only in a pull request that says why.
+The accuracy minimums (of the plugin and of the static check) and the overhead
+baseline are floors against regressions. Raise them in the pull request that
+improves the result. Lower them only in a pull request that says why.
 
 The overhead baseline is recorded on the GitHub runner (`ubuntu-latest`,
 Python 3.12) that runs the gate, never on a laptop: each CPU model's entry is
@@ -129,5 +130,11 @@ job of the release gate (the CI job's looser margin lets more through) or
 that did not pass. When the gate fails on a CPU model that has no entry yet,
 and the code did not change, record that model from the failed log with
 `--record LOG --even-failed`; this is refused for a model that has an entry.
+When a pull request makes the measurement slower on purpose and says why,
+the gate can fail on CPU models that have an entry, and no green log of
+them exists to record from. Record from that pull request's gate runs with
+`--record LOG... --accept-cost`: failed logs count too, and the entries of
+CPU models not in the logs are dropped (they measured the old cost; such a
+model falls back to the highest entry until it is recorded again).
 `--update` measures on the current machine and writes its entry, which is
 only right on the runner.

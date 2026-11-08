@@ -3,6 +3,7 @@
     uv build --out-dir dist
     uv run python scripts/release_gate.py consistency
     uv run python scripts/release_gate.py accuracy
+    uv run python scripts/release_gate.py lint-accuracy
     uv run python scripts/release_gate.py contents dist
     uv run python scripts/release_gate.py install dist
     uv run python scripts/release_gate.py upgrade dist
@@ -34,6 +35,7 @@ import venv
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = Path(__file__).resolve().parent
@@ -296,6 +298,56 @@ def check_accuracy() -> list[str]:
     return problems
 
 
+# -- 9: static check thresholds ---------------------------------------------
+
+
+def check_lint_accuracy(thresholds: dict[str, Any] | None = None) -> list[str]:
+    """The static check (``pytest_queryguard.lint``) on the accuracy corpus.
+
+    Nothing runs: each scenario module is linted (tests/corpus/lint_accuracy.py),
+    which measures the relationship-load rule, the only rule of the check.
+    """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from tests.corpus import runner
+    from tests.corpus.lint_accuracy import measure
+
+    from pytest_queryguard.lint import LintError
+
+    if thresholds is None:
+        thresholds = json.loads(
+            (SCRIPTS / "lint_accuracy_thresholds.json").read_text(encoding="utf-8")
+        )
+    problems = Problems()
+    try:
+        result = measure(runner.load())
+    except LintError as exc:
+        return [f"the static check failed on the corpus: {exc}"]
+    problems.check(
+        result.scenarios >= thresholds["min_scenarios"],
+        f"only {result.scenarios} corpus scenarios were linted, at least {thresholds['min_scenarios']} are required"
+        f" (skipped: {runner.SKIPPED})",
+    )
+    print(f"relationship-load: {result.tp} TP, {result.fp} FP, {result.fn} FN")
+    for rule, wanted in thresholds["rules"].items():
+        if rule != "relationship-load":
+            problems.append(f"{rule}: not measured")
+            continue
+        for metric in ("precision", "recall"):
+            value = getattr(result, metric)
+            shown = "n/a" if value is None else f"{value:.3f}"
+            print(f"{rule} {metric}: {shown} (minimum {wanted[metric]})")
+            problems.check(
+                value is not None and value + 1e-9 >= wanted[metric],
+                f"{rule} {metric} {shown} is below the recorded minimum {wanted[metric]}",
+            )
+    unexplained = [d.scenario for d in result.disagreements if d.reason is None]
+    problems.check(
+        not unexplained, f"undocumented static check disagreements: {unexplained}"
+    )
+    return problems
+
+
 # -- 7: contents of the wheel and the sdist ---------------------------------
 
 SCRATCH = re.compile(
@@ -530,7 +582,9 @@ def check_contents(wheel: Path, sdist: Path, version: str) -> list[str]:
 
 # -- 4 and 5: clean virtual environments ------------------------------------
 
-TINY_TEST = """\
+# The tiny project's N+1 is in its application code (shop.py): one in the test
+# module itself is test code, left out by default (queryguard_test_code).
+TINY_APP = """\
 from sqlalchemy import ForeignKey, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
@@ -562,14 +616,24 @@ def make_session() -> Session:
     return session
 
 
+def order_count(session: Session) -> int:
+    return len(session.scalars(select(Order)).all())
+
+
+def customer_ids(session: Session) -> list[int]:
+    return [order.customer.id for order in session.scalars(select(Order))]
+"""
+
+TINY_TEST = """\
+from shop import customer_ids, make_session, order_count
+
+
 def test_one_query():
-    session = make_session()
-    assert len(session.scalars(select(Order)).all()) == 7
+    assert order_count(make_session()) == 7
 
 
 def test_n_plus_one():
-    session = make_session()
-    assert [o.customer.id for o in session.scalars(select(Order))] == list(range(1, 8))
+    assert customer_ids(make_session()) == list(range(1, 8))
 """
 
 
@@ -630,6 +694,7 @@ def exercise(python: Path, project: Path, version: str, label: str) -> list[str]
     problems.check(
         imported.returncode == 0, f"{label}: import/entry point: {imported.stderr}"
     )
+    (project / "shop.py").write_text(TINY_APP, encoding="utf-8")
     (project / "test_tiny.py").write_text(TINY_TEST, encoding="utf-8")
     base: list[str | Path] = [python, "-m", "pytest", "-p", "no:cacheprovider"]
     plugins = run([*base, "--trace-config", "--co", "-q"], cwd=project)
@@ -812,6 +877,7 @@ def check_bench() -> list[str]:
 CHECKS: dict[str, str] = {
     "consistency": "version, changelog entry, date, links, docs version and action pin agree",
     "accuracy": "accuracy corpus precision and recall are at least the recorded minimums",
+    "lint-accuracy": "static check precision and recall on the corpus are at least the recorded minimums",
     "contents": "wheel and sdist contain what they should and nothing else",
     "install": "wheel and sdist install into clean environments and work",
     "upgrade": "the previous PyPI release upgrades to the wheel and works",
@@ -831,6 +897,7 @@ def main(argv: list[str] | None = None) -> int:
     steps: dict[str, Callable[[], list[str]]] = {
         "consistency": check_consistency,
         "accuracy": check_accuracy,
+        "lint-accuracy": check_lint_accuracy,
         "contents": lambda: check_contents(*find_dist(args.dist, version), version),
         "install": lambda: check_install(*find_dist(args.dist, version), version),
         "upgrade": lambda: check_upgrade(find_dist(args.dist, version)[0], version),

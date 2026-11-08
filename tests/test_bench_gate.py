@@ -166,3 +166,21 @@ def test_record_reads_a_failed_log_only_when_asked(gate, tmp_path):
     recorded = json.loads(gate.BASELINE.read_text())
     assert recorded["machines"]["New CPU"] == {"core": 0.7, "orm": 0.2}
     assert recorded["core"] == 0.7
+
+
+def test_accept_cost_reads_failed_logs_and_drops_the_other_cpus(gate, tmp_path):
+    logs = [
+        gate_log(tmp_path / "1.log", "Test CPU", {"core": 0.5, "orm": 0.6}, ok=False),
+        gate_log(tmp_path / "2.log", "Test CPU", {"core": 0.3, "orm": 0.4}),
+    ]
+    assert gate.main(["--record", *logs, "--accept-cost"]) == 0
+    assert json.loads(gate.BASELINE.read_text()) == {
+        "core": 0.4,
+        "orm": 0.5,
+        "machines": {"Test CPU": {"core": 0.4, "orm": 0.5}},
+    }
+
+
+def test_accept_cost_needs_record(gate):
+    with pytest.raises(SystemExit):
+        gate.main(["--accept-cost"])

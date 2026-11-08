@@ -34,6 +34,9 @@ same direction every time, a regression does.
 saved logs of the release gate's ``overhead`` job on it (``gh run view RUN
 --log --job JOB > gate-1.log``, one job per file), so the baseline comes from
 the runner and not from a laptop. Entries of other CPU models are kept.
+With ``--accept-cost`` (a pull request that accepts a higher cost and says
+why) failed logs count too, and the entries of CPU models not in the logs are
+dropped, since they measured the old cost.
 
 Run it on one operating system only; the baseline comes from Linux.
 """
@@ -124,10 +127,16 @@ def baseline_for(data: dict[str, Any], cpu: str) -> tuple[dict[str, float], bool
 
 
 def with_machines(
-    data: dict[str, Any], machines: dict[str, dict[str, float]]
+    data: dict[str, Any],
+    machines: dict[str, dict[str, float]],
+    keep_others: bool = True,
 ) -> dict[str, Any]:
-    """The baseline with these entries set and the fallback recomputed."""
-    merged = {**data.get("machines", {}), **machines}
+    """The baseline with these entries set and the fallback recomputed.
+
+    Without ``keep_others`` the other CPUs' entries are dropped: they measured
+    the cost before an accepted change and fall back to the highest entry.
+    """
+    merged = {**(data.get("machines", {}) if keep_others else {}), **machines}
     return {
         **{name: max(entry[name] for entry in merged.values()) for name in LOOPS},
         "machines": dict(sorted(merged.items())),
@@ -135,12 +144,16 @@ def with_machines(
 
 
 def read_logs(
-    paths: list[Path], known: set[str], even_failed: bool = False
+    paths: list[Path],
+    known: set[str],
+    even_failed: bool = False,
+    accept_cost: bool = False,
 ) -> dict[str, dict[str, float]]:
     """Per CPU model, the mean first-attempt ratio of each loop in these logs.
 
     A log must hold one release-gate overhead job that passed; with
-    ``even_failed``, a failed one too, but only for a CPU not in ``known``.
+    ``even_failed``, a failed one too, but only for a CPU not in ``known``;
+    with ``accept_cost``, a failed one of any CPU.
     """
     found: dict[str, list[dict[str, float]]] = defaultdict(list)
     for path in paths:
@@ -155,7 +168,11 @@ def read_logs(
         if len(cpus) != 1 or measured is None:
             raise SystemExit(f"{path}: no single 'machine:' or no 'measured:' line")
         cpu = cpus.pop()
-        if OK not in text and not (even_failed and cpu not in known):
+        if (
+            OK not in text
+            and not accept_cost
+            and not (even_failed and cpu not in known)
+        ):
             raise SystemExit(
                 f"{path}: not the log of a passing overhead check"
                 + (f" ({cpu} already has an entry)" if even_failed else "")
@@ -211,25 +228,38 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         type=Path,
         metavar="LOG",
-        help="write the baseline of each CPU from these green gate logs",
+        help="write the baseline of each CPU from these green gate logs (see --accept-cost)",
     )
     parser.add_argument(
         "--even-failed",
         action="store_true",
         help="with --record, also read failed logs (a CPU new to the baseline)",
     )
+    parser.add_argument(
+        "--accept-cost",
+        action="store_true",
+        help=(
+            "with --record, a higher cost a pull request accepts and explains: "
+            "read failed logs of any CPU and drop the entries of CPUs not in them"
+        ),
+    )
     args = parser.parse_args(argv)
     if args.even_failed and not args.record:
         parser.error("--even-failed needs --record")
+    if args.accept_cost and not args.record:
+        parser.error("--accept-cost needs --record")
     if min(args.statements, args.rounds, args.processes, args.attempts) < 1:
         parser.error("--statements, --rounds, --processes and --attempts must be >= 1")
     data: dict[str, Any] = json.loads(BASELINE.read_text())
 
     if args.record:
         recorded = read_logs(
-            args.record, set(data.get("machines", {})), args.even_failed
+            args.record,
+            set(data.get("machines", {})),
+            args.even_failed,
+            args.accept_cost,
         )
-        _write(with_machines(data, recorded))
+        _write(with_machines(data, recorded, keep_others=not args.accept_cost))
         for cpu, ratios in recorded.items():
             print(f"baseline written for {cpu}: {ratios}")
         return 0
