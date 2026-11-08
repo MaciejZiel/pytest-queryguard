@@ -4,8 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
-  # called by release-gate.yml, so a release runs the whole matrix below
+  # called by release-gate.yml, so a release runs the whole matrix below, and
+  # by full-ci.yml when a pull request gets the full-ci label
   workflow_call:
+    inputs:
+      full:
+        description: Run the whole matrix even on a pull_request event
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -18,6 +24,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The matrix: the whole of it on a push to main, when the release gate or
+# full-ci.yml calls this workflow (input full, true by default) and on a pull
+# request with the full-ci label. Any other pull request runs a subset with
+# the same job names, chosen so that each kind of job (oldest and newest
+# Python, the oldest pytest, Windows, PostgreSQL, MySQL, Django on SQLite and
+# PostgreSQL, xdist, lint, docs, the coverage gates) runs at least once; the
+# required checks (lint, test (3.10, 2.0, 8.0), test (3.14, latest, latest))
+# are in it. Each trimmed matrix below repeats the same condition:
+#   github.event_name != 'pull_request' || inputs.full
+#     || contains(github.event.pull_request.labels.*.name, 'full-ci')
+# (inputs is empty unless the workflow is called, so inputs.full is false on
+# a pull_request event of its own).
+#
 # timeout-minutes: about twice the longest passing run (the test jobs take up
 # to 20 minutes on Windows), so a hung job fails instead of running for
 # GitHub's default of six hours. A hung test fails sooner, with the stacks of
@@ -61,27 +80,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]
-        sqlalchemy: ["2.0", "latest"]
+        # on a pull request: 3.14 and 3.15 with SQLAlchemy latest, and the
+        # oldest-versions row below
+        python-version: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '["3.10", "3.11", "3.12", "3.13", "3.14", "3.15"]' || '["3.14", "3.15"]') }}
+        sqlalchemy: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '["2.0", "latest"]' || '["latest"]') }}
         pytest: ["latest"]
-        include:
-          # the oldest supported pytest
-          - python-version: "3.10"
-            sqlalchemy: "2.0"
-            pytest: "8.0"
-          # the last SQLAlchemy that leaks the outer statement's load options
-          # (yield_per, autoflush) into selectinload when a do_orm_execute
-          # listener exists (fixed in 2.0.50); see tests/test_yield_per_leak.py
-          - python-version: "3.12"
-            sqlalchemy: "2.0.49"
-            pytest: "latest"
-          # "latest" above means the version in uv.lock, which exclude-newer
-          # holds back; this row installs what PyPI has today, so a new
-          # pytest or SQLAlchemy release that breaks the plugin shows up here
-          # first (pytest 9.2 made getini() raise UsageError, see #336)
-          - python-version: "3.14"
-            sqlalchemy: "newest"
-            pytest: "newest"
+        # Extra rows; a pull request runs only the first:
+        # - the oldest supported pytest
+        # - the last SQLAlchemy that leaks the outer statement's load options
+        #   (yield_per, autoflush) into selectinload when a do_orm_execute
+        #   listener exists (fixed in 2.0.50); see tests/test_yield_per_leak.py
+        # - "latest" above means the version in uv.lock, which exclude-newer
+        #   holds back; the newest row installs what PyPI has today, so a new
+        #   pytest or SQLAlchemy release that breaks the plugin shows up there
+        #   first (pytest 9.2 made getini() raise UsageError, see #336)
+        include: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '[{"python-version":"3.10", "sqlalchemy":"2.0", "pytest":"8.0"}, {"python-version":"3.12", "sqlalchemy":"2.0.49", "pytest":"latest"}, {"python-version":"3.14", "sqlalchemy":"newest", "pytest":"newest"}]' || '[{"python-version":"3.10", "sqlalchemy":"2.0", "pytest":"8.0"}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -130,7 +143,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.14"]
+        # on a pull request: 3.10 only (it failed alone more often than 3.14)
+        python-version: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '["3.10", "3.14"]' || '["3.10"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -186,8 +200,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
-        python-version: ["3.10", "3.14"]
+        # on a pull request: Windows on 3.10 only (Windows fails most often of
+        # all jobs, and 3.10 more often alone than 3.14)
+        os: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '["windows-latest", "macos-latest"]' || '["windows-latest"]') }}
+        python-version: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '["3.10", "3.14"]' || '["3.10"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
@@ -225,16 +241,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres: ["14", "15", "16", "17", "18"]
+        # on a pull request: PostgreSQL 18 with pg8000 only
+        postgres: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '["14", "15", "16", "17", "18"]' || '["18"]') }}
         sqlalchemy: ["latest"]
         driver: ["pg8000"]
-        include:
-          - postgres: "16"
-            sqlalchemy: "2.0"
-            driver: "pg8000"
-          - postgres: "17"
-            sqlalchemy: "latest"
-            driver: "psycopg"
+        # 16 with the oldest SQLAlchemy series, 17 with psycopg
+        include: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '[{"postgres":"16", "sqlalchemy":"2.0", "driver":"pg8000"}, {"postgres":"17", "sqlalchemy":"latest", "driver":"psycopg"}]' || '[]') }}
     env:
       QUERYGUARD_PG_URL: postgresql+${{ matrix.driver }}://postgres:pg@localhost:5432/postgres
     steps:
@@ -285,14 +297,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { django: "5.2", python-version: "3.10", db: sqlite }
-          - { django: "5.2", python-version: "3.13", db: sqlite }
-          - { django: "6.0", python-version: "3.12", db: sqlite }
-          - { django: "6.1", python-version: "3.13", db: sqlite }
-          - { django: "6.1", python-version: "3.14", db: sqlite }
-          - { django: "6.1", python-version: "3.13", db: postgresql }
-          - { django: "5.2", python-version: "3.12", db: mysql }
+        # the oldest Django on SQLite and the newest on PostgreSQL always; the
+        # rest (5.2 on 3.13, 6.0, 6.1 on SQLite, 5.2 on MySQL) not on a pull
+        # request
+        include: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '[{"django":"5.2", "python-version":"3.10", "db":"sqlite"}, {"django":"5.2", "python-version":"3.13", "db":"sqlite"}, {"django":"6.0", "python-version":"3.12", "db":"sqlite"}, {"django":"6.1", "python-version":"3.13", "db":"sqlite"}, {"django":"6.1", "python-version":"3.14", "db":"sqlite"}, {"django":"6.1", "python-version":"3.13", "db":"postgresql"}, {"django":"5.2", "python-version":"3.12", "db":"mysql"}]' || '[{"django":"5.2", "python-version":"3.10", "db":"sqlite"}, {"django":"6.1", "python-version":"3.13", "db":"postgresql"}]') }}
     steps:
       - name: Start PostgreSQL
         if: matrix.db == 'postgresql'
@@ -366,15 +374,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - kind: mysql
-            image: mysql:8.4.13
-            client: mysql
-            options: --mysql-native-password=ON --authentication-policy=mysql_native_password
-          - kind: mariadb
-            image: mariadb:11.8.9
-            client: mariadb
-            options: ""
+        # on a pull request: MySQL only, not MariaDB
+        include: ${{ fromJSON((github.event_name != 'pull_request' || inputs.full || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '[{"kind":"mysql", "image":"mysql:8.4.13", "client":"mysql", "options":"--mysql-native-password=ON --authentication-policy=mysql_native_password"}, {"kind":"mariadb", "image":"mariadb:11.8.9", "client":"mariadb", "options":""}]' || '[{"kind":"mysql", "image":"mysql:8.4.13", "client":"mysql", "options":"--mysql-native-password=ON --authentication-policy=mysql_native_password"}]') }}
     env:
       QUERYGUARD_REQUIRE_BACKENDS: ${{ matrix.kind }}
       QUERYGUARD_MYSQL_URL: ${{ matrix.kind == 'mysql' && 'mysql+pymysql://root:secret@127.0.0.1:3306/mysql' || '' }}

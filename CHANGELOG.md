@@ -26,6 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which does not exist yet; [Migrating from queryspy](docs/migrating-from-queryspy.md)
   says its pytest-queryguard column is current for 0.10.0, not 1.0.0.
 
+### Internal
+
+- CI on a pull request runs a subset of the matrix (15 jobs instead of 43:
+  Python 3.10 with the oldest pytest and SQLAlchemy 2.0, 3.14 and 3.15 with
+  the latest, Windows on 3.10, PostgreSQL 18, MySQL 8.4, Django 5.2 on SQLite
+  and 6.1 on PostgreSQL, xdist on 3.10, and lint, docs, free-threaded,
+  plugins, the overhead gate and the action), so several open pull requests
+  no longer hold up the queue. A push to `main`, the release gate and a pull
+  request with the `full-ci` label run the whole matrix; the new
+  `full-ci.yml` starts it when the label is added. The required checks keep
+  their names.
+
 ## [0.10.0] - 2026-11-08
 
 ### Added
