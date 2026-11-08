@@ -93,3 +93,31 @@ def test_loop():
     result = _run(pytester)
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*Order.customer was lazy-loaded*"])
+
+
+def test_sqlalchemys_files_are_classified_again_once_it_is_imported(
+    pytester: pytest.Pytester,
+) -> None:
+    # classified before the import (as a statement of Django measured earlier
+    # would make them), SQLAlchemy's files could be taken for an installed
+    # application, and a loop of the test body for the application's
+    pytester.makepyfile(
+        qgmodels=MODELS,
+        test_a="""
+import os
+
+from pytest_queryguard import callsite
+
+
+def test_loop():
+    callsite.find_origin()
+    before = callsite._prefixes
+    import qgmodels  # imports SQLAlchemy; the listeners are installed after it
+    import sqlalchemy
+
+    here = os.path.normcase(os.path.dirname(sqlalchemy.__file__)) + os.sep
+    assert before is not None and here not in before
+    assert callsite._prefixes is None or here in callsite._prefixes
+""",
+    )
+    _run(pytester).assert_outcomes(passed=1)

@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from types import ModuleType
 from typing import Any
 
-from . import collector, errors
+from . import callsite, collector, errors
 
 _index_check = False
 _wanted = False  # install() ran: hook every ORM in as soon as it is there
@@ -112,6 +112,11 @@ def _sqlalchemy() -> None:
         return
     _sqlalchemy_installed = True  # first: a failure is not retried per push
     try:
+        # SQLAlchemy's files are internal from now on: a file classified
+        # before the import may have been taken for an installed application
+        # (callsite._known_library), which makes a test's own loop the
+        # application's (callsite.Origin.test_code)
+        callsite.reset_internal()
         listeners = _module("listeners")
         listeners.install()
         if _index_check:
