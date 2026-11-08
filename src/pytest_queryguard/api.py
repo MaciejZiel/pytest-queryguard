@@ -167,14 +167,17 @@ def max_db_time(seconds: float) -> AbstractContextManager[QueryLog]:
 class Query:
     """One SQL statement recorded by ``record_queries()``.
 
-    ``sql`` is the statement text as SQLAlchemy sent it to the driver.
+    ``sql`` is the statement text as the ORM sent it to the database driver
+    (with SQLAlchemy: the text SQLAlchemy passed to the DBAPI cursor).
     ``callsite`` is the first stack frame outside SQLAlchemy, pytest, the
     standard library, site-packages and this plugin, or None. When the
-    statement loaded a relationship, lazily or as the extra query of
-    ``selectinload``, ``relationship`` names it, as in ``"Order.customer"``;
-    otherwise it is None. ``duration`` is the time in seconds the database and
-    the driver took for the statement, measured around the cursor call; None
-    while the statement is still running, and when it raised.
+    statement loaded a relationship of a model (with SQLAlchemy: lazily, or
+    as the extra query of an eager loader such as ``selectinload``),
+    ``relationship`` names it as
+    ``Class.attribute``, as in ``"Order.customer"``; otherwise it is None.
+    ``duration`` is the time in seconds the database and the driver took for
+    the statement, measured around the cursor call; None while the statement
+    is still running, and when it raised.
 
     Not constructible by users: only ``record_queries()`` creates one. The
     fields are public; the constructor is not (it is keyword-only, and fields
@@ -419,7 +422,10 @@ def _record() -> Iterator[QueryLog]:
 
 
 def record_queries() -> AbstractContextManager[QueryLog]:
-    """Record every SQL statement SQLAlchemy sends inside the block.
+    """Record every SQL statement the ORM sends inside the block.
+
+    With SQLAlchemy, that is every statement SQLAlchemy sends, from the ORM
+    or from Core; statements run on a raw DB-API connection are not seen.
 
     Statements from any thread count. The yielded ``QueryLog`` gives the
     statements, their number and an N+1 check.

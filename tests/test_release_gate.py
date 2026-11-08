@@ -283,6 +283,13 @@ def test_good_metadata_passes(gate: ModuleType) -> None:
     # an upper bound, an extra or a marker does not hide the lower bound
     upper = ("pytest<10,>=8", "sqlalchemy[asyncio]>=2.0.13; python_version >= '3.10'")
     assert _check(gate, _metadata(requires=upper)) == []
+    # the [sqlalchemy] extra repeats the core bound
+    extra = (
+        "pytest>=8",
+        "sqlalchemy>=2.0.13",
+        "sqlalchemy>=2.0.13; extra == 'sqlalchemy'",
+    )
+    assert _check(gate, _metadata(requires=extra)) == []
     # 8 and 8.0 are the same bound
     assert _check(gate, _metadata(requires=("pytest>=8.0", "sqlalchemy>=2.0.13"))) == []
 
@@ -302,6 +309,16 @@ def test_good_metadata_passes(gate: ModuleType) -> None:
         (
             _metadata(requires=("pytest>=8", "sqlalchemy>=2.0")),
             "Requires-Dist sqlalchemy>=2.0 is not the oldest version",
+        ),
+        (
+            _metadata(
+                requires=(
+                    "pytest>=8",
+                    "sqlalchemy>=2.0.13",
+                    "sqlalchemy>=2.0.20; extra == 'sqlalchemy'",
+                )
+            ),
+            "Requires-Dist sqlalchemy>=2.0.20 is not the oldest version",
         ),
         (
             _metadata(requires=("pytest", "sqlalchemy>=2.0.13")),
@@ -327,6 +344,7 @@ def test_good_metadata_passes(gate: ModuleType) -> None:
         "python-untested",
         "requires-python",
         "sqlalchemy-bound",
+        "sqlalchemy-extra-bound",
         "pytest-unbounded",
         "typed",
         "framework",

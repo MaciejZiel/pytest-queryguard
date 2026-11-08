@@ -17,6 +17,7 @@ from __future__ import annotations
 from ..api import Query
 from ..events import CallSite
 from ..findings import Finding
+from ..warnings import QueryGuardAppWarning
 from ._asgi import QueryGuardASGI
 from ._core import RequestReport, Settings, internal_error, set_route, track
 from ._listeners import is_watched, unwatch, watch
@@ -28,6 +29,7 @@ __all__ = [
     "Finding",
     "Query",
     "QueryGuardASGI",
+    "QueryGuardAppWarning",
     "QueryGuardWSGI",
     "RequestReport",
     "Settings",

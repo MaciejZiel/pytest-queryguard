@@ -1266,6 +1266,10 @@ django = [
     { name = "django", version = "5.2.17", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "django", version = "6.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
+sqlalchemy = [
+    { name = "sqlalchemy", version = "2.0.54", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "sqlalchemy", version = "2.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1307,8 +1311,9 @@ requires-dist = [
     { name = "django", marker = "extra == 'django'", specifier = ">=5.2" },
     { name = "pytest", specifier = ">=8" },
     { name = "sqlalchemy", specifier = ">=2.0.13" },
+    { name = "sqlalchemy", marker = "extra == 'sqlalchemy'", specifier = ">=2.0.13" },
 ]
-provides-extras = ["django"]
+provides-extras = ["django", "sqlalchemy"]
 
 [package.metadata.requires-dev]
 dev = [

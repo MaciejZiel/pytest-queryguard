@@ -51,7 +51,7 @@ from ._compat import (
     load_option_attribute,
 )
 from .blocks import IgnoreBlock
-from .callsite import Sites, find_callsite, find_flush
+from .callsite import Sites, find_callsite, find_entry, find_flush
 from .events import (
     CAUSE_DEFERRED,
     CAUSE_EXPIRED,
@@ -79,8 +79,48 @@ internal_failure = errors.internal_failure
 record_error = errors.record_error
 swap_error = errors.swap_error
 _innermost = errors._innermost
-_scope_of = errors.scope_of
 _fail = errors.fail
+
+
+def _scope_of(owner: Any) -> int | None:
+    """The scope number of a Session or Connection, assigned on first use.
+
+    A new scope also tells the measuring collectors the lines it began from
+    (``_note_entry``). Only SQLAlchemy's scopes do: a Django connection lives
+    across tests, so the lines of its first use say nothing about a unit of
+    work (``errors.scope_of``).
+    """
+    try:
+        known = owner.__dict__.get(errors._SCOPE_ATTR)
+    except (AttributeError, TypeError):
+        return None
+    if known is not None:
+        return known  # type: ignore[no-any-return]
+    scope = errors.scope_of(owner)
+    if scope is None:
+        return None
+    try:
+        _note_entry(scope)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "scope listener (the lines a Session began from)")
+    return scope
+
+
+def _note_entry(scope: int) -> None:
+    """Tell the measuring collectors which lines the new scope began from.
+
+    Called once per Session or connection checkout, from its first statement
+    or transaction, so the application lines on the stack are the ones that
+    started its unit of work (see QueryCollector.unit_of).
+    """
+    targets = collector.full_active()
+    if not targets:
+        return
+    lines = find_entry()
+    if lines is None:
+        return
+    for target in targets:
+        target.note_entry(scope, lines)
 
 
 def scope_of_session(session: Any) -> int | None:

@@ -13,7 +13,7 @@ column was updated for 0.8.0: the suite-wide budget, the JSON file and the
 in-application mode below were added after 0.4.0.
 
 Before you move: queryspy also runs in your application, as ASGI and WSGI
-middleware with a request panel. pytest-queryguard has had an experimental
+middleware with a request panel. pytest-queryguard has had an
 [in-application mode](in-app.md) of its own since 0.5.0, with ASGI and WSGI
 middleware and an optional panel; the two were not compared on running apps.
 If you keep the queryspy middleware, running both plugins in one pytest
@@ -84,7 +84,7 @@ queryguard_column_load_threshold = 2
 | `with no_n_plus_one():` | `with record_queries() as log:` and then `log.assert_no_nplusone()` |
 | `with record() as recorder:` | `with record_queries() as log:` ([Reading the queries](python-api.md)) |
 | `with queryspy.ignore():` in application code | `with pytest_queryguard.ignore("*"):`, or name the kinds; threads started inside the block are not covered ([the `ignore()` block](ignoring.md#the-ignore-block)) |
-| `QuerySpyMiddleware` (ASGI, WSGI), the panel | `QueryGuardASGI`, `QueryGuardWSGI` with `panel=True` ([in-application mode](in-app.md), experimental; not compared with queryspy's) |
+| `QuerySpyMiddleware` (ASGI, WSGI), the panel | `QueryGuardASGI`, `QueryGuardWSGI` with `panel=True` ([in-application mode](in-app.md); not compared with queryspy's) |
 
 The helpers, side by side. They run against the fixed `fetch_customers`, the
 one in `app/customers_fixed.py` of [the first test](getting-started.md#a-first-test),

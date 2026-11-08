@@ -29,6 +29,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of Django's own test cases; loads of objects the test created are grouped
   by the call path of the read. Measured on six open-source Django projects
   and against django-zeal and nplusone ([Django](docs/django.md#real-projects)).
+- An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
+  requirement as the core dependency, so installing with it changes nothing
+  today. [Stability](docs/stability.md#what-is-public) now says that a later
+  minor release may move SQLAlchemy from the core dependencies into this
+  extra; installing with `[sqlalchemy]`, or listing SQLAlchemy in your own
+  dependencies, keeps working through that change.
+- `pytest_queryguard.app.QueryGuardAppWarning`, the warning `report="warn"`
+  issues for a request's findings or budget. It is a `QueryGuardWarning`
+  subclass, so existing filters still match it; a filter for
+  `pytest_queryguard.app.QueryGuardAppWarning` matches the in-application
+  mode's findings and not the pytest plugin's (#241).
+- The in-app panel's `requests.json` starts with `"format": 1`, like the
+  other JSON files; its keys are listed in
+  [Stability](docs/stability.md#files-tools-and-the-action) (#241).
+
+### Changed
+
+- The in-application mode (`pytest_queryguard.app`) is no longer
+  experimental: its names, `Settings` and their defaults, `RequestReport`,
+  the reporters' OpenTelemetry and Sentry keys and the panel's JSON follow
+  the deprecation policy, and
+  [Stability](docs/stability.md#the-in-application-mode) lists what the mode
+  guarantees to the application it runs in. No name changes:
+  `RequestReport.statements` and `statement_count` stay, as in the panel's
+  JSON and the `queryguard.statement_count` OpenTelemetry attribute.
+  `page_report` stays experimental (#241).
+- The WSGI middleware's ERROR record for a `report="warn"` warning that a
+  filter turned into an error starts with `QueryGuardAppWarning:` instead of
+  `QueryGuardWarning:`; update a log alert that matches the old prefix
+  (#241).
+
+### Documentation
+
+- The texts that define `queryguard_scope = session`
+  ([configuration](docs/configuration.md), the ini help, llms.txt),
+  `Query.sql`, `Query.relationship` and `record_queries()`
+  ([Python API](docs/python-api.md) and docstrings), and the supported
+  versions in [stability](docs/stability.md#what-is-public) no longer depend
+  on the ORM for their meaning: they say "database session", "as the ORM sent
+  it" and "the releases of each supported ORM", and give the SQLAlchemy
+  meaning in brackets. `Query.relationship` also names every eager loader's
+  extra query, not only `selectinload`'s, as it always did. Behaviour, names
+  and signatures do not change.
+
+### Internal
+
+- `tests/inapp/test_cursor_loads.py` adds tests for the in-app load
+  attribution that 0.8.0 shipped; nothing changes for users. A `SELECT` run
+  by an `after_begin` hook does not take the next lazy load's label, the
+  in-app report labels lazy, `selectin`, deferred and refresh loads as
+  `record_queries()` does, `watch()` leaves an application's own
+  `do_orm_execute` listeners alone, and `yield_per` with `selectinload()`
+  works through `AsyncSession.stream_scalars()` while the engine is watched
+  (#293).
+
+## [0.9.0] - 2026-11-07
+
+### Added
+
 - The JSON output of the experimental trend
   (`python -m pytest_queryguard.trend --format json`) starts with
   `"format": 1`, like the other JSON files, and its keys are documented in
@@ -56,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The experimental static check (`python -m pytest_queryguard.lint`) is
   measured on the accuracy corpus: `scripts/lint_accuracy_report.py` and
   `tests/corpus/test_lint_accuracy.py`, with 14 new scenarios for it
-  (268 in all). On 266 scenarios its relationship-load precision went from
+  (274 in all). On 266 scenarios its relationship-load precision went from
   86% to 100% and its recall from 59% to 69%. It no longer reports a read
   inside pytest-queryguard's `ignore()` for relationship-load (a `with`
   block or a decorator), a relationship that a loop over the same objects
@@ -84,7 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   join) are wrapped. `compare` and `trend` say how to make a file they cannot
   read, and name the format of a file written by another release. The
   `kind:` and `label:` lines and the report headers are unchanged.
-- The accuracy corpus has 57 more scenarios (254): inheritance (single,
+- The accuracy corpus has 63 more scenarios (260): inheritance (single,
   concrete, `selectin_polymorphic`, polymorphic collections), association
   proxies, `deferred_group`, `query_expression`, `WriteOnlyMapped`,
   `viewonly` relationships, composite keys, `lazy="immediate"`, `"subquery"`
@@ -121,6 +180,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- By default (`queryguard_scope = test`), a `Session` or connection checkout
+  begun from application lines that no other one of the test began from is
+  counted on its own by the relationship-load, repeated-statement,
+  column-load and write-loop rules, and by strict mode. A store whose
+  methods each open a `Session` and run a shared lookup, called on separate
+  lines with no loop, was reported as an N+1: the lookups of the separate
+  calls added up like the passes of a loop. About 78 findings of the
+  real-world run in MLflow's tracking store were of this shape. `Session`s
+  begun from the same lines (a loop, a comprehension, `asyncio.gather`, a
+  thread pool, each depth of a recursion) are still counted together, and
+  so are all others whose lines repeat, so a loop whose passes call two
+  methods in turn is not split in two. The lines are those on the stack when
+  the `Session` begins, up to the test, read once per `Session`. See
+  [Tests with several sessions or
+  requests](docs/several-sessions.md#sessions-begun-on-separate-lines).
 - `queryguard-lint` reads SQLModel's `session.exec(select(Model))` as a query over `Model` objects, so a lazy relationship read in a loop over it is reported.
 - With pytest 9.2, an ini option of the wrong type (`queryguard_max_events =
   many`, `queryguard_index_check = maybe`, a number for `queryguard_mode` in
@@ -2781,7 +2855,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.5.0...v0.6.0

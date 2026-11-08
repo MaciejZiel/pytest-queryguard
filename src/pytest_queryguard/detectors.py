@@ -192,18 +192,40 @@ Finding = Detection
 
 
 def _split(
-    items: Sequence[_T], scope: Callable[[_T], object], scoped: bool
+    items: Sequence[_T],
+    scope: Callable[[_T], int | None],
+    unit: Callable[[int | None], object] | None,
 ) -> list[list[_T]]:
-    """One group per scope (in order of first use); unscoped, one group with
-    everything but the scopes that always count on their own (a request of
-    Django's test client, ``collector.boundary``)."""
+    """One group with everything, or one group per unit (in order of first use)."""
+    if unit is None:
+        return [list(items)]
     groups: dict[object, list[_T]] = {}
-    key = scope if scoped else (lambda item: boundary(scope(item)))
     for item in items:
-        groups.setdefault(key(item), []).append(item)
-    if not groups and not scoped:
-        return [[]]
+        groups.setdefault(unit(scope(item)), []).append(item)
     return list(groups.values())
+
+
+def _same(scope: int | None) -> int | None:
+    return scope
+
+
+def _units(
+    collector: QueryCollector, scoped: bool
+) -> Callable[[int | None], object] | None:
+    """What a count rule counts together: see _split.
+
+    With scope "session", each scope. With "test", the scopes begun from
+    lines of their own and the requests of Django's test client one by one,
+    and all others together (QueryCollector.unit_of); when no scope's lines
+    are known (a collector built by hand) or events were left out
+    (``max_events``), everything but those requests together
+    (``collector.boundary``).
+    """
+    if scoped:
+        return _same
+    if not collector.counts_units():
+        return boundary
+    return collector.unit_of
 
 
 def _scope_count(items: Sequence[_T], scope: Callable[[_T], object]) -> int:
@@ -330,13 +352,14 @@ def _relationship_findings(
     for load in collector.relationship_loads:
         if load.parent_key is not None:
             by_name.setdefault(load.relationship, []).append(load)
+    units = _units(collector, scoped)
     found: list[RelationshipFinding] = []
     for name, loads in by_name.items():
         best: list[RelationshipLoadEvent] | None = None
         best_parents = 0
         best_dropped: list[IgnoreBlock] = []
         held: list[IgnoreBlock] = []
-        for scope_loads in _split(loads, lambda load: load.scope, scoped):
+        for scope_loads in _split(loads, lambda load: load.scope, units):
             groups = _n_plus_one_groups(scope_loads, threshold)
             if not groups:
                 continue
@@ -414,12 +437,13 @@ def _column_load_findings(
         # option on each query: one finding per queried class
         key = (load.owner, attrs, load.cause, load.base, load.single_table)
         groups.setdefault(key, []).append(load)
+    units = _units(collector, scoped)
     found: list[ColumnLoadFinding] = []
     for (owner, attrs, cause, base, single_table), all_loads in groups.items():
         best: list[ColumnLoadEvent] | None = None
         best_keys = 0
         held: list[IgnoreBlock] = []
-        for loads in _split(all_loads, lambda load: load.scope, scoped):
+        for loads in _split(all_loads, lambda load: load.scope, units):
             keys = len({load.instance_key for load in loads})
             if keys >= threshold and keys > best_keys:
                 if _hidden(sieve, loads, KIND_COLUMN_LOAD, held):
@@ -500,12 +524,13 @@ def _write_loop_findings(
         site = stmt.callsite
         where = None if site is None else (site.filename, site.lineno)
         groups.setdefault((normalize(stmt.sql), where), []).append(stmt)
+    units = _units(collector, scoped)
     found = []
     for (sql, _), all_stmts in groups.items():
         best: list[StatementEvent] | None = None
         best_count = 0
         held: list[IgnoreBlock] = []
-        for stmts in _split(all_stmts, lambda s: s.scope, scoped):
+        for stmts in _split(all_stmts, lambda s: s.scope, units):
             # All statements of one ORM flush count as one write: the unit of
             # work sends them one by one on a dialect without insertmanyvalues,
             # and the code can only call flush() less often, not batch them
@@ -891,13 +916,14 @@ def _small_repeat_findings(
     one call site and a different set of parameters (or literals) each time,
     and leaves pagination alone.
     """
+    units = _units(collector, scoped)
     found: list[RepeatFinding] = []
     for key, all_stmts in _repeat_groups(collector).items():
         if key in skip or _paginates(all_stmts[0].sql):
             continue
         best: list[StatementEvent] | None = None
         held: list[IgnoreBlock] = []
-        for stmts in _split(all_stmts, lambda s: s.scope, scoped):
+        for stmts in _split(all_stmts, lambda s: s.scope, units):
             if not small <= len(stmts) < threshold or _batching(stmts):
                 continue
             sites = {
@@ -935,12 +961,13 @@ def _repeat_findings(
     sieve: Sieve | None = None,
 ) -> tuple[list[RepeatFinding], set[str]]:
     """The findings, and the statements a finding inside ignore() blocks had."""
+    units = _units(collector, scoped)
     found: list[RepeatFinding] = []
     hidden: set[str] = set()
     for key, all_stmts in _repeat_groups(collector).items():
         best: list[StatementEvent] | None = None
         held: list[IgnoreBlock] = []
-        for stmts in _split(all_stmts, lambda s: s.scope, scoped):
+        for stmts in _split(all_stmts, lambda s: s.scope, units):
             if len(stmts) < threshold or (best is not None and len(stmts) <= len(best)):
                 continue
             if not _batching(stmts):

@@ -13,6 +13,17 @@ class QueryGuardWarning(UserWarning):
     """An N+1 query pattern or a missing index found in ``warn`` mode."""
 
 
+class QueryGuardAppWarning(QueryGuardWarning):
+    """A finding or budget overrun of the in-application mode (``report="warn"``).
+
+    A ``QueryGuardWarning``, so a filter for that class matches it too; a
+    filter for this class matches only the in-application mode's warnings.
+    """
+
+    # The documented import path, as for the names in pytest_queryguard.__all__.
+    __module__ = "pytest_queryguard.app"
+
+
 class QueryGuardInternalWarning(UserWarning):
     """A bug inside pytest-queryguard; the plugin stops measuring.
 

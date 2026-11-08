@@ -53,6 +53,10 @@ dependencies = ["pytest>=8", "sqlalchemy>=2.0.13"]
 [project.optional-dependencies]
 # The Django integration (experimental); docs/django.md.
 django = ["django>=5.2"]
+# The same requirement as the core dependency, so it changes nothing today. A
+# later minor release may move SQLAlchemy out of the core dependencies into
+# this extra (docs/stability.md); installing with [sqlalchemy] keeps working.
+sqlalchemy = ["sqlalchemy>=2.0.13"]
 
 [project.urls]
 Homepage = "https://github.com/MaciejZiel/pytest-queryguard"

@@ -127,7 +127,7 @@ and restricts commercial use. Read it before you adopt it.
 | Unused eager loads | experimental, off by default (v) | no, deliberately (r) | no | yes, for Flask-SQLAlchemy and Django per its README (r) | no (r) | no | no |
 | Row-by-row write loops | opt-in (v) | not reported (v) | not reported (v) | no | no | no | no |
 | Per-finding ignore | marker, ini patterns, baseline and an `ignore()` block (v) | marker and an `ignore()` block (v) | `ignore=` for the index check only (r) | whitelist and an `ignore` block (r) | allow-list and an ignore block; since 2.3.0 an opt-in check for unused `zeal_ignore` blocks (r) | no | no |
-| In-app middleware and request panel | yes, experimental since 0.5.0: ASGI and WSGI, optional panel (v) | yes: ASGI and WSGI, optional panel (v: modules present) | no | Django, Flask-SQLAlchemy, WSGI (r) | Django middleware (r) | yes, FastAPI middleware (r) | no |
+| In-app middleware and request panel | yes, since 0.5.0: ASGI and WSGI, optional panel (v) | yes: ASGI and WSGI, optional panel (v: modules present) | no | Django, Flask-SQLAlchemy, WSGI (r) | Django middleware (r) | yes, FastAPI middleware (r) | no |
 | Async SQLAlchemy | yes (v) | yes (v) | yes (v) | no | no | not stated | yes, through `sync_engine` (r) |
 | pytest-xdist | tested in CI | not stated | summary per worker; budgets and N+1 unaffected (r) | not stated | not stated | not stated | not stated |
 | Documentation site | this site | yes (r) | README | README | README | README | README |
@@ -310,7 +310,7 @@ best and the median are given.
 
 The head-to-head above runs the scenarios of the
 [accuracy page](accuracy.md) under every tool (252 on the day it ran; the page
-now has 268, with precision and recall per finding kind). The smaller table
+now has 274, with precision and recall per finding kind). The smaller table
 below is the first comparison, of 2026-10-12.
 
 I ran 45 scenarios in `tests/scenarios` (SQLAlchemy ORM and Core, sync and

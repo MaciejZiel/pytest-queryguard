@@ -452,8 +452,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "queryguard_scope",
         "What the repeat, relationship, column-load and write-loop rules count "
         "together: test (everything one test runs; the default) or session (each "
-        "SQLAlchemy Session or connection checkout on its own, for tests that "
-        "make several requests)",
+        "database session on its own, for tests that make several requests; with "
+        "SQLAlchemy, a session is a Session or a connection checkout)",
         default=None,
     )
     parser.addini(

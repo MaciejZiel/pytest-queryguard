@@ -7,13 +7,12 @@ method of ``SqlAlchemyStore`` opens its own Session, loads the experiment with
 lines, for two experiments, with no loop: each call is a unit of work of its
 own, and each loads one experiment.
 
-The plugin groups the parents by the line of the query that loaded them, here
-the one line of the shared helper, and by default counts the whole test as
-one unit (``queryguard_scope = test``), so the two experiments look like one
-query returning two rows. Telling a loop over the helper (an N+1, see
-``bug_47_session_per_item``) from calls at separate lines needs the callers of
-the query line, which the grouping does not use. With
-``queryguard_scope = session`` each call counts on its own.
+The parents are grouped by the line of the query that loaded them, here the
+one line of the shared helper, and by default the whole test is one unit, so
+the two experiments looked like one query returning two rows. Each Session now
+carries the lines that called it when it began; a Session begun from lines no
+other Session of the test began from is counted on its own. A loop over the
+helper begins every Session from the same lines (``bug_47_session_per_item``).
 """
 
 from sqlalchemy import select
@@ -24,24 +23,6 @@ from ..kit import CLEAN, Ctx
 
 VERDICT = CLEAN
 KINDS = frozenset()
-_REASON = (
-    "known limit: by default the test is one unit, and the parents are grouped "
-    "by the query line of the shared helper, not by the lines that called it; "
-    "queryguard_scope = session counts each call's Session on its own"
-)
-KNOWN = {
-    config: _REASON
-    for config in (
-        "default",
-        "small-repeat",
-        "write-loop",
-        "column-load-2",
-        "unused-eager-load",
-        "unused-columns",
-        "strict",
-        "all-opt-in",
-    )
-}
 setup = shop.setup
 
 
