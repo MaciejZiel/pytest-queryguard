@@ -134,6 +134,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standard-library path is the venv's `lib/pythonX.Y`. Its statements
   reached from a test were taken for the test's own code, so with the
   default `off` an N+1 inside the installed application was not reported.
+- `queryguard_test_code`: model_bakery (and model_mommy), mixer and
+  django-dynamic-fixture are test tools, like factory_boy. A test that made
+  its rows with `baker.make(Book, _quantity=5)` or a loop of `baker.make()`
+  had those statements taken for the application's, so with the default
+  `off` they still failed the test (a `write-loop` finding, or a repeated
+  lookup inside the builder).
 - MySQL and MariaDB: pagination is no longer reported as a repeated
   statement. Those databases write the offset first, `LIMIT 20, 10` (and
   SQLAlchemy renders `.limit().offset()` so), which the repeat rules did not
