@@ -195,6 +195,14 @@ def write_session(directory: Path, ini: str, names: list[str]) -> Path:
     (directory / "pytest.ini").write_text(f"[pytest]\n{ini}", encoding="utf-8")
     body = (Path(__file__).with_name("session_body.py")).read_text(encoding="utf-8")
     (directory / "test_session.py").write_text(body, encoding="utf-8")
+    # the scenarios' test-side modules (kit.TEST_SIDE), in a folder named
+    # tests/ of the session, as a suite keeps its helpers
+    side = directory / kit.TEST_SIDE_FOLDER
+    side.mkdir(exist_ok=True)
+    for source in sorted(Path(__file__).with_name("testside").glob("*.py")):
+        (side / source.name).write_text(
+            source.read_text(encoding="utf-8"), encoding="utf-8"
+        )
     return directory / "corpus_out.json"
 
 

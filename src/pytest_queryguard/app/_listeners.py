@@ -198,7 +198,7 @@ def _sync_engine(engine: Any) -> Engine:
     )
 
 
-def watch(engine: Any) -> None:
+def watch(engine: Any, /) -> None:
     """Measure the statements of ``engine`` in requests and ``track()`` blocks.
 
     Takes an ``Engine`` or an ``AsyncEngine``; calling it again for the same
@@ -207,6 +207,9 @@ def watch(engine: Any) -> None:
     An engine made with ``engine.execution_options()`` shares its parent's
     listeners: watching the parent covers it, and watching the parent after
     it moves its listeners to the parent.
+
+    The engine is positional-only in ``watch()``, ``unwatch()`` and
+    ``is_watched()``, so that a later release can accept other objects.
     """
     sync = _sync_engine(engine)
     with _lock:
@@ -222,7 +225,7 @@ def watch(engine: Any) -> None:
         _add_session_listeners()
 
 
-def unwatch(engine: Any) -> None:
+def unwatch(engine: Any, /) -> None:
     """Stop measuring ``engine``; does nothing when it was not passed to watch().
 
     An engine watched through its parent (see ``watch()``) shares the parent's
@@ -263,7 +266,7 @@ def _drop_session_listeners_if_unused() -> None:
         _session_listeners = False
 
 
-def is_watched(engine: Any) -> bool:
+def is_watched(engine: Any, /) -> bool:
     """True while ``engine`` (or the sync engine of an AsyncEngine) is watched.
 
     An engine made with ``execution_options()`` is watched with its parent.

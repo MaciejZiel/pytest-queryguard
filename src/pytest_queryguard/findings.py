@@ -103,12 +103,19 @@ class Finding:
     (``Order.customer``), for ``unused-columns`` the class (``Customer``),
     for ``missing-index`` the table. ``file`` and
     ``function`` say where it first happened: ``file`` is relative to pytest's
-    rootdir, with forward slashes, or as the interpreter reports it when the
-    file is outside the rootdir; both are None when the call site is unknown.
+    rootdir (in the in-application mode, to the current directory), with
+    forward slashes, or as the interpreter reports it when the file is
+    outside it; both are None when the call site is unknown.
 
     ``(kind, label, file, function)`` is the identity: it stays the same from
     run to run, whatever the line numbers and counts, and whatever directory
     the suite runs from. ``line`` and ``count`` are details of one run.
+
+    ``pytest_queryguard.app`` exports this class as ``Finding``. Its public
+    fields are ``kind``, ``label``, ``file``, ``function``, ``line``,
+    ``count`` and ``message`` (docs/stability.md), and it may be built with
+    those as keyword arguments. Every other field, and ``identity``, is
+    internal; a new field needs a default, so that such a call keeps working.
     """
 
     kind: str
@@ -140,6 +147,10 @@ class Finding:
     # the change that adds the loader option to it. Made only when a patch or
     # SARIF is asked for. Not part of the identity.
     fix: SourceFix | None = field(default=None, compare=False)
+    # True when every statement of the finding ran in test code (a test
+    # module, conftest.py, a factory or a helper under tests/), not in the
+    # application; see queryguard_test_code. Not part of the identity.
+    test_code: bool = field(default=False, compare=False)
 
     @property
     def identity(self) -> tuple[str, str, str | None, str | None]:

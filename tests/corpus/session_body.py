@@ -34,14 +34,16 @@ def prepared(request, tmp_path):
 @pytest.mark.parametrize("prepared", NAMES, indirect=True)
 def test_scenario(prepared):
     module, ctx = prepared
-    if inspect.iscoroutinefunction(module.run):
+    side = getattr(module, "TEST_SIDE", None)
+    run = kit.test_side(side).run if side else module.run
+    if inspect.iscoroutinefunction(run):
 
         async def main() -> None:
             try:
-                await module.run(ctx)
+                await run(ctx)
             finally:
                 await ctx.dispose_async()
 
         asyncio.run(main())
     else:
-        module.run(ctx)
+        run(ctx)

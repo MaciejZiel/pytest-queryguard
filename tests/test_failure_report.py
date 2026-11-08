@@ -29,6 +29,7 @@ def _broken(monkeypatch):
         raise RuntimeError("callsite broke")
 
     monkeypatch.setattr(listeners, "find_callsite", boom)
+    monkeypatch.setattr(listeners, "find_site_origin", boom)
 """
 
 PLAIN_GET = """

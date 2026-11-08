@@ -16,7 +16,7 @@ output was produced by running the code on it, and says with which versions.
 | [Background tasks in tests](recipes-background-tasks.md) | Tasks run in the test body, with their own session |
 | [Factory Boy and seeding](recipes-factory-boy.md) | Seeding rows in the test body: fixtures, or ignoring write loops in tests |
 | [Adopting on a legacy codebase](recipes-legacy.md) | Warn mode, a baseline, then fail |
-| [CI](recipes-ci.md) | GitHub Actions, GitLab CI, and why there is no pre-commit hook |
+| [CI](recipes-ci.md) | GitHub Actions, GitLab CI, and pre-commit for the static check |
 
 The versions used for the output on these pages: Python 3.12, pytest 9.1.1,
 SQLAlchemy 2.1.4, pytest-queryguard 0.4.0. Messages from older SQLAlchemy

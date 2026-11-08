@@ -715,6 +715,17 @@ def format_failure(failure: Failure) -> list[str]:
     return lines
 
 
+def format_test_code_summary(findings: int, tests: int) -> str:
+    """The summary line for the findings of the test code that were left out."""
+    noun = "finding" if findings == 1 else "findings"
+    where = "test" if tests == 1 else "tests"
+    return (
+        f"queryguard: {findings} N+1 {noun} in test code left out ({tests} {where}): "
+        "statements of test modules, conftest.py, factories and helpers under "
+        "tests/, not of the application; queryguard_test_code = warn shows them"
+    )
+
+
 def format_stale_ignores(
     patterns: Sequence[object],
     markers: Sequence[tuple[str, object, str]],
