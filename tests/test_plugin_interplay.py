@@ -126,7 +126,7 @@ def pytest_unconfigure(config):
 @pytest.mark.parametrize(
     ("module", "attr"),
     [
-        ("listeners", "find_callsite"),  # inside SQLAlchemy's before_cursor_execute
+        ("listeners", "find_site_origin"),  # inside SQLAlchemy's before_cursor_execute
         ("plugin", "detect"),  # in the analysis after the test body
     ],
 )

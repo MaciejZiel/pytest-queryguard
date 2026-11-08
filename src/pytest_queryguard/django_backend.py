@@ -56,7 +56,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from . import blocks, callsite, collector, errors, sqltext
-from .callsite import find_callsite
+from .callsite import NO_ORIGIN, Origin, find_callsite, find_site_origin
 from .events import (
     CAUSE_DEFERRED,
     ORM_DJANGO,
@@ -490,7 +490,13 @@ def _record(
             event.sql = sql
             for target in full:
                 target.add_column_load(event)
-    if site is None:
+    # the call path, for the count rules of the collectors that want loads
+    origin = NO_ORIGIN
+    if full:
+        found, origin = _site_origin()
+        if site is None:
+            site = found
+    elif site is None:
         site = _site()
     stmt = StatementEvent(
         sql,
@@ -503,6 +509,8 @@ def _record(
         flush=_unit.get() if write else None,
         scope=_scope_of(context["connection"]),
         ignores=ignores,
+        path=origin.path,
+        test_code=origin.test_code,
         orm=ORM_DJANGO,
     )
     for target in targets:
@@ -794,6 +802,19 @@ def _site() -> Any:
     return find_callsite() or _async_site.get()
 
 
+def _site_origin() -> tuple[Any, Origin]:
+    """``_site()`` and the call path (``callsite.find_origin``) in one walk.
+
+    In an asgiref thread (the async ORM) the stack holds no line of the
+    application: the site is the awaiting line's, and the origin unknown, so
+    the event counts as the application's and with the passes of a loop.
+    """
+    site, origin = find_site_origin()
+    if site is None:
+        site = _async_site.get()
+    return site, origin
+
+
 def _scope_of(connection: Any) -> int | None:
     """The request being handled, else the connection the statement ran on."""
     scope = _request.get()
@@ -815,16 +836,19 @@ def _relationship_event(
     label: str, instance: Any, scalar: bool, scope: int | None, origin: _Origin | None
 ) -> RelationshipLoadEvent:
     parent = _parent(origin)
+    site, path = _site_origin()
     return RelationshipLoadEvent(
         label,
         _key(instance),
-        _site(),
+        site,
         scalar,
         scope,
         parent,
         blocks.current(),
-        ORM_DJANGO,
-        _read_path(parent),
+        path.entry,
+        path.test_code,
+        orm=ORM_DJANGO,
+        read_path=_read_path(parent),
     )
 
 
@@ -996,14 +1020,17 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
             # after save(): only one a query left out is a column load
             return original(self, instance, cls)
         try:
+            site, path = _site_origin()
             event = ColumnLoadEvent(
                 type(instance).__name__,
                 (self.field.name,),
                 CAUSE_DEFERRED,
                 _key(instance),
-                _site(),
+                site,
                 scope=_scope(instance),
                 ignores=blocks.current(),
+                entry=path.entry,
+                test_code=path.test_code,
                 orm=ORM_DJANGO,
             )
             pending: _Pending | None = (event, None)
@@ -1143,16 +1170,19 @@ def _execute_sql(
             return original(self, *args, **kwargs)
         try:
             parent = _parent(mark.origin)
+            site, path = _site_origin()
             event = RelationshipLoadEvent(
                 mark.label,
                 mark.key,
-                _site(),
+                site,
                 False,
                 _scope_of(self.connection),
                 parent,
                 blocks.current(),
-                ORM_DJANGO,
-                _read_path(parent),
+                path.entry,
+                path.test_code,
+                orm=ORM_DJANGO,
+                read_path=_read_path(parent),
             )
             pending: _Pending | None = (
                 event,

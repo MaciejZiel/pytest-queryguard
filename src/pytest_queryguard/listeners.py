@@ -51,7 +51,15 @@ from ._compat import (
     load_option_attribute,
 )
 from .blocks import IgnoreBlock
-from .callsite import Sites, find_callsite, find_entry, find_flush
+from .callsite import (
+    NO_ORIGIN,
+    Origin,
+    Sites,
+    find_callsite,
+    find_entry,
+    find_flush,
+    find_site_origin,
+)
 from .events import (
     CAUSE_DEFERRED,
     CAUSE_EXPIRED,
@@ -574,13 +582,17 @@ def column_load_of(
     session: Any,
     ignores: tuple[IgnoreBlock, ...] = (),
     sites: Sites | None = None,
+    origin: Origin = NO_ORIGIN,
+    site: CallSite | None = None,
 ) -> tuple[Any, ColumnLoadEvent] | None:
     """The instance state a column load reloads, and its event; None without one.
 
     ``load_options`` and ``options`` are the load and compile options of the
     load's SELECT (``orm_select``); ``session`` is the Session it runs in,
-    ``ignores`` the ``ignore()`` blocks active there and ``sites`` the call
-    site cache to use (the in-app unit's own). It counts nothing.
+    ``ignores`` the ``ignore()`` blocks active there, ``sites`` the call
+    site cache to use (the in-app unit's own), ``origin`` its call path
+    (``find_origin``) and ``site`` its call site when already found. It
+    counts nothing.
     """
     instance = getattr(load_options, REFRESH_STATE, None)
     if instance is None:
@@ -616,11 +628,13 @@ def column_load_of(
         names,
         cause,
         key,
-        find_callsite(sites),
+        site if site is not None else find_callsite(sites),
         scope=scope_of_session(session),
         ignores=ignores,
         base=None if base is None else base[0],
         single_table=base is not None and base[1],
+        entry=origin.entry,
+        test_code=origin.test_code,
     )
     return instance, load
 
@@ -677,6 +691,8 @@ def _relationship_load(
     ignores: tuple[IgnoreBlock, ...],
     sites: Sites | None = None,
     parents: bool = True,
+    origin: Origin = NO_ORIGIN,
+    site: CallSite | None = None,
 ) -> RelationshipLoadEvent:
     """The event of a relationship load; ``parent`` is None for a loader.
 
@@ -694,11 +710,13 @@ def _relationship_load(
     return RelationshipLoadEvent(
         str(prop),
         key,
-        find_callsite(sites),
+        site if site is not None else find_callsite(sites),
         getattr(prop, "uselist", None) is False,
         scope,
         None if parent is None or not parents else _parent_load(parent, prop),
         ignores,
+        origin.entry,
+        origin.test_code,
     )
 
 
@@ -715,6 +733,8 @@ def _orm_load(
     sites: Sites | None = None,
     written: Callable[[Any], _Written | None] = _plugin_written,
     parents: bool = True,
+    origin: Origin = NO_ORIGIN,
+    site: CallSite | None = None,
 ) -> _Labels | None:
     """Record the relationship or column load an ORM SELECT runs for.
 
@@ -734,7 +754,9 @@ def _orm_load(
     if getattr(options, FOR_REFRESH_STATE, False):
         instance = getattr(load_options, REFRESH_STATE, None)
         session = getattr(instance, "session", None)
-        found = column_load_of(load_options, options, session, ignores, sites)
+        found = column_load_of(
+            load_options, options, session, ignores, sites, origin, site
+        )
         if found is None:
             return _NO_LABELS
         instance, column = found
@@ -754,7 +776,9 @@ def _orm_load(
         session = parent.session
     else:
         session = _loader_session(orm.execution_options)
-    load = _relationship_load(prop, parent, session, conn, ignores, sites, parents)
+    load = _relationship_load(
+        prop, parent, session, conn, ignores, sites, parents, origin, site
+    )
     for target in targets:
         target.add_relationship_load(_for_target(load, target))
     return _Labels(load.relationship, None, parent is not None, load.callsite)
@@ -787,8 +811,15 @@ def _on_cursor_execute(
         # Loads only for the collectors that want them: with only the
         # statements-only ones of the queryguard fixture, no load work.
         full = collector.full_active()
+        # the call path, for the count rules of the collectors that want loads,
+        # found with the call site in one walk of the stack
+        site, origin = find_site_origin() if full else (None, NO_ORIGIN)
         orm = None if write or not full else orm_select(context)
-        labels = None if orm is None else _orm_load(conn, orm, full, ignores)
+        labels = (
+            None
+            if orm is None
+            else _orm_load(conn, orm, full, ignores, origin=origin, site=site)
+        )
         stmt = _record_statement(
             conn,
             statement,
@@ -800,6 +831,8 @@ def _on_cursor_execute(
             targets,
             ignores,
             _NO_LABELS if labels is None else labels,
+            origin,
+            site,
         )
         check = cartesian_check
         if check is not None and orm is not None and labels is None:
@@ -819,11 +852,15 @@ def _record_statement(
     targets: tuple[collector.QueryCollector, ...],
     ignores: tuple[IgnoreBlock, ...],
     labels: _Labels,
+    origin: Origin = NO_ORIGIN,
+    found: CallSite | None = None,
 ) -> StatementEvent:
     column_load = labels.column_load
     if column_load is not None:
         column_load.sql = statement
     site = labels.site
+    if site is None:
+        site = found
     stmt = StatementEvent(
         statement,
         site if site is not None else find_callsite(),
@@ -835,6 +872,8 @@ def _record_statement(
         flush=find_flush() if write else None,
         scope=scope_of_connection(conn),
         ignores=ignores,
+        path=origin.path,
+        test_code=origin.test_code,
     )
     for target in targets:
         target.add_statement(stmt)
@@ -876,7 +915,19 @@ def _on_orm_execute_strict(state: ORMExecuteState) -> None:
         if parent is None or _is_refresh_eager_load(state.execution_options):
             return  # only lazy loads raise
         prop = state.loader_strategy_path[-1]  # type: ignore[index]
-        load = _relationship_load(prop, parent, state.session, None, blocks.current())
+        # whether the load is the test code's, for the collectors that leave
+        # those out (strict_test_code False); strict mode does not split by path
+        wanted = any(not t.strict_test_code for t in full if t.strict is not None)
+        site, origin = find_site_origin() if wanted else (None, NO_ORIGIN)
+        load = _relationship_load(
+            prop,
+            parent,
+            state.session,
+            None,
+            blocks.current(),
+            origin=origin,
+            site=site,
+        )
         for target in full:
             if target.strict is not None:
                 # every strict collector counts the load; the first error wins

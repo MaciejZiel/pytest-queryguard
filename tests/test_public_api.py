@@ -23,6 +23,8 @@ import pytest
 
 import pytest_queryguard
 
+from .conftest import INNER_ADDOPTS
+
 EXPECTED_ALL = [
     "CallSite",
     "NPlusOneDetected",
@@ -115,6 +117,7 @@ EXPECTED_INI = {
     "queryguard_unused_eager_load": "off",
     "queryguard_unused_columns": "off",
     "queryguard_cartesian_load": "warn",
+    "queryguard_test_code": "off",
     "queryguard_strict": "False",
     "queryguard_show_patch": "False",
     "queryguard_fail_on": "[]",
@@ -235,7 +238,11 @@ def _help_lines(pytester: pytest.Pytester, *args: str) -> str:
     return pytester.runpytest_subprocess(*args).stdout.str()
 
 
-def test_ini_option_names_and_defaults(pytester: pytest.Pytester) -> None:
+def test_ini_option_names_and_defaults(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # without the queryguard_test_code of the inner sessions (tests/conftest.py)
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     config = pytester.parseconfig()
     defaults: dict[str, Any] = {}
     for name in sorted(EXPECTED_INI):
@@ -344,9 +351,11 @@ _MIDDLEWARE_INIT = (
 )
 
 EXPECTED_APP_SIGNATURES = {
-    "watch": "(engine: 'Any') -> 'None'",
-    "unwatch": "(engine: 'Any') -> 'None'",
-    "is_watched": "(engine: 'Any') -> 'bool'",
+    # positional-only, so that a later release can accept other objects than
+    # SQLAlchemy engines without a rename
+    "watch": "(engine: 'Any', /) -> 'None'",
+    "unwatch": "(engine: 'Any', /) -> 'None'",
+    "is_watched": "(engine: 'Any', /) -> 'bool'",
     "track": (
         "(name: 'str' = '', *, settings: 'Settings | None' = None, "
         "**options: 'Any') -> 'track'"
@@ -396,6 +405,18 @@ EXPECTED_APP_FIELDS = {
 }
 
 EXPECTED_REPORT_PROPERTIES = ["message", "over_budget", "problems", "truncated"]
+
+# The public fields of app.Finding and their types; its other fields and
+# ``identity`` are internal (docs/stability.md, "The in-application mode").
+EXPECTED_APP_FINDING_FIELDS = {
+    "kind": "str",
+    "label": "str",
+    "file": "str | None",
+    "function": "str | None",
+    "line": "int | None",
+    "count": "int",
+    "message": "str",
+}
 
 
 def test_app_report_properties_and_methods() -> None:
@@ -495,6 +516,63 @@ def test_app_dataclass_fields(name: str) -> None:
     fields = dataclasses.fields(getattr(app, name))
     names = [f.name for f in fields if not f.name.startswith("_")]
     assert names == EXPECTED_APP_FIELDS[name]
+
+
+def test_app_finding_public_fields() -> None:
+    import typing
+
+    from pytest_queryguard.app import Finding
+
+    fields = {f.name: f for f in dataclasses.fields(Finding)}
+    hints = typing.get_type_hints(Finding)
+    for name, annotation in EXPECTED_APP_FINDING_FIELDS.items():
+        assert hints[name] == eval(annotation), name
+    # A test of a report callable may build one with the public fields as
+    # keywords, so every internal field needs a default.
+    for name, f in fields.items():
+        if name not in EXPECTED_APP_FINDING_FIELDS:
+            assert (
+                f.default is not dataclasses.MISSING
+                or f.default_factory is not dataclasses.MISSING
+            ), name
+    finding = Finding(
+        kind="relationship-load",
+        label="Order.customer",
+        file="app/orders.py",
+        function="list_orders",
+        line=3,
+        count=5,
+        message="m",
+    )
+    assert {name: getattr(finding, name) for name in EXPECTED_APP_FINDING_FIELDS} == {
+        "kind": "relationship-load",
+        "label": "Order.customer",
+        "file": "app/orders.py",
+        "function": "list_orders",
+        "line": 3,
+        "count": 5,
+        "message": "m",
+    }
+    minimal = Finding(kind="k", label="l", file=None, function=None, message="m")
+    assert (minimal.line, minimal.count) == (None, 1)
+    # the panel's JSON shows exactly the public fields
+    assert sorted(EXPECTED_FINDING_DICT) == sorted(EXPECTED_APP_FINDING_FIELDS)
+
+
+@pytest.mark.parametrize("name", ["watch", "unwatch", "is_watched"])
+def test_app_watch_takes_the_engine_positionally(name: str) -> None:
+    from sqlalchemy import create_engine
+
+    from pytest_queryguard import app
+
+    engine = create_engine("sqlite://")
+    try:
+        with pytest.raises(TypeError):
+            getattr(app, name)(engine=engine)
+        assert not app.is_watched(engine)
+    finally:
+        app.unwatch(engine)
+        engine.dispose()
 
 
 def test_panel_json_keys() -> None:
@@ -679,6 +757,48 @@ def test_finding_kinds() -> None:
     assert sorted(sarif.KINDS) == sorted(EXPECTED_KINDS)
 
 
+def test_the_readers_ignore_keys_a_later_release_adds(tmp_path: Path) -> None:
+    """docs/stability.md: a minor release may add keys to a file of format 1.
+
+    Every reader of the plugin and its tools must still read such a file, at
+    the top level and inside an entry.
+    """
+    import json
+
+    from pytest_queryguard import baseline, budgets, compare
+
+    path = tmp_path / "base.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "new": 1,
+                "findings": [
+                    {"kind": "k", "label": "l", "file": None, "function": None, "x": 1}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert baseline.load(path) == {("k", "l", None, None)}
+
+    path = tmp_path / "budgets.json"
+    path.write_text(
+        json.dumps({"format": 1, "new": {"t.py::a": 0.5}, "budgets": {"t.py::a": 3}}),
+        encoding="utf-8",
+    )
+    assert budgets.load(path) == {"t.py::a": 3}
+
+    path = tmp_path / "counts.json"
+    finding = {"kind": "k", "label": "l", "count": 2, "file": "a.py", "function": "f"}
+    entry = {"statements": 3, "new": True, "findings": [{**finding, "new": [1]}]}
+    path.write_text(
+        json.dumps({"format": 1, "new": "x", "tests": {"t.py::a": entry}}),
+        encoding="utf-8",
+    )
+    assert compare.load(path)["tests"]["t.py::a"]["statements"] == 3  # also trend's
+
+
 def _cli_arguments(main: Any, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """The positional arguments and the options of a tool's argument parser."""
     found: list[str] = []
@@ -731,7 +851,7 @@ EXPECTED_TOOL_ARGUMENTS = {
     "lint": [
         "paths nargs='+'",
         "--models",
-        "--format default='text' choices=('text', 'json', 'sarif')",
+        "--format default='text' choices=('text', 'json', 'sarif', 'github')",
         "--output",
     ],
 }
@@ -806,6 +926,7 @@ EXPECTED_MCP_TOOLS = {
     "run_tests": (["args", "paths", "timeout"], []),
     "explain_finding": (["kind"], ["kind"]),
     "compare": (["base_json", "head_json"], ["base_json", "head_json"]),
+    "lint": (["models", "paths", "timeout"], ["models", "paths"]),
 }
 
 
@@ -817,6 +938,25 @@ def test_mcp_tools_and_arguments() -> None:
         for name, tool in mcp.TOOLS.items()
     }
     assert found == EXPECTED_MCP_TOOLS
+
+
+# Experimental (docs/static-check.md#pre-commit): the hooks of
+# .pre-commit-hooks.yaml, id -> (entry, language).
+EXPECTED_PRE_COMMIT_HOOKS = {
+    "queryguard-lint": ("python -m pytest_queryguard.lint", "python"),
+}
+
+
+def test_pre_commit_hooks() -> None:
+    path = Path(__file__).parents[1] / ".pre-commit-hooks.yaml"
+    if not path.is_file():
+        pytest.skip(".pre-commit-hooks.yaml is not in the sdist")
+    text = path.read_text(encoding="utf-8")
+    hooks = {}
+    for block in re.split(r"^- ", text, flags=re.MULTILINE)[1:]:
+        fields = dict(re.findall(r"^ *(id|entry|language): (.+)$", block, re.MULTILINE))
+        hooks[fields["id"]] = (fields["entry"], fields["language"])
+    assert hooks == EXPECTED_PRE_COMMIT_HOOKS
 
 
 EXPECTED_ACTION_INPUTS = {
@@ -834,8 +974,17 @@ EXPECTED_ACTION_INPUTS = {
     "comment": '"true"',
     "trend": '"false"',
     "github-token": "${{ github.token }}",
+    "lint": '"false"',
+    "lint-models": '""',
+    "lint-paths": '"."',
 }
-EXPECTED_ACTION_OUTPUTS = ["exit-code", "sarif-file", "json-file", "trend-report"]
+EXPECTED_ACTION_OUTPUTS = [
+    "exit-code",
+    "sarif-file",
+    "json-file",
+    "trend-report",
+    "lint-exit-code",
+]
 
 
 def _action_section(text: str, name: str) -> str:

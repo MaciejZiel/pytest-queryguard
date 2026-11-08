@@ -34,7 +34,12 @@ changes by accident.
   `allow_missing_index`) and the `queryguard` fixture.
 - The meaning of the finding kinds and of the labels and patterns used by
   the `queryguard_ignore` option and marker, so that an existing ignore keeps
-  matching the same finding.
+  matching the same finding. The label of `repeated-statement` and
+  `write-loop` is the SQL text the ORM sends, normalized, and that text is
+  not public (see "What is not public"): an ORM upgrade that renders a
+  statement differently can change the label, as
+  [Baseline](baseline.md#what-an-entry-is) explains, and so can a fix to the
+  normalization, which the changelog then names.
 - The pytest entry point name (`queryguard`).
 - The in-application mode, `pytest_queryguard.app`, as described under
   [The in-application mode](#the-in-application-mode).
@@ -60,7 +65,13 @@ changes by accident.
 
 Each file has a number for its format. A reader rejects a number it does not
 know, with an error that says so. New keys may be added in a minor release
-(read a file by the keys you need and ignore the others). Changing the meaning
+(read a file by the keys you need and ignore the others); the plugin and its
+tools read their own files the same way, so a file that a later 1.x release
+wrote with more keys still reads. A value keeps its type: new data goes into
+a new key, not into a different shape of an existing one (a per-test value in
+the budget file stays a number of queries). A new key never narrows what an
+existing entry matches: a key that would (a baseline entry for one test only,
+say) changes the identity, so it needs a new format number. Changing the meaning
 of a key, removing one, or changing what identifies a finding is an
 incompatible change: the number goes up, and from 1.0 on it needs a major
 release.
@@ -69,9 +80,9 @@ release.
 |---|---|---|---|
 | Baseline file (`--queryguard-baseline`, see [Baseline](baseline.md)) | `"version": 1` | `findings`, each with `kind`, `label`, `file`, `function` (the identity of a finding) | the order of the entries |
 | Budget file (`--queryguard-budgets`, see [Budgets](budgets.md#lock-todays-counts-the-budget-file)) | `"format": 1` | `budgets`: test node id to a number of queries | the order of the entries |
-| Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the order of tests and findings |
+| Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the text of a finding's `message`, the order of tests and findings |
 | SARIF file (`--queryguard-sarif`, see [SARIF](sarif.md)) | SARIF 2.1.0 | the rule ids `queryguard/<kind>`, one per finding kind; the fingerprint key `queryguardIdentity/v1` in `partialFingerprints` and the identity it hashes, so code scanning alerts stay the same alerts after an upgrade; the result `properties` `count`, `label`, `tests` and `peakCount` | rule names, descriptions and help, message text, `primaryLocationLineHash`, `codeFlows`, `fixes` (experimental, see below) |
-| In-app panel's JSON (`<panel_path>/requests.json`, see [In-application mode](in-app.md#the-panel)) | `"format": 1` | `version`, `watched_engines`, `internal_error` and `requests`, each request with the keys of `RequestReport.to_dict()`: `id`, `name`, `method`, `path`, `route`, `status`, `started`, `duration`, `statement_count`, `truncated`, `db_time`, `budget`, `over_budget`, `error`, `statements` (`sql`, `duration`, `relationship`, `file`, `line`, `function`) and `findings` (`kind`, `label`, `file`, `line`, `function`, `count`, `message`) | the value of `version` (the package version), the `message` text; the panel's own page is served by the same release and does not check `format` |
+| In-app panel's JSON (`<panel_path>/requests.json`, see [In-application mode](in-app.md#the-panel)) | `"format": 1` | `version`, `watched_engines` (the number of watched SQLAlchemy engines), `internal_error` and `requests`, each request with the keys of `RequestReport.to_dict()`: `id`, `name`, `method`, `path`, `route`, `status`, `started`, `duration`, `statement_count`, `truncated`, `db_time`, `budget`, `over_budget`, `error`, `statements` (`sql`, `duration`, `relationship`, `file`, `line`, `function`) and `findings` (`kind`, `label`, `file`, `line`, `function`, `count`, `message`) | the value of `version` (the package version), the `message` text; the panel's own page is served by the same release and does not check `format` |
 
 A new fingerprint key (`queryguardIdentity/v2`) would close every open alert
 and open it again, so it is treated as a removal: from 1.0 on, only in a major
@@ -97,7 +108,8 @@ the category turned into `-`), which later runs of older and newer versions of
 the action download, and the pull-request comment it updates in place (found
 by the compare marker above). The action is versioned with the package: pin it to a
 release tag or a commit. The `trend` input and the `trend-report` output are
-experimental. What the job summary and the pull-request comment say is not
+experimental, and so are the `lint`, `lint-models` and `lint-paths` inputs
+and the `lint-exit-code` output (since 1.0.0). What the job summary and the pull-request comment say is not
 public.
 
 ### Names, values and units
@@ -152,7 +164,7 @@ instead of `"test"`.
 before 1.0 (#241). Since then it follows the deprecation policy like the
 rest of the public API. `tests/test_public_api.py` snapshots its names,
 signatures, `Settings` fields and defaults, `RequestReport` fields and
-properties and the panel's JSON keys; `tests/inapp/test_reporters.py`
+properties, the public fields of `Finding` and the panel's JSON keys; `tests/inapp/test_reporters.py`
 checks the reporters' keys:
 
 - The names in `pytest_queryguard.app.__all__` and their signatures, the
@@ -162,6 +174,19 @@ checks the reporters' keys:
   new report field, is not a breaking change. A test of a `report` callable
   may build a `RequestReport` with keyword arguments: `id` and `name` are
   required, every other field has a default.
+- The public fields of `Finding`, the objects in `RequestReport.findings`:
+  `kind`, `label`, `file` and `function` (together the identity, as in the
+  baseline; the Sentry fingerprint is made from them), `line`, `count` and
+  `message` (its text is not public). These are the
+  keys of a finding in the panel's JSON. A test of a `report` callable may
+  build a `Finding` with them as keyword arguments (`line` and `count` may
+  be left out: they default to `None` and `1`). Its other attributes
+  (`severity`, `tests`, `peak`, `advice`, `table`, `stack`, `fix` and the
+  `identity` property) belong to the pytest plugin and may change in any
+  release, as may the module the class is defined in.
+- `watch()`, `unwatch()` and `is_watched()` take the engine as a
+  positional-only argument (`watch(engine, /)`): pass it without a keyword.
+  A later release may accept other objects than SQLAlchemy engines there.
 - `RequestReport.statements` and `statement_count` keep their names,
   although `QueryLog` calls the same `Query` objects `queries` and their
   number `count`: they are also the keys of the panel's JSON and of the
@@ -348,10 +373,15 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   `--queryguard-json` files, whose format is public. See
   [CI](ci.md#query-counts-over-the-last-runs).
 - The static check (since 0.8.0), `python -m pytest_queryguard.lint`: its options, what it
-  reports, its text output, and the rule `queryguard/static-relationship-load`
+  reports, its text output, its `github` output (`--format github`, since
+  1.0.0), and the rule `queryguard/static-relationship-load`
   in its SARIF output. Its JSON output has a `format` key; a change to the
   documented keys increments it. See [Static check](static-check.md).
-- The MCP server, `python -m pytest_queryguard.mcp`: its tools, their
+- The pre-commit hook `queryguard-lint` in `.pre-commit-hooks.yaml` (since
+  1.0.0): its id, the command it runs and its settings. See
+  [Static check](static-check.md#pre-commit).
+- The MCP server, `python -m pytest_queryguard.mcp`: its tools (`run_tests`,
+  `explain_finding`, `compare`, and `lint` since 1.0.0), their
   arguments and the fields of their results. See
   [MCP server](mcp.md).
 - The Django ORM support: the `[django]` extra, what it records and reports
@@ -360,6 +390,11 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   databases it supports. Options, files and APIs shared with SQLAlchemy keep
   their guarantees; only what they contain for Django is experimental. See
   [Django](django.md).
+
+The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
+[Coding agents](agents.md) and the editor settings in
+[In your editor](editor.md) are documentation, not API: they follow the
+output they read and may change in any release.
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini options and
@@ -413,8 +448,9 @@ checks the outcome of every test of a small suite.
   and outputs, the in-app names, signatures, `Settings` defaults and the
   keys and format number of the panel's JSON, and the deprecated names with
   their removal release. For the experimental parts it snapshots the
-  arguments of the trend and static-check tools, the trend's JSON keys, and
-  the MCP tool names and arguments. Their own tests (`tests/test_baseline.py`,
+  arguments of the trend and static-check tools, the trend's JSON keys, the
+  MCP tool names and arguments, and the pre-commit hook's id and command.
+  Their own tests (`tests/test_baseline.py`,
   `test_budget_file.py`, `test_testjson.py`, `test_sarif.py`,
   `test_compare.py`, `test_action_args.py`) check how they behave.
 - CI runs the suite on Python 3.10 to 3.15,

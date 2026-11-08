@@ -59,7 +59,7 @@ pages = [
   { title = "Background tasks in tests", file = "recipes-background-tasks.md", description = "What pytest-queryguard reports when a test runs a background task in its body, and how to test the task on its own." },
   { title = "Factory Boy and seeding", file = "recipes-factory-boy.md", description = "Keep Factory Boy seeding in the test body from showing up as write loops or expired reloads: seed in fixtures, or ignore write loops in tests." },
   { title = "Adopting on a legacy codebase", file = "recipes-legacy.md", description = "Introduce pytest-queryguard step by step: warn mode, a baseline of existing findings, then fail on anything new." },
-  { title = "CI recipes", file = "recipes-ci.md", description = "Run pytest-queryguard in GitHub Actions and GitLab CI, keep JUnit output, and why pre-commit does not apply." },
+  { title = "CI recipes", file = "recipes-ci.md", description = "Run pytest-queryguard in GitHub Actions and GitLab CI, keep JUnit output, and use pre-commit for the static check only." },
 ]
 
 [[section]]
@@ -68,6 +68,8 @@ pages = [
   { title = "Unused eager loads (experimental)", file = "unused-eager-load.md", description = "The experimental check that reports relationships a test eager-loads and never reads." },
   { title = "Unused columns (experimental)", file = "unused-columns.md", description = "The experimental check that reports wide rows a test loads and reads few columns of, and suggests load_only()." },
   { title = "Static check (experimental)", file = "static-check.md", description = "The experimental command that reads your code, without running it, and reports lazy relationships read in a loop over a query." },
+  { title = "In your editor", file = "editor.md", description = "See pytest-queryguard's findings in VS Code and PyCharm: problem matchers for the test and static-check output, and its SARIF file in a SARIF viewer." },
+  { title = "Coding agents", file = "agents.md", description = "A skill and an AGENTS.md or Cursor rule that tell coding agents how to find and fix N+1 queries with pytest-queryguard and check the fix." },
   { title = "MCP server (experimental)", file = "mcp.md", description = "The experimental MCP server that lets coding agents such as Claude Code and Cursor run tests with pytest-queryguard and read its findings and patches." },
   { title = "Comparison with other tools", file = "comparison.md", description = "A dated comparison of pytest-queryguard with other N+1 detection tools, with what was run and what was only read." },
   { title = "Accuracy on a corpus", file = "accuracy.md", description = "How accurately pytest-queryguard finds N+1 queries on a corpus of realistic scenarios, with precision and recall." },
@@ -90,4 +92,5 @@ pages = [
   { title = "Design: reading queries (0.3)", file = "design-0.3-api.md", description = "Design notes for reading the measured queries in a test, added in pytest-queryguard 0.3." },
   { title = "Design: in-application mode", file = "design-inapp.md", description = "Design notes for the in-application mode: a context-local collector, per-engine listeners, ASGI and WSGI middleware and the panel." },
   { title = "Research: Django ORM support", file = "design-django.md", description = "The research behind the Django ORM support: market, competitors, how each finding kind maps to Django, and a recommendation." },
+  { title = "Design: the API freeze before 1.0", file = "design-1.0-freeze.md", description = "The last audit of the public surface before 1.0.0rc1: every option, name and file format we would regret freezing, ranked, with a recommendation each." },
 ]

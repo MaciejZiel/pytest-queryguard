@@ -11,6 +11,8 @@ import pytest
 
 from pytest_queryguard import baseline
 
+from .conftest import TEST_CODE_FAILS
+
 # pytester runs sessions in-process, so the outer plugin sees their queries too.
 pytestmark = pytest.mark.allow_nplusone
 
@@ -293,7 +295,7 @@ def test_ignore_in_pytest_addopts_keeps_the_ignored_file(
     project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _seed(project)
-    monkeypatch.setenv("PYTEST_ADDOPTS", "--ignore test_b.py")
+    monkeypatch.setenv("PYTEST_ADDOPTS", f"--ignore test_b.py {TEST_CODE_FAILS}")
     project.runpytest(*UPDATE).assert_outcomes(passed=2)
     assert _entries(project) == ALL
 

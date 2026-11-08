@@ -76,6 +76,13 @@ class StatementEvent:
     # unknown. See listeners.scope_of_connection().
     scope: int | None = None
     ignores: tuple[IgnoreBlock, ...] = ()
+    # The application lines it ran from, innermost first, up to the test
+    # (callsite.find_origin): runs with the same lines are passes of one
+    # loop. None when unknown.
+    path: tuple[tuple[str, int, int, bool], ...] | None = None
+    # True when every application frame it ran from is test code: the test
+    # module, a conftest.py, a factory, a helper under tests/ (callsite.TestCode).
+    test_code: bool = False
     # The ORM integration that recorded it: ORM_SQLALCHEMY or ORM_DJANGO. It
     # picks the wording of a finding's fix; the rules do not read it.
     orm: str = "sqlalchemy"
@@ -107,6 +114,10 @@ class RelationshipLoadEvent:
     scope: int | None = None  # the Session that lazy-loaded it
     parent: ParentLoad | None = None  # None when nothing is known about it
     ignores: tuple[IgnoreBlock, ...] = ()
+    # The test lines that called the application (callsite.Origin.entry):
+    # lazy loads are told apart by these only, see detectors._split.
+    entry: tuple[tuple[str, int, int, bool], ...] | None = None
+    test_code: bool = False  # as StatementEvent.test_code
     orm: str = "sqlalchemy"  # see StatementEvent.orm
     # For a parent whose query is unknown: the application lines from the
     # read outwards to the test, as (file, line). Loads of such parents are
@@ -147,6 +158,10 @@ class ColumnLoadEvent:
     ignores: tuple[IgnoreBlock, ...] = ()
     base: str | None = None  # the class the query selected, for CAUSE_POLYMORPHIC
     single_table: bool = False  # CAUSE_POLYMORPHIC: the columns are in its table
+    # The test lines that called the application (callsite.Origin.entry):
+    # lazy loads are told apart by these only, see detectors._split.
+    entry: tuple[tuple[str, int, int, bool], ...] | None = None
+    test_code: bool = False  # as StatementEvent.test_code
     orm: str = "sqlalchemy"  # see StatementEvent.orm
 
 

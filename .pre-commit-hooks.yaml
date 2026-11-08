@@ -1,0 +1,13 @@
+# pre-commit hooks of this repository (https://pre-commit.com/).
+# docs/static-check.md#pre-commit says how to configure them.
+- id: queryguard-lint
+  name: queryguard lint (N+1, experimental)
+  description: >-
+    Static N+1 check: lazy relationships read in a loop over an ORM query.
+    Needs --models in args; the models must be importable in the hook's
+    environment.
+  entry: python -m pytest_queryguard.lint
+  language: python
+  types: [python]
+  # one process imports the models once and reports every file
+  require_serial: true

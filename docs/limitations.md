@@ -13,10 +13,30 @@
   independent requests in a loop, or through a server thread, can report a
   repeat that is no loop. A `Session` begun from lines of its own (a store
   method that opens a `Session` per call, called on separate lines) is
-  counted on its own; `Session`s begun from the same lines add up. Set
-  `queryguard_scope = session` to count per `Session`; that has limits
-  of its own, listed in [Tests with several sessions or
+  counted on its own; `Session`s begun from the same lines add up. Calls on
+  separate lines are told apart by their call path, also in one shared
+  `Session` (see [Calls on separate lines](how-detection-works.md#calls-on-separate-lines)),
+  but a loop in the test that calls the application once per pass (ten
+  requests in a `for` loop, a `commit()` per object that fires an event
+  listener of the application) has one call path, as a loop in the
+  application has, and is reported: the stack cannot tell which of the two
+  loops. Set `queryguard_scope = session` to count per `Session`; that has
+  limits of its own, listed in [Tests with several sessions or
   requests](several-sessions.md).
+- Test code is told from the application by file (see
+  [Test code](how-detection-works.md#test-code)): test modules, `conftest.py`,
+  files below a `tests` or `test` directory of the rootdir, and modules that
+  define a factory_boy or polyfactory factory. Application code kept in such
+  a file (a function written in the test module, a package named `test`) is
+  taken for test code, and its N+1s are only counted in the summary line by
+  default; a helper of the tests kept elsewhere (a `testing.py` next to the
+  application) is taken for the application. `queryguard_test_code = fail`
+  reports both. Strict mode counts the lazy loads of all test lines together
+  (it decides at the load), so a test that sends requests on separate lines
+  can raise in strict mode and pass without it.
+- Each statement's call path is a walk of the stack up to the test function,
+  which adds a few microseconds per statement (the stack depth decides how
+  many; see [Performance](performance.md)).
 - Everything in `site-packages` counts as library code. If your application
   is installed non-editable (for example `pip install .` in a Docker CI
   image), its frames are skipped too, and call sites point to the test file
@@ -76,10 +96,11 @@
   (`queryguard_column_load_threshold`). The same thresholds make the opt-in
   rules report legitimate code: a cached lookup that runs twice, or two objects
   read after a commit.
-- The write-loop rule cannot tell test seeding (Factory Boy creating rows with
-  a flush each, or a repository's `create()` called per row by the test) or a
-  per-row insert with its own error handling from a write loop in the code
-  under test. It is off by default for that reason; see
+- The write-loop rule cannot tell test seeding through the application (a
+  repository's `create()` called per row by the test) or a per-row insert
+  with its own error handling from a write loop in the code under test.
+  Seeding through Factory Boy alone is test code and left out by default
+  ([Test code](how-detection-works.md#test-code)). The rule is off by default; see
   [Factory Boy and seeding](recipes-factory-boy.md) for suites that seed in
   the test body.
 - The PostgreSQL index check needs PostgreSQL 16 or newer, and a sync engine or an

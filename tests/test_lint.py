@@ -618,6 +618,84 @@ def test_sarif_output(
     assert len(result["partialFingerprints"]["queryguardIdentity/v1"]) == 64
 
 
+def test_github_output(
+    project: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(project.parent))
+    assert lint.main(["--models", MODULE, "--format", "github", "app"]) == 1
+    out, err = capsys.readouterr()
+    lines = out.splitlines()
+    assert len(lines) == 3
+    warning, notice, summary = lines
+    # paths relative to the repository root, as annotations need them
+    assert warning.startswith(
+        f"::warning file={project.name}/app/orders.py,line=11,col=17,"
+        "title=N+1%3A Order.customer (queryguard)::"
+    )
+    message = warning.split("::", 2)[2]
+    assert "\n" not in message
+    assert message == (
+        "Order.customer is lazy-loaded once per row (N+1) in the loop at line 10 "
+        "over the query at line 10 in f.%0AFix: load it with the parent query, "
+        "e.g. select(Order).options(joinedload(Order.customer))"
+        "%0ARule: queryguard/static-relationship-load"
+    )
+    assert notice.startswith("::notice::queryguard lint skipped app/broken.py: ")
+    assert summary == "queryguard lint (experimental): 1 finding in 3 files"
+    assert "skipped app/broken.py" in err
+    monkeypatch.delenv("GITHUB_WORKSPACE")
+    assert lint.main(["--models", MODULE, "--format", "github", "app"]) == 1
+    assert "::warning file=app/orders.py,line=11," in capsys.readouterr().out
+
+
+def test_github_output_escapes_workflow_command_text() -> None:
+    finding = lint.Finding(
+        file="a,b:c%d\nnext.py",
+        line=3,
+        column=5,
+        loop_line=2,
+        query_line=2,
+        function="f",
+        root="Order",
+        path=(("Order.customer", True),),
+    )
+    out = lint.to_github(lint.Report([finding], 1, ["x%y\nz: bad"]))
+    warning, notice, _ = out.splitlines()
+    assert warning.startswith("::warning file=a%2Cb%3Ac%25d%0Anext.py,line=3,col=5,")
+    assert notice == "::notice::queryguard lint skipped x%25y%0Az: bad"
+
+
+def test_github_paths_are_relative_to_the_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "backend").mkdir(parents=True)
+    monkeypatch.chdir(repo / "backend")
+
+    def path(file: str, workspace: str | None) -> str:
+        finding = lint.Finding(
+            file=file,
+            line=1,
+            column=1,
+            loop_line=1,
+            query_line=1,
+            function="f",
+            root="Order",
+            path=(("Order.customer", True),),
+        )
+        out = lint.to_github(lint.Report([finding], 1), workspace)
+        return out.split("file=", 1)[1].split(",line=", 1)[0]
+
+    # from the working directory, also above it
+    assert path("app/a.py", str(repo)) == "backend/app/a.py"
+    assert path("../shared/q.py", str(repo)) == "shared/q.py"
+    assert path(str(repo / "lib" / "a.py"), str(repo)) == "lib/a.py"
+    # outside the workspace, or outside GitHub Actions: as the report has it
+    outside = str(tmp_path / "elsewhere" / "a.py")
+    assert path(outside, str(repo)) == lint._escape_property(outside)
+    assert path("app/a.py", None) == "app/a.py"
+
+
 def test_errors(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert lint.main(["--models", "no_such_module_here", "app"]) == 2
     assert "cannot import no_such_module_here" in capsys.readouterr().err

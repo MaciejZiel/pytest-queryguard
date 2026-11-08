@@ -128,6 +128,13 @@ count per database connection, as a Session does for SQLAlchemy. Requests of
 the `AsyncClient` count per connection before Django 6.1. See
 [Several sessions or requests](several-sessions.md).
 
+The N+1s of test code are left out by default, as for SQLAlchemy
+(`queryguard_test_code`, see [Test code](how-detection-works.md#test-code)):
+a loop in the test function, a fixture or a factory is not reported, a loop
+in a view, serializer or model method the test calls is. A call of the async
+ORM, which runs in a thread of asgiref with no line of the test on its stack,
+always counts as the application's.
+
 ## How it sees Django
 
 - **Statements** come from Django's documented

@@ -102,9 +102,36 @@ inputs:
     required: false
     default: "false"
   github-token:
-    description: Token for the comparison, the trend and the comment.
+    description: >-
+      Token for the comparison, the trend, the comment and the list of a pull
+      request's changed files (lint: changed).
     required: false
     default: ${{ github.token }}
+  lint:
+    description: >-
+      Experimental. "true": after pytest, run the static check
+      (python -m pytest_queryguard.lint --format github) on lint-paths, so
+      its findings show as warning annotations on the lines they name.
+      "changed": on a pull request, check only the changed Python files
+      under lint-paths (needs "pull-requests: read"); on other events, all of
+      lint-paths. "false" (the default): skip. Its findings do not fail the
+      job (see the lint-exit-code output); a model module that cannot be
+      imported does.
+    required: false
+    default: "false"
+  lint-models:
+    description: >-
+      The modules that define or import your mapped classes, separated by
+      spaces, for example "app.models". Required when lint is not "false".
+      They are imported from working-directory, as in your tests.
+    required: false
+    default: ""
+  lint-paths:
+    description: >-
+      Files and directories for the static check, relative to
+      working-directory, separated by spaces (quotes work as in pytest-args).
+    required: false
+    default: "."
 
 outputs:
   exit-code:
@@ -121,6 +148,11 @@ outputs:
       Path of the trend report (Markdown) when the trend step wrote one,
       otherwise empty.
     value: ${{ steps.trend.outputs.report }}
+  lint-exit-code:
+    description: >-
+      Exit code of the static check (0: no finding, 1: findings), or empty
+      when it did not run.
+    value: ${{ steps.lint.outputs.exit-code }}
 
 runs:
   using: composite
@@ -135,6 +167,8 @@ runs:
         QG_COMMENT: ${{ inputs.comment }}
         QG_TREND: ${{ inputs.trend }}
         QG_CATEGORY: ${{ inputs.category }}
+        QG_LINT: ${{ inputs.lint }}
+        QG_LINT_MODELS: ${{ inputs.lint-models }}
       run: |
         # A typo must not quietly turn a switch off: the later steps test
         # `inputs.fail == 'true'`, so "yes" or "1" would mean false. GitHub
@@ -173,6 +207,25 @@ runs:
           echo "::error::input category must not be empty"
           bad=1
         fi
+        # lint: "all", "changed" or empty for no static check
+        lint=""
+        case "$(lower "$QG_LINT")" in
+          false) ;;
+          true) lint=all ;;
+          changed) lint=changed ;;
+          *)
+            echo "::error::input lint must be \"true\", \"changed\" or \"false\", not \"$QG_LINT\""
+            bad=1
+            ;;
+        esac
+        if [ -n "$lint" ]; then
+          # module names only: they become --models arguments
+          module='[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*'
+          if ! [[ "$QG_LINT_MODELS" =~ ^[[:space:]]*$module([[:space:]]+$module)*[[:space:]]*$ ]]; then
+            echo "::error::input lint-models must be module names separated by spaces, such as \"app.models\", not \"$QG_LINT_MODELS\""
+            bad=1
+          fi
+        fi
         if [ "$bad" != 0 ]; then
           exit 1
         fi
@@ -182,6 +235,7 @@ runs:
         artifact="queryguard-json-$(printf '%s' "$QG_CATEGORY" | tr '":<>|*?\\/\r\n' '-----------')"
         echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
         echo "trend-runs=$runs" >> "$GITHUB_OUTPUT"
+        echo "lint=$lint" >> "$GITHUB_OUTPUT"
 
     - name: Set up Python
       if: inputs.python-version != ''
@@ -545,6 +599,110 @@ runs:
         done
         if ! gh api -X POST "repos/$QG_REPO/issues/$QG_PR/comments" -F "body=@$body" > /dev/null 2> "$errors"; then
           echo "::warning::the pull-request comment was not written (the job needs the pull-requests: write permission): $(head -c 500 "$errors" | tr '\n' ' ')"
+        fi
+
+    - name: Run the static check
+      id: lint
+      # last but one: a check that cannot run fails this step, and no step
+      # after it (the SARIF upload, the comparison) may be skipped for that.
+      # Not after an invalid input or a failed install (pytest did not run).
+      if: >-
+        !cancelled() && steps.inputs.outputs.lint != ''
+        && steps.pytest.outcome == 'success'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        QG_LINT: ${{ steps.inputs.outputs.lint }}
+        QG_LINT_MODELS: ${{ inputs.lint-models }}
+        QG_LINT_PATHS: ${{ inputs.lint-paths }}
+        QG_PR: ${{ github.event.pull_request.number }}
+        QG_REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        QG_TMP: ${{ runner.temp }}
+      run: |
+        # QG_LINT: "all" or "changed"; QG_LINT_MODELS: module names, checked
+        # by the first step, so splitting them on spaces is safe.
+        models=()
+        for name in $QG_LINT_MODELS; do
+          models+=("--models=$name")
+        done
+        changed=""
+        if [ "$QG_LINT" = changed ] && [ -n "$QG_PR" ]; then
+          changed="$QG_TMP/queryguard-lint-changed.txt"
+          errors="$QG_TMP/queryguard-lint-gh.txt"
+          if ! gh api --paginate "repos/$QG_REPO/pulls/$QG_PR/files" \
+              --jq '.[] | select(.status != "removed") | .filename' > "$changed" 2> "$errors"; then
+            echo "::warning::the changed files of the pull request could not be listed (the job needs the pull-requests: read permission), so all of lint-paths is checked: $(head -c 500 "$errors" | tr '\n' ' ')"
+            changed=""
+          elif [ "$(wc -l < "$changed")" -ge 3000 ]; then
+            # GitHub lists at most 3000 files of a pull request
+            echo "::warning::the pull request changes 3000 files or more, more than GitHub lists, so all of lint-paths is checked"
+            changed=""
+          fi
+        fi
+        # The paths, split like pytest-args; with "changed", the changed
+        # Python files that are in one of them (GitHub names them relative to
+        # the repository root). As NUL-separated bytes, like pytest-args.
+        # The root of the checkout, which GitHub's file names and the
+        # annotations are relative to: actions/checkout may put it below the
+        # workspace (its "path:" input).
+        root="$(git rev-parse --show-toplevel 2> /dev/null)" || root=""
+        root="${root:-${GITHUB_WORKSPACE:-$PWD}}"
+        list="$(mktemp)"
+        set +e
+        QG_ROOT="$root" QG_CHANGED="$changed" python -c '
+        import os, shlex, sys
+        try:
+            paths = shlex.split(os.environ["QG_LINT_PATHS"]) or ["."]
+        except ValueError:
+            sys.exit(3)
+        changed = os.environ["QG_CHANGED"]
+        if changed:
+            roots = [os.path.realpath(p) for p in paths]
+            with open(changed, encoding="utf-8", errors="surrogateescape") as handle:
+                names = [n for n in handle.read().splitlines() if n.endswith(".py")]
+            selected = []
+            for name in names:
+                full = os.path.realpath(os.path.join(os.environ["QG_ROOT"], name))
+                if os.path.isfile(full) and any(
+                    full == root or full.startswith(root.rstrip(os.sep) + os.sep)
+                    for root in roots
+                ):
+                    selected.append(full)
+            paths = selected
+        sys.stdout.buffer.write(b"".join(os.fsencode(p) + b"\0" for p in paths))
+        ' > "$list"
+        code=$?
+        set -e
+        if [ "$code" != 0 ]; then
+          rm -f "$list"
+          if [ "$code" = 3 ]; then
+            echo "::error::lint-paths cannot be split into words (an unclosed quote?): $QG_LINT_PATHS"
+          else
+            echo "::error::the files for the static check could not be listed (exit code $code); the message is above"
+          fi
+          exit 1
+        fi
+        files=()
+        while IFS= read -r -d '' file; do
+          files+=("$file")
+        done < "$list"
+        rm -f "$list"
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "No changed Python file in lint-paths: the static check did not run."
+          exit 0
+        fi
+        set +e
+        # "--": a path that starts with "-" is still a path
+        GITHUB_WORKSPACE="$root" python -m pytest_queryguard.lint --format github "${models[@]}" -- "${files[@]}"
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        # 1 is findings, which are warnings; anything else means it could not
+        # run (a model module that cannot be imported, a missing path)
+        if [ "$code" -gt 1 ]; then
+          echo "::error::the static check could not run (exit code $code); its message is above"
+          exit 1
         fi
 
     - name: Fail when pytest failed

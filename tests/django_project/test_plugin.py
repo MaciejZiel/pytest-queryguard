@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import INNER_ADDOPTS
+
 ROOT = Path(__file__).resolve().parents[2]
 
 SESSION = """
@@ -207,3 +209,41 @@ def test_django_test_case_set_up_and_tear_down_are_not_measured(
     assert flushed["statements"] == 2
     found = next(v for k, v in tests.items() if "InATransaction" in k)
     assert [f["label"] for f in found["findings"]] == ["Author.publisher"]
+
+
+TEST_CODE = """
+from tests.django_project.library.models import Book
+from tests.django_project.library.seed import seed
+
+
+def test_loop_in_the_test(db):
+    seed()
+    names = [book.author.name for book in Book.objects.all()]
+    assert len(names) == 18
+
+
+def test_loop_in_the_view(client, db):
+    seed()
+    assert client.get("/books/").status_code == 200
+"""
+
+
+def test_the_test_codes_n_plus_ones_are_left_out_by_default(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the default, queryguard_test_code = off (conftest sets fail)
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
+    project.makepyfile(test_code=TEST_CODE)
+    result = _run(project, "test_code.py", "--queryguard-json=out.json")
+    result.assert_outcomes(passed=1, failed=1)
+    tests = json.loads((project.path / "out.json").read_text())["tests"]
+    in_test = next(v for k, v in tests.items() if "in_the_test" in k)
+    assert in_test["findings"] == []
+    in_view = next(v for k, v in tests.items() if "in_the_view" in k)
+    assert [f["label"] for f in in_view["findings"]] == ["Book.author"]
+
+
+def test_the_test_codes_n_plus_ones_fail_with_fail(project: pytest.Pytester) -> None:
+    project.makepyfile(test_code=TEST_CODE)
+    result = _run(project, "test_code.py")
+    result.assert_outcomes(failed=2)

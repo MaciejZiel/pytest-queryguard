@@ -30,14 +30,15 @@ It is experimental (see [Stability](stability.md#experimental)): the command,
 its options and its output may change in a minor release. It is deliberately
 conservative: it reports only what it can follow from start to end inside one
 function, so it misses many N+1 queries that the pytest plugin finds. Use it
-as an early warning, in an editor or a pre-commit hook, next to the plugin, not
-instead of it.
+as an early warning, in an [editor](editor.md), a
+[pre-commit hook](#pre-commit) or [pull-request annotations](#github-annotations),
+next to the plugin, not instead of it.
 
 ## Running it
 
 ```text
 python -m pytest_queryguard.lint --models MODULE [--models MODULE ...]
-    [--format text|json|sarif] [--output FILE] PATHS...
+    [--format text|json|sarif|github] [--output FILE] PATHS...
 ```
 
 - `--models` (required, repeatable): a module that defines your mapped classes,
@@ -53,7 +54,8 @@ python -m pytest_queryguard.lint --models MODULE [--models MODULE ...]
   Files are decoded as Python decodes them (UTF-8, a byte order mark or a
   `# -*- coding: ... -*-` line). A file that does not parse is skipped with
   a message on stderr.
-- `--format`: `text` (default), `json` or `sarif`.
+- `--format`: `text` (default), `json`, `sarif` or `github` (since 1.0.0,
+  see [GitHub annotations](#github-annotations)).
 - `--output FILE`: write the report to this file too.
 
 The exit status is 1 when anything is reported, 0 when nothing is, and 2 when
@@ -247,6 +249,83 @@ Each finding:
 | `path` | the relationships from the query's class to this one, `["Order.customer", "Customer.address"]` |
 | `query_class` | the class the query loads |
 | `fix` | the suggested query, `"select(Order).options(joinedload(Order.customer))"` |
+
+## pre-commit
+
+Since 1.0.0 the repository has a [pre-commit](https://pre-commit.com/) hook,
+`queryguard-lint`, that runs the check on the Python files of a commit:
+
+```yaml
+repos:
+  - repo: https://github.com/MaciejZiel/pytest-queryguard
+    rev: v1.0.0   # a release tag
+    hooks:
+      - id: queryguard-lint
+        args: [--models, app.models]
+        additional_dependencies: []   # what app.models imports, see below
+```
+
+`--models` is required, in `args`: the hook stops with a usage error
+without it. pre-commit runs hooks from the root of the repository and adds
+the file names after `args`, so the command is
+`python -m pytest_queryguard.lint --models app.models FILES...`. The files of
+the commit are only parsed; the module of `--models` is **imported**, so it
+must be importable in the hook's environment:
+
+- The hook's environment is a virtual environment of its own (`language:
+  python`), with pytest-queryguard, pytest and SQLAlchemy installed. Your
+  modules are imported from the repository root, so `app.models` works when
+  `app/` is at the root. Every other package that the models module imports,
+  directly or through `app/__init__.py` (SQLModel, Flask-SQLAlchemy,
+  Pydantic, your settings library, ...), must be listed in
+  `additional_dependencies`, as requirements:
+  `additional_dependencies: [sqlmodel>=0.0.22]`.
+- When that list would be long, or your package is under `src/`, or the
+  models need your project installed, use your project's own environment
+  instead, with a `local` hook:
+
+  ```yaml
+  repos:
+    - repo: local
+      hooks:
+        - id: queryguard-lint
+          name: queryguard lint
+          entry: python -m pytest_queryguard.lint --models app.models
+          language: system
+          types: [python]
+          require_serial: true
+  ```
+
+  `language: system` runs the `python` on `PATH`: activate the virtual
+  environment before `git commit` (or write `entry: uv run python -m
+  pytest_queryguard.lint ...`, `entry: .venv/bin/python -m ...`).
+
+The hook is `require_serial`, so one process imports the models once and
+checks every file. It fails the commit when it reports anything (exit
+status 1) and when it cannot run (2); `# queryguard: ignore` leaves out a
+finding (see [Ignoring a finding](#ignoring-a-finding)). The hook's id and
+what it runs are experimental, like the check.
+
+## GitHub annotations
+
+`--format github` (since 1.0.0) prints one GitHub Actions
+[workflow command](https://docs.github.com/actions/reference/workflow-commands-for-github-actions#setting-a-warning-message)
+per finding, which a workflow step turns into a warning annotation on that
+line of the pull request:
+
+```console
+$ python -m pytest_queryguard.lint --models app.models --format github app
+::warning file=app/orders.py,line=10,col=56,title=N+1%3A Order.customer (queryguard)::Order.customer is lazy-loaded once per row (N+1) in the loop at line 9 over the query at line 9 in list_orders.%0AFix: load it with the parent query, e.g. select(Order).options(joinedload(Order.customer))%0ARule: queryguard/static-relationship-load
+queryguard lint (experimental): 1 finding in 6 files
+```
+
+The paths are relative to the repository root: in GitHub Actions each file
+is made relative to `GITHUB_WORKSPACE`, also from a working directory below
+it or a path such as `../shared`; a file outside it keeps its absolute path,
+and GitHub shows its annotation in the run's summary only. A file that is skipped (it does not parse) is a `::notice::`. The
+messages are escaped as workflow commands need (`%0A` for a line break).
+The [GitHub Action](ci.md#the-static-check-as-annotations) runs it with its
+`lint` input, also only on the files a pull request changed.
 
 ## SARIF output
 

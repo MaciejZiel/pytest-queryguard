@@ -4,9 +4,10 @@ import itertools
 import os
 import sys
 import sysconfig
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import CodeType, FrameType
+from typing import NamedTuple
 
 from .events import CallSite
 
@@ -68,6 +69,8 @@ def reset_internal() -> None:
     global _prefixes
     _prefixes = None
     _internal.clear()
+    _kinds.clear()
+    _origins.clear()
 
 
 def _is_internal(filename: str) -> bool:
@@ -85,7 +88,10 @@ def _is_internal(filename: str) -> bool:
 # at different lines would look like one query line returning many rows.
 # Decided once per code object, from the `self` of its first run: a mixin
 # method shared by a Session subclass and another class keeps that answer.
-_session_methods: dict[CodeType, bool] = {}
+# Keyed by id(): a code object's hash goes over its bytecode and constants,
+# nested functions included, which is slow for a module's code. The code
+# object is kept with the answer, so its id is not reused while it is there.
+_session_methods: dict[int, tuple[CodeType, bool]] = {}
 _MAX_SESSION_METHODS = 4096
 
 
@@ -107,10 +113,9 @@ def _is_session_method(frame: FrameType) -> bool:
     if frame.f_code.co_name in _INLINED:
         frame = _outer(frame)  # a comprehension in the method, before 3.12
     code = frame.f_code
-    try:
-        return _session_methods[code]
-    except KeyError:
-        pass
+    known = _session_methods.get(id(code))
+    if known is not None and known[0] is code:
+        return known[1]
     result = False
     if code.co_argcount and code.co_varnames[0] == "self":
         try:
@@ -120,7 +125,7 @@ def _is_session_method(frame: FrameType) -> bool:
             result = False
     if len(_session_methods) >= _MAX_SESSION_METHODS:
         _session_methods.clear()
-    _session_methods[code] = result
+    _session_methods[id(code)] = (code, result)
     return result
 
 
@@ -169,6 +174,8 @@ def new_measurement() -> None:
     measurement's events are not changed by an inner one starting.
     """
     _sites.clear()
+    _paths.clear()
+    _origins.clear()
 
 
 def swap_stack_depth(depth: int) -> int:
@@ -241,33 +248,373 @@ def _callers(frame: FrameType | None, depth: int) -> tuple[CallSite, ...]:
     )
 
 
-Entry = tuple[tuple[str, int], ...]
+# Per application frame, innermost first: (filename, line, first line of the
+# function, whether frames of other code lie between it and the application
+# frame it called). The first line tells two functions of one file apart, and
+# the last item a direct call from a framework's dispatch (detectors._dispatched).
+Entry = tuple[tuple[str, int, int, bool], ...]
 _MAX_ENTRY_LINES = 64
 
 
 def find_entry() -> Entry | None:
     """The application lines the running statement came from, up to the test.
 
-    ``(filename, line)`` of each application frame, innermost first, as
-    ``_app_frames`` walks them, through the parent greenlets of an async session.
+    ``(filename, line, first line of the function, called through other
+    code)`` of each application frame (see ``Entry``), innermost first, as ``_app_frames`` walks them, through the parent
+    greenlets of an async session.
     A function that is on the stack more than once (recursion) is kept at its
     innermost frame only, so each depth of a recursive walk has the same
     lines. Two units of work begun from the same lines are passes of one loop
     (or tasks of one fan-out); begun from different lines, they may be calls
     on separate lines. None when no application frame is found.
     """
-    lines: list[tuple[str, int]] = []
-    seen: set[CodeType] = set()
-    starts = itertools.chain((sys._getframe(1),), _parent_greenlet_frames())
-    for start in starts:
-        for frame in _app_frames(start):
+    return _site_origin(sys._getframe(1), None, False)[1].path
+
+
+class Origin(NamedTuple):
+    """Where a statement or a load came from (``find_origin``).
+
+    ``path`` is the lines of ``find_entry``: two statements with the same
+    path are passes of one loop, two with different paths may be calls on
+    separate lines. ``entry`` is the end of the path that is test code: the
+    lines of the test (and its helpers) that called the application; None
+    when the test code called no application code (``test_code``) or none of
+    the path is test code (a thread of the application). ``test_code`` is True when every
+    application frame is test code (see TestCode): a statement or load of
+    the test itself, not of the application.
+    """
+
+    path: Entry | None = None
+    entry: Entry | None = None
+    test_code: bool = False
+
+
+NO_ORIGIN = Origin()
+
+
+def find_origin() -> Origin:
+    """The origin of the running statement or load; see Origin."""
+    return _site_origin(sys._getframe(1), None, False)[1]
+
+
+def find_site_origin(sites: Sites | None = None) -> tuple[CallSite | None, Origin]:
+    """``find_callsite(sites)`` and ``find_origin()`` in one walk of the stack."""
+    return _site_origin(sys._getframe(1), _sites if sites is None else sites, True)
+
+
+def _site_origin(
+    first: FrameType, sites: Sites | None, want_site: bool
+) -> tuple[CallSite | None, Origin]:
+    """(call site, origin): see find_callsite and find_origin.
+
+    One walk from ``first`` outwards, through the parent greenlets when the
+    walk did not reach the test: the first application frame is the call
+    site, as ``_first_external`` finds it; the application frames from there
+    up to the hook call that ran the test, as ``_app_frames`` walks them, are
+    the origin (``_origin``). It is ``NO_ORIGIN`` when no application frame
+    is found before that hook.
+    """
+    skipped: FrameType | None = None  # the first method of a Session subclass
+    walking = True  # before the hook call that ran the test
+    library = False  # a _LIBRARY frame since the statement
+    kinds = _kinds
+    frame: FrameType | None = first
+    parents: Iterator[FrameType] | None = None
+    while True:
+        if frame is None:
+            # the end of this greenlet's stack: the awaiting code of an async
+            # session is in the parent greenlets
+            if parents is None:
+                parents = _parent_greenlet_frames()
+            frame = next(parents, None)
+            if frame is None:
+                break
+        filename = frame.f_code.co_filename
+        kind = kinds.get(filename)
+        if kind is None:
+            kind = _kind(filename)
+        if kind:
+            if kind == _HOOK and walking:
+                walking = False
+                if not want_site:
+                    break
+            elif kind == _LIBRARY and not _is_session_method(frame):
+                # an installed Session subclass (SQLModel's exec()) is part of
+                # the session, not an application installed in site-packages
+                library = True
+            frame = frame.f_back
+            continue
+        if _is_session_method(frame):
+            if skipped is None:
+                skipped = frame
+            frame = frame.f_back
+            continue
+        site = None if sites is None else _site(frame, sites)
+        if not walking:
+            return site, NO_ORIGIN  # found above the test: no call path
+        return site, _origin(frame, library, parents)
+    if skipped is not None and sites is not None:
+        return _site(skipped, sites), NO_ORIGIN
+    return None, NO_ORIGIN
+
+
+def _origin(
+    start: FrameType, library: bool, parents: Iterator[FrameType] | None
+) -> Origin:
+    """The origin of the frames from ``start``, the first application frame,
+    up to the hook call that ran the test; ``library`` tells whether a
+    _LIBRARY frame lies between it and the statement.
+
+    The origin depends on nothing but the code objects of those frames and
+    the instruction each one is at (and ``library``), so it is looked up by
+    them in ``_origins``: the passes of a loop find the one the first pass
+    made, without classifying the frames and their lines again. The key
+    holds the id() of each code object; the entry keeps the code objects, so
+    those ids are not reused while it is there.
+    """
+    frames: list[FrameType] = []
+    key: list[object] = [library]
+    kinds = _kinds
+    frame: FrameType | None = start
+    while True:
+        if frame is None:
+            if parents is None:
+                parents = _parent_greenlet_frames()
+            frame = next(parents, None)
+            if frame is None:
+                break
+        code = frame.f_code
+        kind = kinds.get(code.co_filename)
+        if kind is None:
+            kind = _kind(code.co_filename)
+        if kind == _HOOK:
+            break
+        frames.append(frame)
+        key.append(id(code))
+        key.append(frame.f_lasti)
+        frame = frame.f_back
+    signature = tuple(key)
+    known = _origins.get(signature)
+    if known is not None:
+        return known[1]
+    origin = _classify_frames(frames, library)
+    if len(_origins) >= _MAX_ORIGINS:
+        _origins.clear()
+    _origins[signature] = (tuple(f.f_code for f in frames), origin)
+    return origin
+
+
+def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
+    """The origin of ``frames`` (see ``_origin``), innermost first."""
+    lines: list[tuple[str, int, int, bool]] = []
+    entry: list[tuple[str, int, int, bool]] = []  # the test lines since the last other
+    seen: set[int] = set()  # id() of the code objects: they are on the stack
+    test = True
+    gap = True  # a frame not of the application since the last line
+    kinds = _kinds
+    for frame in frames:
+        code = frame.f_code
+        filename = code.co_filename
+        kind = kinds.get(filename)
+        if kind is None:
+            kind = _kind(filename)
+        if kind:
+            gap = True
+            if kind == _LIBRARY and not _is_session_method(frame):
+                library = True
+            continue
+        if _is_session_method(frame):
+            gap = True
+            continue
+        if code.co_name in _INLINED:
+            frame = _outer(frame)  # the function it is written in
             code = frame.f_code
-            if code not in seen:
-                seen.add(code)
-                lines.append((code.co_filename, frame.f_lineno))
-                if len(lines) >= _MAX_ENTRY_LINES:
-                    return tuple(lines)
-    return tuple(lines) or None
+        ours = _in_test_code(filename, frame)
+        if not ours or library:
+            # a library between this test frame and the statement may be
+            # the application, installed in site-packages: not the test's
+            test = False
+            entry.clear()
+            library = False
+        if id(code) not in seen:
+            seen.add(id(code))
+            line = (filename, frame.f_lineno, code.co_firstlineno, gap)
+            gap = False
+            if len(lines) < _MAX_ENTRY_LINES:
+                lines.append(line)
+            if ours and len(entry) < _MAX_ENTRY_LINES:
+                entry.append(line)
+    if not lines:
+        return NO_ORIGIN
+    if test or not entry:
+        return Origin(_intern(tuple(lines)), None, test)
+    return Origin(_intern(tuple(lines)), _intern(tuple(entry)), False)
+
+
+# (library, id(code), f_lasti, ...) of the frames from the first application
+# frame up to the test -> (their code objects, the Origin), see _origin.
+# Emptied with the call paths (new_measurement) and when the test code changes.
+_origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin]] = {}
+_MAX_ORIGINS = 1024
+
+
+# filename -> _APP, _INTERNAL, _HOOK for pluggy's, where the walk for the
+# origin stops (as _app_frames does), or _LIBRARY for an installed package that
+# may be the application itself (installed non-editable): one lookup per frame
+# of the walk. A statement that test code reaches through a _LIBRARY frame is
+# not the test code's own. The packages of _TEST_LIBRARIES (factories, fake
+# data) are test tools, plain _INTERNAL.
+_kinds: dict[str, int] = {}
+_MAX_KINDS = 4096
+_APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
+_TEST_LIBRARIES = frozenset(
+    {"factory", "polyfactory", "faker", "greenlet", "anyio", "sniffio", "xdist"}
+)
+_INSTALLED = ("site-packages", "dist-packages")
+
+
+def _kind(filename: str) -> int:
+    kind = _APP
+    if _is_internal(filename):
+        stop = _hook_caller()
+        if stop and os.path.normcase(filename).startswith(stop):
+            kind = _HOOK
+        else:
+            kind = _INTERNAL if _known_library(filename) else _LIBRARY
+    if len(_kinds) >= _MAX_KINDS:
+        _kinds.clear()
+    _kinds[filename] = kind
+    return kind
+
+
+def _known_library(filename: str) -> bool:
+    """Whether an internal file is SQLAlchemy, pytest, the standard library,
+    the plugin or a test tool, rather than any installed package."""
+    if filename.startswith("<"):
+        return True
+    global _prefixes
+    if _prefixes is None:
+        _prefixes = _compute_prefixes()
+    if os.path.normcase(filename).startswith(_prefixes):
+        return True
+    parts = Path(filename).parts
+    for i, part in enumerate(parts[:-1]):
+        if part in _INSTALLED:
+            top = parts[i + 1].removesuffix(".py")
+            return top in _TEST_LIBRARIES or top.startswith(("pytest", "_pytest"))
+    return True
+
+
+def _intern(lines: Entry) -> Entry:
+    path = _paths.get(lines)
+    if path is None:
+        if len(_paths) >= _MAX_PATHS:
+            _paths.clear()
+        path = _paths[lines] = lines
+    return path
+
+
+# The call paths of the current measurement (find_origin), so the statements
+# of one loop share one tuple. Emptied with the call sites (new_measurement).
+_paths: dict[Entry, Entry] = {}
+_MAX_PATHS = 4096
+
+
+class TestCode:
+    """Which files are the test suite's own code, for one pytest session.
+
+    ``root`` is pytest's rootdir. A file is test code when it is a
+    ``conftest.py``, a test module the session collected (``files``), a file
+    below a directory named ``tests`` or ``test`` inside the rootdir, or a
+    module that defines a factory_boy or polyfactory factory class.
+    """
+
+    __test__ = False  # not a test class, for pytest's collection
+
+    def __init__(self, root: str | None = None) -> None:
+        self.root = (
+            os.path.normcase(os.path.realpath(root)).rstrip(os.sep) + os.sep
+            if root
+            else None
+        )
+        self.files: set[str] = set()
+        self.known: dict[str, bool] = {}  # filename -> test code?
+
+    def add_files(self, paths: Iterable[str]) -> None:
+        """Add the collected test modules (absolute paths)."""
+        self.files.update(os.path.normcase(os.path.realpath(p)) for p in paths)
+        self.known.clear()
+        _origins.clear()
+
+    def classify(self, filename: str, frame: FrameType) -> bool:
+        if os.path.basename(filename) == "conftest.py":
+            return True
+        path = os.path.normcase(os.path.realpath(filename))
+        if path in self.files:
+            return True
+        root = self.root
+        if root is not None and path.startswith(root):
+            folders = path[len(root) :].split(os.sep)[:-1]
+            if any(folder in _TEST_FOLDERS for folder in folders):
+                return True
+        return _defines_factory(frame.f_globals)
+
+
+_TEST_FOLDERS = frozenset({"tests", "test"})
+# (module, class) of the base factory classes of factory_boy and polyfactory
+_FACTORY_BASES = (
+    ("factory.base", "BaseFactory"),
+    ("polyfactory.factories.base", "BaseFactory"),
+)
+
+
+def _defines_factory(namespace: dict[str, object]) -> bool:
+    """Whether the module of these globals defines a factory class itself."""
+    bases = tuple(
+        cls
+        for cls in (
+            getattr(sys.modules.get(module), name, None)
+            for module, name in _FACTORY_BASES
+        )
+        if isinstance(cls, type)
+    )
+    if not bases:
+        return False
+    module = namespace.get("__name__")
+    try:
+        for value in list(namespace.values()):
+            if (
+                isinstance(value, type)
+                and value.__module__ == module
+                and issubclass(value, bases)
+            ):
+                return True
+    except Exception:  # noqa: BLE001  # odd module namespaces: not a factory module
+        return False
+    return False
+
+
+_test_code = TestCode()
+
+
+def swap_test_code(new: TestCode) -> TestCode:
+    """Set the test code of the running session; return the previous one."""
+    global _test_code
+    old, _test_code = _test_code, new
+    _origins.clear()
+    return old
+
+
+def _in_test_code(filename: str, frame: FrameType) -> bool:
+    test_code = _test_code
+    known = test_code.known
+    try:
+        return known[filename]
+    except KeyError:
+        if len(known) >= _MAX_KINDS:
+            known.clear()
+        result = known[filename] = test_code.classify(filename, frame)
+        return result
 
 
 _MAX_READ_PATH = 32

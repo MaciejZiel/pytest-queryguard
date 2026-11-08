@@ -9,7 +9,9 @@ python -m pytest_queryguard.mcp
 starts a [Model Context Protocol](https://modelcontextprotocol.io/) server
 over stdio, so a coding agent such as Claude Code or Cursor can run your tests
 with pytest-queryguard, read the findings as data and apply the suggested
-patch. It is part of the package and needs no extra dependency: the server
+patch, or run the [static check](static-check.md) on the code it just wrote,
+before any test exists. [Coding agents](agents.md) has a skill and rules that
+tell an agent how to use it. It is part of the package and needs no extra dependency: the server
 speaks JSON-RPC 2.0, one message per line, with the standard library only.
 
 It is experimental (see [Stability](stability.md#experimental)): the tools,
@@ -79,11 +81,32 @@ this documentation.
 [CI](ci.md#query-counts-as-json)): the counts of tests that run more or
 fewer statements and of new and fixed findings, and the Markdown report.
 
+### lint
+
+`lint(models, paths, timeout=120)` (since 1.0.0) runs the experimental
+[static check](static-check.md),
+`python -m pytest_queryguard.lint --format=json --models=M ... -- PATHS`, in
+the server's working directory: no database, no pytest. `models` are the
+modules that define or import the mapped classes (`["app.models"]`), `paths`
+the files and directories to check; both are required lists of strings, and
+a module must not start with `-`. Each call runs the check in a new process,
+so it sees the files and the models as they are now. It returns the check's
+`exit_code` (0: nothing found, 1: findings, 2: it could not run), whether it
+`timed_out`, the number of `files` read, the files it skipped (`errors`, at
+most 30, and their number, `errors_total`),
+and the findings as the check's [JSON output](static-check.md#json-output)
+has them (`file`, `line`, `column`, `loop_line`, `query_line`, `function`,
+`relationship`, `path`, `query_class`, `fix`, `rule`). When the check could
+not run, `output_tail` says why (a module that cannot be imported, a path
+that does not exist). A finding means "likely N+1": confirm it with
+`run_tests`, which measures.
+
 ## Limits
 
 Results are bounded so that one call cannot flood the agent's context: at most
-30 findings (`findings_total` gives the number of all of them and
-`findings_truncated` says when some were left out), messages of 800
+30 findings per call, of `run_tests` or `lint`, whose text fields `lint`
+cuts at 300 characters (`findings_total` gives the
+number of all of them and `findings_truncated` says when some were left out), messages of 800
 characters, labels of 300, 5 stack frames, a patch of 20,000 characters
 (`patch_truncated`), the last 4,000 characters of pytest's output and a
 compare report of 20,000 characters.
@@ -93,9 +116,11 @@ run does not grow the server.
 
 ## Security
 
-The server runs one program, `python -m pytest` (on Windows also `taskkill`
-to stop it at a timeout), with the interpreter it runs
-on, in its working directory, without a shell. The arguments are passed to
+The server runs two programs, `python -m pytest` and
+`python -m pytest_queryguard.lint` (on Windows also `taskkill` to stop them
+at a timeout), with the interpreter it runs on, in its working directory,
+without a shell. `lint` imports the `models` modules it is given, which runs
+their import-time code, as importing them in a test does. The arguments are passed to
 pytest as they are, and pytest options can load plugins (`-p`) and read
 configuration, so the server gives the agent what running pytest in that
 directory gives it; do not expose it to clients you would not let run your

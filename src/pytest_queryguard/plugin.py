@@ -43,7 +43,13 @@ from .backends import (
 )
 from .backends import ready as backends_ready
 from .baseline import BaselineError, Identity, sorted_identities
-from .callsite import DEFAULT_STACK_DEPTH, swap_stack_depth, trim_to_user_code
+from .callsite import (
+    DEFAULT_STACK_DEPTH,
+    TestCode,
+    swap_stack_depth,
+    swap_test_code,
+    trim_to_user_code,
+)
 from .collector import QueryCollector, pop, push
 from .detectors import (
     DEFAULT_COLUMN_LOAD_THRESHOLD,
@@ -86,6 +92,7 @@ from .messages import (
     format_stale_baseline,
     format_stale_ignores,
     format_strict,
+    format_test_code_summary,
     format_time_budget,
     format_truncation,
     make_finding,
@@ -130,6 +137,8 @@ _outer_catalog_error = pytest.StashKey[str | None]()
 _outer_no_plpgsql = pytest.StashKey[indexes.EngineSet]()
 _outer_root = pytest.StashKey[Path | None]()
 _outer_stack_depth = pytest.StashKey[int]()
+_outer_test_code = pytest.StashKey[TestCode]()
+_test_code = pytest.StashKey[TestCode]()
 _settings = pytest.StashKey["_Settings"]()
 _report = pytest.StashKey[list[tuple[str, int]]]()
 _index_notes = pytest.StashKey["_IndexNotes"]()
@@ -185,6 +194,12 @@ class _Settings:
         # the same counted finding in several tests, for the terminal summary
         self.groups: finding_groups.Groups = {}
         self.cartesian = "warn"  # queryguard_cartesian_load
+        # queryguard_test_code: what findings of the test code do (off: they
+        # are only counted for the summary line)
+        self.test_code = "off"
+        # with off: node id -> findings left out, for the summary line (by
+        # node id: with --dist each every worker runs every test)
+        self.test_code_left_out: dict[str, int] = {}
         self.unused_columns = "off"  # queryguard_unused_columns
         self.strict = False  # queryguard_strict
         # budgets: queryguard_max_queries, the budget file and its update
@@ -514,6 +529,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "or query() call",
         type="bool",
         default=False,
+    )
+    parser.addini(
+        "queryguard_test_code",
+        "N+1 findings whose statements all ran in test code (test modules, "
+        "conftest.py, factories, helpers under tests/): off (default, counted "
+        "in a summary line), warn or fail",
+        default="off",
     )
     parser.addini(
         "queryguard_cartesian_load",
@@ -850,6 +872,10 @@ def _strict_hook(
     return check
 
 
+def _test_code_mode(config: pytest.Config) -> str:
+    return _choice(config, "queryguard_test_code", _EAGER_MODES)
+
+
 def _cartesian_mode(config: pytest.Config) -> str:
     return _choice(config, "queryguard_cartesian_load", _EAGER_MODES)
 
@@ -1035,6 +1061,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
     settings.show_patch = _flag(config, "queryguard_show_patch")
     settings.patch_path = _patch_path(config)
     settings.cartesian = _cartesian_mode(config)
+    settings.test_code = _test_code_mode(config)
     settings.unused_columns = _unused_columns(config)
     settings.strict = _strict(config)
     settings.default_budget = _default_budget(config)
@@ -1128,6 +1155,8 @@ def _configure(config: pytest.Config) -> None:
     config.stash[_outer_catalog_error] = indexes.swap_catalog_error(None)
     config.stash[_outer_no_plpgsql] = indexes.swap_no_plpgsql(indexes.EngineSet())
     config.stash[_outer_root] = swap_root(config.rootpath)
+    test_code = config.stash[_test_code] = TestCode(str(config.rootpath))
+    config.stash[_outer_test_code] = swap_test_code(test_code)
     # A nested session (pytester) may change the database; start afresh.
     catalog.reset()
     settings = _read_settings(config)
@@ -1197,6 +1226,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
             stash.get(_outer_no_plpgsql, indexes.EngineSet())
         ),
         lambda: swap_root(stash.get(_outer_root, None)),
+        lambda: _restore_test_code(config),
         lambda: _restore_stack_depth(config),
         catalog.reset,
     )
@@ -1210,6 +1240,12 @@ def pytest_unconfigure(config: pytest.Config) -> None:
                     f"pytest-queryguard could not clean up after the session: {exc!r}"
                 )
             )
+
+
+def _restore_test_code(config: pytest.Config) -> None:
+    if _outer_test_code in config.stash:
+        swap_test_code(config.stash[_outer_test_code])
+        del config.stash[_outer_test_code]
 
 
 def _restore_stack_depth(config: pytest.Config) -> None:
@@ -1319,6 +1355,8 @@ def _named_ignores(
 
 def _fails(settings: _Settings, finding: Finding) -> bool:
     """True when the finding fails the test; else it is only a warning."""
+    if finding.test_code and settings.test_code != "fail":
+        return False
     if finding.kind == KIND_UNUSED_EAGER_LOAD and settings.unused_eager != "fail":
         return False
     if finding.kind == KIND_CARTESIAN_LOAD and settings.cartesian != "fail":
@@ -1362,6 +1400,8 @@ def _analyse(
                 findings = apply_rules(findings, (*settings.ignore, *marker_rules))[0]
         elif rules:
             findings = _drop_ignored(item, settings, findings, marker_rules)
+        if settings.test_code == "off":
+            findings = _leave_out_test_code(settings, findings, item.nodeid)
         _note_found(settings, findings, item.nodeid)
         findings = _apply_baseline(settings, findings, item)
         finding_groups.add(settings.groups, findings, item.nodeid)
@@ -1383,6 +1423,24 @@ def _analyse(
         return None, None
 
 
+def _leave_out_test_code(
+    settings: _Settings, findings: list[Finding], nodeid: str
+) -> list[Finding]:
+    """The findings minus those of the test code, which are only counted."""
+    kept = [finding for finding in findings if not finding.test_code]
+    if len(kept) < len(findings):
+        settings.test_code_left_out[nodeid] = len(findings) - len(kept)
+        if settings.baselining:
+            # still found: a baseline entry for one is not stale, and an
+            # update keeps it. One that is not in the baseline is not added:
+            # the run never showed it, and with warn or fail later it must be.
+            baseline = settings.baseline or frozenset()
+            settings.seen.update(
+                f.identity for f in findings if f.test_code and f.identity in baseline
+            )
+    return kept
+
+
 def _findings(
     collector: QueryCollector,
     settings: _Settings,
@@ -1397,22 +1455,27 @@ def _findings(
     With ``fixes`` (and a patch or SARIF asked for), relationship-load
     findings get the patch of their parent query when it is certain.
     """
-    detections = detect(
-        collector,
-        relationship_threshold=settings.relationship,
-        repeat_threshold=settings.repeat,
-        column_load_threshold=settings.column_load,
-        small_repeat_threshold=settings.small_repeat,
-        write_loop_threshold=settings.write_loop,
-        scope=settings.repeat_scope,
-        sieve=sieve,
-    )
+    split = settings.test_code != "fail"
+    detections = _detect(collector, settings, sieve, False if split else None)
     findings = make_findings(detections, cwd=root)
     if fixes and settings.fixing:
         findings = [
             _with_fix(finding, detection, root, settings.started)
             for finding, detection in zip(findings, detections, strict=True)
         ]
+    if split and _has_test_code(collector):
+        # the test code's own N+1s: warnings, or only counted (_analyse)
+        detections = _detect(collector, settings, sieve, True)
+        side = [
+            replace(finding, test_code=True)
+            for finding in make_findings(detections, cwd=root)
+        ]
+        if fixes and settings.fixing and settings.test_code == "warn":
+            side = [
+                _with_fix(finding, detection, root, settings.started)
+                for finding, detection in zip(side, detections, strict=True)
+            ]
+        findings.extend(side)
     if trackers.eager is not None:
         findings.extend(
             _sqlalchemy_check("eager").findings(trackers.eager, cwd=root, sieve=sieve)
@@ -1428,6 +1491,39 @@ def _findings(
             _sqlalchemy_check("cartesian").findings(collector, cwd=root, sieve=sieve)
         )
     return findings
+
+
+def _has_test_code(collector: QueryCollector) -> bool:
+    """Whether any statement or load of the test ran in test code."""
+    return any(
+        event.test_code
+        for events in (
+            collector.statements,
+            collector.relationship_loads,
+            collector.column_loads,
+        )
+        for event in events
+    )
+
+
+def _detect(
+    collector: QueryCollector,
+    settings: _Settings,
+    sieve: blocks.Sieve | None,
+    test_code: bool | None,
+) -> list[Detection]:
+    """The count rules' findings: see ``detect`` for ``test_code``."""
+    return detect(
+        collector,
+        relationship_threshold=settings.relationship,
+        repeat_threshold=settings.repeat,
+        column_load_threshold=settings.column_load,
+        small_repeat_threshold=settings.small_repeat,
+        write_loop_threshold=settings.write_loop,
+        scope=settings.repeat_scope,
+        sieve=sieve,
+        test_code=test_code,
+    )
 
 
 def _with_fix(
@@ -1973,6 +2069,18 @@ def _write_index_notes(
         )
 
 
+def _write_test_code(
+    terminalreporter: pytest.TerminalReporter, settings: _Settings
+) -> None:
+    """One line for the findings of the test code that were left out."""
+    left_out = settings.test_code_left_out
+    if settings.test_code != "off" or not left_out:
+        return
+    terminalreporter.write_line(
+        format_test_code_summary(sum(left_out.values()), len(left_out))
+    )
+
+
 def _write_stale_ignores(
     terminalreporter: pytest.TerminalReporter, settings: _Settings
 ) -> None:
@@ -2048,6 +2156,11 @@ def pytest_testnodedown(node: Any, error: object) -> None:
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         settings.ignores_incomplete = True
         record_error(exc, "merging the results of a pytest-xdist worker")
+    try:
+        for nodeid, left_out in output.get("queryguard_test_code", ()):
+            settings.test_code_left_out.setdefault(str(nodeid), int(left_out))
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "merging the test-code counts of a pytest-xdist worker")
     try:
         if (
             settings.index_check
@@ -2195,9 +2308,22 @@ def pytest_collection_modifyitems(
             settings.deselected = True
         if settings is not None and settings.update_budgets:
             settings.collected.update(item.nodeid for item in items)
+        test_code = config.stash.get(_test_code, None)
+        if test_code is not None:
+            test_code.add_files(_test_modules(items))
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "collection")
     return result
+
+
+def _test_modules(items: Sequence[pytest.Item]) -> set[str]:
+    """The files of the Python test modules of ``items`` (not doctests)."""
+    files: set[str] = set()
+    for item in items:
+        module = item.getparent(pytest.Module)
+        if module is not None and type(module).__name__ != "DoctestModule":
+            files.add(str(module.path))
+    return files
 
 
 def _test_key(item: pytest.Item) -> tuple[str | None, str]:
@@ -2302,6 +2428,7 @@ def pytest_sessionfinish(
                 "incomplete": internal_error() is not None,
             }
             output["queryguard_deselected"] = settings.deselected
+            output["queryguard_test_code"] = sorted(settings.test_code_left_out.items())
             notes = config.stash.get(_index_notes, None) or _IndexNotes()
             output["queryguard_index_notes"] = {
                 "notices": list(notes.notices),
@@ -2775,6 +2902,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "summary of findings in several tests")
     try:
+        _write_test_code(terminalreporter, settings)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "summary of the findings in test code")
+    try:
         _write_stale_ignores(terminalreporter, settings)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "stale-ignore summary")
@@ -2862,6 +2993,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         collector.strict = strict_hook
         collector.strict_threshold = settings.relationship
         collector.strict_by_scope = settings.repeat_scope == SCOPE_SESSION
+        collector.strict_test_code = settings.test_code == "fail"
     strict_error: NPlusOneDetected | None = None
     # the test's own failure, after strict mode raised in it
     other_error: BaseException | None = None

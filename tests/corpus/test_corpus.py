@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from ..conftest import INNER_ADDOPTS
 from . import kit, runner
 from .metrics import known_reason
 
@@ -50,6 +51,7 @@ def results(
             out = runner.write_session(pytester.path, ini, names)
             for key, value in runner.session_env(names, out, "queryguard").items():
                 monkeypatch.setenv(key, value)
+            monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
             pytester.inline_run("-p", "no:cacheprovider", "-W", "ignore", "-q")
             _cache[config] = runner.read_results(out)
         return _cache[config]
@@ -86,6 +88,8 @@ def test_plugin_agrees_with_the_verdict(
         out = runner.write_session(pytester.path, ini, names)
         for key, value in runner.session_env(names, out, "queryguard").items():
             monkeypatch.setenv(key, value)
+        # the corpus measures the default configuration (queryguard_test_code)
+        monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
         pytester.inline_run("-p", "no:cacheprovider", "-W", "ignore", "-q")
         _cache[config] = runner.read_results(out)
     result = _cache[config][name]
