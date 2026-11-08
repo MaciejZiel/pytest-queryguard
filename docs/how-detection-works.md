@@ -412,7 +412,8 @@ event that a factory's flush fires. Those are reported as before.
 The count rules then run twice: once on the application's statements and
 loads, whose findings fail the test as usual, and once on those of the test
 code. With `queryguard_test_code = off` the second findings are only counted,
-in a section at the end of the run that names the first five tests:
+in a section at the end of the run that names five of the tests, in node
+id order:
 
 ```
 ============================ queryguard: test code =============================

@@ -28,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test code, with no frame of the application on the stack (a test module, a
   `conftest.py`, a file below a `tests` or `test` directory of the rootdir, a
   module that defines a factory_boy or polyfactory factory), is left out and
-  counted in one line of the terminal summary; `warn` reports it as a
+  counted in a `queryguard: test code` section of the terminal summary,
+  which says how to see them (`pytest -o queryguard_test_code=warn`), links
+  to the docs and names up to five tests; `warn` reports it as a
   `QueryGuardWarning`, `fail` as before. A loop in the application that test
   code calls (through a helper, a test client in `conftest.py`, a factory's
   flush that fires a model event) is still reported. Strict mode does not
@@ -92,13 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call site), which adds about 3 microseconds per Core statement and 8 per
   ORM statement on the in-memory SQLite micro-benchmark (docs/performance.md). See
   docs/how-detection-works.md#calls-on-separate-lines.
-
-- The count of test-code findings left out (`queryguard_test_code = off`)
-  is a section of the terminal summary, `queryguard: test code`, instead of
-  one line: it counts the findings, says how to see them
-  (`pytest -o queryguard_test_code=warn`), links to the docs and names up
-  to five tests. An N+1 written in the test function, as people do to try
-  the plugin, no longer passes with only an easily missed line.
 
 ### Fixed
 

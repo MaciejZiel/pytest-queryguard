@@ -14,7 +14,7 @@ those `INSERT` statements as part of the test. Two things follow:
 
 Since 1.0.0 the statements that run only in test code (the test function, a
 factory, a helper under `tests/`, with no frame of the application on the
-stack) are left out of the findings by default, and only counted in one line
+stack) are left out of the findings by default, and only counted in a section
 at the end of the run (`queryguard_test_code = off`, see
 [Test code](how-detection-works.md#test-code)). A factory's `INSERT`s and the
 test reading its own objects back are test code; the application reading

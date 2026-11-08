@@ -208,6 +208,7 @@ you turn failing on for new findings only.
 ### A block instead of a profiler
 
 ```python
+from orders import customer_names
 from pytest_queryguard import record_queries
 
 

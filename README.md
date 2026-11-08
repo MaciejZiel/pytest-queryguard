@@ -80,7 +80,10 @@ without a problem include the shapes this plugin was taught to leave alone,
 so read the table with that bias. What it does show: pytest-queryguard fails
 tests with no marker, option or fixture; it reports loops of Core `select()`
 and `text()` statements as well as lazy loads; and it rarely flags fixed
-code. Where the others are ahead (Django support, runs of 2 to 4 identical
+code. The [accuracy page](https://maciejziel.github.io/pytest-queryguard/accuracy.html#results-default-configuration)
+has the corpus measured again with the current code and its defaults: 117 of
+the 121 scenarios with a problem the default rules can report are flagged,
+and 2 of the 157 without one. Where the others are ahead (Django support, runs of 2 to 4 identical
 statements by default, exact SQL snapshots) is on the
 [same page](https://maciejziel.github.io/pytest-queryguard/comparison.html#where-the-others-are-ahead).
 
