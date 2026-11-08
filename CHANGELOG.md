@@ -141,6 +141,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Static check (`python -m pytest_queryguard.lint`): a file outside the
+  working directory is shown as one path however it was named on the
+  command line (`../shared/q.py`, not `../shared/../shared/q.py` or the
+  absolute path), so its SARIF fingerprints no longer change with the
+  spelling. In `--format sarif` such a file outside the repository gets an
+  absolute `file://` URI instead of a broken one such as
+  `backend/../../other/x.py`, and a file given by its absolute path is no
+  longer left out of the SARIF file; a file of the repository above the
+  working directory is relative to the repository root, as in
+  `--format github`.
+- Helpers in the tests folder (`tests/utils/client.py`) count as test code
+  also when pytest's rootdir is that folder itself (a `tests/pytest.ini`,
+  or pytest run from inside `tests/` with no configuration file) and the
+  directory above it is the project's root (it holds `.git`,
+  `pyproject.toml`, `setup.py`, `setup.cfg` or `tox.ini`); before, their
+  N+1s failed the test as if they were the application's.
 - A baseline file whose entries have keys besides `kind`, `label`, `file`
   and `function` is read, with the other keys ignored, instead of stopping
   pytest with `has unknown keys`. [Stability](docs/stability.md#files-tools-and-the-action)
