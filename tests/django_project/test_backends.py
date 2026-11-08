@@ -110,6 +110,8 @@ def test_a_failed_install_stops_measuring_and_is_not_retried(
     monkeypatch.setattr(backends, "_module", lambda name: _Fake(calls, name, True))
     backends._sqlalchemy()
     failure = errors.internal_failure()
+    # cleared before the plugin's own teardown sees it and warns
+    errors.reset()
     assert failure is not None
     assert failure.source == "SQLAlchemy listeners (install)"
     assert backends._sqlalchemy_installed
