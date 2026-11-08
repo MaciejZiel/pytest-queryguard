@@ -113,8 +113,8 @@ CLEAN. The six scenarios of test code and calls on separate lines were added
 on 2026-11-07 and every table of the default and opt-in configurations was
 measured again then, with the plugin at `main` 7c7f2a8 plus the changes of
 its pull request (Python 3.13.18, the same packages): 278 of 280 scenarios
-ran, 135 BUG and 143 CLEAN. All numbers on this page are for those and SQLite, except the
-PostgreSQL run, which is the earlier 141-scenario measurement and says so,
+ran, 135 BUG and 143 CLEAN. All numbers on this page are for those and SQLite (the same on
+[MySQL and MariaDB](#on-mysql-and-mariadb)), except the PostgreSQL run, which is the earlier 141-scenario measurement and says so,
 and the comparison with other tools, which ran the 252 scenarios the corpus
 had on that day in GitHub Actions.
 
@@ -744,6 +744,47 @@ serial and identity sequence past the seeded rows after a scenario's setup
 (`Ctx.sync_sequences()`). The run showed no difference between PostgreSQL and
 SQLite that comes from the plugin.
 
+## On MySQL and MariaDB
+
+2026-11-08. The 278 scenarios that run without SQLModel, every configuration, with each scenario's
+database on MySQL 8.4.13 and on MariaDB 11.8.9 (the official Docker images)
+instead of an SQLite file.
+
+- Method: `QUERYGUARD_TEST_DB_URL=mysql+pymysql://root:secret@127.0.0.1:3306
+  uv run python scripts/accuracy_report.py`, in the `mysql` job of the CI
+  workflow (GitHub Actions, `ubuntu-latest`). Each scenario gets a fresh
+  database (`tests/dbredirect.py`); sync scenarios use PyMySQL and async ones
+  aiomysql. The index check is off, as in the SQLite run. The regular
+  `tests/corpus` tests run in the same job on every pull request.
+- Software: Python 3.12.16, SQLAlchemy 2.1.1, pytest 9.1.1, Flask-SQLAlchemy
+  3.1.1, FastAPI 0.141.1, SQLModel not installed, pytest-queryguard 0.9.0
+  plus the changes of the pull request that added this section.
+
+**Result: on MySQL 8.4 and on MariaDB 11.8 the output of
+`scripts/accuracy_report.py` is identical to the output on SQLite** (same
+commit and packages): the same TP, FP and FN in every table and the same
+disagreements, scenario by scenario. With the default configuration, 117 of
+121 BUG scenarios that its rules can report are flagged and 2 of 157 CLEAN
+scenarios are; with all opt-in rules, 134 of 135 and 9 of 143. Precision and
+recall per kind are those of the tables above (for example
+repeated-statement 98% and 94% by default).
+
+**What the first MySQL runs found.** In the plugin, two false positives of
+the repeat rules, both fixed: MySQL writes pagination as `LIMIT <offset>,
+<count>`, which the rules did not read as pagination, and SQLAlchemy's
+`has_table()` runs `DESCRIBE`, which was not treated as schema reflection.
+No scenario of the corpus pages through rows from one line or calls
+`has_table()` in a loop, so neither changed the numbers; the regular test
+suite, which also runs on these servers now, found them. In the corpus, five
+scenarios did not run there: two seeded rows in an order that only SQLite,
+which does not check foreign keys by default, accepts; one wrote the table
+name in double quotes; one passed `?` placeholders to `exec_driver_sql`; and
+the `yield_per` scenario streams on a server-side cursor that PyMySQL ends
+when the `selectinload` statement runs (without the plugin too), so it reads
+buffered rows on MySQL. The polling scenario reads with `READ COMMITTED`
+there: with MySQL's default `REPEATABLE READ` the loop never sees the other
+connection's update.
+
 ## Real projects
 
 The corpus is written by the author of the plugin. To see what the plugin does
@@ -953,6 +994,7 @@ See also [Limitations](limitations.md).
   relationship-load BUG scenarios.
 - The corpus is small and written by one person; precision and recall from 280
   scenarios have wide error bars. It ran on SQLite, and its first 141 scenarios
-  on PostgreSQL 17 (pg8000 and asyncpg); other PostgreSQL versions, MySQL and
-  other drivers were not run.
+  on PostgreSQL 17 (pg8000 and asyncpg); all of them on MySQL 8.4 and
+  MariaDB 11.8 (PyMySQL and aiomysql). Other PostgreSQL versions and other
+  drivers were not run.
 - The SQLModel scenarios run only where SQLModel is installed.
