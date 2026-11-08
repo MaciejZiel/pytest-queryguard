@@ -54,7 +54,7 @@ python -m pytest_queryguard.lint --models MODULE [--models MODULE ...]
   Files are decoded as Python decodes them (UTF-8, a byte order mark or a
   `# -*- coding: ... -*-` line). A file that does not parse is skipped with
   a message on stderr.
-- `--format`: `text` (default), `json`, `sarif` or `github` (since 1.0.0,
+- `--format`: `text` (default), `json`, `sarif` or `github` (since 0.10.0,
   see [GitHub annotations](#github-annotations)).
 - `--output FILE`: write the report to this file too.
 
@@ -271,7 +271,7 @@ Each finding:
 
 ## pre-commit
 
-Since 1.0.0 the repository has a [pre-commit](https://pre-commit.com/) hook,
+Since 0.10.0 the repository has a [pre-commit](https://pre-commit.com/) hook,
 `queryguard-lint`, that runs the check on the Python files of a commit:
 
 ```yaml
@@ -327,7 +327,7 @@ what it runs are experimental, like the check.
 
 ## GitHub annotations
 
-`--format github` (since 1.0.0) prints one GitHub Actions
+`--format github` (since 0.10.0) prints one GitHub Actions
 [workflow command](https://docs.github.com/actions/reference/workflow-commands-for-github-actions#setting-a-warning-message)
 per finding, which a workflow step turns into a warning annotation on that
 line of the pull request:

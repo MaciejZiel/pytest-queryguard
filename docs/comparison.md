@@ -143,7 +143,7 @@ not work.
   nplusone and django-zeal run inside Django, Flask and WSGI apps.
   pytest-queryguard has had an in-application mode (see
   [In-application mode](in-app.md)) since 0.5.0; it is no longer
-  experimental from 1.0.0.
+  experimental from 0.10.0.
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI runs the
@@ -183,7 +183,7 @@ or worked around them since.
   setup ([prosopite#22](https://github.com/charkost/prosopite/issues/22)).
   pytest-queryguard measures only the test function body; fixtures are not
   measured (see [How detection works](how-detection-works.md) and the
-  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)). From 1.0.0 it
+  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)). From 0.10.0 it
   also leaves out, by default, the N+1s of test code run in the body (a
   factory, a helper under `tests/`, the test's own loop) and counts them at
   the end of the run (see [Test code](how-detection-works.md#test-code)).

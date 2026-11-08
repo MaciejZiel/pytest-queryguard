@@ -31,7 +31,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[test]"        # your project and its test dependencies
-      - uses: MaciejZiel/pytest-queryguard/action@v0.9.0   # a release tag, or a commit SHA
+      - uses: MaciejZiel/pytest-queryguard/action@v0.10.0   # a release tag, or a commit SHA
         with:
           pytest-args: tests/   # no -x: see below
           # baseline: queryguard-baseline.json   # add once the file exists, see below
@@ -88,7 +88,7 @@ failed. Install your own project first: the action does not know how.
 | `comment` | `true` | Also post the comparison as a pull-request comment, updated in place on later pushes. |
 | `trend` | `false` | Since 0.8.0, experimental. A number of runs N (2 to 100; `true` means 10): on pushes to the default branch and on pull requests, show how the counts moved over the last N runs, see [below](#query-counts-over-the-last-runs). |
 | `github-token` | `github.token` | Token for the comparison, the trend, the comment and the changed files of `lint: changed`. |
-| `lint` | `false` | Since 1.0.0, experimental. `true`: after pytest, run the [static check](static-check.md) on `lint-paths` with `--format github`, so its findings show as warnings on the lines of the pull request. `changed`: on a pull request, only the changed Python files in `lint-paths`. See [below](#the-static-check-as-annotations). |
+| `lint` | `false` | Since 0.10.0, experimental. `true`: after pytest, run the [static check](static-check.md) on `lint-paths` with `--format github`, so its findings show as warnings on the lines of the pull request. `changed`: on a pull request, only the changed Python files in `lint-paths`. See [below](#the-static-check-as-annotations). |
 | `lint-models` | empty | The modules that define or import your mapped classes, separated by spaces (`app.models`). Required when `lint` is not `false`. |
 | `lint-paths` | `.` | Files and directories for the static check, relative to `working-directory`, split like `pytest-args`. |
 
@@ -102,7 +102,7 @@ dots), or the action stops before pytest runs.
 
 Outputs: `exit-code` (pytest's), `sarif-file`, `json-file`, `trend-report`
 (since 0.8.0: the trend's Markdown file, empty when there is none) and
-`lint-exit-code` (since 1.0.0: the static check's, `0` or `1`, empty when it
+`lint-exit-code` (since 0.10.0: the static check's, `0` or `1`, empty when it
 did not run).
 
 ### Query counts on pull requests
