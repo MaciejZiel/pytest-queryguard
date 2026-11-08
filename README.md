@@ -33,7 +33,7 @@ queryguard: N+1 detected
        select(Order).options(joinedload(Order.customer))
 ```
 
-Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+.
+Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8.
 
 ## What it catches
 

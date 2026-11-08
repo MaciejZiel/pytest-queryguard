@@ -9,6 +9,7 @@ subclass is a column load, also on SQLAlchemy before 2.0.30.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, ClassVar
@@ -369,7 +370,8 @@ def test_the_eager_loader_a_refresh_runs_is_not_a_lazy_load(db: Engine) -> None:
         for team in session.scalars(select(Team)).all():
             session.refresh(team)
     assert [f.kind for f in report.findings] == ["column-load"]
-    members = [q for q in report.statements if "FROM member" in q.sql]
+    # MySQL quotes member, a reserved word there: FROM `member`
+    members = [q for q in report.statements if re.search(r"FROM `?member", q.sql)]
     assert len(members) == 1 + ROWS  # the query's selectin load, then one each
     assert {q.relationship for q in members} == {"Team.members"}
 

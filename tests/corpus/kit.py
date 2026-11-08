@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Engine, create_engine, event, text
-from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.dialects import mysql, postgresql, sqlite
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -73,6 +73,9 @@ def pg_url_from_env() -> str | None:
 def _fast_sqlite(engine: Engine) -> None:
     """No fsync: the corpus databases are throw-away. Not seen by the plugin,
     which listens to statements SQLAlchemy executes, not to the DBAPI cursor here."""
+
+    if engine.dialect.name != "sqlite":  # moved to a server by tests/dbredirect.py
+        return
 
     @event.listens_for(engine, "connect")
     def _pragmas(dbapi_connection, _record):  # type: ignore[no-untyped-def]
@@ -152,9 +155,31 @@ class Ctx:
             self._engine = None
 
 
+class _MySQLInsert(mysql.Insert):
+    """MySQL's ``INSERT ... ON DUPLICATE KEY UPDATE`` under the names the
+    scenarios use (those of SQLite and PostgreSQL): the conflict target is
+    always the primary key there, which MySQL takes from any unique key."""
+
+    inherit_cache = True
+
+    @property
+    def excluded(self) -> Any:
+        return self.inserted
+
+    def on_conflict_do_update(self, index_elements: Any, set_: Any) -> Any:
+        return self.on_duplicate_key_update(set_)
+
+    def on_conflict_do_nothing(self) -> Any:
+        return self.prefix_with("IGNORE")
+
+
 def insert_for(engine: Engine) -> Any:
-    """The dialect's ``insert`` with ``on_conflict_*``: SQLite, or PostgreSQL."""
-    return postgresql.insert if engine.dialect.name == "postgresql" else sqlite.insert
+    """The dialect's ``insert`` with ``on_conflict_*``: SQLite, PostgreSQL or MySQL."""
+    if engine.dialect.name == "postgresql":
+        return postgresql.insert
+    if engine.dialect.name == "mysql":
+        return _MySQLInsert
+    return sqlite.insert
 
 
 # Where the runner copies tests/corpus/testside/ in a generated session.

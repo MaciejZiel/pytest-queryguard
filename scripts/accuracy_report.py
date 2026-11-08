@@ -9,12 +9,15 @@ project never depends on them. Those tools only say pass or fail per scenario,
 so the comparison is at the level of scenarios, not of finding kinds.
 
 PostgreSQL: set QUERYGUARD_CORPUS_PG_URL to a pg8000 URL to run the corpus there.
+MySQL and MariaDB: set QUERYGUARD_TEST_DB_URL (tests/dbredirect.py); not with
+--compare, whose tools run on SQLite.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import sys
 import tempfile
@@ -132,6 +135,10 @@ def main() -> int:
         help="where the generated sessions go (default: a temp directory)",
     )
     args = parser.parse_args()
+    if args.compare and os.environ.get("QUERYGUARD_TEST_DB_URL"):
+        parser.error(
+            "--compare runs the other tools on SQLite: unset QUERYGUARD_TEST_DB_URL"
+        )
 
     scenarios = runner.load()
     with tempfile.TemporaryDirectory(dir=args.workdir) as tmp:

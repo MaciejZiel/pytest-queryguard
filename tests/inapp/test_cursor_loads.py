@@ -104,6 +104,7 @@ def test_app_and_plugin_label_the_same_loads(watched: Engine, kind: str) -> None
         assert finding.count == CUSTOMERS
 
 
+@pytest.mark.sqlite_only("a loader statement ends a streaming MySQL result")
 @pytest.mark.parametrize("watch_enabled", [False, True])
 def test_async_yield_per_selectinload_keeps_working(
     async_engine: AsyncEngine, watch_enabled: bool

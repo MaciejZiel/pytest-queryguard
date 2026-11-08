@@ -52,6 +52,28 @@ docker stop qg-postgres
 The index advisor's hypopg tests also need the `hypopg` extension in that
 database; they are skipped when it is missing.
 
+### MySQL and MariaDB
+
+`QUERYGUARD_TEST_DB_URL` runs the whole suite on a MySQL or MariaDB server:
+every SQLite engine the tests create gets a fresh database there
+(`tests/dbredirect.py`), and the tests about SQLite itself, marked
+`sqlite_only`, keep SQLite. The URL names no database, and its user must be
+allowed to create and drop databases. The live tests of the MySQL index
+check take `QUERYGUARD_MYSQL_URL` or `QUERYGUARD_MARIADB_URL`
+(`tests/test_mysql_index_check.py`).
+
+```bash
+docker run -d --rm --name qg-mysql -p 53306:3306 --tmpfs /var/lib/mysql \
+  -e MYSQL_ROOT_PASSWORD=secret mysql:8.4 --max-connections=2000 \
+  --mysql-native-password=ON --authentication-policy=mysql_native_password
+QUERYGUARD_TEST_DB_URL=mysql+pymysql://root:secret@127.0.0.1:53306 uv run pytest -q -n 4
+docker stop qg-mysql
+```
+
+A test that needs SQLite's own behavior (its SQL text, `PRAGMA`, the
+`sqlite3` module, Python functions in SQL) is made dialect-aware, or marked
+`@pytest.mark.sqlite_only("why")` when the behavior does not exist on MySQL.
+
 ## Changes
 
 - Branch from `main` and open a pull request against `main`. Keep each pull

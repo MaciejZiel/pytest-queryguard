@@ -1,8 +1,36 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+
 import pytest
 
+from . import dbredirect
+
 pytest_plugins = ["pytester"]
+
+# Before any test module imports create_engine: see tests/dbredirect.py.
+if os.environ.get(dbredirect.ENV):
+    dbredirect.install(os.environ[dbredirect.ENV])
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "sqlite_only(reason): the test is about SQLite itself; it keeps SQLite"
+        " when QUERYGUARD_TEST_DB_URL moves the other tests to a server",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _sqlite_only(request: pytest.FixtureRequest) -> Iterator[None]:
+    marker = request.node.get_closest_marker("sqlite_only")
+    if marker is None or not dbredirect.active():
+        yield
+        return
+    with dbredirect.paused():
+        yield
+
 
 # What every inner (pytester) session gets in PYTEST_ADDOPTS, see below.
 INNER_ADDOPTS = "-p no:randomly"
