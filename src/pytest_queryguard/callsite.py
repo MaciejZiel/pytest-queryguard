@@ -392,11 +392,8 @@ def _origin(
     holds the id() of each code object; the entry keeps the code objects, so
     those ids are not reused while it is there.
     """
-    # The key only: the frames are walked again on a miss (_origin_frames),
-    # rarely, as the passes of a loop find the first pass's entry.
+    frames: list[FrameType] = []
     key: list[object] = [library]
-    append = key.append
-    jumps: list[FrameType] | None = None  # the parent greenlet frames walked into
     kinds = _kinds
     hook = _HOOK
     frame: FrameType | None = start
@@ -407,9 +404,6 @@ def _origin(
             frame = next(parents, None)
             if frame is None:
                 break
-            if jumps is None:
-                jumps = []
-            jumps.append(frame)
         code = frame.f_code
         try:
             kind = kinds[code.co_filename]
@@ -417,35 +411,19 @@ def _origin(
             kind = _kind(code.co_filename)
         if kind == hook:
             break
-        append(id(code))
-        append(frame.f_lasti)
+        frames.append(frame)
+        key.append(id(code))
+        key.append(frame.f_lasti)
         frame = frame.f_back
     signature = tuple(key)
     known = _origins.get(signature)
     if known is not None:
         return known[1]
-    frames = _origin_frames(start, len(key) // 2, jumps)
     origin = _classify_frames(frames, library)
     if len(_origins) >= _MAX_ORIGINS:
         _origins.clear()
     _origins[signature] = (tuple(f.f_code for f in frames), origin)
     return origin
-
-
-def _origin_frames(
-    start: FrameType, count: int, jumps: list[FrameType] | None
-) -> list[FrameType]:
-    """The ``count`` frames that ``_origin`` walked from ``start``; ``jumps``
-    are the frames it went on from at the end of a greenlet's stack."""
-    frames: list[FrameType] = []
-    following = iter(jumps or ())
-    frame: FrameType | None = start
-    while len(frames) < count:
-        if frame is None:
-            frame = next(following)
-        frames.append(frame)
-        frame = frame.f_back
-    return frames
 
 
 def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
