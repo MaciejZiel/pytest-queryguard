@@ -198,9 +198,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [Static check](docs/static-check.md#release-thresholds).
 - The call path of each statement (#356) is found with less work: the walk
   up to the test only builds the cache key, and does not look for parent
-  greenlets when greenlet is not loaded. `bench_gate.py --record
-  --accept-cost` records a higher overhead that a pull request accepts from
-  its failed gate logs. See
+  greenlets when greenlet is not loaded. The release gate's overhead
+  baseline (`scripts/bench_baseline.json`) is recorded again with the cost
+  #356 accepted, by the new `bench_gate.py --record --accept-cost`, which
+  reads the failed gate logs of the pull request that accepts it. See
   [Releasing](docs/releasing.md#when-a-threshold-has-to-change).
 - The release gate's install check puts the tiny project's N+1 in its
   application module: one in the test module is test code, left out by
