@@ -1,10 +1,14 @@
 """The Django examples of the docs run as the pages say: the getting-started
 example of docs/django.md fails as shown there, and the examples of
-"Collecting queries without failing the test" and of the scaling recipe pass."""
+"Collecting queries without failing the test" and of the scaling recipe pass,
+and the example of "Without pytest" fails under ``manage.py test`` as shown."""
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -65,6 +69,8 @@ def test_the_pages_show_these_files() -> None:
         "tests/test_books.py",
         "library/services.py",
         "tests/test_add_book.py",
+        "library/listing.py",
+        "library/tests.py",
     }
     assert set(_files(SCALING)) == {
         "library/reports.py",
@@ -78,7 +84,7 @@ def test_the_getting_started_example(
     files = _pick(_files(DOC), "library/models.py", "tests/test_books.py")
     result = _project(pytester, monkeypatch, files)
     result.assert_outcomes(failed=1)
-    (shown,) = _blocks("text")
+    shown = _blocks("text")[0]
     out = result.stdout.str()
     for line in shown.splitlines():
         assert line in out, line
@@ -116,3 +122,32 @@ def test_the_scaling_recipe_fails_without_select_related(
     for count in (2, 11, 51):
         assert f"expected exactly 1 query, got {count}" in out
     assert "{1: 2, 10: 11, 50: 51}" in out
+
+
+def test_the_runner_example(tmp_path: Path) -> None:
+    files = _pick(
+        _files(DOC), "library/models.py", "library/listing.py", "library/tests.py"
+    )
+    for name, source in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+    (tmp_path / "library" / "__init__.py").write_text("")
+    settings_lines, report = _blocks("text")[1:3]
+    (tmp_path / "settings.py").write_text(SETTINGS + settings_lines)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QUERYGUARD_")}
+    env.update(DJANGO_SETTINGS_MODULE="settings", PYTHONPATH=str(tmp_path))
+    result = subprocess.run(
+        [sys.executable, "-m", "django", "test", "library"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    assert result.returncode == 1, result.stderr
+    for line in report.splitlines():
+        if line.startswith("FAIL:") and sys.version_info < (3, 11):
+            continue  # unittest names the test without its method before 3.11
+        assert line in result.stderr, (line, result.stderr)

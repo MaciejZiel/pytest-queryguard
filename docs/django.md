@@ -81,6 +81,128 @@ queryguard: N+1 detected
 With `Book.objects.select_related("author")` the test passes. The fixture's
 writes are not measured: only the test function's body is, as for SQLAlchemy.
 
+## Without pytest (manage.py test)
+
+A project that runs its tests with Django's own runner (`manage.py test`,
+unittest `TestCase`s) gets the same detection from a test runner, with no
+change to the tests. Two lines in the settings:
+
+```text
+TEST_RUNNER = "pytest_queryguard.django.QueryGuardRunner"
+QUERYGUARD = {"mode": "fail"}  # optional: the default
+```
+
+```bash
+pip install "pytest-queryguard[django]"
+python manage.py test
+```
+
+`QueryGuardRunner` is Django's `DiscoverRunner` with each test measured as
+the pytest plugin measures it: `setUp()`, the test method, `tearDown()` and
+the cleanups. `setUpClass()`, `setUpTestData()` and Django's own database
+set-up are not measured, as pytest fixtures are not. With the models above,
+a helper that reads the author of each book:
+
+```python
+# library/listing.py
+from library.models import Book
+
+
+def book_lines():
+    return [f"{book.title} by {book.author.name}" for book in Book.objects.all()]
+```
+
+and a test case that calls it:
+
+```python
+# library/tests.py
+from django.test import TestCase
+
+from library.listing import book_lines
+from library.models import Author, Book
+
+
+class BookTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        for i in range(3):
+            author = Author.objects.create(name=f"author {i}")
+            Book.objects.create(title=f"book {i}", author=author)
+
+    def test_book_lines(self):
+        self.assertEqual(len(book_lines()), 3)
+```
+
+the test fails with the plugin's report:
+
+```text
+FAIL: test_book_lines (library.tests.BookTests.test_book_lines)
+----------------------------------------------------------------------
+AssertionError: queryguard: N+1 detected
+
+  Book.author was lazy-loaded 3 times
+  first at library/listing.py:6 in book_lines
+    called from library/tests.py:16 in test_book_lines
+  parents loaded at library/listing.py:6 in book_lines
+  kind: relationship-load  label: Book.author
+  docs: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#relationship-load
+  sql: SELECT "library_author"."id", "library_author"."name" FROM "library_author" WHERE "library_author"."id" = %s LIMIT 21
+  fix: load it with the parent query, e.g.
+       Book.objects.select_related("author")
+       or, on Django 6.1+, .fetch_mode(models.FETCH_PEERS) on that query
+```
+
+A test that fails on its own, or is skipped, is reported as it is, without
+the analysis. A project with a runner of its own subclasses
+`QueryGuardRunner` instead of `DiscoverRunner`. To check only some test
+cases, under any runner, mix `QueryGuardTestCase` in instead:
+
+```python
+from django.test import TestCase
+from pytest_queryguard.django import QueryGuardTestCase
+
+
+class BookTests(QueryGuardTestCase, TestCase):
+    ...
+```
+
+Under pytest the mixin does nothing: the plugin measures every test already.
+
+**Settings.** `QUERYGUARD` takes the names of the
+[ini options](configuration.md) without the `queryguard_` prefix, with the
+same defaults and values: `mode` (`fail`, `warn`, `off`),
+`relationship_threshold`, `repeat_threshold`, `small_repeat_threshold`,
+`column_load_threshold`, `write_loop_threshold`, `scope`, `test_code`,
+`fail_on`, `ignore` (a list of [ignore patterns](ignoring.md)),
+`max_events` and `stack_depth`. `python manage.py test --queryguard-mode=warn`
+overrides `mode`; the command line wins over `QUERYGUARD`, which wins over
+the defaults. `pytest.ini` and `pyproject.toml` are not read. An unknown name
+or a bad value stops the run with `ImproperlyConfigured` before the test
+database is created.
+
+**Warn mode** issues each report as a `QueryGuardWarning` at the test
+method, shown after the test (also with `--buffer`).
+`python -W "error:queryguard:UserWarning" manage.py test` turns them into
+test errors (the message starts with `queryguard:`; `-W` cannot name
+`QueryGuardWarning`, which is not imported when Python starts).
+
+**Test code** is the modules of the test cases the runner loaded, the files
+below a `tests` or `test` folder of the current directory, and factories, as
+under pytest: with the default `test_code = off` a loop in the test method or
+`setUp()` is not reported, a loop in a view, serializer or model method it
+calls is. `ignore()` blocks work as under pytest.
+
+**`--parallel`** works, with `fork`, `spawn` and `forkserver` workers: each
+worker measures its tests and the failures come back as any test failure;
+warnings are printed by the worker.
+
+**Not available without pytest** (yet): the `max_queries` marker and the
+budget file (the `max_queries()` context manager works), the
+baseline, `--queryguard-json`, SARIF, the end-of-run summary, strict mode and
+the index check. They need pytest-django and the plugin. Like the rest of the
+Django support, the runner is experimental; see the
+[design note](design-django-runner.md).
+
 ## What is checked
 
 | Kind | Django code it reports | Fix the message names |

@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Like the static check, it is listed under
   [Experimental](docs/stability.md#experimental): its findings and options
   may change in a minor release.
+- N+1 detection without pytest, for Django projects that run
+  `manage.py test` (experimental): `pytest_queryguard.django.QueryGuardRunner`,
+  a `DiscoverRunner` set with `TEST_RUNNER`, measures `setUp()`, the test
+  method and `tearDown()` of every test as the plugin does and fails or warns
+  with the plugin's report; `QueryGuardTestCase` does the same for the test
+  cases it is mixed into, under any runner. Settings in `QUERYGUARD = {...}`
+  with the ini options' names, `--queryguard-mode` on the command line; works
+  with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
+  index check without pytest yet
+  ([Django](docs/django.md#without-pytest-managepy-test)).
 - An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
   requirement as the core dependency, so installing with it changes nothing
   today. [Stability](docs/stability.md#what-is-public) now says that a later
