@@ -351,9 +351,11 @@ _MIDDLEWARE_INIT = (
 )
 
 EXPECTED_APP_SIGNATURES = {
-    "watch": "(engine: 'Any') -> 'None'",
-    "unwatch": "(engine: 'Any') -> 'None'",
-    "is_watched": "(engine: 'Any') -> 'bool'",
+    # positional-only, so that a later release can accept other objects than
+    # SQLAlchemy engines without a rename
+    "watch": "(engine: 'Any', /) -> 'None'",
+    "unwatch": "(engine: 'Any', /) -> 'None'",
+    "is_watched": "(engine: 'Any', /) -> 'bool'",
     "track": (
         "(name: 'str' = '', *, settings: 'Settings | None' = None, "
         "**options: 'Any') -> 'track'"
@@ -403,6 +405,18 @@ EXPECTED_APP_FIELDS = {
 }
 
 EXPECTED_REPORT_PROPERTIES = ["message", "over_budget", "problems", "truncated"]
+
+# The public fields of app.Finding and their types; its other fields and
+# ``identity`` are internal (docs/stability.md, "The in-application mode").
+EXPECTED_APP_FINDING_FIELDS = {
+    "kind": "str",
+    "label": "str",
+    "file": "str | None",
+    "function": "str | None",
+    "line": "int | None",
+    "count": "int",
+    "message": "str",
+}
 
 
 def test_app_report_properties_and_methods() -> None:
@@ -502,6 +516,63 @@ def test_app_dataclass_fields(name: str) -> None:
     fields = dataclasses.fields(getattr(app, name))
     names = [f.name for f in fields if not f.name.startswith("_")]
     assert names == EXPECTED_APP_FIELDS[name]
+
+
+def test_app_finding_public_fields() -> None:
+    import typing
+
+    from pytest_queryguard.app import Finding
+
+    fields = {f.name: f for f in dataclasses.fields(Finding)}
+    hints = typing.get_type_hints(Finding)
+    for name, annotation in EXPECTED_APP_FINDING_FIELDS.items():
+        assert hints[name] == eval(annotation), name
+    # A test of a report callable may build one with the public fields as
+    # keywords, so every internal field needs a default.
+    for name, f in fields.items():
+        if name not in EXPECTED_APP_FINDING_FIELDS:
+            assert (
+                f.default is not dataclasses.MISSING
+                or f.default_factory is not dataclasses.MISSING
+            ), name
+    finding = Finding(
+        kind="relationship-load",
+        label="Order.customer",
+        file="app/orders.py",
+        function="list_orders",
+        line=3,
+        count=5,
+        message="m",
+    )
+    assert {name: getattr(finding, name) for name in EXPECTED_APP_FINDING_FIELDS} == {
+        "kind": "relationship-load",
+        "label": "Order.customer",
+        "file": "app/orders.py",
+        "function": "list_orders",
+        "line": 3,
+        "count": 5,
+        "message": "m",
+    }
+    minimal = Finding(kind="k", label="l", file=None, function=None, message="m")
+    assert (minimal.line, minimal.count) == (None, 1)
+    # the panel's JSON shows exactly the public fields
+    assert sorted(EXPECTED_FINDING_DICT) == sorted(EXPECTED_APP_FINDING_FIELDS)
+
+
+@pytest.mark.parametrize("name", ["watch", "unwatch", "is_watched"])
+def test_app_watch_takes_the_engine_positionally(name: str) -> None:
+    from sqlalchemy import create_engine
+
+    from pytest_queryguard import app
+
+    engine = create_engine("sqlite://")
+    try:
+        with pytest.raises(TypeError):
+            getattr(app, name)(engine=engine)
+        assert not app.is_watched(engine)
+    finally:
+        app.unwatch(engine)
+        engine.dispose()
 
 
 def test_panel_json_keys() -> None:

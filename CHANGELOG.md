@@ -49,6 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RequestReport.statements` and `statement_count` stay, as in the panel's
   JSON and the `queryguard.statement_count` OpenTelemetry attribute.
   `page_report` stays experimental (#241).
+- `app.watch()`, `app.unwatch()` and `app.is_watched()` take the engine as a
+  positional-only argument, so that a later release can accept other objects
+  than SQLAlchemy engines (a Django backend has none) without renaming it.
+  This breaks a call with the keyword: `watch(engine=e)` now raises
+  `TypeError`; pass the engine positionally, as every example does. There is
+  no deprecation period, because the mode was experimental in every release
+  so far and no example or page showed the keyword form.
+- [Stability](docs/stability.md#the-in-application-mode) says which fields of
+  `app.Finding`, the objects in `RequestReport.findings`, are public: `kind`,
+  `label`, `file`, `function`, `line`, `count` and `message`, the keys of a
+  finding in the panel's JSON, and a `Finding` may be built with them as
+  keyword arguments. Its other attributes (`severity`, `tests`, `peak`,
+  `advice`, `table`, `stack`, `fix`, `identity`) are the pytest plugin's and
+  are not public. Nothing changes in the class.
 - The WSGI middleware's ERROR record for a `report="warn"` warning that a
   filter turned into an error starts with `QueryGuardAppWarning:` instead of
   `QueryGuardWarning:`; update a log alert that matches the old prefix
