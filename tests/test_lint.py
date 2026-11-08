@@ -732,8 +732,10 @@ def test_paths_outside_the_working_directory_are_normalised(
         (repo / "linked").symlink_to(tmp_path / "other", target_is_directory=True)
     except OSError:  # Windows without the symlink privilege
         return
-    # ".." after a symlink: the file it leads to, not app/a.py
-    assert show(Path("app/link/../x.py")) == "../../other/x.py"
+    # ".." after a symlink: the file it leads to, not app/x.py (Windows takes
+    # ".." out of a path before it follows symlinks, so there it is app/x.py)
+    if sys.platform != "win32":
+        assert show(Path("app/link/../x.py")) == "../../other/x.py"
     # a symlink in the repository to a directory outside it: as written
     assert show(Path("../linked/x.py")) == "../linked/x.py"
 
