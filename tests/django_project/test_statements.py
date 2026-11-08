@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import django
 import pytest
-from django.db import connection, transaction
+from django.db import connection, connections, transaction
 
 from pytest_queryguard import QueryBudgetExceeded, record_queries
 from pytest_queryguard.detectors import WriteLoopFinding
@@ -151,6 +151,32 @@ def test_a_related_managers_delete_is_no_lazy_load() -> None:
     assert collector.relationship_loads == []
     found = labels(collector, write_loop_threshold=2)
     assert "relationship-load" not in {kind for kind, _ in found}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_the_set_up_of_a_new_connection_is_not_counted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # as MySQL's init_connection_state sets the isolation level through a
+    # cursor of Django's when a test opens a new connection
+    wrapper = connections["default"]
+    original = type(wrapper).init_connection_state
+
+    def init_connection_state(self) -> None:  # type: ignore[no-untyped-def]
+        original(self)
+        with self.cursor() as cursor:
+            cursor.execute("SELECT 1")
+
+    monkeypatch.setattr(type(wrapper), "init_connection_state", init_connection_state)
+    # a new connection that is the same in-memory database
+    wrapper.ensure_connection()
+    current = wrapper.connection
+    monkeypatch.setattr(type(wrapper), "get_new_connection", lambda *a: current)
+    with measure() as collector:
+        wrapper.connect()
+        assert Publisher.objects.count() == 2
+    assert [s.sql.split()[0] for s in collector.statements] == ["SELECT"]
+    assert "COUNT" in collector.statements[0].sql
 
 
 def test_record_queries_sees_django() -> None:

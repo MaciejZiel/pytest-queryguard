@@ -108,6 +108,10 @@ Not reported:
   is one unit of work for the `write-loop` rule.
 - The `SAVEPOINT` and `RELEASE SAVEPOINT` statements of `transaction.atomic()`
   never repeat; budgets count them, as `assertNumQueries` does.
+- The statements Django runs to set up a new connection (on MySQL, the `SET`
+  of the isolation level) are not counted, as `assertNumQueries` does not
+  count them: a test that opens the connection, after a `TestCase` class
+  closed it, counts the same as one that does not.
 
 Everything that works from these kinds works for Django: budgets
 (`max_queries`, the `queryguard` fixture, the budget file), `record_queries()`,

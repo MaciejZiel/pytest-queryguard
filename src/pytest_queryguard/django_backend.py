@@ -252,6 +252,11 @@ def _install() -> None:
     )
     _patch(compiler.SQLCompiler, "execute_sql", lambda o: _execute_sql(o, writes))
     _patch(deletion.Collector, "delete", _in_unit)
+    # The statements Django runs to set up a new connection (MySQL's SET of
+    # the isolation level and SQL_AUTO_IS_NULL) are not the code's: not
+    # counted, as assertNumQueries connects before it counts
+    base = _module("django.db.backends.base.base")
+    _patch(base.BaseDatabaseWrapper, "connect", _outside_test)
     _patch(query.QuerySet, "bulk_create", _in_unit)
     _patch(query.QuerySet, "bulk_update", _in_unit)
     # delete() reads the rows of a cascade with the queryset it was called on,
