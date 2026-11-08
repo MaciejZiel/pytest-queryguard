@@ -81,9 +81,9 @@ read in a loop over a query inside one function, and an experimental
 [MCP server](mcp.md), whose tools run the test suite and return the findings
 the tests produce. The two static checks were not compared.
 
-Four tools are not in the matrix below. For the first three, found on
-2026-11-07, what follows was read in their READMEs on that date, and none of
-them was run. nplus1 was read and run on 2026-11-08:
+Four tools are not in the matrix below. nplus1 was read and run on
+2026-11-08. For the other three, found on 2026-11-07, what follows was read
+in their READMEs on that date, and none of them was run:
 
 - **nplus1**: a rewrite of nplusone, published on PyPI as `nplus1` but
   installed under nplusone's import name, `nplusone` (v: the files of the

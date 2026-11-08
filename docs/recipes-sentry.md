@@ -117,6 +117,7 @@ def create_app(database_uri: str = "sqlite:///app.db") -> Flask:
             select(Customer.name, func.count(Order.id))
             .outerjoin(Order, Order.customer_id == Customer.id)
             .group_by(Customer.id)
+            .order_by(Customer.id)
         )
         return [{"name": name, "orders": orders} for name, orders in db.session.execute(stmt)]
 

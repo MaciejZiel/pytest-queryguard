@@ -215,8 +215,11 @@ The sizes matter:
   rules do not fire. Always test with more than one row.
 - 10 and 50 are above the default thresholds (2 parents for a relationship, 5
   runs of one `SELECT`), so the N+1 rules can also report what grows.
-- Seed the rows in a fixture or in a factory like `make_session`, outside the
-  measured block. The plugin and the blocks do not count fixture setup.
+- Seed the rows outside the measured block. In a fixture (`session` above)
+  nothing of the seeding is counted. A factory called in the test body
+  (`make_session` in the last test) is left out of the `record_queries()`
+  block, but the plugin still sees its statements as part of the test, so a
+  default budget (`queryguard_max_queries` or a budget file) counts them.
 
 ## Django
 

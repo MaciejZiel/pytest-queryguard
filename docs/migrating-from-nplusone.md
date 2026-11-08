@@ -11,8 +11,8 @@ pytest-queryguard. If you use nplusone with Django, see
 
 [nplus1](https://pypi.org/project/nplus1/) is a rewrite of nplusone that
 installs under the same import name, `nplusone`. Replace `nplusone` with
-`nplus1` in your requirements and the imports, the `Profiler`, the
-`NPLUSONE_*` settings and the whitelist stay as they are. That is the
+`nplus1` in your requirements only: the imports (`import nplusone...`), the
+`Profiler`, the `NPLUSONE_*` settings and the whitelist stay as they are. That is the
 smallest change, and for Django, Flask or Peewee it may be all you need.
 
 On SQLAlchemy it does not get you to 2.1 or to 2.0-style queries. I ran
