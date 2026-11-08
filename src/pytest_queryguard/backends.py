@@ -39,6 +39,8 @@ def _module(name: str) -> Any:
 def install() -> None:
     """Install the ORM integrations; idempotent and cheap after the first call."""
     global _wanted
+    if _wanted:
+        return  # the push hook does the rest at every measurement
     _wanted = True
     collector.on_push(_on_push)
     collector.on_push_local(_on_push_local)
@@ -136,7 +138,8 @@ class _AfterImport(importlib.abc.MetaPathFinder):
 
     Also when that import is the first in a test's body or in a
     ``record_queries()`` block, after the measurement started. Leaves the
-    import itself to the other finders and removes itself once used.
+    import itself to the other finders and removes itself once the import
+    runs (not on a probe that only finds the spec).
     """
 
     def find_spec(
@@ -147,7 +150,8 @@ class _AfterImport(importlib.abc.MetaPathFinder):
     ) -> importlib.machinery.ModuleSpec | None:
         if fullname != "sqlalchemy":
             return None
-        _unwatch()
+        # stays in place until the import runs (_Loader.exec_module): a
+        # probe such as importlib.util.find_spec() imports nothing
         spec = importlib.machinery.PathFinder.find_spec(fullname, path)
         if spec is None or spec.loader is None:
             return spec
@@ -163,6 +167,7 @@ class _Loader(importlib.abc.Loader):
         return self._loader.create_module(spec)
 
     def exec_module(self, module: ModuleType) -> None:
+        _unwatch()
         # the module keeps its own loader, as if this one was never there
         module.__loader__ = self._loader
         if module.__spec__ is not None:

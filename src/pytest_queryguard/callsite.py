@@ -501,7 +501,13 @@ def _known_library(filename: str) -> bool:
     for i, part in enumerate(parts[:-1]):
         if part in _INSTALLED:
             top = parts[i + 1].removesuffix(".py")
-            return top in _TEST_LIBRARIES or top.startswith(("pytest", "_pytest"))
+            # the ORMs and their libraries also when imported after the
+            # prefixes were computed (DRF, first imported by a URLconf)
+            return (
+                top in _TEST_LIBRARIES
+                or top in _INTERNAL_PACKAGES
+                or top.startswith(("pytest", "_pytest"))
+            )
     return True
 
 

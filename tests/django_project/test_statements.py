@@ -141,6 +141,18 @@ def test_delete_in_a_loop_is_a_write_loop() -> None:
     assert [kind for kind, _ in found] == ["write-loop"]
 
 
+def test_a_related_managers_delete_is_no_lazy_load() -> None:
+    # Book has reviews (a cascade): delete() reads the books first, with the
+    # related manager's queryset, which is no read of the relation
+    authors = list(Author.objects.all())
+    with measure() as collector:
+        for author in authors:
+            author.books.filter(pages__gte=0).delete()
+    assert collector.relationship_loads == []
+    found = labels(collector, write_loop_threshold=2)
+    assert "relationship-load" not in {kind for kind, _ in found}
+
+
 def test_record_queries_sees_django() -> None:
     with record_queries() as log:
         Author.objects.count()
@@ -190,6 +202,21 @@ def test_the_async_orm_has_the_awaiting_line_as_call_site() -> None:
 
     with measure() as collector:
         assert len(asyncio.run(titles())) == 6
+    sites = {
+        (s.callsite.function if s.callsite else None) for s in collector.statements
+    }
+    assert sites == {"titles"}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_aiterator_has_the_awaiting_line_as_call_site() -> None:
+    import asyncio
+
+    async def titles() -> list[str]:
+        return [b.title async for b in Book.objects.filter(author_id=1).aiterator()]
+
+    with measure() as collector:
+        assert len(asyncio.run(titles())) == 3
     sites = {
         (s.callsite.function if s.callsite else None) for s in collector.statements
     }

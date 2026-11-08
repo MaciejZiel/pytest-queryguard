@@ -121,3 +121,29 @@ def test_loop():
 """,
     )
     _run(pytester).assert_outcomes(passed=1)
+
+
+def test_a_probe_for_sqlalchemy_does_not_stop_the_import_hook(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(
+        qgmodels=MODELS,
+        test_a="""
+import importlib.util
+import sys
+
+assert importlib.util.find_spec("sqlalchemy") is not None  # a probe only
+
+
+def test_loop():
+    assert "sqlalchemy" not in sys.modules
+    from qgmodels import Order, make_sync_session
+
+    session = make_sync_session()
+    for order in session.query(Order).all():
+        _ = order.customer.name
+""",
+    )
+    result = _run(pytester)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*Order.customer was lazy-loaded*"])

@@ -289,3 +289,15 @@ def test_a_load_below_a_reverse_one_to_one_select_related() -> None:
     assert len(names) == 6
     finding = _one(collector)
     assert finding.relationship == "Author.publisher"
+
+
+def test_a_cached_generic_target_is_read_as_django_reads_it() -> None:
+    from .library.models import Bookmark
+
+    # a cached None for a content type that does not exist: Django returns
+    # the None without looking the content type up
+    bookmark = Bookmark(content_type_id=987654, object_id=1)
+    Bookmark._meta.get_field("target").set_cached_value(bookmark, None)
+    with measure() as collector:
+        assert bookmark.target is None
+    assert collector.statements == []

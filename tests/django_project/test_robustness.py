@@ -56,6 +56,9 @@ def recorded() -> Iterator[list[BaseException | None]]:
         ("_rows_origin", lambda: [b.title for b in Book.objects.all()]),
         ("_key", lambda: [b.body for b in Book.objects.only("title")]),
         ("_child_origin", lambda: [len(a.books.all()) for a in Author.objects.all()]),
+        # the scope of a forward or reverse one-to-one load
+        ("_scope", lambda: [b.author.name for b in Book.objects.all()]),
+        ("_scope", lambda: [a.profile.bio for a in Author.objects.all()]),
     ],
 )
 def test_a_plugin_bug_does_not_reach_the_application(
@@ -161,3 +164,21 @@ def test_marks_and_origins_pickle_as_plain_objects() -> None:
     restored = pickle.loads(pickle.dumps(books[0]))
     assert type(restored._state.__dict__["_queryguard_origin"]) is object
     assert type(pickle.loads(pickle.dumps(mark))) is object
+
+
+def test_closing_the_rows_early_closes_djangos_generator() -> None:
+    # Django's generator closes its cursor in a finally block
+    closed: list[bool] = []
+
+    def rows() -> Iterator[Book]:
+        try:
+            yield from Book.objects.all()[:2]
+        finally:
+            closed.append(True)
+
+    inner = rows()  # kept here: not closed by being garbage-collected
+    with measure():
+        noted = django_backend._noting(inner, Book.objects.all())
+        next(noted)
+        noted.close()  # type: ignore[attr-defined]
+    assert closed == [True]

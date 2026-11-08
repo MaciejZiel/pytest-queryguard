@@ -142,7 +142,9 @@ def test_the_import_hook_installs_after_the_import_and_leaves_no_trace(
     module = types.ModuleType("sqlalchemy")
     module.__spec__ = spec
     assert loader.create_module(spec) is None
+    backends._watch_for_sqlalchemy()
     loader.exec_module(module)
+    assert backends._watcher is None  # the import ran: no longer watching
     assert inner.ran == ["sqlalchemy"]
     assert calls == ["install"]
     assert getattr(module, "__loader__") is inner  # noqa: B009
@@ -180,8 +182,9 @@ def test_the_finder_wraps_only_sqlalchemys_loader_and_removes_itself(
         spec = watcher.find_spec("sqlalchemy", None)
         assert spec is not None
         assert isinstance(spec.loader, backends._Loader)
-        assert watcher not in sys.meta_path
-        assert backends._watcher is None
+        # a probe (importlib.util.find_spec) imports nothing: still watching
+        assert backends._watcher is watcher
+        assert watcher in sys.meta_path
         # not found where it was looked for: left to the other finders
         assert watcher.find_spec("sqlalchemy", ["/nonexistent-qg"]) is None
     finally:

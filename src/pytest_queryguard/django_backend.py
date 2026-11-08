@@ -254,6 +254,9 @@ def _install() -> None:
     _patch(deletion.Collector, "delete", _in_unit)
     _patch(query.QuerySet, "bulk_create", _in_unit)
     _patch(query.QuerySet, "bulk_update", _in_unit)
+    # delete() reads the rows of a cascade with the queryset it was called on,
+    # which may be a related manager's: that SELECT is no read of the relation
+    _patch(query.QuerySet, "delete", _writing_method)
     _patch_factories(descriptors)
     generic = sys.modules.get("django.contrib.contenttypes.fields")
     if generic is not None:
@@ -362,7 +365,9 @@ def _on_connection_created(sender: Any, connection: Any, **kwargs: Any) -> None:
 
 def _attach_all() -> None:
     """Wrap the connections this thread has made so far."""
-    connections = _module("django.db").connections
+    connections = _connections
+    if connections is None:
+        connections = _module("django.db").connections
     for connection in connections.all(initialized_only=True):
         _attach(connection)
 
@@ -672,29 +677,36 @@ def _noting(rows: Iterator[Any], queryset: Any) -> Iterator[Any]:
     origin: _Origin | None = None
     related: list[tuple[tuple[str, ...], _Origin]] = []
     first = True
-    for obj in rows:
-        if first:
-            first = False
-            try:
-                origin = _rows_origin(local, before, queryset)
-            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-                _fail(exc, "Django integration (instance origins)")
-            if origin is not None and origin.root is not None:
+    try:
+        for obj in rows:
+            if first:
+                first = False
                 try:
-                    related = _related_origins(queryset, origin)
+                    origin = _rows_origin(local, before, queryset)
                 except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-                    _fail(exc, "Django integration (select_related origins)")
-        if origin is not None:
-            obj._state.__dict__[_ORIGIN] = origin
-            for caches, step_origin in related:
-                target = obj
-                for cache in caches:
-                    target = target._state.fields_cache.get(cache)
-                    if target is None:
-                        break
-                else:
-                    target._state.__dict__[_ORIGIN] = step_origin
-        yield obj
+                    _fail(exc, "Django integration (instance origins)")
+                if origin is not None and origin.root is not None:
+                    try:
+                        related = _related_origins(queryset, origin)
+                    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+                        _fail(exc, "Django integration (select_related origins)")
+            if origin is not None:
+                obj._state.__dict__[_ORIGIN] = origin
+                for caches, step_origin in related:
+                    target = obj
+                    for cache in caches:
+                        target = target._state.fields_cache.get(cache)
+                        if target is None:
+                            break
+                    else:
+                        target._state.__dict__[_ORIGIN] = step_origin
+            yield obj
+    finally:
+        # closed early (a break out of .iterator()): close Django's generator
+        # too, whose finally closes its (server-side) cursor
+        close = getattr(rows, "close", None)
+        if close is not None:
+            close()
 
 
 def _related_origins(
@@ -890,14 +902,17 @@ def _begin(event: RelationshipLoadEvent) -> None:
     raise strict
 
 
-def _prepare(
-    label: str, instance: Any, scalar: bool, scope: int | None
-) -> _Pending | None:
-    """The pending load of a relation of ``instance``; None after a plugin error."""
+def _prepare(label: Callable[[], str], instance: Any, scalar: bool) -> _Pending | None:
+    """The pending load of a relation of ``instance``; None after a plugin error.
+
+    ``label`` and the scope are found inside the ``try``: a plugin error
+    there must not reach the attribute access.
+    """
     try:
         origin = _origin_of(instance)
-        event = _relationship_event(label, instance, scalar, scope, origin)
-        return event, _child_origin(origin, label, scalar)
+        name = label()
+        event = _relationship_event(name, instance, scalar, _scope(instance), origin)
+        return event, _child_origin(origin, name, scalar)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "Django integration (lazy load)")
         return None
@@ -922,7 +937,7 @@ def _forward_get_object(original: Callable[[Any, Any], Any]) -> Callable[..., An
             return original(self, instance)
         field = self.field
         pending = _prepare(
-            f"{field.model.__name__}.{field.name}", instance, True, _scope(instance)
+            lambda: f"{field.model.__name__}.{field.name}", instance, True
         )
         return _run_load(pending, lambda: original(self, instance))
 
@@ -941,10 +956,9 @@ def _reverse_one_get(original: Callable[..., Any]) -> Callable[..., Any]:
             return original(self, instance, cls)
         related = self.related
         pending = _prepare(
-            f"{related.model.__name__}.{related.get_accessor_name()}",
+            lambda: f"{related.model.__name__}.{related.get_accessor_name()}",
             instance,
             True,
-            _scope(instance),
         )
         return _run_load(pending, lambda: original(self, instance, cls))
 
@@ -965,31 +979,31 @@ def _generic_get(
         if ct_id is None or pk_val is None:
             return original(self, instance, cls)  # no query
         db = instance._state.db
-        # The content type first, outside the load: Django caches it, so a
+        # the cache first, as Django checks it: a cached target (or a cached
+        # None) runs no query and looks no content type up by its id
+        if _cached_target(field, instance, ct_id, pk_val, db):
+            return original(self, instance, cls)
+        # The content type next, outside the load: Django caches it, so a
         # loop looks it up once. Its errors are the application's own, as
         # Django would raise them in the call below.
-        content_type = field.get_content_type(id=ct_id, using=db)
-        if _cached_target(field, instance, content_type, pk_val, db):
-            return original(self, instance, cls)
+        field.get_content_type(id=ct_id, using=db)
         # scalar False: the fix is prefetch_related, not select_related
         pending = _prepare(
-            f"{field.model.__name__}.{field.name}", instance, False, _scope(instance)
+            lambda: f"{field.model.__name__}.{field.name}", instance, False
         )
         return _run_load(pending, lambda: original(self, instance, cls))
 
     return __get__
 
 
-def _cached_target(
-    field: Any, instance: Any, content_type: Any, pk_val: Any, db: Any
-) -> bool:
+def _cached_target(field: Any, instance: Any, ct_id: Any, pk_val: Any, db: Any) -> bool:
     """Whether the cached target still matches (Django then runs no query)."""
     if not field.is_cached(instance):
         return False
     target = field.get_cached_value(instance)
     if target is None:
         return True
-    if field.get_content_type(obj=target, using=db).id != content_type.id:
+    if field.get_content_type(obj=target, using=db).id != ct_id:
         return False
     return bool(target._meta.pk.to_python(pk_val) == target.pk)
 
@@ -1065,13 +1079,7 @@ def _instrument_manager(cls: Any) -> None:
         return
 
     def get_queryset(self: Any) -> Any:
-        queryset = original(self)
-        if _collectors and not _writing.get() and not _failed():
-            try:
-                _mark(queryset, self)
-            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-                _fail(exc, "Django integration (related manager)")
-        return queryset
+        return _mark_if_measuring(original(self), self)
 
     cls.get_queryset = get_queryset
     # many-to-many count() and exists() query the through table alone
@@ -1087,20 +1095,20 @@ def _instrument_manager(cls: Any) -> None:
 
 def _constrained(original: Callable[[Any], Any]) -> Callable[[Any], Any]:
     def constrained_target(self: Any) -> Any:
-        queryset = original(self)
-        if (
-            queryset is not None
-            and _collectors
-            and not _writing.get()
-            and not _failed()
-        ):
-            try:
-                _mark(queryset, self)
-            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-                _fail(exc, "Django integration (related manager)")
-        return queryset
+        return _mark_if_measuring(original(self), self)
 
     return constrained_target
+
+
+def _mark_if_measuring(queryset: Any, manager: Any) -> Any:
+    """``queryset`` of ``manager``, marked as a read of the relation while
+    something measures and no write of the manager runs (``_mark``)."""
+    if queryset is not None and _collectors and not _writing.get() and not _failed():
+        try:
+            _mark(queryset, manager)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _fail(exc, "Django integration (related manager)")
+    return queryset
 
 
 def _writing_method(original: Callable[..., Any]) -> Callable[..., Any]:
@@ -1165,6 +1173,7 @@ def _execute_sql(
             mark is None
             or not isinstance(mark, _Load)
             or isinstance(self, writes)
+            or _writing.get()
             or _failed()
         ):
             return original(self, *args, **kwargs)
@@ -1202,10 +1211,14 @@ def _execute_sql(
 def _is_orm_call(adapter: Any) -> bool:
     """Whether a SyncToAsync runs a method of a queryset, manager or model:
     the async ORM (aget(), acount(), async for, asave(), ...). Django's other
-    uses (signals, middleware, closing a response) are left alone."""
-    owner = getattr(getattr(adapter, "func", None), "__self__", None)
+    uses (signals, middleware, closing a response) are left alone. A plain
+    function of Django's ORM counts too: ``aiterator()`` runs a nested
+    function of ``django.db.models.query`` per chunk."""
+    func = getattr(adapter, "func", None)
+    owner = getattr(func, "__self__", None)
     if owner is None:
-        return False
+        module = getattr(func, "__module__", None)
+        return isinstance(module, str) and module.startswith("django.db.models.")
     models = sys.modules.get("django.db.models")
     if models is None:
         return False
