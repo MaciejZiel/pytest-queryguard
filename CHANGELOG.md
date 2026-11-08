@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-08
+
 ### Added
 
 - Django ORM support (experimental, #246), next to pytest-django with no
@@ -187,10 +189,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Getting started, the FAQ ("Why was nothing reported for my test?"),
   llms.txt, the agent skill and the AGENTS.md snippet say that an N+1 in
   test code is left out by default and how to see it.
-- `queryguard_test_code` and the call path are documented as new in 1.0.0,
+- `queryguard_test_code` and the call path are documented as new in 0.10.0,
   not 0.9.0; the FAQ gives the added cost per statement of the call path;
   the comparison names 0.9.0 as the current release and the in-application
-  mode as no longer experimental from 1.0.0.
+  mode as no longer experimental from 0.10.0.
 - The docs navigation has a "Choosing and switching" section (comparison,
   accuracy, performance, the migration guides, limitations, FAQ) after
   "Start".
@@ -3048,7 +3050,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.6.0...v0.7.0

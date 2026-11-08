@@ -243,11 +243,11 @@ each configuration in a fresh process, against an **in-memory SQLite** database:
 | Core `select` by key | 41 us | 50 us | +9 us (+22 %) |
 | ORM `select` by primary key | 76 us | 107 us | +31 us (+40 %) |
 
-This table is from an earlier round of measurements. Since 1.0.0 the stack
+This table is from an earlier round of measurements. Since 0.10.0 the stack
 walk goes up to the test function, to tell a loop from calls on separate
 lines and test code from the application; measured on the same laptop, the
 added cost is then about 16 us per Core statement and 34 to 36 us per ORM
-statement (see [The call path](performance.md#the-call-path-100)).
+statement (see [The call path](performance.md#the-call-path-0100)).
 
 Two rounds differ by a few points, so read these as "about a fifth to two
 fifths" and not as exact figures. The percentages are large because an

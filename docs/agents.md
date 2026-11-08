@@ -1,6 +1,6 @@
 # Coding agents
 
-Since 1.0.0.
+Since 0.10.0.
 
 A coding agent writes data-access code fast, and an N+1 query passes every
 test that only checks results. pytest-queryguard fails those tests; the files

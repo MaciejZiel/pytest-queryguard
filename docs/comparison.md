@@ -159,15 +159,16 @@ not work.
   nplusone and django-zeal run inside Django, Flask and WSGI apps.
   pytest-queryguard has had an in-application mode (see
   [In-application mode](in-app.md)) since 0.5.0; it is no longer
-  experimental from 1.0.0.
+  experimental from 0.10.0.
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI runs the
   whole suite on SQLite (also through aiosqlite) and on PostgreSQL 14 to 18
   through pg8000 and asyncpg, once more with psycopg 3 (see the [FAQ](faq.md));
-  on MySQL 8.4 and MariaDB 11.8, through PyMySQL and aiomysql, it runs only
-  the tests of the index check.
-- **Django.** django-zeal and nplusone cover Django; pytest-queryguard does not.
+  and on MySQL 8.4 and MariaDB 11.8 through PyMySQL and aiomysql.
+- **Django.** django-zeal and nplusone have covered Django for years;
+  pytest-queryguard's Django support is new in 0.10.0 and experimental (see
+  [Django](django.md)).
 - **Budgets in the test source.** `pytest-querycount --querycount-write-budgets`
   edits your tests to add an exact `max_queries` marker to each, so the
   budget is visible next to the test it limits. pytest-queryguard records
@@ -199,7 +200,7 @@ or worked around them since.
   setup ([prosopite#22](https://github.com/charkost/prosopite/issues/22)).
   pytest-queryguard measures only the test function body; fixtures are not
   measured (see [How detection works](how-detection-works.md) and the
-  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)). From 1.0.0 it
+  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)). From 0.10.0 it
   also leaves out, by default, the N+1s of test code run in the body (a
   factory, a helper under `tests/`, the test's own loop) and counts them at
   the end of the run (see [Test code](how-detection-works.md#test-code)).
@@ -502,8 +503,9 @@ pytest-queryguard only.
   pytest-querycount (it and pytest-queryguard both register a `max_queries`
   marker; I did not test installing both). For budgets kept in a file next to
   the tests, pytest-queryguard's [budget file](budgets.md#lock-todays-counts-the-budget-file).
-- You are on Django: django-zeal, or django-nplus1 or django-query-doctor
-  (read, not run; see above).
+- You are on Django: django-zeal is the established choice;
+  pytest-queryguard's [Django support](django.md) is experimental since
+  0.10.0. django-nplus1 and django-query-doctor were read, not run (see above).
 - You want to assert exact SQL: pytest-capquery, after checking its license.
 - You have nplusone on an old SQLAlchemy: see
   [Migrating from nplusone](migrating-from-nplusone.md). If you only want

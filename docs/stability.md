@@ -109,7 +109,7 @@ the action download, and the pull-request comment it updates in place (found
 by the compare marker above). The action is versioned with the package: pin it to a
 release tag or a commit. The `trend` input and the `trend-report` output are
 experimental, and so are the `lint`, `lint-models` and `lint-paths` inputs
-and the `lint-exit-code` output (since 1.0.0). What the job summary and the pull-request comment say is not
+and the `lint-exit-code` output (since 0.10.0). What the job summary and the pull-request comment say is not
 public.
 
 ### Names, values and units
@@ -374,14 +374,14 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   [CI](ci.md#query-counts-over-the-last-runs).
 - The static check (since 0.8.0), `python -m pytest_queryguard.lint`: its options, what it
   reports, its text output, its `github` output (`--format github`, since
-  1.0.0), and the rule `queryguard/static-relationship-load`
+  0.10.0), and the rule `queryguard/static-relationship-load`
   in its SARIF output. Its JSON output has a `format` key; a change to the
   documented keys increments it. See [Static check](static-check.md).
 - The pre-commit hook `queryguard-lint` in `.pre-commit-hooks.yaml` (since
-  1.0.0): its id, the command it runs and its settings. See
+  0.10.0): its id, the command it runs and its settings. See
   [Static check](static-check.md#pre-commit).
 - The MCP server, `python -m pytest_queryguard.mcp`: its tools (`run_tests`,
-  `explain_finding`, `compare`, and `lint` since 1.0.0), their
+  `explain_finding`, `compare`, and `lint` since 0.10.0), their
   arguments and the fields of their results. See
   [MCP server](mcp.md).
 - The Django ORM support: the `[django]` extra, what it records and reports

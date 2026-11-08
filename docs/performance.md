@@ -115,9 +115,9 @@ gets smaller, not larger.
 Behaviour is unchanged: the existing tests, the public API snapshot and the
 accuracy corpus give the same results, and each change has a regression test.
 
-## The call path (1.0.0)
+## The call path (0.10.0)
 
-Since 1.0.0 the `before_cursor_execute` listener walks the stack from the
+Since 0.10.0 the `before_cursor_execute` listener walks the stack from the
 statement up to the test function (the hook call that ran it), not only to the
 first frame of the application: the call path of every statement tells a loop
 from calls on separate lines, and the files on it tell the test code from the
@@ -135,7 +135,7 @@ stale; it is emptied when a measurement starts. Measured on the laptop above wit
 3.13.18, `scripts/bench_overhead.py --runs 9`, `main` (679e494) and the
 change interleaved, twice each:
 
-| Statement | Measurement off | `main`: added | 1.0.0, first version | 1.0.0: added |
+| Statement | Measurement off | `main`: added | 0.10.0, first version | 0.10.0: added |
 |---|---|---|---|---|
 | Core `select` by key | 40 to 42 us | +13.3 us, +13.5 us | +19.6 us, +19.6 us | +16.5 us, +15.7 us |
 | ORM `select` by primary key | 76 to 78 us | +27.9 us, +26.6 us | +43.2 us, +43.6 us | +33.6 us, +36.3 us |
