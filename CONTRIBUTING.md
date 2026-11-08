@@ -71,13 +71,14 @@ runs the whole CI matrix and adds the oldest SQLAlchemy and pytest on Windows
 and macOS, the accuracy corpus against the minimums recorded in
 `scripts/accuracy_thresholds.json` and the static check against those in
 `scripts/lint_accuracy_thresholds.json`, the code examples in the
-documentation, a clean-environment install of the wheel and the sdist, an upgrade from the
-previous PyPI release, the overhead budget against `scripts/bench_baseline.json`,
-the contents of the wheel and the sdist, and the agreement of the version, the
-changelog entry, its date and its links. It runs on a pull request that
-changes the version and by hand from the Actions tab. See
-[docs/releasing.md](docs/releasing.md) for the list and for running the checks
-locally (`uv build --out-dir dist` and `uv run python scripts/release_gate.py all dist`).
+documentation, a clean-environment install of the wheel and the sdist, an
+upgrade from the previous PyPI release, the overhead budget against
+`scripts/bench_baseline.json`, the contents of the wheel and the sdist, and
+the agreement of the version, the changelog entry, its date and its links. It
+runs on a pull request that changes the version and by hand from the Actions
+tab. See [docs/releasing.md](docs/releasing.md) for the list and for running
+the checks locally (`uv build --out-dir dist` and `uv run python
+scripts/release_gate.py all dist`).
 
 If a check fails because the code got worse, fix the code. Change a threshold
 only in a pull request that explains why.

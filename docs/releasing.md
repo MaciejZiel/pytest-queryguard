@@ -40,9 +40,9 @@ uv build --out-dir dist
 uv run python scripts/release_gate.py all dist
 ```
 
-or one at a time: `consistency`, `accuracy`, `lint-accuracy`,
-`contents dist`, `install dist`, `upgrade dist`, `bench`. `install` and `upgrade` create virtual environments
-in a temporary directory and need network access to PyPI.
+or one at a time: `consistency`, `accuracy`, `lint-accuracy`, `contents dist`,
+`install dist`, `upgrade dist`, `bench`. `install` and `upgrade` create
+virtual environments in a temporary directory and need network access to PyPI.
 `QUERYGUARD_REQUIRE_DOC_EXAMPLES=1 uv run pytest tests/test_doc_examples.py`
 makes a missing package a failure instead of a skip for the documentation
 projects (only Litestar, pytest-asyncio and SQLModel may be missing).
@@ -107,9 +107,9 @@ larger regression fails there.
 
 ## When a threshold has to change
 
-The accuracy minimums (of the plugin and of the static check) and the
-overhead baseline are floors against regressions. Raise them in the pull request that improves the result. Lower
-them only in a pull request that says why.
+The accuracy minimums (of the plugin and of the static check) and the overhead
+baseline are floors against regressions. Raise them in the pull request that
+improves the result. Lower them only in a pull request that says why.
 
 The overhead baseline is recorded on the GitHub runner (`ubuntu-latest`,
 Python 3.12) that runs the gate, never on a laptop: each CPU model's entry is

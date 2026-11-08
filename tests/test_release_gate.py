@@ -204,27 +204,28 @@ def test_the_lint_accuracy_thresholds_are_recorded_in_the_docs() -> None:
         (ROOT / "scripts" / "lint_accuracy_thresholds.json").read_text(encoding="utf-8")
     )
     page = (ROOT / "docs" / "static-check.md").read_text(encoding="utf-8")
-    wanted = thresholds["relationship-load"]
-    assert wanted["precision"] == 1.0, "the static check must not report clean code"
-    row = (
-        f"| `relationship-load` | {100 * wanted['precision']:.0f}% "
-        f"| {100 * wanted['recall']:.0f}% |"
-    )
-    assert row in page, row
+    for rule, wanted in thresholds["rules"].items():
+        assert wanted["precision"] == 1.0, "the static check must not report clean code"
+        precision, recall = (round(100 * wanted[m], 2) for m in ("precision", "recall"))
+        row = f"| `{rule}` | {precision:g}% | {recall:g}% |"
+        assert row in page, row
     assert f"fewer than {thresholds['min_scenarios']} scenarios" in page
 
 
-def test_the_lint_accuracy_check_passes_and_fails_on_a_higher_minimum(
-    gate: ModuleType,
-) -> None:
-    assert gate.check_lint_accuracy() == []
+def test_the_lint_accuracy_check_fails_below_a_minimum(gate: ModuleType) -> None:
+    # The gate's own step and tests/corpus/test_lint_accuracy.py check the
+    # recorded minimums; this checks that a shortfall is reported.
     stricter = {
         "min_scenarios": 10_000,
-        "relationship-load": {"precision": 1.0, "recall": 1.0},
+        "rules": {
+            "relationship-load": {"precision": 1.0, "recall": 1.0},
+            "other-rule": {"precision": 1.0, "recall": 1.0},
+        },
     }
     problems = gate.check_lint_accuracy(stricter)
     assert any("scenarios were linted" in p for p in problems), problems
     assert any("recall" in p and "below the recorded minimum" in p for p in problems)
+    assert "other-rule: not measured" in problems
 
 
 # -- wheel METADATA ---------------------------------------------------------

@@ -304,34 +304,43 @@ def check_accuracy() -> list[str]:
 def check_lint_accuracy(thresholds: dict[str, Any] | None = None) -> list[str]:
     """The static check (``pytest_queryguard.lint``) on the accuracy corpus.
 
-    Nothing runs: each scenario module is linted (tests/corpus/lint_accuracy.py).
+    Nothing runs: each scenario module is linted (tests/corpus/lint_accuracy.py),
+    which measures the relationship-load rule, the only rule of the check.
     """
-    sys.path.insert(0, str(ROOT))
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
     from tests.corpus import runner
     from tests.corpus.lint_accuracy import measure
+
+    from pytest_queryguard.lint import LintError
 
     if thresholds is None:
         thresholds = json.loads(
             (SCRIPTS / "lint_accuracy_thresholds.json").read_text(encoding="utf-8")
         )
     problems = Problems()
-    scenarios = runner.load()
-    result = measure(scenarios)
+    try:
+        result = measure(runner.load())
+    except LintError as exc:
+        return [f"the static check failed on the corpus: {exc}"]
     problems.check(
         result.scenarios >= thresholds["min_scenarios"],
         f"only {result.scenarios} corpus scenarios were linted, at least {thresholds['min_scenarios']} are required"
         f" (skipped: {runner.SKIPPED})",
     )
-    wanted = thresholds["relationship-load"]
     print(f"relationship-load: {result.tp} TP, {result.fp} FP, {result.fn} FN")
-    for metric in ("precision", "recall"):
-        value = getattr(result, metric)
-        shown = "n/a" if value is None else f"{value:.3f}"
-        print(f"relationship-load {metric}: {shown} (minimum {wanted[metric]})")
-        problems.check(
-            value is not None and value + 1e-9 >= wanted[metric],
-            f"relationship-load {metric} {shown} is below the recorded minimum {wanted[metric]}",
-        )
+    for rule, wanted in thresholds["rules"].items():
+        if rule != "relationship-load":
+            problems.append(f"{rule}: not measured")
+            continue
+        for metric in ("precision", "recall"):
+            value = getattr(result, metric)
+            shown = "n/a" if value is None else f"{value:.3f}"
+            print(f"{rule} {metric}: {shown} (minimum {wanted[metric]})")
+            problems.check(
+                value is not None and value + 1e-9 >= wanted[metric],
+                f"{rule} {metric} {shown} is below the recorded minimum {wanted[metric]}",
+            )
     unexplained = [d.scenario for d in result.disagreements if d.reason is None]
     problems.check(
         not unexplained, f"undocumented static check disagreements: {unexplained}"
