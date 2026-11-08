@@ -41,6 +41,10 @@ from pytest_queryguard import (
     unused_columns,
 )
 
+# Faults go into the SQLite index check too, and the missing index of the
+# small suite is one only on SQLite: MySQL indexes every foreign key.
+pytestmark = pytest.mark.sqlite_only("faults in the SQLite index check")
+
 MODELS = (Path(__file__).parent / "models.py").read_text()
 
 SUITE = """

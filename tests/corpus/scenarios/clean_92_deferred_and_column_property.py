@@ -66,6 +66,10 @@ def setup(ctx: Ctx) -> None:
                     raw_html="h" * 500,
                 )
             )
+        # the posts first: no relationship() tells the flush their order, and
+        # MySQL checks the foreign key
+        session.flush()
+        for p in range(1, 13):
             session.add_all(
                 Note(id=p * 10 + i, post_id=p, text="n") for i in range(p % 4)
             )

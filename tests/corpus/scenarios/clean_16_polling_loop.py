@@ -20,7 +20,12 @@ setup = shop.setup
 
 
 def run(ctx: Ctx) -> None:
-    with Session(ctx.engine()) as session, Session(ctx.engine()) as worker:
+    engine = ctx.engine()
+    if engine.dialect.name == "mysql":
+        # REPEATABLE READ, MySQL's default, would keep the first poll's view of
+        # the row; polling code there reads with READ COMMITTED
+        engine = engine.execution_options(isolation_level="READ COMMITTED")
+    with Session(engine) as session, Session(ctx.engine()) as worker:
         for attempt in range(1, 7):
             status = session.scalar(select(shop.Order.status).where(shop.Order.id == 1))
             if status == "done":

@@ -28,6 +28,11 @@ from pytest_queryguard import listeners, record_queries
 from qgmodels import Base, Customer, Order, make_sync_session
 
 
+def qmark(engine, sql):
+    # the driver's placeholders: ? on SQLite, %s on MySQL (tests/dbredirect.py)
+    return sql if engine.dialect.paramstyle == "qmark" else sql.replace("?", "%s")
+
+
 @pytest.fixture
 def engine(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'db.sqlite'}")
@@ -45,8 +50,10 @@ def test_it(engine):
         try:
             cursor = raw.cursor()
             cursor.execute("SELECT 1")
-            cursor.executemany("INSERT INTO customers (id, name) VALUES (?, ?)",
-                               [(i, "x") for i in range(10, 20)])
+            cursor.executemany(
+                qmark(engine, "INSERT INTO customers (id, name) VALUES (?, ?)"),
+                [(i, "x") for i in range(10, 20)],
+            )
             raw.commit()
         finally:
             raw.close()
@@ -55,24 +62,37 @@ def test_it(engine):
     "exec_driver_sql": """
 def test_it(engine):
     with engine.begin() as conn, record_queries() as log:
-        conn.exec_driver_sql("INSERT INTO customers (id, name) VALUES (?, ?)", (1, "a"))
-        conn.exec_driver_sql("SELECT * FROM customers WHERE name = ?", ("a",)).all()
+        conn.exec_driver_sql(
+            qmark(engine, "INSERT INTO customers (id, name) VALUES (?, ?)"), (1, "a")
+        )
+        conn.exec_driver_sql(
+            qmark(engine, "SELECT * FROM customers WHERE name = ?"), ("a",)
+        ).all()
     assert [q.sql.split()[0] for q in log] == ["INSERT", "SELECT"]
 """,
     "executemany": """
 def test_it(engine):
-    rows = [{"id": i, "name": f"c{i}"} for i in range(50)]
+    # from 1: MySQL takes an id of 0 for "the next AUTO_INCREMENT value"
+    rows = [{"id": i, "name": f"c{i}"} for i in range(1, 51)]
     with engine.begin() as conn, record_queries() as log:
         conn.execute(text("INSERT INTO customers (id, name) VALUES (:id, :name)"), rows)
     assert log.count == 1  # one executemany, not 50 statements
 """,
     "insertmanyvalues": """
 def test_it(engine):
-    rows = [{"id": i, "name": f"c{i}"} for i in range(50)]
+    rows = [{"id": i, "name": f"c{i}"} for i in range(1, 51)]
+    # MySQL has no INSERT ... RETURNING (MariaDB has): a plain executemany there
+    returning = engine.dialect.insert_executemany_returning
     with Session(engine) as session, record_queries() as log:
-        ids = session.scalars(insert(Customer).returning(Customer.id), rows).all()
+        if returning:
+            ids = session.scalars(insert(Customer).returning(Customer.id), rows).all()
+        else:
+            session.execute(insert(Customer), rows)
         session.commit()
-    assert sorted(ids) == list(range(50))
+    if not returning:
+        with Session(engine) as session:
+            ids = session.scalars(select(Customer.id)).all()
+    assert sorted(ids) == list(range(1, 51))
     assert 1 <= log.count <= 3  # batched, whatever the SQLAlchemy version
 """,
     "no_autoflush": """
@@ -94,11 +114,13 @@ import sqlite3
 
 
 def test_it(engine):
-    # SQLite refuses it; the user's error must come through unchanged.
+    # SQLite refuses it, and MySQL without the driver's multi-statement flag;
+    # the user's error must come through unchanged.
     with Session(engine) as session, record_queries() as log:
         with pytest.raises(Exception) as raised:
             session.execute(text("SELECT 1; SELECT 2"))
-    assert "one statement at a time" in str(raised.value)
+    expected = {"sqlite": "one statement at a time", "mysql": "SQL syntax"}
+    assert expected[engine.dialect.name] in str(raised.value)
     assert log.count == 1
     assert log[0].duration is None  # it raised
 """,

@@ -232,6 +232,7 @@ def project(pytester: pytest.Pytester) -> pytest.Pytester:
     return pytester
 
 
+@pytest.mark.sqlite_only("SQLite's quoting of table names")
 @pytest.mark.parametrize("entry", ENTRY_POINTS)
 @pytest.mark.parametrize(("spelling", "table", "matches"), BARE)
 def test_sqlite_spellings(
