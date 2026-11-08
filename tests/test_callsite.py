@@ -264,3 +264,18 @@ def test_an_orm_library_imported_late_is_a_known_library(
     assert callsite._known_library(path)
     other = "/venv/lib/python3.13/site-packages/myapp/views.py"
     assert not callsite._known_library(other)
+
+
+def test_an_installed_app_under_the_venv_stdlib_prefix_is_a_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pytest_queryguard import callsite
+
+    # uv venvs: sysconfig's "platstdlib" is the venv's lib/pythonX.Y, the
+    # parent of site-packages
+    monkeypatch.setattr(callsite, "_prefixes", ("/venv/lib/python3.13/",))
+    app = "/venv/lib/python3.13/site-packages/myapp/views.py"
+    assert not callsite._known_library(app)
+    assert callsite._known_library(
+        "/venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py"
+    )

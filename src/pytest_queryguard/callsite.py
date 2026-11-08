@@ -492,11 +492,9 @@ def _known_library(filename: str) -> bool:
     the plugin or a test tool, rather than any installed package."""
     if filename.startswith("<"):
         return True
-    global _prefixes
-    if _prefixes is None:
-        _prefixes = _compute_prefixes()
-    if os.path.normcase(filename).startswith(_prefixes):
-        return True
+    # site-packages first: in a virtual environment the standard library's
+    # "platstdlib" prefix can be the venv's lib/pythonX.Y, which holds
+    # site-packages, so every installed package would match it
     parts = Path(filename).parts
     for i, part in enumerate(parts[:-1]):
         if part in _INSTALLED:

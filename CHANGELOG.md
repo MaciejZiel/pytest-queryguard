@@ -128,9 +128,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have been unreadable by 1.0. An update still writes the four keys only.
   A key that looks like a misspelled one of the four (`fucntion`, `File`)
   is still an error, with the key it probably meant.
-
-### Fixed
-
+- `queryguard_test_code`: an application installed into a virtual
+  environment's site-packages (not in editable mode) is the application
+  again, not a known library, under uv and other environments whose
+  standard-library path is the venv's `lib/pythonX.Y`. Its statements
+  reached from a test were taken for the test's own code, so with the
+  default `off` an N+1 inside the installed application was not reported.
 - MySQL and MariaDB: pagination is no longer reported as a repeated
   statement. Those databases write the offset first, `LIMIT 20, 10` (and
   SQLAlchemy renders `.limit().offset()` so), which the repeat rules did not
