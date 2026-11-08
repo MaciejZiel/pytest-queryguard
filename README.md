@@ -210,7 +210,7 @@ Every option, flag and marker is in the
 | [How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html) | The rules, the thresholds and why |
 | [Configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html) | Ini options, flags, markers |
 | [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html) | `max_queries`, `max_db_time` |
-| [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html) | Experimental: the same rules per request in a running FastAPI, Starlette or Flask app; a development panel |
+| [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html) | The same rules per request in a running FastAPI, Starlette or Flask app; a development panel |
 | [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html), [CI and Action](https://maciejziel.github.io/pytest-queryguard/ci.html), [SARIF](https://maciejziel.github.io/pytest-queryguard/sarif.html) | Adoption and code scanning |
 | [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html) | FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, budgets, legacy projects, CI |
 | [Index check](https://maciejziel.github.io/pytest-queryguard/index-check.html), [SQLite](https://maciejziel.github.io/pytest-queryguard/index-check-sqlite.html), [MySQL and MariaDB](https://maciejziel.github.io/pytest-queryguard/index-check-mysql.html), [advisor](https://maciejziel.github.io/pytest-queryguard/index-advisor.html) | Missing indexes |
@@ -241,7 +241,7 @@ counts). queryspy and pytest-querycount also report runs of 2 to 4 identical
 statements, which pytest-queryguard does only when you set
 `queryguard_small_repeat_threshold`. pytest-querycount has a PostgreSQL
 missing-index check of its own, queryspy has middleware and a request panel for
-running apps (so does pytest-queryguard's experimental [in-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html)
+running apps (so does pytest-queryguard's [in-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html)
 since 0.5.0; the two were not compared), and django-zeal covers Django.
 Moving from nplusone: [migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-nplusone.html).
 

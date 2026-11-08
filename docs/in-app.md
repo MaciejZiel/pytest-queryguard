@@ -10,10 +10,10 @@ server or a staging environment.
 > reach it. Never enable either in production. The examples below switch it
 > on only when `APP_ENV` is `development`.
 
-It ships from 0.5.0 on. It is experimental (see
-[Stability and versioning](stability.md#experimental)):
-names in `pytest_queryguard.app`, their settings and the panel's JSON may still
-change in a minor release, without a deprecation period.
+It ships from 0.5.0 on. Its names, settings, reports and the panel's JSON
+follow the [deprecation policy](stability.md#the-in-application-mode), as
+the pytest plugin does; only [findings in the page](#findings-in-the-page)
+(`page_report`) is still experimental.
 
 **In short:** call `queryguard.watch(engine)` at startup and add
 `QueryGuardASGI` (FastAPI, Starlette, any ASGI app) or `QueryGuardWSGI`
@@ -272,7 +272,7 @@ arguments, or one `queryguard.Settings(...)` object as `settings=`.
 | `max_events` | 1000 | Statements stored per request; more are counted, not stored |
 | `sample_rate` | 1.0 | Fraction of requests measured, from 0 to 1 |
 | `min_db_time` | 0.0 | Seconds of database time below which a request's N+1 rules do not run |
-| `page_report` | `"off"` | Since 0.8.0. `"footer"` or `"console"`: add a request's findings to its own HTML page (see [Findings in the page](#findings-in-the-page)) |
+| `page_report` | `"off"` | Since 0.8.0, experimental. `"footer"` or `"console"`: add a request's findings to its own HTML page (see [Findings in the page](#findings-in-the-page)) |
 
 The rules are the plugin's; see [How detection works](how-detection-works.md).
 The missing-index check does not run in the application.
@@ -289,8 +289,12 @@ the request path keeps it.
 
 **Reports.** `report` is used only for requests with findings or over their
 budget. `"log"` writes one WARNING record. `"warn"` issues
-`QueryGuardWarning`, which follows Python's warning filters: with
-`-W error::pytest_queryguard.QueryGuardWarning` it becomes an exception,
+`queryguard.QueryGuardAppWarning`, a subclass of the plugin's
+`QueryGuardWarning`, which follows Python's warning filters: a filter for
+`pytest_queryguard.QueryGuardWarning` matches the findings of the plugin
+and of the application, one for `pytest_queryguard.app.QueryGuardAppWarning`
+only the application's. With
+`-W error::pytest_queryguard.app.QueryGuardAppWarning` it becomes an exception,
 raised when the request ends, and only when the application did not raise
 its own: the application's exception always wins, and the other targets
 still run. In an ASGI server the exception comes after the response has been
@@ -299,13 +303,17 @@ sent, so the client gets the whole response and the server logs the error
 before its report is ready, and an exception raised from its body would only
 cut it short (a chunked response loses its final chunk under gunicorn and
 waitress), so the WSGI middleware logs it instead: one ERROR record on
-`pytest_queryguard.app`, starting `QueryGuardWarning:`. `track()` raises it
+`pytest_queryguard.app`, starting `QueryGuardAppWarning:`. `track()` raises it
 as usual. Every reported request warns: the `default` and `module` actions
 do not hide a repeated message, while `once` keeps every distinct message in
 Python's process-wide registry. A callable receives a `RequestReport` with `method`, `path`, `route`, `status`,
 `statements` (`Query` objects with `sql`, `callsite`, `relationship` and
 `duration`), `statement_count`, `db_time`, `duration`, `findings`, `budget`,
-`over_budget` and `message`:
+`over_budget`, `truncated` (more statements than `max_events` stored),
+`problems`, `error` (an internal error made the report incomplete),
+`sampled` and `message`. `statements` and `statement_count` are the names
+the panel's JSON, OpenTelemetry and Sentry use too; in a test, `QueryLog`
+calls the same `Query` objects `queries` and their number `count`.
 
 ```python
 from pytest_queryguard import app as queryguard
@@ -402,7 +410,9 @@ over their budget.
 
 ## Findings in the page
 
-Since 0.8.0.
+Since 0.8.0. Experimental: which responses get the findings, and the two
+values of `page_report`, may change in a minor release (see
+[Stability](stability.md#experimental)).
 
 Like Bullet in Rails, the middleware can put a request's findings into the
 HTML page it answers with, so they show up where you are already looking:
@@ -468,7 +478,10 @@ check or token. Never enable it in production or on a server others reach.
 
 - `/_queryguard/`: a self-contained HTML page (inline CSS and script, no
   third-party code) with each request's statements, timings and findings;
-- `/_queryguard/requests.json`: the same data as JSON, newest first.
+- `/_queryguard/requests.json`: the same data as JSON, newest first, with
+  `"format": 1` and the package `version` at the top; each request is
+  `RequestReport.to_dict()`. Its keys are listed in
+  [Stability](stability.md#files-tools-and-the-action).
 
 `panel_path` moves both. The history is kept in memory by each server
 process. With several workers (`uvicorn --workers 2`, `gunicorn -w 2`) each

@@ -34,6 +34,9 @@ _TEST_CLIENT, _TEST_HOST = "testclient", "testserver"
 # RFC 6750 b64token: fits a header and a URL fragment unchanged.
 _TOKEN = re.compile(r"[A-Za-z0-9._~+/-]+=*")
 MIN_TOKEN_LENGTH = 16
+# The format number of requests.json (docs/stability.md): a change to its
+# documented keys increments it.
+PANEL_FORMAT = 1
 UNAUTHORIZED = b"missing or wrong panel token"
 CHALLENGE = ("www-authenticate", "Bearer")
 
@@ -186,6 +189,7 @@ def json_body(history: History) -> bytes:
 
     error = _core.internal_error()
     payload: dict[str, Any] = {
+        "format": PANEL_FORMAT,
         "version": version,
         "watched_engines": len(_watched),
         "internal_error": f"{type(error).__name__}: {error}" if error else None,

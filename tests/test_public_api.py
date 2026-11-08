@@ -315,13 +315,14 @@ def test_type_hints_of_exported_names_still_resolve() -> None:
         typing.get_type_hints(getattr(pytest_queryguard, name))
 
 
-# The in-app mode is experimental (docs/stability.md#experimental): it may
-# change in a minor release without a deprecation period, but not by accident.
+# The in-app mode follows the deprecation policy (docs/stability.md); only
+# page_report is experimental.
 EXPECTED_APP_ALL = [
     "CallSite",
     "Finding",
     "Query",
     "QueryGuardASGI",
+    "QueryGuardAppWarning",
     "QueryGuardWSGI",
     "RequestReport",
     "Settings",
@@ -394,9 +395,32 @@ EXPECTED_APP_FIELDS = {
     ],
 }
 
+EXPECTED_REPORT_PROPERTIES = ["message", "over_budget", "problems", "truncated"]
+
+
+def test_app_report_properties_and_methods() -> None:
+    from pytest_queryguard.app import RequestReport
+
+    properties = sorted(
+        name
+        for name, value in vars(RequestReport).items()
+        if isinstance(value, property) and not name.startswith("_")
+    )
+    assert properties == EXPECTED_REPORT_PROPERTIES
+    assert str(inspect.signature(RequestReport.to_dict)) == (
+        "(self) -> 'dict[str, Any]'"
+    )
+
+
 # The keys of the panel's requests.json, whose "requests" are
 # RequestReport.to_dict(); the page reads them.
-EXPECTED_PANEL_JSON = ["version", "watched_engines", "internal_error", "requests"]
+EXPECTED_PANEL_JSON = [
+    "format",
+    "version",
+    "watched_engines",
+    "internal_error",
+    "requests",
+]
 EXPECTED_REPORT_DICT = [
     "id",
     "name",
@@ -440,6 +464,18 @@ def test_app_all_is_the_documented_list() -> None:
     assert sorted(app.__all__) == EXPECTED_APP_ALL
     for name in app.__all__:
         assert hasattr(app, name), name
+
+
+def test_app_warning_is_a_queryguard_warning() -> None:
+    """A filter for ``QueryGuardWarning`` keeps matching in-app findings."""
+    import pickle
+
+    from pytest_queryguard import app
+
+    assert issubclass(app.QueryGuardAppWarning, pytest_queryguard.QueryGuardWarning)
+    assert app.QueryGuardAppWarning.__module__ == "pytest_queryguard.app"
+    warning = pickle.loads(pickle.dumps(app.QueryGuardAppWarning("x")))
+    assert type(warning) is app.QueryGuardAppWarning
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_APP_SIGNATURES))
@@ -493,6 +529,7 @@ def test_panel_json_keys() -> None:
     )
     data = json.loads(json_body(history))
     assert list(data) == EXPECTED_PANEL_JSON
+    assert data["format"] == 1
     report = data["requests"][0]
     assert list(report) == EXPECTED_REPORT_DICT
     assert list(report["statements"][0]) == EXPECTED_STATEMENT_DICT
@@ -872,7 +909,7 @@ def test_deprecated_option_and_marker_say_when_they_go(
     )
 
 
-# Experimental, but the defaults are documented in docs/in-app.md.
+# Documented in docs/in-app.md.
 EXPECTED_APP_SETTINGS_DEFAULTS = {
     "relationship_threshold": 2,
     "repeat_threshold": 5,
