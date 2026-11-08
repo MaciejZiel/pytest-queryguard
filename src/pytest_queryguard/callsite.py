@@ -7,7 +7,7 @@ import sysconfig
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import CodeType, FrameType
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from .events import CallSite
 
@@ -129,6 +129,11 @@ def _is_session_method(frame: FrameType) -> bool:
     return result
 
 
+# What _parent_greenlet_frames gives when there is no parent greenlet: an
+# exhausted iterator, shared, so the common case creates no generator.
+_NO_FRAMES: Iterator[FrameType] = iter(())
+
+
 def _parent_greenlet_frames() -> Iterator[FrameType]:
     """Frames of the greenlets above the current one, innermost first.
 
@@ -141,9 +146,19 @@ def _parent_greenlet_frames() -> Iterator[FrameType]:
     # create a second greenlet module object next to the one SQLAlchemy uses.
     module = sys.modules.get("greenlet")
     if module is None:
-        return
+        return _NO_FRAMES
     try:
         parent = module.getcurrent().parent
+    except Exception:  # noqa: BLE001  # a plugin bug must never break the user suite
+        return _NO_FRAMES
+    if parent is None:  # the main greenlet: what runs outside an async session
+        return _NO_FRAMES
+    return _greenlet_frames(parent)
+
+
+def _greenlet_frames(parent: Any) -> Iterator[FrameType]:
+    """The frames of ``parent`` and of the greenlets above it, innermost first."""
+    try:
         while parent is not None:
             frame = parent.gr_frame
             if frame is not None:
@@ -318,6 +333,7 @@ def _site_origin(
     walking = True  # before the hook call that ran the test
     library = False  # a _LIBRARY frame since the statement
     kinds = _kinds
+    internal = _INTERNAL
     frame: FrameType | None = first
     parents: Iterator[FrameType] | None = None
     while True:
@@ -330,9 +346,13 @@ def _site_origin(
             if frame is None:
                 break
         filename = frame.f_code.co_filename
-        kind = kinds.get(filename)
-        if kind is None:
+        try:
+            kind = kinds[filename]
+        except KeyError:
             kind = _kind(filename)
+        if kind == internal:  # most frames: SQLAlchemy's, between it and the app
+            frame = frame.f_back
+            continue
         if kind:
             if kind == _HOOK and walking:
                 walking = False
@@ -372,9 +392,13 @@ def _origin(
     holds the id() of each code object; the entry keeps the code objects, so
     those ids are not reused while it is there.
     """
-    frames: list[FrameType] = []
+    # The key only: the frames are walked again on a miss (_origin_frames),
+    # rarely, as the passes of a loop find the first pass's entry.
     key: list[object] = [library]
+    append = key.append
+    jumps: list[FrameType] | None = None  # the parent greenlet frames walked into
     kinds = _kinds
+    hook = _HOOK
     frame: FrameType | None = start
     while True:
         if frame is None:
@@ -383,25 +407,45 @@ def _origin(
             frame = next(parents, None)
             if frame is None:
                 break
+            if jumps is None:
+                jumps = []
+            jumps.append(frame)
         code = frame.f_code
-        kind = kinds.get(code.co_filename)
-        if kind is None:
+        try:
+            kind = kinds[code.co_filename]
+        except KeyError:
             kind = _kind(code.co_filename)
-        if kind == _HOOK:
+        if kind == hook:
             break
-        frames.append(frame)
-        key.append(id(code))
-        key.append(frame.f_lasti)
+        append(id(code))
+        append(frame.f_lasti)
         frame = frame.f_back
     signature = tuple(key)
     known = _origins.get(signature)
     if known is not None:
         return known[1]
+    frames = _origin_frames(start, len(key) // 2, jumps)
     origin = _classify_frames(frames, library)
     if len(_origins) >= _MAX_ORIGINS:
         _origins.clear()
     _origins[signature] = (tuple(f.f_code for f in frames), origin)
     return origin
+
+
+def _origin_frames(
+    start: FrameType, count: int, jumps: list[FrameType] | None
+) -> list[FrameType]:
+    """The ``count`` frames that ``_origin`` walked from ``start``; ``jumps``
+    are the frames it went on from at the end of a greenlet's stack."""
+    frames: list[FrameType] = []
+    following = iter(jumps or ())
+    frame: FrameType | None = start
+    while len(frames) < count:
+        if frame is None:
+            frame = next(following)
+        frames.append(frame)
+        frame = frame.f_back
+    return frames
 
 
 def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
