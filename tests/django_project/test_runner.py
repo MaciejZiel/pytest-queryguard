@@ -328,6 +328,22 @@ def test_parallel(tmp_path: Path, start_method: str) -> None:
     warned = run("--queryguard-mode=warn")
     assert warned.returncode == 0, warned.stderr
     assert warned.stderr.count("QueryGuardWarning: queryguard: N+1 detected") == 2
+    # escalated to errors in the workers: sent back without a traceback,
+    # which cannot be pickled without tblib
+    escalated = _run(
+        project,
+        "--parallel=2",
+        "--queryguard-mode=warn",
+        command=("-W", "error:queryguard:UserWarning", "start.py"),
+    )
+    assert escalated.returncode == 1, escalated.stderr
+    assert "tblib" not in escalated.stdout + escalated.stderr
+    assert _outcomes(escalated.stderr) == {
+        "test_clean": "ok",
+        "test_clean_too": "ok",
+        "test_n_plus_one": "ERROR",
+        "test_n_plus_one_too": "ERROR",
+    }, escalated.stderr
 
 
 MIXIN = """
@@ -441,3 +457,20 @@ def test_read_config_rejects(raw: Any, message: str) -> None:
     with pytest.raises(ImproperlyConfigured) as caught:
         qg_django.read_config(raw)
     assert message in str(caught.value)
+
+
+def test_the_result_class_of_a_custom_test_runner_is_kept() -> None:
+    import unittest
+
+    class Result(unittest.TextTestResult):
+        pass
+
+    class TextRunner(unittest.TextTestRunner):
+        resultclass = Result
+
+    class Runner(qg_django.QueryGuardRunner):
+        test_runner = TextRunner
+
+    resultclass = Runner(verbosity=0).get_resultclass()
+    assert issubclass(resultclass, Result)
+    assert resultclass.startTest is not Result.startTest

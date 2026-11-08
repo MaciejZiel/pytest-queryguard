@@ -178,7 +178,7 @@ same defaults and values: `mode` (`fail`, `warn`, `off`),
 overrides `mode`; the command line wins over `QUERYGUARD`, which wins over
 the defaults. `pytest.ini` and `pyproject.toml` are not read. An unknown name
 or a bad value stops the run with `ImproperlyConfigured` before the test
-database is created.
+database is created (with the mixin alone, at the first test it measures).
 
 **Warn mode** issues each report as a `QueryGuardWarning` at the test
 method, shown after the test (also with `--buffer`).

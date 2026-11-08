@@ -28,7 +28,7 @@ import sys
 import unittest
 import warnings
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -51,7 +51,7 @@ from .detectors import (
     SCOPES,
     detect,
 )
-from .errors import internal_error, internal_failure, record_error
+from .errors import internal_error, internal_failure, record_error, swap_error
 from .findings import Finding
 from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
 from .messages import format_findings, format_truncation, make_findings, swap_root
@@ -103,22 +103,7 @@ class Config:
         )
 
 
-_KNOWN = frozenset(
-    {
-        "mode",
-        "relationship_threshold",
-        "repeat_threshold",
-        "small_repeat_threshold",
-        "column_load_threshold",
-        "write_loop_threshold",
-        "scope",
-        "test_code",
-        "fail_on",
-        "ignore",
-        "max_events",
-        "stack_depth",
-    }
-)
+_KNOWN = frozenset(f.name for f in fields(Config))
 
 
 def _bad(name: str, message: str) -> ImproperlyConfigured:
@@ -259,7 +244,8 @@ def _get_state() -> _State:
         config = read_config(getattr(settings, "QUERYGUARD", None), _overrides)
         root = Path.cwd()
         test_code = TestCode(str(root))
-        if config.mode != "off":
+        if config.mode != "off" and not _plugin_active():
+            # (under the pytest plugin, which measures, its own values stay)
             install()
             swap_root(root)
             swap_test_code(test_code)
@@ -270,7 +256,12 @@ def _get_state() -> _State:
 
 def _module_file(test: Any) -> str | None:
     """The file of a test case's module; None for a doctest or no file."""
-    if not isinstance(test, unittest.TestCase) or type(test).__module__ == "doctest":
+    name = type(test).__module__
+    if (
+        not isinstance(test, unittest.TestCase)
+        or name == "doctest"
+        or name.split(".")[0] == "unittest"  # _FailedTest, FunctionTestCase
+    ):
         return None
     module = sys.modules.get(type(test).__module__)
     path = getattr(module, "__file__", None)
@@ -312,7 +303,7 @@ def _begin(test: Any) -> None:
         return
     if _plugin_active():
         return
-    state = _get_state()  # ImproperlyConfigured goes on: the runner checked it
+    state = _get_state()  # ImproperlyConfigured goes on (the runner checks first)
     if state.config.mode == "off" or internal_error() is not None:
         return
     try:
@@ -321,8 +312,7 @@ def _begin(test: Any) -> None:
         push(collector)
     except Exception as exc:  # noqa: BLE001  # a bug here must never break the suite
         record_error(exc, "start of the measurement")
-        _report_internal_error(state)
-        return
+        return  # reported after the test (_end)
     measurement = _Measurement(collector)
     setattr(test, _ATTR, measurement)
     # first in, last out: after tearDown() and the test's own cleanups
@@ -345,7 +335,6 @@ def _finish(test: unittest.TestCase, measurement: _Measurement) -> None:
         # failure, as under pytest, where its findings are not analysed.
         return
     failing, warning = _analyse(test, collector, state)
-    _report_internal_error(state)
     if failing:
         # as the plugin: the findings that only warn go under the failure
         error = test.failureException("\n\n".join([*failing, *warning]))
@@ -371,6 +360,10 @@ def _stop(measurement: _Measurement) -> QueryCollector | None:
 def _end(test: Any) -> None:
     """After the test: end a measurement its cleanups never ran (a skip) and
     show the warnings. Drops the events: the suite keeps every test case."""
+    if _state is not None:
+        # here, not in the cleanup: --buffer has given stderr back, and a
+        # test that failed or a measurement that never started reports too
+        _report_internal_error(_state)
     measurement = getattr(test, "__dict__", {}).pop(_ATTR, None)
     if measurement is None:
         return
@@ -473,9 +466,11 @@ def _warn(test: unittest.TestCase, texts: list[str]) -> list[warnings.WarningMes
     filename, lineno = _location(test)
     with warnings.catch_warnings(record=True) as caught:
         for text in texts:
-            warnings.warn_explicit(
-                QueryGuardWarning(text), QueryGuardWarning, filename, lineno
-            )
+            warning = QueryGuardWarning(text)
+            # raised by an "error" filter: sent from a --parallel worker
+            # without its traceback (QueryGuardRemoteTestResult)
+            warning._queryguard = True  # type: ignore[attr-defined]
+            warnings.warn_explicit(warning, QueryGuardWarning, filename, lineno)
     return caught
 
 
@@ -540,12 +535,19 @@ class QueryGuardRemoteTestResult(_GuardedResult, RemoteTestResult):  # type: ign
     """The result of a --parallel worker, measuring each test."""
 
     def addFailure(self, test: Any, err: Any) -> None:
-        if getattr(err[1], "_queryguard", False):
-            # The report is the whole message, and the traceback is only
-            # this module's frames: without tblib it could not be pickled
-            # back to the main process, which would stop the run.
-            err = (err[0], err[1], None)
-        super().addFailure(test, err)
+        super().addFailure(test, _own(err))
+
+    def addError(self, test: Any, err: Any) -> None:
+        super().addError(test, _own(err))
+
+
+def _own(err: Any) -> Any:
+    """A failure of this module without its traceback: the report is the
+    whole message, the traceback only this module's frames, and without
+    tblib it could not be pickled back to the main process (the run stops)."""
+    if err is not None and getattr(err[1], "_queryguard", False):
+        return (err[0], err[1], None)
+    return err
 
 
 class QueryGuardRemoteTestRunner(RemoteTestRunner):  # type: ignore[misc]
@@ -602,6 +604,8 @@ class QueryGuardRunner(DiscoverRunner):  # type: ignore[misc]
         # the settings and the command line are read again
         _state = None
         _overrides.clear()
+        if not _plugin_active():
+            swap_error(None)  # an error of an earlier run in this process
         if queryguard_mode is not None:
             _overrides["mode"] = queryguard_mode
         self._queryguard_parallel = False
@@ -636,4 +640,7 @@ class QueryGuardRunner(DiscoverRunner):  # type: ignore[misc]
         base = super().get_resultclass()
         if self._queryguard_parallel:
             return base
+        if base is None:
+            # the result class of the test runner (test_runner), not unittest's
+            base = getattr(self.test_runner, "resultclass", None)
         return _guarded(base or unittest.TextTestResult)
