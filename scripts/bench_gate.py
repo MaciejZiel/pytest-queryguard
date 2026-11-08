@@ -228,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         type=Path,
         metavar="LOG",
-        help="write the baseline of each CPU from these green gate logs",
+        help="write the baseline of each CPU from these green gate logs (see --accept-cost)",
     )
     parser.add_argument(
         "--even-failed",
