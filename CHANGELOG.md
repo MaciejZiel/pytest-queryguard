@@ -196,6 +196,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the measured 69%, with at least 270 scenarios, minimums recorded in
   `scripts/lint_accuracy_thresholds.json`. See
   [Static check](docs/static-check.md#release-thresholds).
+- The call path of each statement (#356) is found with less work: the walk
+  up to the test only builds the cache key, and does not look for parent
+  greenlets when greenlet is not loaded. `bench_gate.py --record
+  --accept-cost` records a higher overhead that a pull request accepts from
+  its failed gate logs. See
+  [Releasing](docs/releasing.md#when-a-threshold-has-to-change).
+- The release gate's install check puts the tiny project's N+1 in its
+  application module: one in the test module is test code, left out by
+  default since #356.
 
 ## [0.9.0] - 2026-11-07
 

@@ -306,6 +306,8 @@ def _site_origin(
             # the end of this greenlet's stack: the awaiting code of an async
             # session is in the parent greenlets
             if parents is None:
+                if "greenlet" not in sys.modules:
+                    break  # no parent greenlets (_parent_greenlet_frames)
                 parents = _parent_greenlet_frames()
             frame = next(parents, None)
             if frame is None:
@@ -352,32 +354,48 @@ def _origin(
     made, without classifying the frames and their lines again. The key
     holds the id() of each code object; the entry keeps the code objects, so
     those ids are not reused while it is there.
+
+    This runs for every statement, so the walk only builds the key; the
+    frames are collected again, the same way, when the key is new.
     """
-    frames: list[FrameType] = []
     key: list[object] = [library]
+    add = key.append
     kinds = _kinds
+    jumps: list[FrameType] = []  # the frames the walk took from parent greenlets
     frame: FrameType | None = start
     while True:
         if frame is None:
             if parents is None:
+                if "greenlet" not in sys.modules:
+                    break  # no parent greenlets (_parent_greenlet_frames)
                 parents = _parent_greenlet_frames()
             frame = next(parents, None)
             if frame is None:
                 break
+            jumps.append(frame)
         code = frame.f_code
         kind = kinds.get(code.co_filename)
         if kind is None:
             kind = _kind(code.co_filename)
         if kind == _HOOK:
             break
-        frames.append(frame)
-        key.append(id(code))
-        key.append(frame.f_lasti)
+        add(id(code))
+        add(frame.f_lasti)
         frame = frame.f_back
     signature = tuple(key)
     known = _origins.get(signature)
     if known is not None:
         return known[1]
+    # the same frames again: f_back up to the end of each greenlet's stack,
+    # then the parent greenlet's frame the walk took, until as many as the key
+    frames: list[FrameType] = []
+    more = iter(jumps)
+    frame = start
+    for _ in range((len(key) - 1) // 2):
+        if frame is None:
+            frame = next(more)
+        frames.append(frame)
+        frame = frame.f_back
     origin = _classify_frames(frames, library)
     if len(_origins) >= _MAX_ORIGINS:
         _origins.clear()

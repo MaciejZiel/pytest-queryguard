@@ -582,7 +582,9 @@ def check_contents(wheel: Path, sdist: Path, version: str) -> list[str]:
 
 # -- 4 and 5: clean virtual environments ------------------------------------
 
-TINY_TEST = """\
+# The tiny project's N+1 is in its application code (shop.py): one in the test
+# module itself is test code, left out by default (queryguard_test_code).
+TINY_APP = """\
 from sqlalchemy import ForeignKey, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
@@ -614,14 +616,24 @@ def make_session() -> Session:
     return session
 
 
+def order_count(session: Session) -> int:
+    return len(session.scalars(select(Order)).all())
+
+
+def customer_ids(session: Session) -> list[int]:
+    return [order.customer.id for order in session.scalars(select(Order))]
+"""
+
+TINY_TEST = """\
+from shop import customer_ids, make_session, order_count
+
+
 def test_one_query():
-    session = make_session()
-    assert len(session.scalars(select(Order)).all()) == 7
+    assert order_count(make_session()) == 7
 
 
 def test_n_plus_one():
-    session = make_session()
-    assert [o.customer.id for o in session.scalars(select(Order))] == list(range(1, 8))
+    assert customer_ids(make_session()) == list(range(1, 8))
 """
 
 
@@ -682,6 +694,7 @@ def exercise(python: Path, project: Path, version: str, label: str) -> list[str]
     problems.check(
         imported.returncode == 0, f"{label}: import/entry point: {imported.stderr}"
     )
+    (project / "shop.py").write_text(TINY_APP, encoding="utf-8")
     (project / "test_tiny.py").write_text(TINY_TEST, encoding="utf-8")
     base: list[str | Path] = [python, "-m", "pytest", "-p", "no:cacheprovider"]
     plugins = run([*base, "--trace-config", "--co", "-q"], cwd=project)
