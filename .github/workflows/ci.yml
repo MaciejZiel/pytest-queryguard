@@ -518,3 +518,22 @@ jobs:
         env:
           EXIT_CODE: ${{ steps.baseline.outputs.exit-code }}
         run: test "$EXIT_CODE" = "0"
+
+  # One check that sums up the run, for the ruleset's required checks and
+  # auto-merge: it fails when any job above failed or was cancelled. A
+  # skipped job is fine. It runs on every event, also when the release gate
+  # or full-ci.yml calls this workflow (there as "ci / all-green"). Add every
+  # new job to needs.
+  all-green:
+    if: always()
+    needs: [lint, docs, test, free-threaded, xdist, plugins, bench, os, postgres, django, mysql, action]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "$RESULTS"
+          test "$FAILED" = "false"

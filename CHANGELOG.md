@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request with the `full-ci` label run the whole matrix; the new
   `full-ci.yml` starts it when the label is added. The required checks keep
   their names.
+- CI has an `all-green` job that needs every other job of `ci.yml` and fails
+  when any of them failed or was cancelled (skipped is fine), so one required
+  check can stand for the whole run, for auto-merge too.
 
 ## [0.10.0] - 2026-11-08
 

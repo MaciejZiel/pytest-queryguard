@@ -89,8 +89,9 @@ CI on a pull request runs a subset of the matrix in `.github/workflows/ci.yml`:
 lint, docs, the oldest and the newest Python with the oldest and the latest
 pytest and SQLAlchemy, Windows, one PostgreSQL, MySQL, Django on SQLite and on
 PostgreSQL, xdist, free-threaded Python, the plugins, the overhead gate and
-the action: 15 jobs instead of 43. A push to `main` and the release gate run
-all of it. To run all of it on a pull request (a change to the CI, to a
+the action: 15 jobs instead of 43. The `all-green` job fails when any of
+them failed or was cancelled. A push to `main` and the release gate run all
+of it. To run all of it on a pull request (a change to the CI, to a
 database or operating system specific path, or anything risky), add the
 `full-ci` label: `.github/workflows/full-ci.yml` runs the whole matrix at
 once, and every later push runs it while the label stays.
