@@ -29,17 +29,21 @@ pip install pytest-queryguard
 ```
 
 It is on by default: there is nothing to import or configure. These pages
-describe 0.9.0, see [Getting started](getting-started.md#install). They are
-published from `main`, so an option added since 0.9.0 may already be here
-before it is on PyPI: if pytest does not know an option, check the
+describe 0.9.0, see [Getting started](getting-started.md#install). Parts
+marked "since 1.0.0" describe the next release; they are on `main` but not on
+PyPI yet. If pytest does not know an option, check the
 [changelog](../CHANGELOG.md) under Unreleased.
 
-## Why this one
+## What is different
 
 - **Zero configuration.** Every test is checked once it is installed; the
   other SQLAlchemy test plugins in the [comparison](comparison.md) need a
   marker, an option or a fixture before a test fails, and some never fail
   one.
+- **Few false alarms.** In the [head-to-head run](comparison.md#head-to-head-in-github-actions)
+  of 2026-11-07 it flagged 2 of 129 scenarios without a problem; the other
+  working plugins flagged 25 to 27. The corpus is the author's, so read it
+  with that bias.
 - **More than lazy loads.** Repeated statements from `session.get()` loops,
   Core and `text()`, deferred and expired column loads, and query budgets
   that list every statement with the line that sent it.
@@ -50,6 +54,9 @@ before it is on PyPI: if pytest does not know an option, check the
 
 What it does not do (ORMs other than SQLAlchemy and, experimentally, [Django](django.md)) and where other tools are ahead:
 [Comparison with other tools](comparison.md) and [Limitations](limitations.md).
+How often it is right, on a corpus of 280 scenarios: [Accuracy](accuracy.md).
+Coming from another tool: [nplusone](migrating-from-nplusone.md),
+[queryspy](migrating-from-queryspy.md).
 
 ## Where to go
 

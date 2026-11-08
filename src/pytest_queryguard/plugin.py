@@ -195,9 +195,9 @@ class _Settings:
         self.groups: finding_groups.Groups = {}
         self.cartesian = "warn"  # queryguard_cartesian_load
         # queryguard_test_code: what findings of the test code do (off: they
-        # are only counted for the summary line)
+        # are only counted for the summary section)
         self.test_code = "off"
-        # with off: node id -> findings left out, for the summary line (by
+        # with off: node id -> findings left out, for the summary section (by
         # node id: with --dist each every worker runs every test)
         self.test_code_left_out: dict[str, int] = {}
         self.unused_columns = "off"  # queryguard_unused_columns
@@ -534,7 +534,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "queryguard_test_code",
         "N+1 findings whose statements all ran in test code (test modules, "
         "conftest.py, factories, helpers under tests/): off (default, counted "
-        "in a summary line), warn or fail",
+        "in a summary section), warn or fail",
         default="off",
     )
     parser.addini(
@@ -2072,13 +2072,13 @@ def _write_index_notes(
 def _write_test_code(
     terminalreporter: pytest.TerminalReporter, settings: _Settings
 ) -> None:
-    """One line for the findings of the test code that were left out."""
+    """A section for the findings of the test code that were left out."""
     left_out = settings.test_code_left_out
     if settings.test_code != "off" or not left_out:
         return
-    terminalreporter.write_line(
-        format_test_code_summary(sum(left_out.values()), len(left_out))
-    )
+    terminalreporter.write_sep("=", "queryguard: test code", yellow=True)
+    for line in format_test_code_summary(left_out):
+        terminalreporter.write_line(line)
 
 
 def _write_stale_ignores(

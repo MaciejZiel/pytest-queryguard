@@ -412,14 +412,24 @@ event that a factory's flush fires. Those are reported as before.
 The count rules then run twice: once on the application's statements and
 loads, whose findings fail the test as usual, and once on those of the test
 code. With `queryguard_test_code = off` the second findings are only counted,
-in one line at the end of the run:
+in a section at the end of the run that names five of the tests, in node
+id order:
 
 ```
-queryguard: 422 N+1 findings in test code left out (299 tests): statements of test modules, conftest.py, factories and helpers under tests/, not of the application; queryguard_test_code = warn shows them
+============================ queryguard: test code =============================
+422 N+1 findings in test code left out (299 tests): the statements ran only in test modules, conftest.py, factories or helpers under tests/, not in the application.
+To see them: pytest -o queryguard_test_code=warn, or set queryguard_test_code = warn (or fail) in the pytest configuration.
+Why: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#test-code
+  tests/test_accounts.py::test_create_account
+  tests/test_accounts.py::test_delete_account
+  tests/test_billing.py::test_invoice_lines
+  tests/test_billing.py::test_refund
+  tests/test_orders.py::test_list_orders
+  and 294 more
 ```
 
 `warn` reports them as a `QueryGuardWarning`, and `fail` counts the statements
-of the test code with the application's, as before 0.9.0. The ignore patterns,
+of the test code with the application's, as 0.9.0 and earlier did. The ignore patterns,
 markers and blocks match them in every mode, so a pattern written for them is
 not stale. With `off` they are not in the SARIF file or the JSON file; a
 baseline entry for one still counts as matched (it is not stale), and

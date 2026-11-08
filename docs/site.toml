@@ -17,6 +17,29 @@ pages = [
 ]
 
 [[section]]
+title = "Choosing and switching"
+pages = [
+  { title = "Comparison with other tools", file = "comparison.md", description = "A dated comparison of pytest-queryguard with other N+1 detection tools, with what was run and what was only read." },
+  { title = "Accuracy on a corpus", file = "accuracy.md", description = "How accurately pytest-queryguard finds N+1 queries on a corpus of realistic scenarios, with precision and recall." },
+  { title = "Performance", file = "performance.md", description = "What pytest-queryguard costs per statement and per test suite, how it was measured on SQLite and PostgreSQL, and what was optimised." },
+  { title = "Migrating from nplusone", file = "migrating-from-nplusone.md", description = "Move from the nplusone library to pytest-queryguard: what maps to what and what differs." },
+  { title = "Migrating from queryspy", file = "migrating-from-queryspy.md", description = "Move from queryspy to pytest-queryguard: every queryspy option, marker and helper with its equivalent, and what differs." },
+  { title = "Limitations", file = "limitations.md", description = "What pytest-queryguard does not see or judge: other ORMs, fixtures, drivers, plans and partial indexes." },
+  { title = "FAQ", file = "faq.md", description = "Answers about overhead, raiseload, false positives, pytest-xdist, async drivers and more." },
+]
+
+[[section]]
+title = "Using it"
+pages = [
+  { title = "Configuration reference", file = "configuration.md", description = "Every ini option, command-line flag and marker of pytest-queryguard, with defaults and accepted values." },
+  { title = "Budgets and timing", file = "budgets.md", description = "Fail a pytest test that runs too many SQL statements or spends too long in the database, with markers or context managers." },
+  { title = "Ignoring findings", file = "ignoring.md", description = "Leave out single findings or whole kinds with an ignore() block, the queryguard_ignore marker and option, and baselines." },
+  { title = "Several sessions or requests", file = "several-sessions.md", description = "Count repeated statements per Session or connection checkout, for tests that make several independent requests." },
+  { title = "Reading the queries", file = "python-api.md", description = "Read the SQL statements, durations and call sites of a block in a test with record_queries and QueryLog." },
+  { title = "In-application mode", file = "in-app.md", description = "Run the N+1 rules and query budgets on every request of a running FastAPI, Starlette or Flask app, with an optional development panel." },
+]
+
+[[section]]
 title = "Adopting it"
 pages = [
   { title = "CI and GitHub Action", file = "ci.md", description = "Run pytest-queryguard in CI and upload its findings to GitHub code scanning with the GitHub Action or a SARIF file." },
@@ -31,17 +54,6 @@ pages = [
   { title = "Index check (SQLite)", file = "index-check-sqlite.md", description = "The missing-index check on SQLite: how EXPLAIN QUERY PLAN is used and where it judges less precisely." },
   { title = "Index check (MySQL and MariaDB)", file = "index-check-mysql.md", description = "Fail tests whose SQL has no index to use on MySQL and MariaDB, by reading EXPLAIN plans; tested in CI on MySQL 8.4 and MariaDB 11.8." },
   { title = "Index advisor", file = "index-advisor.md", description = "How the index advisor suggests CREATE INDEX statements and Alembic calls, and verifies them with hypopg." },
-]
-
-[[section]]
-title = "Using it"
-pages = [
-  { title = "Configuration reference", file = "configuration.md", description = "Every ini option, command-line flag and marker of pytest-queryguard, with defaults and accepted values." },
-  { title = "Budgets and timing", file = "budgets.md", description = "Fail a pytest test that runs too many SQL statements or spends too long in the database, with markers or context managers." },
-  { title = "Ignoring findings", file = "ignoring.md", description = "Leave out single findings or whole kinds with an ignore() block, the queryguard_ignore marker and option, and baselines." },
-  { title = "Several sessions or requests", file = "several-sessions.md", description = "Count repeated statements per Session or connection checkout, for tests that make several independent requests." },
-  { title = "Reading the queries", file = "python-api.md", description = "Read the SQL statements, durations and call sites of a block in a test with record_queries and QueryLog." },
-  { title = "In-application mode", file = "in-app.md", description = "Run the N+1 rules and query budgets on every request of a running FastAPI, Starlette or Flask app, with an optional development panel." },
 ]
 
 [[section]]
@@ -71,13 +83,6 @@ pages = [
   { title = "In your editor", file = "editor.md", description = "See pytest-queryguard's findings in VS Code and PyCharm: problem matchers for the test and static-check output, and its SARIF file in a SARIF viewer." },
   { title = "Coding agents", file = "agents.md", description = "A skill and an AGENTS.md or Cursor rule that tell coding agents how to find and fix N+1 queries with pytest-queryguard and check the fix." },
   { title = "MCP server (experimental)", file = "mcp.md", description = "The experimental MCP server that lets coding agents such as Claude Code and Cursor run tests with pytest-queryguard and read its findings and patches." },
-  { title = "Comparison with other tools", file = "comparison.md", description = "A dated comparison of pytest-queryguard with other N+1 detection tools, with what was run and what was only read." },
-  { title = "Accuracy on a corpus", file = "accuracy.md", description = "How accurately pytest-queryguard finds N+1 queries on a corpus of realistic scenarios, with precision and recall." },
-  { title = "Performance", file = "performance.md", description = "What pytest-queryguard costs per statement and per test suite, how it was measured on SQLite and PostgreSQL, and what was optimised." },
-  { title = "Migrating from nplusone", file = "migrating-from-nplusone.md", description = "Move from the nplusone library to pytest-queryguard: what maps to what and what differs." },
-  { title = "Migrating from queryspy", file = "migrating-from-queryspy.md", description = "Move from queryspy to pytest-queryguard: every queryspy option, marker and helper with its equivalent, and what differs." },
-  { title = "Limitations", file = "limitations.md", description = "What pytest-queryguard does not see or judge: other ORMs, fixtures, drivers, plans and partial indexes." },
-  { title = "FAQ", file = "faq.md", description = "Answers about overhead, raiseload, false positives, pytest-xdist, async drivers and more." },
   { title = "Stability and versioning", file = "stability.md", description = "What is public API in pytest-queryguard, how deprecations work and how versions are numbered." },
   { title = "Releasing", file = "releasing.md", description = "The release gate: every check that runs before a stable pytest-queryguard release is tagged, and how to run it." },
   { title = "Changelog", file = "../CHANGELOG.md", description = "The changes in every release of pytest-queryguard." },
