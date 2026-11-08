@@ -708,6 +708,71 @@ def test_github_paths_are_relative_to_the_workspace(
     assert path("app/a.py", None) == "app/a.py"
 
 
+def test_paths_outside_the_working_directory_are_normalised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "backend" / "app").mkdir(parents=True)
+    (repo / "shared").mkdir()
+    (tmp_path / "other").mkdir()
+    monkeypatch.chdir(repo / "backend")
+    show = lint.display_path
+    # below the working directory: relative, however it is spelled
+    assert show(Path("app/../app/a.py")) == "app/a.py"
+    assert show(repo / "backend" / "app" / "a.py") == "app/a.py"
+    # above it: relative, with the ".." of the spelling taken out
+    assert show(Path("../shared/../shared/q.py")) == "../shared/q.py"
+    assert show(repo / "shared" / "q.py") == "../shared/q.py"
+    assert show(Path("../../other/./x.py")) == "../../other/x.py"
+    assert show(tmp_path / "other" / "x.py") == "../../other/x.py"
+
+
+def _sarif_location(file: str, workspace: str | None) -> tuple[str, str]:
+    finding = lint.Finding(
+        file=file,
+        line=1,
+        column=1,
+        loop_line=1,
+        query_line=1,
+        function="f",
+        root="Order",
+        path=(("Order.customer", True),),
+    )
+    (result,) = lint.to_sarif(lint.Report([finding], 1), workspace)["runs"][0][
+        "results"
+    ]
+    uri = result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    return uri, result["partialFingerprints"]["queryguardIdentity/v1"]
+
+
+def test_sarif_paths_outside_the_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "backend").mkdir(parents=True)
+    monkeypatch.chdir(repo / "backend")
+    other = (tmp_path / "other" / "x.py").as_uri()
+    # in the repository, above the working directory: relative to its root
+    assert _sarif_location("../shared/q.py", str(repo))[0] == "shared/q.py"
+    # outside it: an absolute file URI, not "backend/../../other/x.py"
+    uri, digest = _sarif_location("../../other/x.py", str(repo))
+    assert uri == other
+    # outside GitHub Actions: relative to the working directory below it,
+    # absolute above it
+    assert _sarif_location("app/a.py", None)[0] == "app/a.py"
+    assert _sarif_location("../../other/x.py", None) == (other, digest)
+    # the absolute spelling of the same file has the same fingerprint
+    shown = lint.display_path(tmp_path / "other" / "x.py")
+    assert _sarif_location(shown, str(repo)) == (other, digest)
+    # a symlink in the repository to a directory outside it: as written
+    try:
+        (repo / "linked").symlink_to(tmp_path / "other", target_is_directory=True)
+    except OSError:  # Windows without the symlink privilege
+        pass
+    else:
+        assert _sarif_location("../linked/x.py", str(repo))[0] == "linked/x.py"
+
+
 def test_errors(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert lint.main(["--models", "no_such_module_here", "app"]) == 2
     assert "cannot import no_such_module_here" in capsys.readouterr().err

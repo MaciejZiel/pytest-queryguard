@@ -156,6 +156,40 @@ def test_a_helper_under_tests_is_test_code(project: Any) -> None:
     result.stdout.fnmatch_lines(SUMMARY)
 
 
+@pytest.mark.parametrize("layout", ["ini in tests", "run in tests"])
+def test_a_helper_is_test_code_when_the_rootdir_is_the_tests_folder(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, layout: str
+) -> None:
+    # tests/ itself is the rootdir: its pytest.ini is the configuration, or
+    # with no configuration file pytest runs from inside it
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
+    pytester.makepyfile(qgmodels=MODELS, shop=APP)
+    pytester.syspathinsert()
+    (pytester.path / "tests" / "utils").mkdir(parents=True)
+    (pytester.path / "tests" / "utils" / "client.py").write_text(
+        "def names(session):\n"
+        "    from qgmodels import Order\n"
+        "    return [o.customer.name for o in session.query(Order).all()]\n"
+    )
+    (pytester.path / "tests" / "test_a.py").write_text(
+        "from qgmodels import make_sync_session\n"
+        "from utils.client import names\n"
+        "\n"
+        "\n"
+        "def test_helper():\n"
+        "    assert names(make_sync_session())\n"
+    )
+    if layout == "ini in tests":
+        (pytester.path / "tests" / "pytest.ini").write_text("[pytest]\n")
+        result = pytester.runpytest("tests")
+    else:
+        monkeypatch.chdir(pytester.path / "tests")
+        result = pytester.runpytest()
+    result.stdout.fnmatch_lines([f"rootdir: {pytester.path / 'tests'}*"])
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(SUMMARY)
+
+
 def test_a_conftest_client_calling_the_application_is_the_application(
     project: Any,
 ) -> None:
@@ -389,10 +423,20 @@ def test_test_code_classifies_files(tmp_path: Path) -> None:
     assert not classify("app", "views.py")
     assert not classify("app", "testing.py")
     assert not classify("tests.py")  # a module, not a folder
-    # a tests folder outside the rootdir (the rootdir's own name does not count)
+    # a tests folder outside the rootdir
     assert not code.classify(str(tmp_path / "tests" / "app.py"), frame)  # type: ignore[arg-type]
-    assert not callsite.TestCode(str(tmp_path / "tests")).classify(
-        str(tmp_path / "tests" / "app.py"),
+    # the rootdir is a tests folder: everything below it
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    assert callsite.TestCode(str(tests)).classify(
+        str(tests / "utils" / "client.py"),
+        frame,  # type: ignore[arg-type]
+    )
+    # ... unless it is the project's root, a repository named "test"
+    repo = tmp_path / "test"
+    (repo / ".git").mkdir(parents=True)
+    assert not callsite.TestCode(str(repo)).classify(
+        str(repo / "app" / "views.py"),
         frame,  # type: ignore[arg-type]
     )
 

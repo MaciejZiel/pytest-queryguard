@@ -1424,10 +1424,24 @@ def python_files(paths: Iterable[Path]) -> list[Path]:
 
 
 def display_path(path: Path) -> str:
+    """The path of a checked file in the report, the same however it was spelled.
+
+    Relative to the working directory: resolved when the file is below it, or
+    else as written with ``.`` and ``..`` taken out (a symlink in the
+    repository to a directory outside it keeps its name, as in
+    ``_github_path``). A file that has no relative path, on another Windows
+    drive, is absolute.
+    """
+    cwd = os.getcwd()
     try:
-        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+        return path.resolve().relative_to(Path(cwd).resolve()).as_posix()
+    except (ValueError, OSError):
+        pass
+    absolute = os.path.abspath(path)
+    try:
+        return Path(os.path.relpath(absolute, cwd)).as_posix()
+    except ValueError:  # another drive
+        return Path(absolute).as_posix()
 
 
 @dataclass(slots=True)
@@ -1529,15 +1543,34 @@ _SARIF_RULE = {
 }
 
 
-def to_sarif(report: Report, prefix: str = "") -> dict[str, Any]:
+def _sarif_uri(file: str, workspace: str | None) -> str | None:
+    """The ``artifactLocation.uri`` of a finding's file.
+
+    In GitHub Actions relative to the repository root, as the annotations of
+    ``--format github`` are; outside it relative to the working directory. A
+    file outside the repository (or, with no workspace, above the working
+    directory) gets an absolute ``file://`` URI, which SARIF 2.1.0 allows
+    without ``uriBaseId``, where a relative path with ``..`` would leave the
+    base it is read against.
+    """
+    path = _github_path(file, workspace)
+    if os.path.isabs(path) or path == ".." or path.startswith("../"):
+        return Path(os.path.abspath(file)).as_uri()
+    return sarif.repo_path(path)
+
+
+def to_sarif(report: Report, workspace: str | None = None) -> dict[str, Any]:
+    """The report as SARIF 2.1.0; ``workspace`` is ``GITHUB_WORKSPACE``.
+
+    The fingerprints come from the report's paths, which ``display_path``
+    makes the same however a file was named on the command line.
+    """
     results = []
     seen: dict[tuple[str, str, str | None, str | None], int] = {}
     for f in report.findings:
-        path = sarif.repo_path(f.file)
+        path = _sarif_uri(f.file, workspace)
         if path is None:
             continue
-        if prefix:
-            path = f"{prefix}/{path}"
         # not the line, which moves with every edit above it: the path, the
         # function and, for a repeat in the same function, its position
         identity = (RULE_ID, " -> ".join(f.labels), f.file, f.function)
@@ -1672,8 +1705,7 @@ def render(report: Report, fmt: str) -> str:
     if fmt == "json":
         return json.dumps(to_json(report), indent=2, ensure_ascii=False) + "\n"
     if fmt == "sarif":
-        prefix = sarif.workspace_prefix(Path.cwd(), os.environ.get("GITHUB_WORKSPACE"))
-        return sarif.dumps(to_sarif(report, prefix))
+        return sarif.dumps(to_sarif(report, os.environ.get("GITHUB_WORKSPACE")))
     if fmt == "github":
         return to_github(report, os.environ.get("GITHUB_WORKSPACE"))
     return text(report)

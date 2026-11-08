@@ -392,7 +392,12 @@ A file is test code when it is:
   helpers, a unittest `setUp`);
 - a `conftest.py`;
 - below a directory named `tests` or `test` inside pytest's rootdir
-  (`tests/factories.py`, `tests/utils/client.py`);
+  (`tests/factories.py`, `tests/utils/client.py`). When the rootdir is
+  itself such a directory (its `pytest.ini` is the configuration, or pytest
+  runs from inside it with no configuration file), every file below it is
+  test code, unless it holds `.git`, `pyproject.toml`, `setup.py`,
+  `setup.cfg` or `tox.ini`: then it is the project's root, merely named
+  `test`;
 - a module that defines a [factory_boy](https://factoryboy.readthedocs.io/)
   or [polyfactory](https://polyfactory.litestar.dev/) factory class, wherever
   it lives (`myapp/testing/factories.py`).

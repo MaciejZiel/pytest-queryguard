@@ -544,7 +544,10 @@ class TestCode:
     ``root`` is pytest's rootdir. A file is test code when it is a
     ``conftest.py``, a test module the session collected (``files``), a file
     below a directory named ``tests`` or ``test`` inside the rootdir, or a
-    module that defines a factory_boy or polyfactory factory class.
+    module that defines a factory_boy or polyfactory factory class. The
+    rootdir itself counts as such a directory when it is named so and is not
+    the project's root (``tests/pytest.ini``, or pytest run from inside
+    ``tests/`` with no configuration file).
     """
 
     __test__ = False  # not a test class, for pytest's collection
@@ -555,6 +558,7 @@ class TestCode:
             if root
             else None
         )
+        self.root_is_tests = root is not None and _tests_rootdir(root)
         self.files: set[str] = set()
         self.known: dict[str, bool] = {}  # filename -> test code?
 
@@ -572,6 +576,8 @@ class TestCode:
             return True
         root = self.root
         if root is not None and path.startswith(root):
+            if self.root_is_tests:
+                return True
             folders = path[len(root) :].split(os.sep)[:-1]
             if any(folder in _TEST_FOLDERS for folder in folders):
                 return True
@@ -579,6 +585,21 @@ class TestCode:
 
 
 _TEST_FOLDERS = frozenset({"tests", "test"})
+# What a project's root holds and a tests folder does not: a repository
+# checked out into a folder named "test" is not all test code.
+_PROJECT_MARKERS = (".git", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini")
+
+
+def _tests_rootdir(root: str) -> bool:
+    """Whether the rootdir is a tests folder rather than the project's root."""
+    path = os.path.realpath(root)
+    if os.path.basename(os.path.normcase(path)) not in _TEST_FOLDERS:
+        return False
+    return not any(
+        os.path.exists(os.path.join(path, marker)) for marker in _PROJECT_MARKERS
+    )
+
+
 # (module, class) of the base factory classes of factory_boy and polyfactory
 _FACTORY_BASES = (
     ("factory.base", "BaseFactory"),
