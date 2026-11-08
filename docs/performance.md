@@ -115,6 +115,39 @@ gets smaller, not larger.
 Behaviour is unchanged: the existing tests, the public API snapshot and the
 accuracy corpus give the same results, and each change has a regression test.
 
+## The call path (0.9.0)
+
+Since 0.9.0 the `before_cursor_execute` listener walks the stack from the
+statement up to the test function (the hook call that ran it), not only to the
+first frame of the application: the call path of every statement tells a loop
+from calls on separate lines, and the files on it tell the test code from the
+application (see [How detection works](how-detection-works.md#calls-on-separate-lines)).
+The call site comes from the same walk.
+
+The walk from the first application frame to the test is the same for every
+pass of a loop, so its result is kept per measurement, looked up by the code
+object of each frame on that stretch and the instruction it is at: the
+passes after the first walk those frames without classifying them or
+computing their lines. The result depends on nothing else than the key and
+on answers kept per code object and per file for the whole session (is it a
+method of a `Session` subclass, is it test code), so the cache does not go
+stale; it is emptied when a measurement starts. Measured on the laptop above with Python
+3.13.18, `scripts/bench_overhead.py --runs 9`, `main` (679e494) and the
+change interleaved, twice each:
+
+| Statement | Measurement off | `main`: added | 0.9.0, first version | 0.9.0: added |
+|---|---|---|---|---|
+| Core `select` by key | 40 to 42 us | +13.3 us, +13.5 us | +19.6 us, +19.6 us | +16.5 us, +15.7 us |
+| ORM `select` by primary key | 76 to 78 us | +27.9 us, +26.6 us | +43.2 us, +43.6 us | +33.6 us, +36.3 us |
+
+The first version classified every application frame and computed its line
+for every statement (about 0.5 microseconds a frame); the walk of a deep
+stack (a request through a web framework's test client) still costs more
+than this loop at the top level of a script. A cache keyed by `id()`
+replaced the one keyed by the code object for the methods of a `Session`
+subclass: a code object hashes its bytecode and constants, which made the
+first version of the walk twice as slow.
+
 ## What did not help
 
 - Registering the cursor listener with `retval=True` to skip SQLAlchemy's

@@ -32,6 +32,7 @@ pytest.importorskip("factory")
 _GIT = shutil.which("git")
 _FILES = re.compile(r"^\+\+\+ b/(\S+)$", re.MULTILINE)
 _SCENARIO = re.compile(r"tests/corpus/scenarios/(\w+)\.py")
+_APPLICATION = ("-o", "queryguard_test_code=fail")
 
 
 def _copy_corpus(directory: Path) -> None:
@@ -66,10 +67,12 @@ def test_patches_apply_and_remove_the_n_plus_one(tmp_path: Path) -> None:
     _copy_corpus(directory)
     # the copy, not the checkout, is what the session imports and patches
     env = {"PYTHONPATH": f"{directory}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"}
+    # The copy is below a tests/ folder of the rootdir, where the plugin takes
+    # the scenarios for test code; here they are the application.
     before = runner.run_subprocess(
         directory,
         names,
-        args=("--queryguard-write-patch=fix.patch",),
+        args=("--queryguard-write-patch=fix.patch", *_APPLICATION),
         extra_env=env,
     )
     patch = (directory / "fix.patch").read_text(encoding="utf-8")
@@ -89,7 +92,9 @@ def test_patches_apply_and_remove_the_n_plus_one(tmp_path: Path) -> None:
         return
     _git(directory, "apply", "--check", "fix.patch")
     _git(directory, "apply", "fix.patch")
-    after = runner.run_subprocess(directory / "again", names, extra_env=env)
+    after = runner.run_subprocess(
+        directory / "again", names, args=_APPLICATION, extra_env=env
+    )
     for name in names:
         result = after[name]
         assert result.failed == bool(result.findings), name

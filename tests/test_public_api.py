@@ -23,6 +23,8 @@ import pytest
 
 import pytest_queryguard
 
+from .conftest import INNER_ADDOPTS
+
 EXPECTED_ALL = [
     "CallSite",
     "NPlusOneDetected",
@@ -115,6 +117,7 @@ EXPECTED_INI = {
     "queryguard_unused_eager_load": "off",
     "queryguard_unused_columns": "off",
     "queryguard_cartesian_load": "warn",
+    "queryguard_test_code": "off",
     "queryguard_strict": "False",
     "queryguard_show_patch": "False",
     "queryguard_fail_on": "[]",
@@ -235,7 +238,11 @@ def _help_lines(pytester: pytest.Pytester, *args: str) -> str:
     return pytester.runpytest_subprocess(*args).stdout.str()
 
 
-def test_ini_option_names_and_defaults(pytester: pytest.Pytester) -> None:
+def test_ini_option_names_and_defaults(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # without the queryguard_test_code of the inner sessions (tests/conftest.py)
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     config = pytester.parseconfig()
     defaults: dict[str, Any] = {}
     for name in sorted(EXPECTED_INI):

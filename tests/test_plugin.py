@@ -417,6 +417,7 @@ def _broken(monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(listeners, "find_callsite", boom)
+    monkeypatch.setattr(listeners, "find_site_origin", boom)
 """
 
 

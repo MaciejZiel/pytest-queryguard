@@ -92,6 +92,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.0] - 2026-11-07
 
 ### Added
+- `queryguard_test_code` (`off`, `warn`, `fail`; default `off`): what the N+1
+  findings of the test code itself do. A finding whose statements all ran in
+  test code, with no frame of the application on the stack (a test module, a
+  `conftest.py`, a file below a `tests` or `test` directory of the rootdir, a
+  module that defines a factory_boy or polyfactory factory), is left out and
+  counted in one line of the terminal summary; `warn` reports it as a
+  `QueryGuardWarning`, `fail` as before. A loop in the application that test
+  code calls (through a helper, a test client in `conftest.py`, a factory's
+  flush that fires a model event) is still reported. Strict mode does not
+  raise at a lazy load of the test code unless the option is `fail`. An
+  installed `Session` subclass (SQLModel's `Session.exec()`) does not make
+  the test's own queries the application's. `--queryguard-update-baseline`
+  keeps the entries of test-code findings already in the baseline and adds
+  none. See docs/how-detection-works.md#test-code.
 
 - The JSON output of the experimental trend
   (`python -m pytest_queryguard.trend --format json`) starts with
@@ -106,6 +120,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- First install on a real suite: Faraday's 2112 tests failed 551 with the
+  defaults of `main`, nearly all for test code or for calls on separate
+  lines, and fail 79 now. By default (`queryguard_test_code = off`) the
+  N+1s of test code no longer fail a test: a factory that looks a row up for
+  every object it creates, a test helper that reads relationships lazily, the
+  test function's own loops. And the count rules tell a loop from calls on
+  separate lines: a statement whose call path (the lines of your code on the
+  stack, up to the test) no other run of it has counts on its own, also in
+  one `Session` that several requests share, and a lazy load or a column
+  load counts on its own when the test lines that called the application
+  differ. A function that runs one count per line, or a test that sends
+  requests on separate lines, is no longer a repeated-statement or
+  relationship-load finding; a loop, in the application or in the test, is
+  reported as before, also when its passes call a method of their own (paths
+  that part at one line into different functions). A loop shorter than the
+  threshold next to a run on a line of its own is no longer reported (four
+  passes and a fifth call are four runs). Strict mode still counts the lazy loads of all test lines together.
+  Corpus: 6 new scenarios (280); by default relationship-load 52/0/0 and
+  repeated-statement 47/1/3 (TP/FP/FN), from 52/3/0 and 48/4/2 on the same
+  scenarios. Each statement now walks the stack to the test once (with the
+  call site), which adds about 3 microseconds per Core statement and 8 per
+  ORM statement on the in-memory SQLite micro-benchmark (docs/performance.md). See
+  docs/how-detection-works.md#calls-on-separate-lines.
 - The GitHub Action checks its switches: `fail`, `upload`, `compare` and
   `comment` must be `true` or `false` (any case), and `trend` `false`, `true`
   or 2 to 100; anything else, the empty string included, stops the action
