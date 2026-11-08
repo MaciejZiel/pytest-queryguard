@@ -55,7 +55,8 @@ def _git(directory: Path, *args: str) -> None:
 
 @pytest.mark.skipif(_GIT is None, reason="git is not installed")
 @pytest.mark.skipif(
-    kit.pg_url_from_env() is not None, reason="the patch run uses SQLite files"
+    kit.pg_url_from_env() is not None or bool(os.environ.get("QUERYGUARD_TEST_DB_URL")),
+    reason="the patch run uses SQLite files",
 )
 def test_patches_apply_and_remove_the_n_plus_one(tmp_path: Path) -> None:
     scenarios = [

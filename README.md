@@ -37,9 +37,7 @@ queryguard: N+1 detected
 pip install pytest-queryguard
 ```
 
-Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+. The checks read the statements
-SQLAlchemy runs, on any database; CI runs the whole test suite on SQLite,
-MySQL 8.4 and MariaDB 11.8, and the PostgreSQL tests on PostgreSQL 14 to 18.
+Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8.
 
 | Check | Default | Fails a test when |
 |---|---|---|
@@ -291,10 +289,6 @@ docker run -d --rm --name qg-postgres -p 55432:5432 -e POSTGRES_PASSWORD=pg post
 QUERYGUARD_PG_URL=postgresql+pg8000://postgres:pg@localhost:55432/postgres uv run pytest
 docker stop qg-postgres
 ```
-
-`QUERYGUARD_TEST_DB_URL=mysql+pymysql://root:secret@127.0.0.1:3306` runs the
-whole suite on a MySQL or MariaDB server instead of SQLite; see
-[CONTRIBUTING.md](https://github.com/MaciejZiel/pytest-queryguard/blob/main/CONTRIBUTING.md#mysql-and-mariadb).
 
 Coverage is measured with `coverage run` rather than `pytest --cov`, because
 `--cov` starts after pytest has imported the plugin and misses its import-time

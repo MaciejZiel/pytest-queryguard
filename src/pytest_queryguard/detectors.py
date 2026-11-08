@@ -50,10 +50,9 @@ _WS = re.compile(r"\s+")
 # Pagination: OFFSET, or LIMIT with a range comparison on a parameter (keyset).
 # MySQL and MariaDB write the offset first, before a comma: LIMIT 20, 10 (and
 # SQLAlchemy renders .offset() so there, also without .limit()).
-_OFFSET = re.compile(
-    r"\bOFFSET\b|\bLIMIT\s+(?:\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+)\s*,",
-    re.IGNORECASE,
-)
+# A LIMIT or OFFSET value: a bound parameter of any paramstyle, or a number.
+_PAGE_VALUE = r"(?:\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+)"
+_OFFSET = re.compile(rf"\bOFFSET\b|\bLIMIT\s+{_PAGE_VALUE}\s*,", re.IGNORECASE)
 _LIMIT = re.compile(r"\bLIMIT\b|\bFETCH\s+(?:FIRST|NEXT)\b|\bTOP\b", re.IGNORECASE)
 _RANGE = re.compile(r"[<>]=?\s*(?:\?|%s|%\(\w+\)s|:\w+|\$\d+)")
 # A bound parameter in the statement text, and what names its value: the
@@ -77,9 +76,9 @@ _BEFORE_LIMIT = re.compile(
 _BEFORE_RANGE = re.compile(rf"(?<![<>!=])(?:<=?|>=?)\s*{_CAST_OPEN}$")
 # The count after MySQL's LIMIT <offset>, (the offset is before the comma).
 _BEFORE_LIMIT_COUNT = re.compile(
-    rf"\bLIMIT\s+(?:\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+)\s*,\s*{_CAST_OPEN}$",
-    re.IGNORECASE,
+    rf"\bLIMIT\s+{_PAGE_VALUE}\s*,\s*{_CAST_OPEN}$", re.IGNORECASE
 )
+_BEFORE_LIMIT_ONLY = re.compile(r"\bLIMIT\s*$", re.IGNORECASE)
 _COMMA_NEXT = re.compile(r"\s*,")
 # LIMIT 4 OFFSET 8 rendered with literal values, and MySQL's LIMIT 8, 4.
 _PAGE_LITERAL = re.compile(
@@ -559,7 +558,7 @@ def _write_loop_findings(
 # run for schema reflection. The application cannot batch them, so the repeat
 # rules do not count them (budgets and the report still do):
 #   - a PRAGMA (SQLite: table_info, index_list, foreign_key_list, ...);
-#   - a SHOW or DESCRIBE (MySQL and MariaDB: SQLAlchemy's has_table runs
+#   - a SHOW, DESCRIBE or DESC (MySQL and MariaDB: SQLAlchemy's has_table runs
 #     DESCRIBE, its reflection SHOW CREATE TABLE and SHOW FULL TABLES);
 #   - a read of a SQLite catalog table: sqlite_master, sqlite_schema,
 #     sqlite_temp_master or sqlite_temp_schema, with or without main./temp.;
@@ -573,7 +572,7 @@ def _write_loop_findings(
 # (pg_class on the search path).
 _CATALOG = re.compile(
     r"""
-      \A[\s(]*(?:PRAGMA|SHOW|DESCRIBE)\b
+      \A[\s(]*(?:PRAGMA|SHOW|DESCRIBE|DESC)\b
     | (?<![\w$.])(?:"?(?:main|temp)"?\s*\.\s*)?"?sqlite_(?:temp_)?(?:master|schema)"?(?![\w$])
     | (?<![\w$.])"?(?:pg_catalog|information_schema)"?\s*\.
     """,
@@ -650,7 +649,7 @@ def _layout(sql: str) -> tuple[str, tuple[tuple[str, object, int], ...]]:
             role = _LIMIT_ROLE
         elif _BEFORE_LIMIT.search(tail):
             # LIMIT <offset>, <count> on MySQL: the first value is the offset
-            comma = _COMMA_NEXT.match(sql, m.end())
+            comma = _BEFORE_LIMIT_ONLY.search(tail) and _COMMA_NEXT.match(sql, m.end())
             role = _OFFSET_ROLE if comma else _LIMIT_ROLE
         elif _BEFORE_RANGE.search(tail):
             role = _RANGE_ROLE

@@ -321,8 +321,10 @@ def make_engine():
     engine = create_engine("sqlite://")
     if engine.dialect.name == "mysql":
         raw = engine.raw_connection()  # not counted
-        raw.cursor().execute({MYSQL_NAP!r})
-        raw.close()
+        try:
+            raw.cursor().execute({MYSQL_NAP!r})
+        finally:
+            raw.close()
         return engine
 
     @event.listens_for(engine, "connect")

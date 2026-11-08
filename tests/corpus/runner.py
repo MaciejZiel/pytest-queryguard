@@ -133,7 +133,10 @@ FAILS = {}
 
 # The scenarios' SQLite databases on MySQL or MariaDB (tests/dbredirect.py);
 # already installed when the session runs in the process of tests/corpus.
-if os.environ.get("QUERYGUARD_TEST_DB_URL"):
+# The other tools run in environments of their own, without the driver.
+if os.environ.get("QUERYGUARD_TEST_DB_URL") and os.environ.get(
+    "CORPUS_TOOL", "queryguard"
+) == "queryguard":
     from tests import dbredirect
 
     dbredirect.install(os.environ["QUERYGUARD_TEST_DB_URL"])

@@ -20,7 +20,8 @@ the ``sqlite3`` module) checks :func:`active` and is made dialect-aware or
 skipped with the reason. Sessions that pytester starts in a subprocess do not
 load this module and keep SQLite.
 
-The databases are named ``qgt_<pid>_<n>`` and dropped when the process exits.
+The databases are named ``qgt_<pid>_<random>_<n>`` and dropped when the
+process exits.
 The user of the URL must be allowed to create and drop databases.
 """
 
@@ -32,10 +33,12 @@ import itertools
 import os
 import re
 import threading
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
 ENV = "QUERYGUARD_TEST_DB_URL"
+# the async driver for the server URL's driver; the suite is run with PyMySQL
 _ASYNC_DRIVERS = {"pymysql": "aiomysql", "mysqldb": "aiomysql", "aiomysql": "aiomysql"}
 
 _server: Any = None  # sqlalchemy URL of the server, without a database
@@ -43,6 +46,9 @@ _admin: Any = None  # an engine on the server, for CREATE and DROP DATABASE
 _by_path: dict[str, str] = {}
 _created: list[str] = []
 _counter = itertools.count(1)
+# in the names: a run killed before its atexit left its databases behind, and
+# a later process may get the same pid
+_run = f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
 _lock = threading.Lock()
 _paused = False  # set for the tests marked sqlite_only, see tests/conftest.py
 
@@ -63,14 +69,6 @@ def paused() -> Iterator[None]:
         _paused = before
 
 
-def kind() -> str:
-    """``"sqlite"``, or the dialect of the server: ``"mysql"`` or ``"mariadb"``."""
-    if _admin is None:
-        return "sqlite"
-    with _admin.connect() as conn:
-        return "mariadb" if conn.dialect.is_mariadb else "mysql"
-
-
 def _database_for(url: Any) -> str:
     path = url.database
     with _lock:
@@ -82,7 +80,7 @@ def _database_for(url: Any) -> str:
                 return _by_path[key]
         else:
             key = None
-        name = f"qgt_{os.getpid()}_{next(_counter)}"
+        name = f"qgt_{_run}_{next(_counter)}"
         _admin_execute(f"CREATE DATABASE {name}")
         _created.append(name)
         if key is not None:
@@ -108,7 +106,8 @@ def _redirect(url: Any, kwargs: dict[str, Any], *, asynchronous: bool) -> Any:
 
     url = make_url(url)
     # a creator hands over its own sqlite3 connection
-    if _paused or url.get_backend_name() != "sqlite" or "creator" in kwargs:
+    creator = "creator" in kwargs or "async_creator" in kwargs
+    if _paused or url.get_backend_name() != "sqlite" or creator:
         return None
     # connect_args and pool options of sqlite3 (check_same_thread, timeout,
     # uri) mean nothing to the MySQL drivers, and some are errors there.
@@ -124,6 +123,7 @@ def _redirect(url: Any, kwargs: dict[str, Any], *, asynchronous: bool) -> Any:
 
 # SQLite numbers the rows of an INTEGER PRIMARY KEY column by itself; MySQL
 # needs AUTO_INCREMENT for that. Only in a CREATE TABLE written as text.
+_CREATE_TABLE = re.compile(r"\s*CREATE\s+(?:TEMPORARY\s+)?TABLE\b", re.IGNORECASE)
 _ROWID = re.compile(
     r"\bINTEGER\s+PRIMARY\s+KEY(\s+AUTOINCREMENT)?\b(?!\s+AUTO_INCREMENT)",
     re.IGNORECASE,
@@ -138,7 +138,7 @@ def _ddl(
     context: Any,
     executemany: bool,
 ) -> tuple[str, Any]:
-    if statement.lstrip()[:12].upper() == "CREATE TABLE":
+    if _CREATE_TABLE.match(statement):
         statement = _ROWID.sub("INTEGER PRIMARY KEY AUTO_INCREMENT", statement)
     return statement, parameters
 
