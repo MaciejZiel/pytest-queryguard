@@ -140,6 +140,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   had those statements taken for the application's, so with the default
   `off` they still failed the test (a `write-loop` finding, or a repeated
   lookup inside the builder).
+- `python -m pytest_queryguard.lint --format github`: a file outside the
+  repository given as a relative path (`../other/models.py`) is annotated
+  with its absolute path, as the docs say, instead of the relative one,
+  which GitHub would read from the repository root.
 - MySQL and MariaDB: pagination is no longer reported as a repeated
   statement. Those databases write the offset first, `LIMIT 20, 10` (and
   SQLAlchemy renders `.limit().offset()` so), which the repeat rules did not

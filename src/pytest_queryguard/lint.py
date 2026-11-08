@@ -1604,15 +1604,20 @@ def _github_path(file: str, workspace: str | None) -> str:
 
     In GitHub Actions (``workspace`` is ``GITHUB_WORKSPACE``) the file is
     resolved, against the working directory when it is relative, and made
-    relative to the workspace, as the SARIF paths are; a file outside it, or
-    a run outside GitHub Actions, keeps the path the report has.
+    relative to the workspace, as the SARIF paths are; a file outside it gets
+    its absolute path (a relative one would be read from the workspace). A
+    run outside GitHub Actions keeps the path the report has.
     """
     if workspace and workspace.strip():
         try:
             base = Path(os.path.realpath(workspace.strip()))
-            return Path(os.path.realpath(file)).relative_to(base).as_posix()
+            resolved = Path(os.path.realpath(file))
         except (ValueError, OSError):
-            pass
+            return file
+        try:
+            return resolved.relative_to(base).as_posix()
+        except ValueError:
+            return resolved.as_posix()
     return file
 
 

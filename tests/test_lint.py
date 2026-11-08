@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import textwrap
 from collections.abc import Iterator
@@ -690,9 +691,13 @@ def test_github_paths_are_relative_to_the_workspace(
     assert path("app/a.py", str(repo)) == "backend/app/a.py"
     assert path("../shared/q.py", str(repo)) == "shared/q.py"
     assert path(str(repo / "lib" / "a.py"), str(repo)) == "lib/a.py"
-    # outside the workspace, or outside GitHub Actions: as the report has it
+    # outside the workspace: absolute, also when the report has it relative
     outside = str(tmp_path / "elsewhere" / "a.py")
-    assert path(outside, str(repo)) == lint._escape_property(outside)
+    # resolved: /var is /private/var on macOS, RUNNER~1 a long name on Windows
+    absolute = lint._escape_property(Path(os.path.realpath(outside)).as_posix())
+    assert path(outside, str(repo)) == absolute
+    assert path("../../elsewhere/a.py", str(repo)) == absolute
+    # outside GitHub Actions: as the report has it
     assert path("app/a.py", None) == "app/a.py"
 
 
