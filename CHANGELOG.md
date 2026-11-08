@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- [From 0.10.0 to 1.0.0](docs/design-1.0-release.md): what is left before
+  1.0.0rc1 and 1.0.0, with the state of each recommendation of
+  [the API freeze](docs/design-1.0-freeze.md), and the design of a separate
+  repository for the GitHub Action, so that it can be listed in the GitHub
+  Marketplace (not created yet).
+- [Stability](docs/stability.md#what-is-not-public): which code counts as
+  test code for `queryguard_test_code` is not public, while the option, its
+  values and its default are; the CI list names the Django job and its
+  combinations.
+- [CI](docs/ci.md#the-action) and the action's `package` input: the `lint`
+  input needs pytest-queryguard 0.10.0 or newer when `package` names a
+  release.
+- The pre-commit example in [Static check](docs/static-check.md#pre-commit)
+  pins `rev: v0.10.0`, the first tag with the hook, instead of `v1.0.0`,
+  which does not exist yet; [Migrating from queryspy](docs/migrating-from-queryspy.md)
+  says its pytest-queryguard column is current for 0.10.0, not 1.0.0.
+
 ## [0.10.0] - 2026-11-08
 
 ### Added

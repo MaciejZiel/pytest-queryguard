@@ -100,4 +100,5 @@ pages = [
   { title = "Design: in-application mode", file = "design-inapp.md", description = "Design notes for the in-application mode: a context-local collector, per-engine listeners, ASGI and WSGI middleware and the panel." },
   { title = "Research: Django ORM support", file = "design-django.md", description = "The research behind the Django ORM support: market, competitors, how each finding kind maps to Django, and a recommendation." },
   { title = "Design: the API freeze before 1.0", file = "design-1.0-freeze.md", description = "The last audit of the public surface before 1.0.0rc1: every option, name and file format we would regret freezing, ranked, with a recommendation each." },
+  { title = "Design: from 0.10.0 to 1.0.0", file = "design-1.0-release.md", description = "What is left before 1.0.0rc1 and 1.0.0, and how the GitHub Action moves to a repository of its own for the GitHub Marketplace." },
 ]

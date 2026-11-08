@@ -64,7 +64,8 @@ with `unrecognized arguments`. Set
 or a path. The action needs pytest-queryguard 0.6.0 or newer: it passes
 `--queryguard-sarif` and `--queryguard-json` and runs
 `python -m pytest_queryguard.compare`, which older releases do not have. The
-`trend` input needs 0.8.0 or newer (`python -m pytest_queryguard.trend`).
+`trend` input needs 0.8.0 or newer (`python -m pytest_queryguard.trend`),
+and the `lint` input 0.10.0 or newer (`--format github`).
 
 The action installs `pytest-queryguard` into the active Python, runs
 `pytest --queryguard-sarif=queryguard.sarif`, uploads the file with
@@ -76,7 +77,7 @@ failed. Install your own project first: the action does not know how.
 |---|---|---|
 | `pytest-args` | empty | Arguments for pytest, as a list of shell words: quotes group words (`-k "a or b"`). The value is split by Python's `shlex` and is not evaluated by a shell, so `$(...)`, backticks and `$VAR` are passed to pytest as literal text. |
 | `python-version` | empty | Set up this Python. Empty: use the `python` on PATH. |
-| `package` | empty | What to `pip install`. Empty: the plugin from the action's own checkout, matching the pinned ref. Otherwise a requirement like `pytest-queryguard>=0.6` (the oldest release the action works with; 0.8.0 for `trend`), or a path. |
+| `package` | empty | What to `pip install`. Empty: the plugin from the action's own checkout, matching the pinned ref. Otherwise a requirement like `pytest-queryguard>=0.6` (the oldest release the action works with; 0.8.0 for `trend`, 0.10.0 for `lint`), or a path. |
 | `baseline` | empty | Baseline file, see [baseline.md](baseline.md). Empty: `queryguard_baseline` from your config. |
 | `fail` | `true` | `true`: fail the step when pytest fails. `false`: a failed test run does not fail the step, only report. An invalid input or a failed install still fails it. |
 | `working-directory` | `.` | Where to run pytest. Locations in the SARIF file are still relative to the repository root (see [SARIF output](sarif.md#paths-and-the-repository-root)). |
