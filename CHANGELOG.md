@@ -120,17 +120,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Django: an N+1 in a generic view, a nested DRF serializer, a template or
-  the admin is reported with the default `queryguard_test_code = off`. When
-  no line of your project ran (a `ListAPIView` with a class-level
-  `queryset`, a `ListView` whose template reads `book.author`), the
-  statements were taken for the test's own code and left out, so the
-  most common DRF N+1 passed silently.
+- Django: an N+1 in a view that runs no line of your project is reported
+  with the default `queryguard_test_code = off`: a `ListAPIView` with a
+  class-level `queryset` and a nested serializer, a `ListView` whose
+  template reads `book.author`, the admin. Its statements were taken for the
+  test's own code and left out, so the most common DRF N+1 passed silently.
 - Django: an N+1 in a signal receiver is reported also when the save or
   delete that sends the signal goes through a relation
-  (`author.books.create(...)`, `author.books.add(...)`) or a queryset's
-  `delete()`. The relation reads of the receiver were left out as part of
-  the write.
+  (`author.books.create(...)`, `author.books.add(...)`) or a `delete()`.
+  The relation reads of the receiver were left out as part of the write, and
+  its writes during a delete counted as part of that delete.
 - Django: one object's relation queried once per item
   (`author.books.get(pk=pk)` or `author.books.filter(...).exists()` in a
   loop) is reported as a `repeated-statement`, as the same query without the

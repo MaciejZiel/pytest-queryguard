@@ -217,6 +217,24 @@ def test_a_relation_read_again_per_parent_is_one_finding() -> None:
     assert labels(collector) == {(REL, "Author.books"), (REL, "Book.author")}
 
 
+def _short(author: Author) -> int:
+    return author.books.filter(pages__lt=100).count()
+
+
+def _long(author: Author) -> int:
+    return author.books.filter(pages__lt=1000).count()
+
+
+def test_two_lines_reading_one_relation_are_loads_of_it() -> None:
+    # one statement, other values, but at two lines (two
+    # SerializerMethodFields): two reads of the relation per parent
+    with measure() as collector:
+        counts = [_short(a) + _long(a) for a in Author.objects.all()]
+    assert counts == [3] * 6
+    assert labels(collector) == {(REL, "Author.books")}
+    assert _one(collector).count == 12
+
+
 def _count_the_authors_books(sender: object, instance: Book, **kwargs: object) -> None:
     instance.author.books.count()  # a receiver that reads a relation per save
 

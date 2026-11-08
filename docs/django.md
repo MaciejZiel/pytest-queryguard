@@ -135,11 +135,11 @@ the `AsyncClient` count per connection before Django 6.1. See
 The N+1s of test code are left out by default, as for SQLAlchemy
 (`queryguard_test_code`, see [Test code](how-detection-works.md#test-code)):
 a loop in the test function, a fixture or a factory is not reported, a loop
-in a view, serializer or model method the test calls is. So is a loop that
-Django or DRF runs for your declarations, with no line of your project on the
-stack: a generic view with a class-level `queryset`, a nested serializer, a
-template, the admin, whether reached through the test client or called
-directly. A call of the async ORM, which runs in a thread of asgiref with no
+in a view, serializer or model method the test calls is. So is a loop in a
+view that runs no line of your project, through the test client or called
+directly: a generic view with a class-level `queryset`, its nested serializer
+or its template, the admin. A serializer or template the test uses itself
+(to build the expected data) is test code. A call of the async ORM, which runs in a thread of asgiref with no
 line of the test on its stack, always counts as the application's.
 
 ## Collecting queries without failing the test

@@ -33,8 +33,9 @@ process (and again for a new import of Django, as pytester sessions make):
   loads are grouped by the line of the parents' query, as for SQLAlchemy;
 - ``Collector.delete``, ``QuerySet.bulk_create`` and ``QuerySet.bulk_update``:
   their statements form one unit of work, which the write-loop rule counts once;
-- ``Signal.send`` and ``Signal.send_robust``: the receivers of a signal that a
-  related manager's write or a queryset's ``delete()`` sends read as usual.
+- ``send`` and ``send_robust`` of the model signals (``post_save``, ...): the
+  receivers of a signal that a related manager's write or a ``delete()`` sends
+  read and write as usual.
 
 What other tools got wrong, avoided here: no closure or other unpicklable
 object is put on a queryset or an instance (the marks and origins pickle as a
@@ -267,9 +268,17 @@ def _install() -> None:
     # ... but the receivers of the signals such a write sends (post_save of
     # author.books.create(), post_delete of a queryset's delete()) are the
     # application's code: their reads are reads
-    dispatcher = _module("django.dispatch.dispatcher")
-    _patch(dispatcher.Signal, "send", _reading_method)
-    _patch(dispatcher.Signal, "send_robust", _reading_method)
+    # (only these signals: Model.__init__ sends pre_init and post_init for
+    # every instance, which a wrapper on Signal.send would slow down)
+    model_signals = _module("django.db.models.signals")
+    for name in ("pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed"):
+        signal = getattr(model_signals, name)
+        for method in ("send", "send_robust"):
+            bound = getattr(signal, method)
+            if getattr(bound, _ORIGINAL, None) is None:
+                wrapper = _receivers(bound)
+                setattr(wrapper, _ORIGINAL, bound)
+                setattr(signal, method, wrapper)
     _patch_factories(descriptors)
     generic = sys.modules.get("django.contrib.contenttypes.fields")
     if generic is not None:
@@ -500,9 +509,8 @@ def _record(
         event = pending[0]
         site = event.callsite
         if isinstance(event, RelationshipLoadEvent):
-            if _lookup_per_item(event, sql, params, full[0]):
-                pass  # a plain statement: the repeat rules count it
-            else:
+            # a lookup per item is a plain statement: the repeat rules count it
+            if not _lookup_per_item(event, sql, params, full[0]):
                 relationship = event.relationship
                 for target in full:
                     target.add_relationship_load(collector.for_target(event, target))
@@ -551,8 +559,8 @@ def _record(
 
 # (relation, parent, statement) -> the parameters it first ran with, of the
 # related-manager reads of the running measurement, see _lookup_per_item.
-_queried: dict[tuple[str, object, str], Any] = {}
-_queried_for = [0]  # the ``since`` of its outermost collector
+_queried: dict[tuple[object, ...], Any] = {}
+_queried_since = 0  # the ``since`` of its outermost collector
 
 
 def _lookup_per_item(
@@ -575,12 +583,19 @@ def _lookup_per_item(
     """
     if event.scalar:
         return False
-    if _queried_for[0] != outermost.since:
+    global _queried_since
+    if _queried_since != outermost.since:
         _queried.clear()
-        _queried_for[0] = outermost.since
-    key = (event.relationship, event.parent_key, sql)
+        _queried_since = outermost.since
+    # by the reading line and request too: another line (a second
+    # SerializerMethodField) reading the relation with another filter is a
+    # read of the relation of its own
+    key = (event.relationship, event.parent_key, sql, event.callsite, event.scope)
     if key in _queried:
-        return bool(_queried[key] != params)
+        try:
+            return bool(_queried[key] != params)
+        except Exception:  # noqa: BLE001  # values that compare oddly (arrays): a load
+            return False
     if len(_queried) >= 4096:
         _queried.clear()
     _queried[key] = params
@@ -1181,18 +1196,22 @@ def _writing_method(original: Callable[..., Any]) -> Callable[..., Any]:
     return method
 
 
-def _reading_method(original: Callable[..., Any]) -> Callable[..., Any]:
-    """Undo ``_writing_method`` for the call: a signal's receivers read."""
+def _receivers(send: Callable[..., Any]) -> Callable[..., Any]:
+    """A model signal's ``send``: its receivers are the application's code,
+    also inside a related manager's write or a delete (``_writing_method``,
+    ``_in_unit``): their reads are reads, their writes are writes of their own."""
 
-    @functools.wraps(original)
-    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
-        if not _writing.get():
-            return original(self, *args, **kwargs)
-        token = _writing.set(False)
+    @functools.wraps(send)
+    def method(*args: Any, **kwargs: Any) -> Any:
+        if not _writing.get() and _unit.get() is None:
+            return send(*args, **kwargs)
+        writing = _writing.set(False)
+        unit = _unit.set(None)
         try:
-            return original(self, *args, **kwargs)
+            return send(*args, **kwargs)
         finally:
-            _writing.reset(token)
+            _unit.reset(unit)
+            _writing.reset(writing)
 
     return method
 

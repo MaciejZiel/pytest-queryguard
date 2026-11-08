@@ -487,31 +487,32 @@ _TEST_LIBRARIES = frozenset(
     }
 )
 _INSTALLED = ("site-packages", "dist-packages")
-# The modules of Django and DRF that run the project's code from its
-# declarations: request handling, views, templates, the admin, serializers. A
-# generic view with a class-level queryset, a nested serializer or a template
-# loop runs no line of the project, yet its statements are the application's,
-# not the test's: as for an installed package (_LIBRARY), a statement that test
-# code reaches through them is not the test code's own. The rest of Django
-# (the ORM a test calls itself, the test client's login) stays _INTERNAL.
+# The modules of Django and DRF that serve a request or call a view: request
+# handling, views (generic ones included), the admin, DRF's views. A generic
+# view with a class-level queryset, its nested serializer or its template runs
+# no line of the project, yet its statements are the application's, not the
+# test's: as for an installed package (_LIBRARY), a statement that test code
+# reaches through them is not the test code's own. The rest of Django and DRF
+# (the ORM, a serializer or template the test uses itself, the test client's
+# login) stays _INTERNAL.
 _RUNS_THE_APPLICATION = (
     ("django", "core/handlers/"),
     ("django", "views/"),
-    ("django", "template/"),
-    ("django", "templatetags/"),
     ("django", "contrib/admin/"),
     ("rest_framework", "views.py"),
     ("rest_framework", "generics.py"),
     ("rest_framework", "mixins.py"),
     ("rest_framework", "viewsets.py"),
-    ("rest_framework", "serializers.py"),
-    ("rest_framework", "fields.py"),
-    ("rest_framework", "relations.py"),
-    ("rest_framework", "pagination.py"),
-    ("rest_framework", "renderers.py"),
-    ("rest_framework", "templatetags/"),
 )
 _application_prefixes: tuple[str, ...] | None = None
+
+
+def _package_dirs(name: str) -> list[str]:
+    """The folder of an imported package, as imported and resolved."""
+    file = getattr(sys.modules.get(name), "__file__", None)
+    if not file:
+        return []
+    return [str(Path(file).parent) + os.sep, str(Path(file).resolve().parent) + os.sep]
 
 
 def _runs_the_application(filename: str) -> bool:
@@ -519,17 +520,19 @@ def _runs_the_application(filename: str) -> bool:
     prefixes = _application_prefixes
     if prefixes is None:
         folders = {
-            package: _package_dir(package) for package, _ in _RUNS_THE_APPLICATION
+            package: _package_dirs(package)
+            for package in {package for package, _ in _RUNS_THE_APPLICATION}
         }
-        missing = None in folders.values()
         prefixes = tuple(
-            os.path.normcase(folder + part.replace("/", os.sep))
-            for package, part in _RUNS_THE_APPLICATION
-            if (folder := folders[package]) is not None
+            dict.fromkeys(
+                os.path.normcase(folder + part.replace("/", os.sep))
+                for package, part in _RUNS_THE_APPLICATION
+                for folder in folders[package]
+            )
         )
         # kept once both are imported: DRF may be first imported by the
         # URLconf, in the first request (each file is classified once)
-        if not missing:
+        if all(folders.values()):
             _application_prefixes = prefixes
     return os.path.normcase(filename).startswith(prefixes)
 
