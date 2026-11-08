@@ -131,6 +131,13 @@ _patched = None
 # id(finding) -> whether it fails the test, noted by the plugin's _fails()
 FAILS = {}
 
+# The scenarios' SQLite databases on MySQL or MariaDB (tests/dbredirect.py);
+# already installed when the session runs in the process of tests/corpus.
+if os.environ.get("QUERYGUARD_TEST_DB_URL"):
+    from tests import dbredirect
+
+    dbredirect.install(os.environ["QUERYGUARD_TEST_DB_URL"])
+
 try:
     if os.environ.get("CORPUS_TOOL", "queryguard") == "queryguard":
         from pytest_queryguard import plugin as _plugin

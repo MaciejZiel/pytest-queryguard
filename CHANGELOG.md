@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- MySQL and MariaDB: pagination is no longer reported as a repeated
+  statement. Those databases write the offset first, `LIMIT 20, 10` (and
+  SQLAlchemy renders `.limit().offset()` so), which the repeat rules did not
+  read as pagination; three pages from one line failed a test with
+  `queryguard_small_repeat_threshold = 2`, and five with the default rule.
+- MySQL and MariaDB: `SHOW` and `DESCRIBE` statements are schema reflection,
+  like `PRAGMA` on SQLite, and no longer count for the repeat rules.
+  SQLAlchemy's `Inspector.has_table()` runs `DESCRIBE` there, so a fresh
+  inspector per connection was reported as an N+1. Budgets still count them.
+
+### Internal
+
+- CI runs the whole test suite on MySQL 8.4 and MariaDB 11.8, not only the
+  index check: the `mysql` job sets `QUERYGUARD_TEST_DB_URL`, which gives
+  every SQLite engine the tests create a fresh database on the server
+  (`tests/dbredirect.py`, PyMySQL and aiomysql). Tests about SQLite itself
+  are marked `sqlite_only` and keep SQLite; tests that relied on SQLite's
+  SQL text, placeholders or unenforced foreign keys are dialect-aware. The
+  accuracy corpus runs there too; see
+  [Accuracy](docs/accuracy.md#on-mysql-and-mariadb).
+
 ## [0.9.0] - 2026-11-07
 
 ### Added

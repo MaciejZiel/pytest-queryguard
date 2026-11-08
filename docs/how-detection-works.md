@@ -185,15 +185,14 @@ rule: SQLAlchemy's `MetaData.reflect()`, `Inspector.has_table()` and
 `metadata.create_all()` run one catalog query per table, and Alembic's
 autogenerate and version-table checks do the same, so a loop over them is no
 N+1 the application could batch. A statement is skipped when it starts with
-`PRAGMA`, reads `sqlite_master`, `sqlite_schema`, `sqlite_temp_master` or
+`PRAGMA`, `SHOW` or `DESCRIBE` (MySQL and MariaDB), reads `sqlite_master`, `sqlite_schema`, `sqlite_temp_master` or
 `sqlite_temp_schema` (also as `main.` or `temp.`), or reads anything in the
 `pg_catalog` or `information_schema` schema. It is matched on the normalized
 text, so a string value such as `'sqlite_master'` does not count, nor does a
 name in an SQL comment, or a CTE or table alias the statement itself names
 `sqlite_master`, `pg_catalog` or `information_schema`. A statement that joins
 an application table with a real catalog is skipped too.
-Not skipped: MySQL's `SHOW` and `DESCRIBE`, and PostgreSQL catalog tables read
-without the schema name (`pg_class` found through the search path). These
+Not skipped: PostgreSQL catalog tables read without the schema name (`pg_class` found through the search path). These
 statements still count for `max_queries` and appear in the report.
 
 With `queryguard_small_repeat_threshold` set (off by default, for example

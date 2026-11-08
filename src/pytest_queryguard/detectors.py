@@ -48,7 +48,12 @@ _IN_LIST = re.compile(
 _DOLLAR_PARAM = re.compile(r"\$\d+")
 _WS = re.compile(r"\s+")
 # Pagination: OFFSET, or LIMIT with a range comparison on a parameter (keyset).
-_OFFSET = re.compile(r"\bOFFSET\b", re.IGNORECASE)
+# MySQL and MariaDB write the offset first, before a comma: LIMIT 20, 10 (and
+# SQLAlchemy renders .offset() so there, also without .limit()).
+_OFFSET = re.compile(
+    r"\bOFFSET\b|\bLIMIT\s+(?:\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+)\s*,",
+    re.IGNORECASE,
+)
 _LIMIT = re.compile(r"\bLIMIT\b|\bFETCH\s+(?:FIRST|NEXT)\b|\bTOP\b", re.IGNORECASE)
 _RANGE = re.compile(r"[<>]=?\s*(?:\?|%s|%\(\w+\)s|:\w+|\$\d+)")
 # A bound parameter in the statement text, and what names its value: the
@@ -70,8 +75,16 @@ _BEFORE_LIMIT = re.compile(
 )
 # <, <=, >, >= but not <> (not equal).
 _BEFORE_RANGE = re.compile(rf"(?<![<>!=])(?:<=?|>=?)\s*{_CAST_OPEN}$")
-# LIMIT 4 OFFSET 8 rendered with literal values.
-_PAGE_LITERAL = re.compile(r"\b(LIMIT|OFFSET)\s+(\d+)\b", re.IGNORECASE)
+# The count after MySQL's LIMIT <offset>, (the offset is before the comma).
+_BEFORE_LIMIT_COUNT = re.compile(
+    rf"\bLIMIT\s+(?:\?|%s|%\(\w+\)s|:\w+|\$\d+|\d+)\s*,\s*{_CAST_OPEN}$",
+    re.IGNORECASE,
+)
+_COMMA_NEXT = re.compile(r"\s*,")
+# LIMIT 4 OFFSET 8 rendered with literal values, and MySQL's LIMIT 8, 4.
+_PAGE_LITERAL = re.compile(
+    r"\b(LIMIT|OFFSET)\s+(\d+)\b(?:\s*,\s*(\d+)\b)?", re.IGNORECASE
+)
 # A chunk is a slice of a longer list: at least this many values per IN list.
 # Shorter lists usually come from one item's own rows (an order's two
 # addresses, a customer's ten orders), which is a loop, not batching. Batch
@@ -546,6 +559,8 @@ def _write_loop_findings(
 # run for schema reflection. The application cannot batch them, so the repeat
 # rules do not count them (budgets and the report still do):
 #   - a PRAGMA (SQLite: table_info, index_list, foreign_key_list, ...);
+#   - a SHOW or DESCRIBE (MySQL and MariaDB: SQLAlchemy's has_table runs
+#     DESCRIBE, its reflection SHOW CREATE TABLE and SHOW FULL TABLES);
 #   - a read of a SQLite catalog table: sqlite_master, sqlite_schema,
 #     sqlite_temp_master or sqlite_temp_schema, with or without main./temp.;
 #   - a read of anything in the pg_catalog or information_schema schema
@@ -554,11 +569,11 @@ def _write_loop_findings(
 # value 'sqlite_master' in a WHERE clause does not hide a statement; nor do
 # comments, CTEs or aliases (_SHADOWS_CATALOG). A statement that joins an
 # application table with a real catalog is excluded too.
-# Not excluded: MySQL's SHOW and DESCRIBE, and PostgreSQL catalog tables read
-# without the pg_catalog schema (pg_class on the search path).
+# Not excluded: PostgreSQL catalog tables read without the pg_catalog schema
+# (pg_class on the search path).
 _CATALOG = re.compile(
     r"""
-      \A[\s(]*PRAGMA\b
+      \A[\s(]*(?:PRAGMA|SHOW|DESCRIBE)\b
     | (?<![\w$.])(?:"?(?:main|temp)"?\s*\.\s*)?"?sqlite_(?:temp_)?(?:master|schema)"?(?![\w$])
     | (?<![\w$.])"?(?:pg_catalog|information_schema)"?\s*\.
     """,
@@ -631,18 +646,34 @@ def _layout(sql: str) -> tuple[str, tuple[tuple[str, object, int], ...]]:
             role = _PLAIN
         elif _BEFORE_OFFSET.search(tail):
             role = _OFFSET_ROLE
-        elif _BEFORE_LIMIT.search(tail):
+        elif _BEFORE_LIMIT_COUNT.search(tail):
             role = _LIMIT_ROLE
+        elif _BEFORE_LIMIT.search(tail):
+            # LIMIT <offset>, <count> on MySQL: the first value is the offset
+            comma = _COMMA_NEXT.match(sql, m.end())
+            role = _OFFSET_ROLE if comma else _LIMIT_ROLE
         elif _BEFORE_RANGE.search(tail):
             role = _RANGE_ROLE
         else:
             role = _PLAIN
         slots.append((role, key, in_list))
     for m in _PAGE_LITERAL.finditer(sql):
-        role = _OFFSET_ROLE if m.group(1).upper() == "OFFSET" else _LIMIT_ROLE
+        limit = m.group(1).upper() == "LIMIT"
+        if limit and m.group(3) is not None:  # MySQL's LIMIT <offset>, <count>
+            slots.append((_OFFSET_ROLE, _Literal(int(m.group(2))), -1))
+            slots.append((_LIMIT_ROLE, _Literal(int(m.group(3))), -1))
+            continue
+        offset = not limit or _COMMA_NEXT.match(sql, m.end())
+        role = _OFFSET_ROLE if offset else _LIMIT_ROLE
         slots.append((role, _Literal(int(m.group(2))), -1))
-    text = _PAGE_LITERAL.sub(lambda m: f"{m.group(1)} ?", collapse_lists(sql))
+    text = _PAGE_LITERAL.sub(_mask_page_literal, collapse_lists(sql))
     return text, tuple(slots)
+
+
+def _mask_page_literal(m: re.Match[str]) -> str:
+    if m.group(3) is not None and m.group(1).upper() == "LIMIT":
+        return "LIMIT ?, ?"
+    return f"{m.group(1)} ?" + m.group(0)[m.end(2) - m.start() :]
 
 
 @dataclass(frozen=True, slots=True)

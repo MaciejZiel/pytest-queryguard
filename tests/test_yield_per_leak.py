@@ -124,6 +124,14 @@ def cursor_options() -> Iterator[list[tuple[str, Any]]]:
     event.remove(sqlalchemy.engine.Engine, "before_cursor_execute", spy)
 
 
+# yield_per streams on a MySQL connection (an unbuffered PyMySQL cursor), and
+# the loader statement run in between ends that stream: without the plugin
+# too, SQLAlchemy returns the first batch only.
+streams_with_a_loader = pytest.mark.sqlite_only(
+    "a loader statement ends a streaming MySQL result"
+)
+
+
 def _stream(session: Session, batch: int = 200) -> int:
     stmt = (
         select(Parent)
@@ -133,6 +141,7 @@ def _stream(session: Session, batch: int = 200) -> int:
     return sum(len(p.lines) for p in session.scalars(stmt))
 
 
+@streams_with_a_loader
 def test_yield_per_with_selectinload_works_with_the_listener(session: Session) -> None:
     assert _stream(session) == 1200
 
@@ -142,18 +151,21 @@ def test_yield_per_method_with_selectinload_works(session: Session) -> None:
     assert sum(len(p.lines) for p in session.scalars(stmt).yield_per(300)) == 1200
 
 
+@streams_with_a_loader
 def test_yield_per_given_to_execute_works(session: Session) -> None:
     stmt = select(Parent).options(selectinload(Parent.lines))
     result = session.execute(stmt, execution_options={"yield_per": 200}).scalars()
     assert [len(chunk) for chunk in result.partitions()] == [200] * 6
 
 
+@streams_with_a_loader
 def test_legacy_query_yield_per_works(session: Session) -> None:
     query = session.query(Parent).options(selectinload(Parent.lines)).yield_per(200)
     assert sum(len(p.lines) for p in query) == 1200
 
 
 @pytest.mark.allow_nplusone
+@streams_with_a_loader
 def test_immediateload_with_yield_per_works(session: Session) -> None:
     stmt = (
         select(Parent)
@@ -165,6 +177,7 @@ def test_immediateload_with_yield_per_works(session: Session) -> None:
 
 
 @pytest.mark.skipif(not INHERITS, reason="loaders do not inherit the options")
+@streams_with_a_loader
 def test_the_cursor_options_are_those_of_sqlalchemy_2_0_50(
     session: Session, cursor_options: list[tuple[str, Any]]
 ) -> None:

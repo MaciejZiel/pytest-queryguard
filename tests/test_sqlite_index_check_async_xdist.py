@@ -13,7 +13,10 @@ pytest.importorskip("aiosqlite")
 pytest.importorskip("greenlet")
 import sqlalchemy.ext.asyncio  # noqa: F401
 
-pytestmark = pytest.mark.allow_nplusone
+pytestmark = [
+    pytest.mark.allow_nplusone,
+    pytest.mark.sqlite_only("the SQLite index check"),
+]
 
 MODELS = (Path(__file__).parent / "models.py").read_text()
 ARGS = ("--queryguard-index-check",)

@@ -271,25 +271,33 @@ jobs:
       - run: uv run --no-sync coverage run -m pytest -rs
       - run: uv run --no-sync coverage report
 
-  # The missing-index check on MySQL and MariaDB (docs/index-check-mysql.md):
-  # the LTS releases MySQL 8.4 and MariaDB 11.8, with PyMySQL and aiomysql
-  # from the dev group. The images are pinned to a patch release: the live
-  # tests compare exact plans, and a new release may plan a case differently,
-  # which should show up in a pull request that moves the pin, not at random. Only the MySQL test files run; the rest of the suite
-  # does not touch these servers. QUERYGUARD_REQUIRE_BACKENDS makes the live
-  # tests fail instead of skipping when the driver is missing or the server is
-  # not reachable, so the job cannot pass without having run them.
+  # The whole suite on MySQL and MariaDB: the LTS releases MySQL 8.4 and
+  # MariaDB 11.8, with PyMySQL and aiomysql from the dev group (mysqlclient is
+  # GPL-licensed and not a dependency). QUERYGUARD_TEST_DB_URL moves every
+  # SQLite engine the tests create to a fresh database on the server
+  # (tests/dbredirect.py); the tests about SQLite itself (sqlite_only) keep
+  # SQLite.
+  #
+  # The live tests of the missing-index check (docs/index-check-mysql.md) run
+  # on the same server. Its image is pinned to a patch release: those tests
+  # compare exact plans, and a new release may plan a case differently, which
+  # should show up in a pull request that moves the pin, not at random.
+  # QUERYGUARD_REQUIRE_BACKENDS makes them fail instead of skipping when the
+  # driver is missing or the server is not reachable, so the job cannot pass
+  # without having run them.
   #
   # Both servers are GPL-licensed. They run here only as the official Docker
   # images, as test services: nothing of them is a dependency or shipped.
   # The server is started with docker run, like the postgres job, because a
   # service container takes no server options: MySQL 8.4 needs
   # mysql_native_password, since PyMySQL needs the cryptography package (not
-  # installed here) for caching_sha2_password over a plain connection.
+  # installed here) for caching_sha2_password over a plain connection. The
+  # data directory is a tmpfs (thousands of throw-away databases), and the
+  # suite keeps more connections open than the default limit of 151 allows.
   mysql:
     name: mysql (${{ matrix.image }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -306,6 +314,7 @@ jobs:
       QUERYGUARD_REQUIRE_BACKENDS: ${{ matrix.kind }}
       QUERYGUARD_MYSQL_URL: ${{ matrix.kind == 'mysql' && 'mysql+pymysql://root:secret@127.0.0.1:3306/mysql' || '' }}
       QUERYGUARD_MARIADB_URL: ${{ matrix.kind == 'mariadb' && 'mysql+pymysql://root:secret@127.0.0.1:3306/mysql' || '' }}
+      QUERYGUARD_TEST_DB_URL: mysql+pymysql://root:secret@127.0.0.1:3306
     steps:
       - name: Start ${{ matrix.image }}
         env:
@@ -316,8 +325,9 @@ jobs:
           # OPTIONS is split into words on purpose
           # shellcheck disable=SC2086
           docker run -d --name qg-mysql-server -p 127.0.0.1:3306:3306 \
+            --tmpfs /var/lib/mysql \
             -e MYSQL_ROOT_PASSWORD=secret -e MARIADB_ROOT_PASSWORD=secret \
-            "$IMAGE" $OPTIONS
+            "$IMAGE" --max-connections=2000 $OPTIONS
           # Over TCP, so the temporary server of the image's first start (no
           # networking) does not count as ready.
           for _ in $(seq 1 90); do
@@ -333,10 +343,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      - run: >-
+      - name: The index check's live tests
+        run: >-
           uv run --no-sync pytest -rs
           tests/test_mysql_index.py tests/test_mysql_index_check.py
           tests/test_mysql_index_parameters.py
+      - name: The whole suite on ${{ matrix.kind }}
+        run: >-
+          uv run --no-sync pytest -n 4 -rs
+          --ignore=tests/test_mysql_index.py
+          --ignore=tests/test_mysql_index_check.py
+          --ignore=tests/test_mysql_index_parameters.py
 
   # The GitHub Action in action/ on a tiny sample project (examples/action-sample)
   # with one N+1 query: one run that reports it and does not fail (and shows

@@ -116,6 +116,30 @@ def test_pagination_is_left_alone(sql: str) -> None:
     assert _small(c) == []
 
 
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT * FROM child ORDER BY id LIMIT ?, ?",
+        "SELECT * FROM child ORDER BY id LIMIT %(param_1)s, %(param_2)s",
+    ],
+)
+def test_mysql_pagination_is_left_alone(sql: str) -> None:
+    # MySQL and MariaDB: LIMIT <offset>, <count>, the offset first
+    params: list[object] = [(0, 5), (5, 5), (10, 5)]
+    if "%(" in sql:
+        params = [{"param_1": o, "param_2": 5} for o in (0, 5, 10)]
+    assert _small(_runs(sql, params)) == []
+
+
+def test_mysql_pagination_with_literal_values_is_left_alone() -> None:
+    c = QueryCollector()
+    c.statements.extend(
+        StatementEvent(f"SELECT * FROM child ORDER BY id LIMIT {o}, 5", SITE, None)
+        for o in (0, 5, 10)
+    )
+    assert _small(c) == []
+
+
 def test_a_limit_without_a_range_is_still_a_lookup() -> None:
     sql = "SELECT * FROM child WHERE parent_id = ? LIMIT 1"
     assert len(_small(_runs(sql, [(1,), (2,), (3,)]))) == 1

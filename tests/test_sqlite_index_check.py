@@ -13,7 +13,10 @@ import pytest
 from pytest_queryguard import catalog, sqlite_index
 
 # pytester runs sessions in-process, so the outer plugin sees their queries too.
-pytestmark = pytest.mark.allow_nplusone
+pytestmark = [
+    pytest.mark.allow_nplusone,
+    pytest.mark.sqlite_only("the SQLite index check"),
+]
 
 MODELS = (Path(__file__).parent / "models.py").read_text()
 

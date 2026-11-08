@@ -28,17 +28,36 @@ MODELS = (Path(__file__).parent / "models.py").read_text()
 SLEEP = 0.03
 
 
+# nap(seconds) sleeps and returns 1: a Python function on SQLite, a stored
+# function on MySQL and MariaDB (tests/dbredirect.py).
+MYSQL_NAP = (
+    "CREATE FUNCTION nap(s DOUBLE) RETURNS INT NO SQL BEGIN DO SLEEP(s); RETURN 1; END"
+)
+
+
+def _create_nap(engine: Engine) -> None:
+    """On a DB-API cursor, which the plugin does not count."""
+    raw = engine.raw_connection()
+    try:
+        raw.cursor().execute(MYSQL_NAP)
+    finally:
+        raw.close()
+
+
 @pytest.fixture
 def engine() -> Iterator[Engine]:
     engine = create_engine("sqlite://")
+    if engine.dialect.name == "mysql":
+        _create_nap(engine)
+    else:
 
-    @event.listens_for(engine, "connect")
-    def _register(dbapi_connection: Any, record: Any) -> None:
-        def nap(seconds: float) -> int:
-            time.sleep(seconds)
-            return 1
+        @event.listens_for(engine, "connect")
+        def _register(dbapi_connection: Any, record: Any) -> None:
+            def nap(seconds: float) -> int:
+                time.sleep(seconds)
+                return 1
 
-        dbapi_connection.create_function("nap", 1, nap)
+            dbapi_connection.create_function("nap", 1, nap)
 
     yield engine
     engine.dispose()
@@ -97,7 +116,10 @@ def test_slowest_rejects_a_bad_count() -> None:
 
 
 def test_a_statement_that_raises_has_no_duration(engine: Engine) -> None:
-    with record_queries() as log, pytest.raises(Exception, match="no such table"):
+    with (
+        record_queries() as log,
+        pytest.raises(Exception, match="no such table|doesn't exist"),
+    ):
         _run(engine, "select * from missing")
     assert len(log) == 1
     assert log[0].duration is None
@@ -121,6 +143,7 @@ def test_nested_logs_both_count_the_time(engine: Engine) -> None:
     assert outer.db_time >= inner.db_time
 
 
+@pytest.mark.sqlite_only("a Python function that waits for the test")
 @pytest.mark.parametrize(
     "make_log", [record_queries, lambda: max_queries(2), lambda: max_db_time(60)]
 )
@@ -166,6 +189,7 @@ def test_a_late_completion_does_not_change_a_finished_logs_db_time(
         engine.dispose()
 
 
+@pytest.mark.sqlite_only("a Python function that waits for the test")
 def test_the_time_budget_judges_the_total_fixed_at_the_blocks_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -295,6 +319,11 @@ from sqlalchemy import create_engine, event, text
 
 def make_engine():
     engine = create_engine("sqlite://")
+    if engine.dialect.name == "mysql":
+        raw = engine.raw_connection()  # not counted
+        raw.cursor().execute({MYSQL_NAP!r})
+        raw.close()
+        return engine
 
     @event.listens_for(engine, "connect")
     def register(dbapi_connection, record):
@@ -323,7 +352,7 @@ def project(pytester: pytest.Pytester) -> pytest.Pytester:
 
 
 def _marked(marker: str) -> str:
-    return BODY.format(marker=marker)
+    return BODY.format(marker=marker, MYSQL_NAP=MYSQL_NAP)
 
 
 def test_marker_fails_over_the_limit(project: pytest.Pytester) -> None:

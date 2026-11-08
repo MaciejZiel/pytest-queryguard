@@ -44,8 +44,11 @@ def setup(ctx: Ctx) -> None:
     ctx.reset()
     Base.metadata.create_all(ctx.engine())
     with Session(ctx.engine()) as session:
+        session.add_all(Post(id=p, title=f"post{p}") for p in range(1, 11))
+        # the posts first: no relationship() tells the flush their order, and
+        # MySQL checks the foreign key
+        session.flush()
         for p in range(1, 11):
-            session.add(Post(id=p, title=f"post{p}"))
             session.add_all(Comment(id=p * 10 + i, post_id=p) for i in range(p % 4))
         session.commit()
 
