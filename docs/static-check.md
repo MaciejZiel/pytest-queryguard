@@ -277,7 +277,7 @@ Since 0.10.0 the repository has a [pre-commit](https://pre-commit.com/) hook,
 ```yaml
 repos:
   - repo: https://github.com/MaciejZiel/pytest-queryguard
-    rev: v1.0.0   # a release tag
+    rev: v0.10.0   # a release tag, 0.10.0 or newer
     hooks:
       - id: queryguard-lint
         args: [--models, app.models]

@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [CI](docs/ci.md#the-action) and the action's `package` input: the `lint`
   input needs pytest-queryguard 0.10.0 or newer when `package` names a
   release.
+- The pre-commit example in [Static check](docs/static-check.md#pre-commit)
+  pins `rev: v0.10.0`, the first tag with the hook, instead of `v1.0.0`,
+  which does not exist yet; [Migrating from queryspy](docs/migrating-from-queryspy.md)
+  says its pytest-queryguard column is current for 0.10.0, not 1.0.0.
 
 ## [0.10.0] - 2026-11-08
 
