@@ -188,6 +188,58 @@ def test_writes_through_a_relation_are_no_lazy_load() -> None:
     assert not any(s.lazy_load for s in collector.statements)
 
 
+REPEAT = "repeated-statement"
+
+
+def test_one_relation_queried_per_item_is_a_repeated_statement() -> None:
+    # One author's relation queried again and again: no N+1 of the relation
+    # (one parent), but the same statement per item, as with
+    # Book.objects.get(author=author, pk=pk)
+    author = Author.objects.get(pk=1)
+    with measure() as collector:
+        titles = [author.books.get(pk=pk).title for pk in (1, 2, 3) * 3]
+        found = [
+            author.books.filter(title=f"book 0.{i % 3}").exists() for i in range(9)
+        ]
+    assert len(titles) == 9
+    assert all(found)
+    assert {kind for kind, _ in labels(collector)} == {REPEAT}
+    assert len(labels(collector)) == 2
+
+
+def test_a_relation_read_again_per_parent_is_one_finding() -> None:
+    with measure() as collector:
+        counts = [len(a.books.all()) + a.books.count() for a in Author.objects.all()]
+        # three books of each author: each author's books are counted 3 times
+        again = [b.author.books.count() for b in Book.objects.all()]
+    assert counts == [6] * 6
+    assert again == [3] * 18
+    assert labels(collector) == {(REL, "Author.books"), (REL, "Book.author")}
+
+
+def _count_the_authors_books(sender: object, instance: Book, **kwargs: object) -> None:
+    instance.author.books.count()  # a receiver that reads a relation per save
+
+
+@pytest.mark.parametrize("through_the_relation", [False, True])
+def test_a_receiver_reads_a_relation_per_write(through_the_relation: bool) -> None:
+    # The receiver's N+1 is the same whether the books are created through
+    # the relation (author.books.create) or not: that write's own SELECTs
+    # are no read of the relation, the receivers' are.
+    authors = list(Author.objects.all())
+    models.signals.post_save.connect(_count_the_authors_books, sender=Book)
+    try:
+        with measure() as collector:
+            for author in authors:
+                if through_the_relation:
+                    author.books.create(title="new")
+                else:
+                    Book.objects.create(title="new", author=author)
+    finally:
+        models.signals.post_save.disconnect(_count_the_authors_books, sender=Book)
+    assert labels(collector) == {(REL, "Author.books")}
+
+
 def test_instances_and_querysets_still_pickle_and_copy() -> None:
     with measure():
         books = list(Book.objects.all())

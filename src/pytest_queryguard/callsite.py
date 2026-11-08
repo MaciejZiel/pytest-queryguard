@@ -66,8 +66,9 @@ def _classify(filename: str) -> bool:
 def reset_internal() -> None:
     """Classify the files again: a library of ``_INTERNAL_PACKAGES`` was
     imported after the first classification (the Django integration)."""
-    global _prefixes
+    global _prefixes, _application_prefixes
     _prefixes = None
+    _application_prefixes = None
     _internal.clear()
     _kinds.clear()
     _origins.clear()
@@ -463,7 +464,8 @@ _MAX_ORIGINS = 1024
 # may be the application itself (installed non-editable): one lookup per frame
 # of the walk. A statement that test code reaches through a _LIBRARY frame is
 # not the test code's own. The packages of _TEST_LIBRARIES (factories, fake
-# data) are test tools, plain _INTERNAL.
+# data) are test tools, plain _INTERNAL. The parts of Django and DRF that run
+# the project's declarative code (_RUNS_THE_APPLICATION) are _LIBRARY too.
 _kinds: dict[str, int] = {}
 _MAX_KINDS = 4096
 _APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
@@ -485,6 +487,51 @@ _TEST_LIBRARIES = frozenset(
     }
 )
 _INSTALLED = ("site-packages", "dist-packages")
+# The modules of Django and DRF that run the project's code from its
+# declarations: request handling, views, templates, the admin, serializers. A
+# generic view with a class-level queryset, a nested serializer or a template
+# loop runs no line of the project, yet its statements are the application's,
+# not the test's: as for an installed package (_LIBRARY), a statement that test
+# code reaches through them is not the test code's own. The rest of Django
+# (the ORM a test calls itself, the test client's login) stays _INTERNAL.
+_RUNS_THE_APPLICATION = (
+    ("django", "core/handlers/"),
+    ("django", "views/"),
+    ("django", "template/"),
+    ("django", "templatetags/"),
+    ("django", "contrib/admin/"),
+    ("rest_framework", "views.py"),
+    ("rest_framework", "generics.py"),
+    ("rest_framework", "mixins.py"),
+    ("rest_framework", "viewsets.py"),
+    ("rest_framework", "serializers.py"),
+    ("rest_framework", "fields.py"),
+    ("rest_framework", "relations.py"),
+    ("rest_framework", "pagination.py"),
+    ("rest_framework", "renderers.py"),
+    ("rest_framework", "templatetags/"),
+)
+_application_prefixes: tuple[str, ...] | None = None
+
+
+def _runs_the_application(filename: str) -> bool:
+    global _application_prefixes
+    prefixes = _application_prefixes
+    if prefixes is None:
+        folders = {
+            package: _package_dir(package) for package, _ in _RUNS_THE_APPLICATION
+        }
+        missing = None in folders.values()
+        prefixes = tuple(
+            os.path.normcase(folder + part.replace("/", os.sep))
+            for package, part in _RUNS_THE_APPLICATION
+            if (folder := folders[package]) is not None
+        )
+        # kept once both are imported: DRF may be first imported by the
+        # URLconf, in the first request (each file is classified once)
+        if not missing:
+            _application_prefixes = prefixes
+    return os.path.normcase(filename).startswith(prefixes)
 
 
 def _kind(filename: str) -> int:
@@ -495,6 +542,8 @@ def _kind(filename: str) -> int:
             kind = _HOOK
         else:
             kind = _INTERNAL if _known_library(filename) else _LIBRARY
+            if kind == _INTERNAL and _runs_the_application(filename):
+                kind = _LIBRARY
     if len(_kinds) >= _MAX_KINDS:
         _kinds.clear()
     _kinds[filename] = kind

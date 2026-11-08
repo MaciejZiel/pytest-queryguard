@@ -120,6 +120,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Django: an N+1 in a generic view, a nested DRF serializer, a template or
+  the admin is reported with the default `queryguard_test_code = off`. When
+  no line of your project ran (a `ListAPIView` with a class-level
+  `queryset`, a `ListView` whose template reads `book.author`), the
+  statements were taken for the test's own code and left out, so the
+  most common DRF N+1 passed silently.
+- Django: an N+1 in a signal receiver is reported also when the save or
+  delete that sends the signal goes through a relation
+  (`author.books.create(...)`, `author.books.add(...)`) or a queryset's
+  `delete()`. The relation reads of the receiver were left out as part of
+  the write.
+- Django: one object's relation queried once per item
+  (`author.books.get(pk=pk)` or `author.books.filter(...).exists()` in a
+  loop) is reported as a `repeated-statement`, as the same query without the
+  relation (`Book.objects.get(author=author, pk=pk)`) is. It was reported
+  by neither rule.
 - A baseline file whose entries have keys besides `kind`, `label`, `file`
   and `function` is read, with the other keys ignored, instead of stopping
   pytest with `has unknown keys`. [Stability](docs/stability.md#files-tools-and-the-action)
