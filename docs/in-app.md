@@ -51,7 +51,8 @@ if os.environ.get("APP_ENV") == "development":
     )
 ```
 
-`watch()` takes an `Engine` or an `AsyncEngine`. Call it at startup, before the
+`watch()` takes an `Engine` or an `AsyncEngine`, positionally (`watch(engine)`,
+not `watch(engine=engine)`). Call it at startup, before the
 engine hands out connections. `QueryGuardASGI` is plain ASGI middleware and
 does not import Starlette, so it also wraps any other ASGI 3 application:
 `app = queryguard.QueryGuardASGI(app)`.
@@ -311,7 +312,10 @@ Python's process-wide registry. A callable receives a `RequestReport` with `meth
 `duration`), `statement_count`, `db_time`, `duration`, `findings`, `budget`,
 `over_budget`, `truncated` (more statements than `max_events` stored),
 `problems`, `error` (an internal error made the report incomplete),
-`sampled` and `message`. `statements` and `statement_count` are the names
+`sampled` and `message`. Each of `findings` is a `queryguard.Finding` with
+`kind`, `label`, `file`, `function`, `line`, `count` and `message`, the keys
+the panel's JSON shows; its other attributes are internal (see
+[Stability](stability.md#the-in-application-mode)). `statements` and `statement_count` are the names
 the panel's JSON, OpenTelemetry and Sentry use too; in a test, `QueryLog`
 calls the same `Query` objects `queries` and their number `count`.
 

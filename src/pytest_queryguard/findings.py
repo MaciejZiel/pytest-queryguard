@@ -109,6 +109,12 @@ class Finding:
     ``(kind, label, file, function)`` is the identity: it stays the same from
     run to run, whatever the line numbers and counts, and whatever directory
     the suite runs from. ``line`` and ``count`` are details of one run.
+
+    ``pytest_queryguard.app`` exports this class as ``Finding``. Its public
+    fields are ``kind``, ``label``, ``file``, ``function``, ``line``,
+    ``count`` and ``message`` (docs/stability.md), and it may be built with
+    those as keyword arguments. Every other field, and ``identity``, is
+    internal; a new field needs a default, so that such a call keeps working.
     """
 
     kind: str
