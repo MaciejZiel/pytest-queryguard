@@ -132,8 +132,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--format github`.
 - Helpers in the tests folder (`tests/utils/client.py`) count as test code
   also when pytest's rootdir is that folder itself (a `tests/pytest.ini`,
-  or pytest run from inside `tests/` with no configuration file); before,
-  their N+1s failed the test as if they were the application's.
+  or pytest run from inside `tests/` with no configuration file) and the
+  directory above it is the project's root (it holds `.git`,
+  `pyproject.toml`, `setup.py`, `setup.cfg` or `tox.ini`); before, their
+  N+1s failed the test as if they were the application's.
 - A baseline file whose entries have keys besides `kind`, `label`, `file`
   and `function` is read, with the other keys ignored, instead of stopping
   pytest with `has unknown keys`. [Stability](docs/stability.md#files-tools-and-the-action)

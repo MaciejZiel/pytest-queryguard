@@ -1426,22 +1426,30 @@ def python_files(paths: Iterable[Path]) -> list[Path]:
 def display_path(path: Path) -> str:
     """The path of a checked file in the report, the same however it was spelled.
 
-    Relative to the working directory: resolved when the file is below it, or
-    else as written with ``.`` and ``..`` taken out (a symlink in the
-    repository to a directory outside it keeps its name, as in
-    ``_github_path``). A file that has no relative path, on another Windows
-    drive, is absolute.
+    Relative to the working directory, from the resolved file (``.``, ``..``
+    and symlinks taken out). One exception, as in ``_github_path``: a file
+    named by a relative path through a symlink to a directory outside the
+    working directory keeps that name (``../linked/a.py``) when it still
+    leads to the same file. A file that has no relative path, on another
+    Windows drive, is absolute.
     """
-    cwd = os.getcwd()
+    cwd = os.getcwd()  # the physical directory, as abspath() and relpath() use
     try:
-        return path.resolve().relative_to(Path(cwd).resolve()).as_posix()
-    except (ValueError, OSError):
-        pass
-    absolute = os.path.abspath(path)
+        resolved = os.path.realpath(path)
+    except OSError:
+        resolved = os.path.abspath(path)
+    real_cwd = os.path.realpath(cwd)
     try:
-        return Path(os.path.relpath(absolute, cwd)).as_posix()
+        shown = os.path.relpath(resolved, real_cwd)
     except ValueError:  # another drive
-        return Path(absolute).as_posix()
+        return Path(resolved).as_posix()
+    if shown.startswith(os.pardir) and not path.is_absolute():
+        written = os.path.relpath(os.path.abspath(path), cwd)
+        if written != shown and os.path.realpath(os.path.join(cwd, written)) == (
+            resolved
+        ):
+            shown = written
+    return Path(shown).as_posix()
 
 
 @dataclass(slots=True)
@@ -1553,14 +1561,27 @@ def _sarif_uri(file: str, workspace: str | None) -> str | None:
     without ``uriBaseId``, where a relative path with ``..`` would leave the
     base it is read against.
     """
+    if workspace and not _inside(os.getcwd(), workspace):
+        workspace = None  # another checkout, or a stale GITHUB_WORKSPACE
     path = _github_path(file, workspace)
     if os.path.isabs(path) or path == ".." or path.startswith("../"):
         return Path(os.path.abspath(file)).as_uri()
     return sarif.repo_path(path)
 
 
-def to_sarif(report: Report, workspace: str | None = None) -> dict[str, Any]:
+def _inside(path: str, root: str) -> bool:
+    try:
+        Path(os.path.realpath(path)).relative_to(os.path.realpath(root.strip()))
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def to_sarif(report: Report, *, workspace: str | None = None) -> dict[str, Any]:
     """The report as SARIF 2.1.0; ``workspace`` is ``GITHUB_WORKSPACE``.
+
+    With the working directory outside the workspace, the paths stay relative
+    to the working directory.
 
     The fingerprints come from the report's paths, which ``display_path``
     makes the same however a file was named on the command line.
@@ -1705,7 +1726,9 @@ def render(report: Report, fmt: str) -> str:
     if fmt == "json":
         return json.dumps(to_json(report), indent=2, ensure_ascii=False) + "\n"
     if fmt == "sarif":
-        return sarif.dumps(to_sarif(report, os.environ.get("GITHUB_WORKSPACE")))
+        return sarif.dumps(
+            to_sarif(report, workspace=os.environ.get("GITHUB_WORKSPACE"))
+        )
     if fmt == "github":
         return to_github(report, os.environ.get("GITHUB_WORKSPACE"))
     return text(report)

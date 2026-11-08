@@ -165,6 +165,7 @@ def test_a_helper_is_test_code_when_the_rootdir_is_the_tests_folder(
     monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     pytester.makepyfile(qgmodels=MODELS, shop=APP)
     pytester.syspathinsert()
+    (pytester.path / ".git").mkdir()  # the project's root
     (pytester.path / "tests" / "utils").mkdir(parents=True)
     (pytester.path / "tests" / "utils" / "client.py").write_text(
         "def names(session):\n"
@@ -425,14 +426,15 @@ def test_test_code_classifies_files(tmp_path: Path) -> None:
     assert not classify("tests.py")  # a module, not a folder
     # a tests folder outside the rootdir
     assert not code.classify(str(tmp_path / "tests" / "app.py"), frame)  # type: ignore[arg-type]
-    # the rootdir is a tests folder: everything below it
+    # the rootdir is the tests folder of a project: everything below it
     tests = tmp_path / "tests"
     tests.mkdir()
-    assert callsite.TestCode(str(tests)).classify(
-        str(tests / "utils" / "client.py"),
-        frame,  # type: ignore[arg-type]
-    )
-    # ... unless it is the project's root, a repository named "test"
+    client = str(tests / "utils" / "client.py")
+    # ... not without a project root above it (an application copied to /tests)
+    assert not callsite.TestCode(str(tests)).classify(client, frame)  # type: ignore[arg-type]
+    (tmp_path / "pyproject.toml").write_text("")
+    assert callsite.TestCode(str(tests)).classify(client, frame)  # type: ignore[arg-type]
+    # ... and not when it is a project's root itself, a repository named "test"
     repo = tmp_path / "test"
     (repo / ".git").mkdir(parents=True)
     assert not callsite.TestCode(str(repo)).classify(

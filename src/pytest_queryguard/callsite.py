@@ -558,7 +558,7 @@ class TestCode:
             if root
             else None
         )
-        self.root_is_tests = root is not None and _tests_rootdir(root)
+        self.root_is_tests = self.root is not None and _tests_rootdir(self.root)
         self.files: set[str] = set()
         self.known: dict[str, bool] = {}  # filename -> test code?
 
@@ -585,19 +585,25 @@ class TestCode:
 
 
 _TEST_FOLDERS = frozenset({"tests", "test"})
-# What a project's root holds and a tests folder does not: a repository
-# checked out into a folder named "test" is not all test code.
+# What a project's root holds: a rootdir named "tests" is the tests folder of
+# a project only when it holds none of them and the folder above it holds one.
+# A repository checked out into a folder named "test", or an application
+# copied to /test in a container without them, is not all test code.
 _PROJECT_MARKERS = (".git", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini")
 
 
+def _has_marker(path: str) -> bool:
+    return any(os.path.exists(os.path.join(path, m)) for m in _PROJECT_MARKERS)
+
+
 def _tests_rootdir(root: str) -> bool:
-    """Whether the rootdir is a tests folder rather than the project's root."""
-    path = os.path.realpath(root)
-    if os.path.basename(os.path.normcase(path)) not in _TEST_FOLDERS:
+    """Whether the rootdir (normalised, ending in a separator) is a project's
+    tests folder rather than the project's root."""
+    path = root.rstrip(os.sep)
+    if os.path.basename(path) not in _TEST_FOLDERS:
         return False
-    return not any(
-        os.path.exists(os.path.join(path, marker)) for marker in _PROJECT_MARKERS
-    )
+    parent = os.path.dirname(path)
+    return parent != path and not _has_marker(path) and _has_marker(parent)
 
 
 # (module, class) of the base factory classes of factory_boy and polyfactory

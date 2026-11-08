@@ -725,6 +725,17 @@ def test_paths_outside_the_working_directory_are_normalised(
     assert show(repo / "shared" / "q.py") == "../shared/q.py"
     assert show(Path("../../other/./x.py")) == "../../other/x.py"
     assert show(tmp_path / "other" / "x.py") == "../../other/x.py"
+    try:
+        (repo / "backend" / "app" / "link").symlink_to(
+            tmp_path / "other" / "dir", target_is_directory=True
+        )
+        (repo / "linked").symlink_to(tmp_path / "other", target_is_directory=True)
+    except OSError:  # Windows without the symlink privilege
+        return
+    # ".." after a symlink: the file it leads to, not app/a.py
+    assert show(Path("app/link/../x.py")) == "../../other/x.py"
+    # a symlink in the repository to a directory outside it: as written
+    assert show(Path("../linked/x.py")) == "../linked/x.py"
 
 
 def _sarif_location(file: str, workspace: str | None) -> tuple[str, str]:
@@ -738,9 +749,9 @@ def _sarif_location(file: str, workspace: str | None) -> tuple[str, str]:
         root="Order",
         path=(("Order.customer", True),),
     )
-    (result,) = lint.to_sarif(lint.Report([finding], 1), workspace)["runs"][0][
-        "results"
-    ]
+    (result,) = lint.to_sarif(lint.Report([finding], 1), workspace=workspace)["runs"][
+        0
+    ]["results"]
     uri = result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
     return uri, result["partialFingerprints"]["queryguardIdentity/v1"]
 
@@ -764,6 +775,13 @@ def test_sarif_paths_outside_the_repository(
     # the absolute spelling of the same file has the same fingerprint
     shown = lint.display_path(tmp_path / "other" / "x.py")
     assert _sarif_location(shown, str(repo)) == (other, digest)
+    # the working directory outside the workspace (another checkout, a stale
+    # GITHUB_WORKSPACE): relative to the working directory, as before
+    elsewhere = tmp_path / "checkout"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert _sarif_location("app/a.py", str(repo))[0] == "app/a.py"
+    monkeypatch.chdir(repo / "backend")
     # a symlink in the repository to a directory outside it: as written
     try:
         (repo / "linked").symlink_to(tmp_path / "other", target_is_directory=True)
