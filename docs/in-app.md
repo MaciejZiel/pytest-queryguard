@@ -315,8 +315,9 @@ Python's process-wide registry. A callable receives a `RequestReport` with `meth
 `sampled` and `message`. Each of `findings` is a `queryguard.Finding` with
 `kind`, `label`, `file`, `function`, `line`, `count` and `message`, the keys
 the panel's JSON shows; its other attributes are internal (see
-[Stability](stability.md#the-in-application-mode)). `statements` and `statement_count` are the names
-the panel's JSON, OpenTelemetry and Sentry use too; in a test, `QueryLog`
+[Stability](stability.md#the-in-application-mode)). `statements` and
+`statement_count` are the names the panel's JSON, OpenTelemetry and Sentry
+use too; in a test, `QueryLog`
 calls the same `Query` objects `queries` and their number `count`.
 
 ```python

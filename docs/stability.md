@@ -163,10 +163,12 @@ checks the reporters' keys:
   may build a `RequestReport` with keyword arguments: `id` and `name` are
   required, every other field has a default.
 - The public fields of `Finding`, the objects in `RequestReport.findings`:
-  `kind`, `label`, `file`, `function` (the identity, as in the baseline),
-  `line`, `count` and `message` (its text is not public). These are the
+  `kind`, `label`, `file` and `function` (together the identity, as in the
+  baseline; the Sentry fingerprint is made from them), `line`, `count` and
+  `message` (its text is not public). These are the
   keys of a finding in the panel's JSON. A test of a `report` callable may
-  build a `Finding` with them as keyword arguments. Its other attributes
+  build a `Finding` with them as keyword arguments (`line` and `count` may
+  be left out: they default to `None` and `1`). Its other attributes
   (`severity`, `tests`, `peak`, `advice`, `table`, `stack`, `fix` and the
   `identity` property) belong to the pytest plugin and may change in any
   release, as may the module the class is defined in.

@@ -103,8 +103,9 @@ class Finding:
     (``Order.customer``), for ``unused-columns`` the class (``Customer``),
     for ``missing-index`` the table. ``file`` and
     ``function`` say where it first happened: ``file`` is relative to pytest's
-    rootdir, with forward slashes, or as the interpreter reports it when the
-    file is outside the rootdir; both are None when the call site is unknown.
+    rootdir (in the in-application mode, to the current directory), with
+    forward slashes, or as the interpreter reports it when the file is
+    outside it; both are None when the call site is unknown.
 
     ``(kind, label, file, function)`` is the identity: it stays the same from
     run to run, whatever the line numbers and counts, and whatever directory

@@ -512,11 +512,14 @@ def test_app_dataclass_fields(name: str) -> None:
 
 
 def test_app_finding_public_fields() -> None:
+    import typing
+
     from pytest_queryguard.app import Finding
 
     fields = {f.name: f for f in dataclasses.fields(Finding)}
+    hints = typing.get_type_hints(Finding)
     for name, annotation in EXPECTED_APP_FINDING_FIELDS.items():
-        assert fields[name].type == annotation, name
+        assert hints[name] == eval(annotation), name
     # A test of a report callable may build one with the public fields as
     # keywords, so every internal field needs a default.
     for name, f in fields.items():
@@ -543,6 +546,8 @@ def test_app_finding_public_fields() -> None:
         "count": 5,
         "message": "m",
     }
+    minimal = Finding(kind="k", label="l", file=None, function=None, message="m")
+    assert (minimal.line, minimal.count) == (None, 1)
     # the panel's JSON shows exactly the public fields
     assert sorted(EXPECTED_FINDING_DICT) == sorted(EXPECTED_APP_FINDING_FIELDS)
 
