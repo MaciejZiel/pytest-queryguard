@@ -6,8 +6,8 @@ Action moves to a repository of its own for the GitHub Marketplace. The plan:
 December 2026 with the classifier `Development Status :: 5 - Production/Stable`,
 the action in the Marketplace, fresh benchmark numbers and an article.
 
-It was written on 2026-11-08 against `main` at #367, while the release pull
-request of 0.10.0 (#369) was still open, and it follows
+It was written on 2026-11-08, right after the release pull request of
+0.10.0 (#369) was merged and before `v0.10.0` was tagged, and it follows
 [The API freeze before 1.0](design-1.0-freeze.md), whose recommendations it
 checks first.
 
@@ -39,7 +39,7 @@ detection detail (see [What is not public](stability.md#what-is-not-public)).
 
 ## Before 1.0.0rc1 (end of November)
 
-1. **Release 0.10.0.** Merge #369, run the release gate on `main`, tag
+1. **Release 0.10.0.** #369 is merged: run the release gate on `main`, tag
    `v0.10.0`. Then update the pytest-queryguard row of the
    [comparison](comparison.md#who-is-who), which still names 0.9.0
    (2026-11-07) and targets "SQLAlchemy 2" only, once 0.10.0 is on PyPI: the
