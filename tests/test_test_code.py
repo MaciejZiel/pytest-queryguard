@@ -467,7 +467,9 @@ def test_an_installed_application_called_from_the_test_is_reported(
     result.stdout.no_fnmatch_line("*in test code left out*")
 
 
-@pytest.mark.parametrize("package", ["model_bakery", "mixer", "ddf"])
+@pytest.mark.parametrize(
+    "package", ["model_bakery", "model_mommy", "mixer", "django_dynamic_fixture"]
+)
 def test_an_installed_test_data_builder_is_a_test_tool(
     project: Any, package: str
 ) -> None:

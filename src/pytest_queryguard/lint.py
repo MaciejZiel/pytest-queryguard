@@ -1603,22 +1603,29 @@ def _github_path(file: str, workspace: str | None) -> str:
     """The path of a finding relative to the repository root, for an annotation.
 
     In GitHub Actions (``workspace`` is ``GITHUB_WORKSPACE``) the file is
-    resolved, against the working directory when it is relative, and made
-    relative to the workspace, as the SARIF paths are; a file outside it gets
-    its absolute path (a relative one would be read from the workspace). A
-    run outside GitHub Actions keeps the path the report has.
+    made relative to the workspace, as the SARIF paths are: resolved, against
+    the working directory when it is relative, or else as written (a symlink
+    in the repository to a directory outside it). A file outside the
+    workspace keeps its absolute path, and a relative one is made absolute
+    (GitHub would read it from the repository root). A run outside GitHub
+    Actions keeps the path the report has.
     """
-    if workspace and workspace.strip():
-        try:
-            base = Path(os.path.realpath(workspace.strip()))
-            resolved = Path(os.path.realpath(file))
-        except (ValueError, OSError):
-            return file
-        try:
-            return resolved.relative_to(base).as_posix()
-        except ValueError:
-            return resolved.as_posix()
-    return file
+    if not workspace or not workspace.strip():
+        return file
+    try:
+        base = workspace.strip()
+        absolute = os.path.abspath(file)
+        for path, root in (
+            (os.path.realpath(file), os.path.realpath(base)),
+            (absolute, os.path.abspath(base)),
+        ):
+            try:
+                return Path(path).relative_to(root).as_posix()
+            except ValueError:
+                pass
+    except OSError:
+        return file
+    return file if os.path.isabs(file) else Path(absolute).as_posix()
 
 
 def to_github(report: Report, workspace: str | None = None) -> str:

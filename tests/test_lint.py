@@ -693,10 +693,17 @@ def test_github_paths_are_relative_to_the_workspace(
     assert path(str(repo / "lib" / "a.py"), str(repo)) == "lib/a.py"
     # outside the workspace: absolute, also when the report has it relative
     outside = str(tmp_path / "elsewhere" / "a.py")
-    # resolved: /var is /private/var on macOS, RUNNER~1 a long name on Windows
-    absolute = lint._escape_property(Path(os.path.realpath(outside)).as_posix())
-    assert path(outside, str(repo)) == absolute
-    assert path("../../elsewhere/a.py", str(repo)) == absolute
+    assert path(outside, str(repo)) == lint._escape_property(outside)
+    assert path("../../elsewhere/a.py", str(repo)) == lint._escape_property(
+        Path(os.path.abspath(outside)).as_posix()
+    )
+    # a symlink in the repository to a directory outside it: as written
+    try:
+        (repo / "linked").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    except OSError:  # Windows without the symlink privilege
+        pass
+    else:
+        assert path("../linked/a.py", str(repo)) == "linked/a.py"
     # outside GitHub Actions: as the report has it
     assert path("app/a.py", None) == "app/a.py"
 

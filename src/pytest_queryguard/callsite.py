@@ -472,12 +472,11 @@ _TEST_LIBRARIES = frozenset(
         "factory",
         "polyfactory",
         # Django's test-data builders: model_bakery (formerly model_mommy),
-        # mixer and django-dynamic-fixture
+        # mixer and django-dynamic-fixture (its "ddf" package only re-exports)
         "model_bakery",
         "model_mommy",
         "mixer",
         "django_dynamic_fixture",
-        "ddf",
         "faker",
         "greenlet",
         "anyio",
