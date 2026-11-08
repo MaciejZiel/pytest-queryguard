@@ -130,5 +130,11 @@ job of the release gate (the CI job's looser margin lets more through) or
 that did not pass. When the gate fails on a CPU model that has no entry yet,
 and the code did not change, record that model from the failed log with
 `--record LOG --even-failed`; this is refused for a model that has an entry.
+When a pull request makes the measurement slower on purpose and says why,
+the gate can fail on CPU models that have an entry, and no green log of
+them exists to record from. Record from that pull request's gate runs with
+`--record LOG... --accept-cost`: failed logs count too, and the entries of
+CPU models not in the logs are dropped (they measured the old cost; such a
+model falls back to the highest entry until it is recorded again).
 `--update` measures on the current machine and writes its entry, which is
 only right on the runner.
