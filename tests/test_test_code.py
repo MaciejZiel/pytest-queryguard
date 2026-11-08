@@ -433,8 +433,11 @@ def test_an_installed_application_called_from_the_test_is_reported(
     (installed / "installedshop.py").write_text(APP)
     project.makepyfile(
         test_a="""
+        import os
         import sys
-        sys.path.insert(0, "venv/lib/site-packages")
+        # absolute: Python 3.10 keeps the import finder of a relative entry
+        # across runs, so it would look in the previous test's directory
+        sys.path.insert(0, os.path.abspath("venv/lib/site-packages"))
         from installedshop import customer_names
         from qgmodels import make_sync_session
 
@@ -473,8 +476,11 @@ def test_an_installed_session_subclass_is_no_application(project: Any) -> None:
     )
     project.makepyfile(
         test_a="""
+        import os
         import sys
-        sys.path.insert(0, "venv/lib/site-packages")
+        # absolute: Python 3.10 keeps the import finder of a relative entry
+        # across runs, so it would look in the previous test's directory
+        sys.path.insert(0, os.path.abspath("venv/lib/site-packages"))
         from fakesqlmodel import Session
         from sqlalchemy import select
         from qgmodels import Customer, make_sync_session

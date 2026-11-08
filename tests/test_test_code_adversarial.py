@@ -65,8 +65,11 @@ def test_installed_application_called_from_a_fixture(project: Any) -> None:
     _write(installed, "installedshop/__init__.py", APP)
     project.makeconftest(
         """
+        import os
         import sys
-        sys.path.insert(0, "venv/lib/python3/site-packages")
+        # absolute: Python 3.10 keeps the import finder of a relative entry
+        # across runs, so it would look in the previous test's directory
+        sys.path.insert(0, os.path.abspath("venv/lib/python3/site-packages"))
         import pytest
         from installedshop import customer_names
         from qgmodels import make_sync_session
@@ -376,8 +379,11 @@ def view(session):
     )
     project.makepyfile(
         test_a="""
+        import os
         import sys
-        sys.path.insert(0, "venv/lib/site-packages")
+        # absolute: Python 3.10 keeps the import finder of a relative entry
+        # across runs, so it would look in the previous test's directory
+        sys.path.insert(0, os.path.abspath("venv/lib/site-packages"))
         from fakeframework import request
         from qgmodels import make_sync_session
         from shop import before_request, view
