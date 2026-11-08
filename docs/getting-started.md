@@ -209,6 +209,13 @@ FAILED tests/test_orders.py::test_rename_customers - Failed: queryguard: expe...
 3 failed in 0.08s
 ```
 
+The loops are in `app/`, the code you ship, and the tests call it. A loop
+written in the test function itself (or in `conftest.py`, a factory or a
+helper under `tests/`) is test code: it never runs in production, so by
+default it fails no test. The run then ends with a `queryguard: test code`
+section that counts those findings, names the tests and says how to see them
+(`pytest -o queryguard_test_code=warn`). See
+[Test code](how-detection-works.md#test-code).
 
 The fixed code loads the related rows with the parent query and fetches many
 rows with one `IN` query.

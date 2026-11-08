@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from pytest_queryguard import callsite
+from pytest_queryguard.messages import format_test_code_summary
 
 from .conftest import INNER_ADDOPTS
 
@@ -57,11 +58,19 @@ def test_loop():
         _ = order.customer.name
 """
 
-SUMMARY = (
-    "queryguard: 1 N+1 finding in test code left out (1 test): statements of "
-    "test modules, conftest.py, factories and helpers under tests/, not of the "
-    "application; queryguard_test_code = warn shows them"
-)
+SUMMARY = [
+    "*= queryguard: test code =*",
+    (
+        "1 N+1 finding in test code left out (1 test): the statements ran only in "
+        "test modules, conftest.py, factories or helpers under tests/, not in the "
+        "application."
+    ),
+    (
+        "To see it: pytest -o queryguard_test_code=warn, or set queryguard_test_code "
+        "= warn (or fail) in the pytest configuration."
+    ),
+    "Why: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#test-code",
+]
 
 
 @pytest.fixture
@@ -76,7 +85,7 @@ def test_a_loop_in_the_test_function_passes_and_is_counted(project: Any) -> None
     project.makepyfile(test_a=TEST_LOOP)
     result = project.runpytest()
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines([SUMMARY])
+    result.stdout.fnmatch_lines([*SUMMARY, "  test_a.py::test_loop"])
     result.stdout.no_fnmatch_line("*N+1 detected*")
 
 
@@ -144,7 +153,7 @@ def test_a_helper_under_tests_is_test_code(project: Any) -> None:
     )
     result = project.runpytest()
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines([SUMMARY])
+    result.stdout.fnmatch_lines(SUMMARY)
 
 
 def test_a_conftest_client_calling_the_application_is_the_application(
@@ -218,7 +227,7 @@ def test_a_factory_module_is_test_code(project: Any) -> None:
     )
     result = project.runpytest()
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines([SUMMARY])
+    result.stdout.fnmatch_lines(SUMMARY)
     result = project.runpytest("-o", "queryguard_test_code=fail")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*first at seeding.py:*in customer_id"])
@@ -258,7 +267,13 @@ def test_the_summary_adds_up_the_workers(project: Any) -> None:
     result = project.runpytest("-n", "2", "-p", "no:cacheprovider")
     result.assert_outcomes(passed=2)
     result.stdout.fnmatch_lines(
-        ["queryguard: 2 N+1 findings in test code left out (2 tests): *"]
+        [
+            "2 N+1 findings in test code left out (2 tests): *",
+            "To see them: *",
+            "Why: *",
+            "  test_a.py::test_loop",
+            "  test_b.py::test_other",
+        ]
     )
 
 
@@ -494,7 +509,7 @@ def test_an_installed_session_subclass_is_no_application(project: Any) -> None:
     )
     result = project.runpytest()
     result.assert_outcomes(passed=1)
-    result.stdout.fnmatch_lines([SUMMARY])
+    result.stdout.fnmatch_lines(SUMMARY)
 
 
 def test_an_update_adds_no_test_code_finding_to_the_baseline(project: Any) -> None:
@@ -514,3 +529,19 @@ def test_warn_gives_test_code_findings_their_patch(project: Any) -> None:
     )
     result.assert_outcomes(passed=1, warnings=1)
     assert "joinedload(Order.customer)" in (project.path / "qg.patch").read_text()
+
+
+def test_the_summary_names_five_tests_and_counts_the_rest() -> None:
+    left_out = {f"test_x.py::test_{n}": 1 for n in range(7)}
+    left_out["test_x.py::test_0"] = 3
+    lines = format_test_code_summary(left_out)
+    assert lines[0].startswith("9 N+1 findings in test code left out (7 tests): ")
+    assert lines[1].startswith("To see them: pytest -o queryguard_test_code=warn")
+    assert lines[3:] == [
+        "  test_x.py::test_0",
+        "  test_x.py::test_1",
+        "  test_x.py::test_2",
+        "  test_x.py::test_3",
+        "  test_x.py::test_4",
+        "  and 2 more",
+    ]

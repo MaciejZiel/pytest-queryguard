@@ -401,7 +401,7 @@ jobs:
           # pytest runs in examples/action-sample, but GitHub reads the URI
           # relative to the repository root, so the directory must be in it
           uri = location["artifactLocation"]["uri"]
-          assert uri == "examples/action-sample/test_books.py", uri
+          assert uri == "examples/action-sample/library.py", uri
           assert os.path.isfile(uri), uri
           print("SARIF ok:", result["message"]["text"].splitlines()[0])
           PY
