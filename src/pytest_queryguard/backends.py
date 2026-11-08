@@ -39,8 +39,6 @@ def _module(name: str) -> Any:
 def install() -> None:
     """Install the ORM integrations; idempotent and cheap after the first call."""
     global _wanted
-    if _wanted:
-        return  # the push hook does the rest at every measurement
     _wanted = True
     collector.on_push(_on_push)
     collector.on_push_local(_on_push_local)
