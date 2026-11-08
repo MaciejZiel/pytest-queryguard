@@ -42,7 +42,8 @@ detection detail (see [What is not public](stability.md#what-is-not-public)).
 1. **Release 0.10.0.** Merge #369, run the release gate on `main`, tag
    `v0.10.0`. Then update the pytest-queryguard row of the
    [comparison](comparison.md#who-is-who), which still names 0.9.0
-   (2026-11-07), once 0.10.0 is on PyPI. S.
+   (2026-11-07) and targets "SQLAlchemy 2" only, once 0.10.0 is on PyPI: the
+   version, its date, and Django (experimental) among the targets. S.
 2. **Decide freeze item 2.** Keep `queryguard_write_loop_threshold` and
    `queryguard_small_repeat_threshold` at `0` (off), or switch one on now under
    the pre-1.0 clause. After rc1 the default is frozen until 2.0. Write the
@@ -163,13 +164,20 @@ action, so the install step chooses by what it finds:
 
 - `$GITHUB_ACTION_PATH/../pyproject.toml` exists: this repository's layout,
   install from the checkout, as today.
-- Otherwise read `$GITHUB_ACTION_PATH/PLUGIN_VERSION`, a file the release
-  writes into the action repository, and install
-  `pytest-queryguard==<that version>` from PyPI.
+- Otherwise install the wheel that the release copies into the action
+  repository (`dist/pytest_queryguard-X.Y.Z-py3-none-any.whl`, the same file
+  that was published to PyPI); pip still resolves pytest and SQLAlchemy from
+  the index, as it does today.
 
 So the plugin still matches the pinned ref in both places, and the
-`package` input keeps its meaning. This is one small change to the install
-step, tested in `tests/test_action_steps.py` with and without the file.
+`package` input keeps its meaning. Installing
+`pytest-queryguard==X.Y.Z` from PyPI instead would be simpler, but a commit
+SHA of the action would then no longer fix the plugin code that runs: the
+wheel would come from the index, by version, without a hash. With the wheel
+in the repository, a SHA pin covers the plugin as it does today. The wheel is
+pure Python and a few hundred kilobytes. This is one small change to the
+install step, tested in `tests/test_action_steps.py` with and without the
+`pyproject.toml` above the action.
 
 ### How a release reaches the action repository
 
@@ -178,8 +186,9 @@ version it names is on PyPI before any workflow can ask for it):
 
 1. Check out the tag of this repository and the action repository.
 2. Replace the action repository's files with `action/action.yml`, an
-   `action/README.md` written for the listing, `LICENSE`, and
-   `PLUGIN_VERSION` holding the version of the tag.
+   `action/README.md` written for the listing, `LICENSE`, and the wheel of
+   the tag in `dist/`, taken from the `dist` artifact of the same run (the
+   file `publish` uploaded).
 3. Commit as "pytest-queryguard X.Y.Z" and tag `vX.Y.Z`. For a final release,
    also move the major tag (`v1`) to that commit; a pre-release (`1.1.0rc1`)
    gets its own tag only, so `@v1` never runs a release candidate.
@@ -187,7 +196,7 @@ version it names is on PyPI before any workflow can ask for it):
    latest; a pre-release is marked so).
 
 The job pushes with a deploy key of the action repository (write access to
-that one repository only), stored as a secret of a `action-repo` environment
+that one repository only), stored as a secret of an `action-repo` environment
 in this repository, like the `pypi` environment of the publish job. A token
 of this repository cannot push there, and a personal access token would
 reach every repository of the account.

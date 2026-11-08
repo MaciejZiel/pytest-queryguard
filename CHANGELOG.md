@@ -16,7 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Marketplace (not created yet).
 - [Stability](docs/stability.md#what-is-not-public): which code counts as
   test code for `queryguard_test_code` is not public, while the option, its
-  values and its default are; the CI list names the Django job.
+  values and its default are; the CI list names the Django job and its
+  combinations.
 - [CI](docs/ci.md#the-action) and the action's `package` input: the `lint`
   input needs pytest-queryguard 0.10.0 or newer when `package` names a
   release.
