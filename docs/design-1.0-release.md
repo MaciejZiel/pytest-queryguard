@@ -65,11 +65,15 @@ detection detail (see [What is not public](stability.md#what-is-not-public)).
    Django backend) has the 1.1.0 milestone and shipped as experimental in
    0.10.0: keep it open for leaving experimental and say so in a comment. The
    1.0.0 milestone should then be empty. S.
-6. **Optional, while the tools are experimental:** freeze items 23 (`--top` to
+6. **Dependabot.** On 2026-11-08 three alerts were open, all for
+   Django REST framework in `uv.lock` (the `django` test group, not a
+   dependency of the package), fixed in 3.18.2. Update the lock file in its
+   own pull request so the rc1 tag has no open alert. S.
+7. **Optional, while the tools are experimental:** freeze items 23 (`--top` to
    `--rows`) and 24 (`_count` keys, `kind` and `label` in the static-check
    JSON). Neither blocks 1.0; each is cheaper before more people script
    against it. M each.
-7. **The rc1 release pull request.** `__version__ = "1.0.0rc1"`, a changelog
+8. **The rc1 release pull request.** `__version__ = "1.0.0rc1"`, a changelog
    entry `## [1.0.0rc1] - <date>` whose introduction says that the public API
    is frozen and records item 2, and the link references. `docs/index.md`,
    `docs/getting-started.md` and `llms.txt` may keep describing 0.10.0, and
@@ -77,10 +81,10 @@ detection detail (see [What is not public](stability.md#what-is-not-public)).
    gate accepts, and for the pin requires, the newest final release, which is
    what pip installs. The classifier stays `4 - Beta`: the gate rejects
    `Production/Stable` on a pre-release. S.
-8. **Gate and tag.** Run the release gate on `main` at the merged commit, tag
+9. **Gate and tag.** Run the release gate on `main` at the merged commit, tag
    `v1.0.0rc1`. The gate's upgrade check installs 0.10.0 first, then rc1 over
    it. S.
-9. **Ask for the soak.** rc1 is installed only with
+10. **Ask for the soak.** rc1 is installed only with
    `pip install --pre pytest-queryguard` or `pytest-queryguard==1.0.0rc1`. Run
    the real-world workflow (`realworld.yml`) and the Django projects of
    [Django](django.md#real-projects) on the tag. Write down what counts as a
