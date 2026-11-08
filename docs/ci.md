@@ -87,16 +87,23 @@ failed. Install your own project first: the action does not know how.
 | `compare` | `true` | On a pull request, compare the counts with the base branch and write the result to the job summary. |
 | `comment` | `true` | Also post the comparison as a pull-request comment, updated in place on later pushes. |
 | `trend` | `false` | Since 0.8.0, experimental. A number of runs N (2 to 100; `true` means 10): on pushes to the default branch and on pull requests, show how the counts moved over the last N runs, see [below](#query-counts-over-the-last-runs). |
-| `github-token` | `github.token` | Token for the comparison, the trend and the comment. |
+| `github-token` | `github.token` | Token for the comparison, the trend, the comment and the changed files of `lint: changed`. |
+| `lint` | `false` | Since 1.0.0, experimental. `true`: after pytest, run the [static check](static-check.md) on `lint-paths` with `--format github`, so its findings show as warnings on the lines of the pull request. `changed`: on a pull request, only the changed Python files in `lint-paths`. See [below](#the-static-check-as-annotations). |
+| `lint-models` | empty | The modules that define or import your mapped classes, separated by spaces (`app.models`). Required when `lint` is not `false`. |
+| `lint-paths` | `.` | Files and directories for the static check, relative to `working-directory`, split like `pytest-args`. |
 
 `fail`, `upload`, `compare` and `comment` take `true` or `false` (in any
 case) and nothing else: the action stops with an error on a value such as
 `yes`, `1` or an empty string, which would otherwise quietly mean `false`.
 `trend` takes `false`, `true` or a number from 2 to 100, and stops the same
-way on anything else.
+way on anything else. `lint` takes `true`, `changed` or `false`; when it is
+not `false`, `lint-models` must hold module names (letters, digits, `_` and
+dots), or the action stops before pytest runs.
 
-Outputs: `exit-code` (pytest's), `sarif-file`, `json-file` and `trend-report`
-(since 0.8.0: the trend's Markdown file, empty when there is none).
+Outputs: `exit-code` (pytest's), `sarif-file`, `json-file`, `trend-report`
+(since 0.8.0: the trend's Markdown file, empty when there is none) and
+`lint-exit-code` (since 1.0.0: the static check's, `0` or `1`, empty when it
+did not run).
 
 ### Query counts on pull requests
 
@@ -218,6 +225,49 @@ A typical rollout: run once with `fail: "false"` to see the alerts, create a
 [baseline](baseline.md) for what you cannot fix yet, then switch to
 `fail: "true"` (the default).
 
+### The static check as annotations
+
+Add to the `with:` of the action:
+
+```yaml
+          lint: changed            # or "true" for every file of lint-paths
+          lint-models: app.models
+          lint-paths: app
+```
+
+With `lint`, the action runs
+`python -m pytest_queryguard.lint --format github --models=app.models -- PATHS`
+in `working-directory` after pytest, the upload and the comparison, so that
+a check that cannot run does not keep those from running. The paths of the
+annotations are relative to the root of the checkout, also when
+`actions/checkout` puts it below the workspace with `path:`. Each finding is a
+[workflow command](https://docs.github.com/actions/reference/workflow-commands-for-github-actions#setting-a-warning-message),
+`::warning file=...,line=...,col=...`, which GitHub shows as an annotation on
+that line of the pull request's diff and in the run's summary. The check
+imports `lint-models` (see [Static check](static-check.md#running-it)), so
+the step needs your project installed, as pytest does.
+
+- `lint: changed` checks the Python files the pull request adds or changes
+  that are in `lint-paths`, as GitHub's list of the pull request's files
+  names them; that list needs `pull-requests: read`. Without it, the step
+  warns and checks all of `lint-paths`, as it does for a pull request of
+  3000 files or more, the most GitHub lists. When no such file changed, the check
+  does not run. On other events (a push), `changed` checks all of
+  `lint-paths`.
+- Findings do not fail the job: the check is experimental and reports likely
+  N+1 queries, not measured ones (pytest measures). Use the `lint-exit-code`
+  output (`1` when anything is reported) in a later step to fail on them.
+  A model module that cannot be imported, a missing path or an invalid
+  `lint-paths` fails the step.
+- GitHub shows at most 10 warning annotations per step and 50 per job; the
+  rest are in the log.
+- The annotations are not code scanning alerts. To get those, upload the
+  check's SARIF file as shown in
+  [Static check](static-check.md#sarif-output).
+
+`lint`, `lint-models`, `lint-paths` and `lint-exit-code` are experimental
+(see [Stability](stability.md#experimental)).
+
 ## Permissions and forks
 
 - Uploading needs `security-events: write` on the job (or the workflow).
@@ -247,6 +297,7 @@ A typical rollout: run once with `fail: "false"` to see the alerts, create a
 | `security-events: write` | `upload: "true"` | The upload step fails (it has `continue-on-error`), the job does not. |
 | `actions: read` | `compare`, `trend`; the upload in a private repository | The job summary or the log says the runs could not be listed. |
 | `pull-requests: write` | `comment: "true"` | A warning in the log; the report stays in the job summary. |
+| `pull-requests: read` | `lint: changed` | A warning in the log; every file of `lint-paths` is checked. `pull-requests: write` includes it. |
 
 Grant only what the inputs you use need: with `upload: "false"`,
 `compare: "false"` and `comment: "false"` the job needs `contents: read`

@@ -13,6 +13,22 @@ from ..kit import BUG, REPEAT, Ctx
 
 VERDICT = BUG
 KINDS = frozenset({REPEAT})
+_SEPARATE = (
+    "four passes of the comprehension and a fifth run on a line of its own: a "
+    "run whose call path no other run has is no pass of a loop, so the loop "
+    "has four runs, below the repeat threshold of 5"
+)
+KNOWN = {
+    "default": _SEPARATE,
+    "write-loop": _SEPARATE,
+    "column-load-2": _SEPARATE,
+    "unused-eager-load": _SEPARATE,
+    "unused-columns": _SEPARATE,
+    "strict": _SEPARATE,
+    "session-scope": _SEPARATE,
+    "small-repeat": None,
+    "all-opt-in": None,
+}
 setup = shop.setup
 
 

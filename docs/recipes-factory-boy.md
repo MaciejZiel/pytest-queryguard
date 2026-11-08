@@ -7,17 +7,24 @@ those `INSERT` statements as part of the test. Two things follow:
 
 - With the opt-in write-loop rule on (`queryguard_write_loop_threshold`), a
   factory that flushes each object it creates reads as a row-by-row write loop:
-  one `INSERT` per row from one line. The rule cannot tell seeding from a loop
-  in the code under test (see [Limitations](limitations.md)).
+  one `INSERT` per row from one line.
 - A factory that commits each object (`sqlalchemy_session_persistence =
-  "commit"`) expires it, so reading the created objects back in the test
-  reloads them one by one. That is reported by the default rules as
-  `column-load` and `relationship-load`.
+  "commit"`) expires it, so reading the created objects back reloads them one
+  by one: `column-load` and `relationship-load` by the default rules.
 
-This page shows two ways out: seed in fixtures, which are not measured, or
-leave out the seeding findings with `queryguard_ignore`. It was run with
-Factory Boy 3.3.3, SQLAlchemy 2.1.1, pytest 9.1 and Python 3.13; pytest-queryguard
-0.5.0rc3.
+Since 0.9.0 the statements that run only in test code (the test function, a
+factory, a helper under `tests/`, with no frame of the application on the
+stack) are left out of the findings by default, and only counted in one line
+at the end of the run (`queryguard_test_code = off`, see
+[Test code](how-detection-works.md#test-code)). A factory's `INSERT`s and the
+test reading its own objects back are test code; the application reading
+the objects a factory committed is not. So the seeding below fails no test
+by default. This page shows what to do where it does: with
+`queryguard_test_code = fail` (or before 0.9.0), and for the application's
+reads. Two ways out: seed in fixtures, which are not measured, or leave out
+the seeding findings with `queryguard_ignore`. It was run with Factory Boy
+3.3.3, SQLAlchemy 2.1.1, pytest 9.1 and Python 3.13; pytest-queryguard
+0.5.0rc3, and again with the default of 0.9.0.
 
 pytest-django suites that use the Django ORM are not affected: pytest-queryguard
 sees only statements that go through SQLAlchemy, so it reports nothing for
@@ -182,23 +189,29 @@ def test_import_customers(session):
 `test_seeded_in_a_fixture` passes with or without the ignore pattern.
 
 Keep `"flush"` (or Factory Boy's default, which only adds the objects to the
-session) when the test reads the created objects. With `"commit"`, each commit
-expires the objects, and the test reloads every one of them, which the default
-rules report even when the rows came from a fixture: with both factories set
-to `"commit"`, a test that reads `order.customer.name` for each of the ten
-orders of the `orders` fixture fails with two `column-load` findings,
-`Order (expired)` and `Customer (expired)`. If the factories must commit,
-create the session with `sessionmaker(expire_on_commit=False)`; the same test
-then passes.
+session) when the code reads the created objects. With `"commit"`, each commit
+expires the objects, and reading them reloads every one of them, even when
+the rows came from a fixture: with both factories set to `"commit"`, a
+function of the application that reads `order.customer.name` for each of the
+ten orders of the `orders` fixture fails the test with two `column-load`
+findings, `Order (expired)` and `Customer (expired)` (the same reads in the
+test function are test code, left out by default). If the factories must
+commit, create the session with `sessionmaker(expire_on_commit=False)`; the
+same test then passes.
 
 ## 2. Leave out the seeding findings
 
 Where moving every factory call into fixtures is too much work, leave the
-findings out. A finding's call site is the first line outside SQLAlchemy,
-pytest, the standard library and `site-packages`. Factory Boy is installed in
-`site-packages`, so the call site of a factory's `INSERT` is the line in the
-test that called the factory, not `tests/factories.py`. Without the ignore
-pattern, `test_seeded_in_the_body` fails like this:
+findings out. By default the plugin does it for you: every frame of your code
+on the stack of a factory's `INSERT` is test code (the test function and,
+when it has hooks, `tests/factories.py`), so the finding is left out and
+counted in the summary line. With `queryguard_test_code = fail`, or before
+0.9.0, use an ignore pattern. A finding's call site is the first line outside
+SQLAlchemy, pytest, the standard library and `site-packages`. Factory Boy is
+installed in `site-packages`, so the call site of a factory's `INSERT` is the
+line in the test that called the factory, not `tests/factories.py`. Without
+the ignore pattern, and with `queryguard_test_code = fail`,
+`test_seeded_in_the_body` fails like this:
 
 ```
 queryguard: N+1 detected

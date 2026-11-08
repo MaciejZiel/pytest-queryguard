@@ -123,6 +123,9 @@ class QueryCollector:
     strict_threshold: int = 2
     # count each Session on its own, as queryguard_scope = session does
     strict_by_scope: bool = False
+    # count the lazy loads of test code too (RelationshipLoadEvent.test_code),
+    # as queryguard_test_code = fail does
+    strict_test_code: bool = True
     # The application lines a scope began from (callsite.find_entry), see
     # unit_of: lines -> the one scope begun from them, None once several
     # were (at most MAX_ENTRIES lines), and scope -> its lines for the
@@ -281,6 +284,8 @@ class QueryCollector:
         strict = self.strict
         key = self._strict_key(load)
         if strict is None or key is None:
+            return None
+        if load.test_code and not self.strict_test_code:
             return None
         scope = key[2]
         if _FREE_THREADED:
@@ -446,7 +451,7 @@ class QueryCollector:
         now counts for the group ``strict_check`` made for it."""
         key = self._strict_key(load)
         group = None if key is None else self.strict_groups.get(key)
-        if group is None:
+        if group is None or (load.test_code and not self.strict_test_code):
             return
         if len(group.parents) < self.strict_threshold:
             group.parents.add(load.parent_key)  # no more is needed

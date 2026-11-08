@@ -137,9 +137,19 @@ FAILS = {}
 if os.environ.get("QUERYGUARD_TEST_DB_URL") and os.environ.get(
     "CORPUS_TOOL", "queryguard"
 ) == "queryguard":
-    from tests import dbredirect
+    import importlib.util
+    import sys
 
-    dbredirect.install(os.environ["QUERYGUARD_TEST_DB_URL"])
+    # The repository's tests/dbredirect.py, not the session's own tests/
+    # folder; the module itself when this process has it already.
+    _redirect = sys.modules.get("tests.dbredirect")
+    if _redirect is None:
+        _spec = importlib.util.spec_from_file_location(
+            "qg_dbredirect", os.environ["CORPUS_DBREDIRECT"]
+        )
+        _redirect = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_redirect)
+    _redirect.install(os.environ["QUERYGUARD_TEST_DB_URL"])
 
 try:
     if os.environ.get("CORPUS_TOOL", "queryguard") == "queryguard":
@@ -205,6 +215,14 @@ def write_session(directory: Path, ini: str, names: list[str]) -> Path:
     (directory / "pytest.ini").write_text(f"[pytest]\n{ini}", encoding="utf-8")
     body = (Path(__file__).with_name("session_body.py")).read_text(encoding="utf-8")
     (directory / "test_session.py").write_text(body, encoding="utf-8")
+    # the scenarios' test-side modules (kit.TEST_SIDE), in a folder named
+    # tests/ of the session, as a suite keeps its helpers
+    side = directory / kit.TEST_SIDE_FOLDER
+    side.mkdir(exist_ok=True)
+    for source in sorted(Path(__file__).with_name("testside").glob("*.py")):
+        (side / source.name).write_text(
+            source.read_text(encoding="utf-8"), encoding="utf-8"
+        )
     return directory / "corpus_out.json"
 
 
@@ -212,6 +230,9 @@ def session_env(names: list[str], out: Path, tool: str) -> dict[str, str]:
     return {
         "CORPUS_SCENARIOS": ",".join(names),
         "CORPUS_OUT": str(out),
+        "CORPUS_DBREDIRECT": str(
+            Path(__file__).resolve().parent.parent / "dbredirect.py"
+        ),
         "CORPUS_TOOL": tool,
     }
 

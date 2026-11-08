@@ -324,7 +324,7 @@ def test_the_suite_without_faults(project: pytest.Pytester) -> None:
 
 # Where each target is looked up at run time, "module:attribute".
 LISTENERS = [
-    "listeners:find_callsite",
+    "listeners:find_site_origin",
     "listeners:find_flush",
     "listeners:scope_of_session",
     "listeners:scope_of_connection",
@@ -512,7 +512,7 @@ def test_cleanup_errors_after_the_summary_do_not_break_the_run(
 # ------------------------------------------------- signals are not swallowed
 
 SIGNAL_TARGETS = [
-    "listeners:find_callsite",
+    "listeners:find_site_origin",
     "catalog:observe",
     "sqlite_index:check",
     "plugin:detect",

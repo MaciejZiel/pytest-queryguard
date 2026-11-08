@@ -12,6 +12,11 @@ A scenario module defines:
   (``test_fix_patches.py``); without it, no patch is expected;
 * ``setup(ctx)``: create the schema and seed rows; not measured;
 * ``run(ctx)``: the code under test; measured. It may be ``async``.
+* ``TEST_SIDE``: optional, instead of ``run``: the name of a module in
+  ``tests/corpus/testside/`` whose ``run(ctx)`` is the test body. The runner
+  copies those modules into a ``tests/`` folder of the generated session, so
+  the plugin sees them as the suite's own code (``queryguard_test_code``),
+  while the scenario module and the domains stay the application.
 """
 
 from __future__ import annotations
@@ -175,3 +180,30 @@ def insert_for(engine: Engine) -> Any:
     if engine.dialect.name == "mysql":
         return _MySQLInsert
     return sqlite.insert
+
+
+# Where the runner copies tests/corpus/testside/ in a generated session.
+TEST_SIDE_FOLDER = "tests"
+
+
+def test_side(name: str) -> Any:
+    """The test-side module ``name`` of the running session (see ``TEST_SIDE``).
+
+    Loaded from the session's own folder, the working directory of the run,
+    under a module name of its own.
+    """
+    import importlib.util
+    import sys
+
+    path = Path.cwd() / TEST_SIDE_FOLDER / f"{name}.py"
+    module_name = f"corpus_testside_{name}"
+    module = sys.modules.get(module_name)
+    if module is not None and getattr(module, "__file__", None) == str(path):
+        return module
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"no test-side module {name} at {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module

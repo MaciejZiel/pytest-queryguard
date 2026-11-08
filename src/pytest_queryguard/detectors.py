@@ -196,18 +196,123 @@ Detection = RelationshipFinding | RepeatFinding | ColumnLoadFinding | WriteLoopF
 Finding = Detection
 
 
+@dataclass(frozen=True, slots=True)
+class _Units:
+    """How a count rule splits the events of a test before it counts them.
+
+    ``scope`` maps an event's scope to its unit (QueryCollector.unit_of, or
+    the scope itself with scope "session"), None to keep the scopes together.
+    ``paths`` splits by call path as well (see ``_split``).
+    """
+
+    scope: Callable[[int | None], object] | None
+    paths: bool
+
+
 def _split(
     items: Sequence[_T],
     scope: Callable[[_T], int | None],
-    unit: Callable[[int | None], object] | None,
+    units: _Units | None,
 ) -> list[list[_T]]:
-    """One group with everything, or one group per unit (in order of first use)."""
-    if unit is None:
+    """One group with everything, or one group per unit (in order of first use).
+
+    With ``units.paths``, an event whose call path no other event of
+    ``items`` has is a unit of its own: code that runs the same statement at
+    separate lines (a helper called five times in a row, a test that sends
+    five requests one after the other) runs it once per path, and is no loop.
+    The events whose path repeats are the passes of a loop and count
+    together, whatever path each has, so that a loop whose passes take two
+    paths is not split in two. So do the events whose path parts from
+    another one at a call of another function (``_dispatched``): a loop
+    whose passes each call a method of their own. An event without a path
+    counts with them.
+
+    The path of a statement is its whole call path (``StatementEvent.path``).
+    The path of a lazy load or a column load is only the test lines that
+    called the application (``RelationshipLoadEvent.entry``): a loop over
+    objects already in the Session runs a load for some of them only, so
+    one load at a line of the application can still be a pass of a loop;
+    two calls of the application from separate lines of the test are not.
+    """
+    if units is None:
         return [list(items)]
+    unit = units.scope
+    repeated = _repeated_paths(items) if units.paths else None
     groups: dict[object, list[_T]] = {}
     for item in items:
-        groups.setdefault(unit(scope(item)), []).append(item)
+        path = None
+        if repeated is not None:
+            path = _path_of(item)
+            if path in repeated:
+                path = None
+        key = (None if unit is None else unit(scope(item)), path)
+        groups.setdefault(key, []).append(item)
     return list(groups.values())
+
+
+def _path_of(item: object) -> object:
+    """The path ``_split`` tells ``item`` apart by: see there."""
+    if isinstance(item, StatementEvent):
+        return item.path
+    return getattr(item, "entry", None)
+
+
+def _repeated_paths(items: Sequence[Any]) -> set[object]:
+    """The call paths of the passes of a loop: those that more than one of
+    ``items`` has, and those that part from another at a call of another
+    function (``_dispatched``)."""
+    seen: set[object] = set()
+    repeated: set[object] = set()
+    for item in items:
+        path = _path_of(item)
+        if path is None:
+            continue
+        if path in seen:
+            repeated.add(path)
+        else:
+            seen.add(path)
+    if len(seen) > 1 and len(seen) > len(repeated):  # a path of its own
+        repeated |= _dispatched(seen)
+    return repeated
+
+
+def _dispatched(paths: set[Any]) -> set[Any]:
+    """The paths that part from another one at a call of another function.
+
+    A path is ``callsite.Entry``: per frame, innermost first, its file, line,
+    the first line of its function and whether it called the next frame
+    through other code; the paths of one test end in the same frames (the
+    test function). Two paths that share their outer frames down to a line
+    that called, directly, two different functions (a method chosen by the
+    type of each item, a handler looked up in a dict) are passes of one loop
+    over those items. Two that go on at different lines of one function are
+    calls on separate lines, and so are two that a framework called from one
+    line of the test (a request hook and the view of one request): the
+    frames of the framework lie between. Not for more than ``_MAX_DISPATCH``
+    paths, where the pairing would cost more than it is worth.
+    """
+    if len(paths) > _MAX_DISPATCH:
+        return set()
+    # the outer frames shared -> the function each path goes on in -> paths
+    below: dict[tuple[Any, ...], dict[object, list[Any]]] = {}
+    for path in paths:
+        depth = len(path)
+        for shared in range(1, depth):
+            outer = path[depth - shared :]
+            if outer[0][3]:
+                continue  # called the next one through other code
+            inner = path[depth - shared - 1]
+            function = (inner[0], inner[2])
+            below.setdefault(outer, {}).setdefault(function, []).append(path)
+    found: set[Any] = set()
+    for functions in below.values():
+        if len(functions) > 1:
+            for group in functions.values():
+                found.update(group)
+    return found
+
+
+_MAX_DISPATCH = 256
 
 
 def _same(scope: int | None) -> int | None:
@@ -215,20 +320,35 @@ def _same(scope: int | None) -> int | None:
 
 
 def _units(
-    collector: QueryCollector, scoped: bool
-) -> Callable[[int | None], object] | None:
+    collector: QueryCollector, scoped: bool, paths: bool = True
+) -> _Units | None:
     """What a count rule counts together: see _split.
 
     With scope "session", each scope. With "test", the scopes begun from
     lines of their own one by one and all others together
-    (QueryCollector.unit_of); everything together when no scope's lines are
-    known (a collector built by hand) or events were left out (``max_events``).
+    (QueryCollector.unit_of). With either, the events of a call path of their
+    own one by one. Without units when events were left out (``max_events``):
+    the stored ones are not all there is, so only scope "session" splits
+    them, by scope. ``paths`` False keeps the call paths together.
     """
+    truncated = collector.truncated
+    paths = paths and not truncated
     if scoped:
-        return _same
-    if not collector.counts_units():
+        return _Units(_same, paths)
+    if truncated:
         return None
-    return collector.unit_of
+    unit = collector.unit_of if collector.counts_units() else None
+    if unit is None and not paths:
+        return None
+    return _Units(unit, paths)
+
+
+def _side(items: Sequence[_T], test_code: bool | None) -> Sequence[_T]:
+    """The events a count rule looks at: all of them (None), the application's
+    (False) or those of the test code (True), see StatementEvent.test_code."""
+    if test_code is None:
+        return items
+    return [item for item in items if getattr(item, "test_code", False) is test_code]
 
 
 def _scope_count(items: Sequence[_T], scope: Callable[[_T], object]) -> int:
@@ -346,12 +466,16 @@ def _relationship_findings(
     threshold: int,
     scoped: bool = False,
     sieve: Sieve | None = None,
+    test_code: bool | None = None,
 ) -> list[RelationshipFinding]:
     by_name: dict[str, list[RelationshipLoadEvent]] = {}
-    for load in collector.relationship_loads:
+    for load in _side(collector.relationship_loads, test_code):
         if load.parent_key is not None:
             by_name.setdefault(load.relationship, []).append(load)
-    units = _units(collector, scoped)
+    # Strict mode raises at a lazy load, before the later ones show which
+    # test lines call the application again: the lazy loads of every test
+    # line count together there, and so they do here.
+    units = _units(collector, scoped, paths=collector.strict is None)
     found: list[RelationshipFinding] = []
     for name, loads in by_name.items():
         best: list[RelationshipLoadEvent] | None = None
@@ -419,11 +543,12 @@ def _column_load_findings(
     threshold: int,
     scoped: bool = False,
     sieve: Sieve | None = None,
+    test_code: bool | None = None,
 ) -> list[ColumnLoadFinding]:
     groups: dict[
         tuple[str, tuple[str, ...], str, str | None, bool], list[ColumnLoadEvent]
     ] = {}
-    for load in collector.column_loads:
+    for load in _side(collector.column_loads, test_code):
         if load.cause != CAUSE_DEFERRED:
             attrs: tuple[str, ...] = ()
         else:
@@ -502,6 +627,7 @@ def _write_loop_findings(
     threshold: int,
     scoped: bool = False,
     sieve: Sieve | None = None,
+    test_code: bool | None = None,
 ) -> list[WriteLoopFinding]:
     """The same write, one row per statement, from one line.
 
@@ -510,7 +636,7 @@ def _write_loop_findings(
     one: SQLAlchemy sent them as it had to.
     """
     groups: dict[tuple[str, object], list[StatementEvent]] = {}
-    for stmt in collector.statements:
+    for stmt in _side(collector.statements, test_code):
         if stmt.executemany or not is_write(stmt.sql):
             continue
         if _value_rows(_WS.sub(" ", stmt.sql)) > 1:
@@ -894,7 +1020,9 @@ def _batching(stmts: Sequence[StatementEvent]) -> bool:
         return False
 
 
-def _repeat_groups(collector: QueryCollector) -> dict[str, list[StatementEvent]]:
+def _repeat_groups(
+    collector: QueryCollector, test_code: bool | None = None
+) -> dict[str, list[StatementEvent]]:
     """The statements the repeat rules count, by normalized text.
 
     Writes, transaction control (BEGIN, COMMIT, SAVEPOINT, ...) and schema
@@ -902,7 +1030,7 @@ def _repeat_groups(collector: QueryCollector) -> dict[str, list[StatementEvent]]
     one COMMIT per pass. Budgets still count them.
     """
     groups: dict[str, list[StatementEvent]] = {}
-    for stmt in collector.statements:
+    for stmt in _side(collector.statements, test_code):
         if stmt.relationship is not None or stmt.column_load:
             continue
         if is_write(stmt.sql) or is_transaction_control(stmt.sql):
@@ -918,6 +1046,7 @@ def _small_repeat_findings(
     scoped: bool = False,
     skip: frozenset[str] = frozenset(),
     sieve: Sieve | None = None,
+    test_code: bool | None = None,
 ) -> list[RepeatFinding]:
     """A few runs of one statement from one line, each with other parameters.
 
@@ -928,7 +1057,7 @@ def _small_repeat_findings(
     """
     units = _units(collector, scoped)
     found: list[RepeatFinding] = []
-    for key, all_stmts in _repeat_groups(collector).items():
+    for key, all_stmts in _repeat_groups(collector, test_code).items():
         if key in skip or _paginates(all_stmts[0].sql):
             continue
         best: list[StatementEvent] | None = None
@@ -968,12 +1097,13 @@ def _repeat_findings(
     threshold: int,
     scoped: bool = False,
     sieve: Sieve | None = None,
+    test_code: bool | None = None,
 ) -> tuple[list[RepeatFinding], set[str]]:
     """The findings, and the statements a finding inside ignore() blocks had."""
     units = _units(collector, scoped)
     found: list[RepeatFinding] = []
     hidden: set[str] = set()
-    for key, all_stmts in _repeat_groups(collector).items():
+    for key, all_stmts in _repeat_groups(collector, test_code).items():
         best: list[StatementEvent] | None = None
         held: list[IgnoreBlock] = []
         for stmts in _split(all_stmts, lambda s: s.scope, units):
@@ -1012,6 +1142,7 @@ def detect(
     write_loop_threshold: int | None = None,
     scope: str = SCOPE_TEST,
     sieve: Sieve | None = None,
+    test_code: bool | None = None,
 ) -> list[Detection]:
     """Run the count rules; ``scope`` is "test" (all) or "session" (per Session).
 
@@ -1019,18 +1150,28 @@ def detect(
     blocks for its kind is left out, and the sieve notes those blocks. Not
     when the collector stopped storing events (``max_events``): the events it
     only counted may have run outside the blocks.
+
+    ``test_code`` False counts only the statements and loads of the
+    application, True only those of the test code (``StatementEvent.test_code``),
+    None all of them.
     """
     if collector.truncated:
         sieve = None
     scoped = scope == SCOPE_SESSION
     findings: list[Detection] = []
     findings.extend(
-        _relationship_findings(collector, relationship_threshold, scoped, sieve)
+        _relationship_findings(
+            collector, relationship_threshold, scoped, sieve, test_code
+        )
     )
     findings.extend(
-        _column_load_findings(collector, column_load_threshold, scoped, sieve)
+        _column_load_findings(
+            collector, column_load_threshold, scoped, sieve, test_code
+        )
     )
-    repeats, hidden = _repeat_findings(collector, repeat_threshold, scoped, sieve)
+    repeats, hidden = _repeat_findings(
+        collector, repeat_threshold, scoped, sieve, test_code
+    )
     findings.extend(repeats)
     if small_repeat_threshold is not None and small_repeat_threshold < repeat_threshold:
         findings.extend(
@@ -1041,10 +1182,13 @@ def detect(
                 scoped,
                 frozenset(f.sql for f in repeats) | hidden,
                 sieve,
+                test_code,
             )
         )
     if write_loop_threshold is not None:
         findings.extend(
-            _write_loop_findings(collector, write_loop_threshold, scoped, sieve)
+            _write_loop_findings(
+                collector, write_loop_threshold, scoped, sieve, test_code
+            )
         )
     return findings

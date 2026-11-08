@@ -10,7 +10,13 @@ REMOVED_IN = "2.0"
 
 
 class QueryGuardWarning(UserWarning):
-    """An N+1 query pattern or a missing index found in ``warn`` mode."""
+    """A finding reported as a warning instead of failing the test.
+
+    Every finding kind in ``warn`` mode, and in ``fail`` mode the kinds that do
+    not fail: those outside ``queryguard_fail_on`` and the checks set to
+    ``warn`` (``cartesian-load`` by default). The in-application mode's
+    ``report="warn"`` issues it too.
+    """
 
 
 class QueryGuardAppWarning(QueryGuardWarning):

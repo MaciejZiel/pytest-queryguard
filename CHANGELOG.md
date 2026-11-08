@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The in-app panel's `requests.json` starts with `"format": 1`, like the
   other JSON files; its keys are listed in
   [Stability](docs/stability.md#files-tools-and-the-action) (#241).
+- `queryguard_test_code` (`off`, `warn`, `fail`; default `off`): what the N+1
+  findings of the test code itself do. A finding whose statements all ran in
+  test code, with no frame of the application on the stack (a test module, a
+  `conftest.py`, a file below a `tests` or `test` directory of the rootdir, a
+  module that defines a factory_boy or polyfactory factory), is left out and
+  counted in one line of the terminal summary; `warn` reports it as a
+  `QueryGuardWarning`, `fail` as before. A loop in the application that test
+  code calls (through a helper, a test client in `conftest.py`, a factory's
+  flush that fires a model event) is still reported. Strict mode does not
+  raise at a lazy load of the test code unless the option is `fail`. An
+  installed `Session` subclass (SQLModel's `Session.exec()`) does not make
+  the test's own queries the application's. `--queryguard-update-baseline`
+  keeps the entries of test-code findings already in the baseline and adds
+  none. See docs/how-detection-works.md#test-code.
 
 ### Changed
 
@@ -35,10 +49,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RequestReport.statements` and `statement_count` stay, as in the panel's
   JSON and the `queryguard.statement_count` OpenTelemetry attribute.
   `page_report` stays experimental (#241).
+- `app.watch()`, `app.unwatch()` and `app.is_watched()` take the engine as a
+  positional-only argument, so that a later release can accept other objects
+  than SQLAlchemy engines (a Django backend has none) without renaming it.
+  This breaks a call with the keyword: `watch(engine=e)` now raises
+  `TypeError`; pass the engine positionally, as every example does. There is
+  no deprecation period, because the mode was experimental in every release
+  so far and no example or page showed the keyword form.
+- [Stability](docs/stability.md#the-in-application-mode) says which fields of
+  `app.Finding`, the objects in `RequestReport.findings`, are public: `kind`,
+  `label`, `file`, `function`, `line`, `count` and `message`, the keys of a
+  finding in the panel's JSON, and a `Finding` may be built with them as
+  keyword arguments. Its other attributes (`severity`, `tests`, `peak`,
+  `advice`, `table`, `stack`, `fix`, `identity`) are the pytest plugin's and
+  are not public. Nothing changes in the class.
 - The WSGI middleware's ERROR record for a `report="warn"` warning that a
   filter turned into an error starts with `QueryGuardAppWarning:` instead of
   `QueryGuardWarning:`; update a log alert that matches the old prefix
   (#241).
+- `docs/recipes-ci.md` no longer says that pre-commit does not apply: it
+  does not for the plugin, and it does for the static check.
+- First install on a real suite: Faraday's 2112 tests failed 551 with the
+  defaults of `main`, nearly all for test code or for calls on separate
+  lines, and fail 79 now. By default (`queryguard_test_code = off`) the
+  N+1s of test code no longer fail a test: a factory that looks a row up for
+  every object it creates, a test helper that reads relationships lazily, the
+  test function's own loops. And the count rules tell a loop from calls on
+  separate lines: a statement whose call path (the lines of your code on the
+  stack, up to the test) no other run of it has counts on its own, also in
+  one `Session` that several requests share, and a lazy load or a column
+  load counts on its own when the test lines that called the application
+  differ. A function that runs one count per line, or a test that sends
+  requests on separate lines, is no longer a repeated-statement or
+  relationship-load finding; a loop, in the application or in the test, is
+  reported as before, also when its passes call a method of their own (paths
+  that part at one line into different functions). A loop shorter than the
+  threshold next to a run on a line of its own is no longer reported (four
+  passes and a fifth call are four runs). Strict mode still counts the lazy loads of all test lines together.
+  Corpus: 6 new scenarios (280); by default relationship-load 52/0/0 and
+  repeated-statement 47/1/3 (TP/FP/FN), from 52/3/0 and 48/4/2 on the same
+  scenarios. Each statement now walks the stack to the test once (with the
+  call site), which adds about 3 microseconds per Core statement and 8 per
+  ORM statement on the in-memory SQLite micro-benchmark (docs/performance.md). See
+  docs/how-detection-works.md#calls-on-separate-lines.
+
+### Fixed
+
+- A baseline file whose entries have keys besides `kind`, `label`, `file`
+  and `function` is read, with the other keys ignored, instead of stopping
+  pytest with `has unknown keys`. [Stability](docs/stability.md#files-tools-and-the-action)
+  says new keys may be added to a file in a minor release; with the old
+  reader, a baseline written by a later 1.x release with one more key would
+  have been unreadable by 1.0. An update still writes the four keys only.
+  A key that looks like a misspelled one of the four (`fucntion`, `File`)
+  is still an error, with the key it probably meant.
 
 ### Fixed
 
@@ -64,6 +128,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   meaning in brackets. `Query.relationship` also names every eager loader's
   extra query, not only `selectinload`'s, as it always did. Behaviour, names
   and signatures do not change.
+- [The API freeze before 1.0](docs/design-1.0-freeze.md): the last audit of
+  the public surface before 1.0.0rc1, ranked, with a recommendation for each
+  item and what is left for #357 and for 2.0.
+- [Stability](docs/stability.md): the plugin's own readers ignore keys they
+  do not know, a value keeps its type (new data goes into a new key), and a
+  key that narrows what an entry matches needs a new format number;
+  the text of a finding's `message` in the `--queryguard-json` file is not
+  public; the labels of `repeated-statement` and `write-loop` follow the SQL
+  text the ORM sends, which an ORM upgrade can change.
+- The docstrings of `QueryBudgetExceeded` (also the time budget and
+  `num_queries()`) and `QueryGuardWarning` (every finding that warns, not
+  only N+1 and missing indexes), and `llms.txt` (the rules of
+  `assert_no_nplusone()`, and `ignore()` and `QueryGuardDeprecationWarning`
+  in the list of public names).
 
 ### Internal
 
@@ -83,6 +161,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `do_orm_execute` listeners alone, and `yield_per` with `selectinload()`
   works through `AsyncSession.stream_scalars()` while the engine is watched
   (#293).
+- Tooling around the experimental static check
+  (`python -m pytest_queryguard.lint`), all experimental:
+  - `--format github` prints GitHub Actions workflow commands
+    (`::warning file=...,line=...,col=...::`), one annotation per finding,
+    with paths relative to the repository root. See
+    [Static check](docs/static-check.md#github-annotations).
+  - A pre-commit hook, `queryguard-lint`, in `.pre-commit-hooks.yaml`. It
+    needs `--models` in `args`, and the models must be importable in the
+    hook's environment (`additional_dependencies`, or a `local` hook with
+    `language: system`). See [Static check](docs/static-check.md#pre-commit).
+  - The GitHub Action's `lint` input (`true`, `changed` or `false`, the
+    default) runs the check after pytest with `--format github`, on
+    `lint-paths` or only on the Python files a pull request changed, with the
+    models of `lint-models`; the `lint-exit-code` output is its exit code.
+    Findings do not fail the job. See [CI](docs/ci.md#the-static-check-as-annotations).
+  - The MCP server's `lint` tool runs the check on given paths, without a
+    database or a test run. See [MCP server](docs/mcp.md#lint).
+- An agent skill, `skills/pytest-queryguard/SKILL.md`, and an `AGENTS.md`
+  section and a Cursor rule in [Coding agents](docs/agents.md), which tell a
+  coding agent to run the tests with `--queryguard-json`, apply the loader
+  option or the patch, and run them again.
+- [In your editor](docs/editor.md): VS Code tasks with problem matchers for
+  the test report and the static check, the SARIF file in the SARIF Viewer,
+  and what works in PyCharm.
 
 ## [0.9.0] - 2026-11-07
 
