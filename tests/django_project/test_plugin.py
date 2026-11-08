@@ -206,7 +206,7 @@ def test_django_test_case_set_up_and_tear_down_are_not_measured(
     flushed = next(v for k, v in tests.items() if "FlushedAfterEachTest" in k)
     assert flushed["findings"] == []
     # the test's own two statements; not the flush, not post_migrate
-    assert flushed["statements"] == 2
+    assert flushed["statements"] == 2, flushed
     found = next(v for k, v in tests.items() if "InATransaction" in k)
     assert [f["label"] for f in found["findings"]] == ["Author.publisher"]
 
