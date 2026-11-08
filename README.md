@@ -33,11 +33,9 @@ queryguard: N+1 detected
        select(Order).options(joinedload(Order.customer))
 ```
 
-```bash
-pip install pytest-queryguard
-```
-
 Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+.
+
+## What it catches
 
 | Check | Default | Fails a test when |
 |---|---|---|
@@ -51,30 +49,63 @@ Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+.
 | Unused eager loads | experimental, off | a relationship is eager-loaded and never read |
 | Unused columns | experimental, off | a query loads a wide row and the test reads few of its columns |
 
-Why not just `raiseload`? It blocks lazy loads where you add it to a model or
-query; this plugin needs no code change and also reports what `raiseload` does
-not cover. The two work together: see the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#how-does-this-relate-to-sqlalchemys-raiseload).
+Every test body is checked. The checks look at the application's statements:
+an N+1 in the test's own code (the test function, `conftest.py`, factories,
+helpers under `tests/`) never runs in production, so it is counted at the end
+of the run instead of failing the test (see
+[Test code](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#test-code)).
+[How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html)
+explains each rule and its threshold.
 
-| Question | Answer | Details |
-|---|---|---|
-| What does it catch? | Lazy loads, plus loops of ORM, Core and `text()` statements, column reloads, row-by-row writes and missing indexes | [Comparison](https://maciejziel.github.io/pytest-queryguard/comparison.html): 45 scenarios against two other plugins |
-| What does it cost? | Measured 2026-11-05 (0.5.0 against pytest-querycount 0.4.0 and queryspy 0.6.0; 300-test suite on file-based SQLite): about +2 % suite time; pytest-querycount +27 to +29 %, queryspy +40 to +43 % | [Performance](https://maciejziel.github.io/pytest-queryguard/performance.html#comparison-with-other-plugins) |
-| Can a legacy suite adopt it? | Yes: warn first, record a baseline, then only new findings fail | [Legacy recipe](https://maciejziel.github.io/pytest-queryguard/recipes-legacy.html) |
+## How it compares
 
-For adoption: a [baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html) so that only new
-findings fail, [SARIF and a GitHub Action](https://maciejziel.github.io/pytest-queryguard/ci.html) for code
-scanning, and per-finding [ignore patterns](https://maciejziel.github.io/pytest-queryguard/ignoring.html).
-What it does not do: it sees only statements that go through SQLAlchemy, only
-in the test body (not fixtures), and a finding says that a pattern happened,
-not that production is slow. See [Limitations](https://maciejziel.github.io/pytest-queryguard/limitations.html).
+The [comparison page](https://maciejziel.github.io/pytest-queryguard/comparison.html)
+has a dated feature matrix and the method; the numbers below are from it.
+On 2026-11-07 a [head-to-head run in GitHub Actions](https://maciejziel.github.io/pytest-queryguard/comparison.html#head-to-head-in-github-actions)
+ran 252 scenarios of the [accuracy corpus](https://maciejziel.github.io/pytest-queryguard/accuracy.html)
+(123 with an N+1 or a similar problem, 129 without) under each pytest tool
+that supports SQLAlchemy 2, each set up the way its own documentation says to
+fail a test:
 
-Documentation: <https://maciejziel.github.io/pytest-queryguard/>, starting with
-[Getting started](https://maciejziel.github.io/pytest-queryguard/getting-started.html) and
-[A test failed: now what](https://maciejziel.github.io/pytest-queryguard/when-a-test-fails.html).
+| Tool | Scenarios with a problem flagged | Scenarios without one flagged | 300-test suite, added time (median) |
+|---|---|---|---|
+| pytest-queryguard 0.8.0, defaults | 106 of 123 | 2 of 129 | +1.7% |
+| queryspy 0.6.0, `--queryspy-strict` | 98 of 123 | 27 of 129 | +28.8% |
+| pytest-querycount 0.4.0, a marker on every test | 103 of 123 | 27 of 129 | +18.5% |
+| n-plus-one-sniffer `d4790f8`, a marker on every test | 103 of 123 | 25 of 129 | +29.0% |
+| nplusone 1.0.0 | does not import on SQLAlchemy 2.1; 1 of 123 on 2.0 | | |
 
-## 30-second example
+The corpus was written by the author of pytest-queryguard, and its scenarios
+without a problem include the shapes this plugin was taught to leave alone,
+so read the table with that bias. What it does show: pytest-queryguard fails
+tests with no marker, option or fixture; it reports loops of Core `select()`
+and `text()` statements as well as lazy loads; and it rarely flags fixed
+code. Where the others are ahead (Django support, runs of 2 to 4 identical
+statements by default, exact SQL snapshots) is on the
+[same page](https://maciejziel.github.io/pytest-queryguard/comparison.html#where-the-others-are-ahead).
 
-The code behind that failure (`app/orders.py`):
+## Quick start
+
+In a project that has pytest tests for its SQLAlchemy code:
+
+```bash
+pip install pytest-queryguard
+pytest
+```
+
+There is nothing else to set up. To see a failure first, run the example
+project, which has an N+1, a `session.get()` loop and a budget:
+
+```bash
+git clone --depth 1 https://github.com/MaciejZiel/pytest-queryguard
+cd pytest-queryguard/examples/sync-n-plus-one
+python -m venv .venv && . .venv/bin/activate
+pip install pytest-queryguard
+pytest tests/test_orders.py
+```
+
+Three tests fail; `tests/test_orders_fixed.py` has the same tests against the
+fixed code and passes. The code behind the failure above is `app/orders.py`:
 
 ```python
 from sqlalchemy import select
@@ -90,62 +121,48 @@ def list_orders(session: Session) -> list[dict[str, object]]:
     return rows
 ```
 
-With `joinedload(Order.customer)` in the query the same test passes. The whole
-project (models, fixture, the fixed code, a loop of `session.get()` and a
-query budget) is in [examples/sync-n-plus-one](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples/sync-n-plus-one), and a test
-runs it and checks this output. For async code on SQLAlchemy 2.1 and newer,
-also install `sqlalchemy[asyncio]`.
+With `joinedload(Order.customer)` in the query the same test passes. When you
+try it on code of your own, put the loop in a module of the application and
+call it from the test: a loop written in the test function is test code, and
+the run then ends with a `queryguard: test code` section that counts it and
+says how to see it (`pytest -o queryguard_test_code=warn`). For async code on
+SQLAlchemy 2.1 and newer, also install `sqlalchemy[asyncio]`.
+[Getting started](https://maciejziel.github.io/pytest-queryguard/getting-started.html)
+walks through the example, async code and FastAPI.
 
-## What it finds
+## Coming from nplusone?
 
-Every test is checked automatically, inside the test function:
+nplusone has had no release since 1.0.0 (2018-05-21). It patches
+`Query.__iter__`, so on SQLAlchemy 2.0 it misses the parents loaded by a
+`select()`-style query (`session.scalars(select(Order))`), and on SQLAlchemy
+2.1 `import nplusone.ext.sqlalchemy` fails. The
+[migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-nplusone.html)
+has a find-and-replace table: delete the profiler fixture and the imports,
+`NPLUSONE_WHITELIST` becomes `queryguard_ignore`, `NPLUSONE_RAISE = False`
+becomes `queryguard_mode = "warn"`, `signals.ignore()` becomes
+`pytest_queryguard.ignore()`, and a before and after of one project.
 
-- **relationship-load**: one relationship (`Order.customer`) is lazy-loaded
-  for 2 or more parents loaded by one query. The hint is `joinedload` for a
-  many-to-one relationship and `selectinload` for a collection;
-- **repeated-statement**: one `SELECT`, with its parameters and literals
-  removed, runs 5 or more times. Core and `text()` statements count, not only
-  ORM ones;
-- **column-load**: 5 or more instances of one class each go back to the
-  database for a deferred column (hint: `undefer`) or for attributes expired by
-  `commit()` (hint: `expire_on_commit=False`);
-- **cartesian-load** (warns by default): one query loads two collections
-  with `joinedload` side by side, so each row repeats per pair of their items
-  (hint: `selectinload` for all but one);
-- **write-loop** (opt-in): the same `INSERT`, `UPDATE` or `DELETE`, one row per
-  statement, runs many times from one source line;
-- **unused-eager-load** (experimental, off by default): a relationship is
-  eager-loaded and never read;
-- **unused-columns** (experimental, off by default): a query loads a wide row
-  and the test reads few of its columns (hint: `load_only()`);
-- **missing-index** (opt-in): see below.
+## Coming from queryspy?
 
-All thresholds are options. A budget fails a test that runs too many
-statements, and `max_db_time` one that spends too long in the database:
-
-```python
-@pytest.mark.max_queries(3)
-def test_order_page(client):
-    client.get("/orders/1")
-```
-
-The failure lists every statement with the line that issued it. FastAPI's
-`TestClient` runs the application in another thread; queries from any thread
-are counted. [How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html) explains each
-rule and why the thresholds are what they are.
+queryspy reports N+1s but fails a test only with `--queryspy-strict` or
+`queryspy_fail_on`; pytest-queryguard fails by default, so start with
+`queryguard_mode = "warn"` if you ran queryspy without them. Its markers and
+helpers have equivalents (`@pytest.mark.queryspy(max_queries=3)` is
+`@pytest.mark.max_queries(3)`, `assert_max_queries()` is `max_queries()`,
+`no_n_plus_one()` is `record_queries()` with `assert_no_nplusone()`), and two
+defaults differ: repeats and column reloads need 5 runs here, not 2, and
+loops in test code are counted, not reported. The
+[migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-queryspy.html)
+has the full find-and-replace table.
 
 ## Missing indexes
 
 A test database holds a few rows, so a query that reads the whole table is as
-fast in CI as one that uses an index. With the index check on, every `SELECT`
-in a test body is planned again with sequential scans switched off (PostgreSQL
-16 and newer), explained with `EXPLAIN QUERY PLAN` (SQLite), or explained with `EXPLAIN` (MySQL and MariaDB). If the plan
-still reads a whole table to apply a filter, no index can serve it, however
-small the table:
-
-```bash
-pytest --queryguard-index-check
-```
+fast in CI as one that uses an index. `pytest --queryguard-index-check` plans
+every `SELECT` of a test again with sequential scans switched off (PostgreSQL
+16 and newer), or reads `EXPLAIN QUERY PLAN` (SQLite) or `EXPLAIN` (MySQL and
+MariaDB). If the plan still reads a whole table to apply a filter, no index
+can serve it:
 
 ```
 queryguard: missing index
@@ -162,14 +179,11 @@ queryguard: missing index
   list it in queryguard_index_ignore_tables
 ```
 
-The index advisor suggests the `CREATE INDEX` and the Alembic call; with the
-hypopg extension in the test database it also says whether the planner would
-use the index and what the estimated cost would be before and after. The
-check is off by default. See [PostgreSQL](https://maciejziel.github.io/pytest-queryguard/index-check.html),
-[SQLite](https://maciejziel.github.io/pytest-queryguard/index-check-sqlite.html), [MySQL and MariaDB](https://maciejziel.github.io/pytest-queryguard/index-check-mysql.html) (tested in CI on MySQL 8.4 and MariaDB 11.8) and the
-[index advisor](https://maciejziel.github.io/pytest-queryguard/index-advisor.html); runnable projects are in
-[examples/postgres-missing-index](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples/postgres-missing-index) and
-[examples/sqlite-index-check](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples/sqlite-index-check).
+The check is off by default. See [PostgreSQL](https://maciejziel.github.io/pytest-queryguard/index-check.html),
+[SQLite](https://maciejziel.github.io/pytest-queryguard/index-check-sqlite.html),
+[MySQL and MariaDB](https://maciejziel.github.io/pytest-queryguard/index-check-mysql.html)
+and the [index advisor](https://maciejziel.github.io/pytest-queryguard/index-advisor.html),
+which can verify a suggested index with hypopg.
 
 ## Adopting it on an existing project
 
@@ -177,14 +191,15 @@ check is off by default. See [PostgreSQL](https://maciejziel.github.io/pytest-qu
   `pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline`.
   See [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html).
 - `pytest --queryguard-sarif=queryguard.sarif` writes the findings as SARIF
-  for GitHub code scanning, and the action in [action](https://github.com/MaciejZiel/pytest-queryguard/tree/main/action) runs pytest and
-  uploads it. See [CI and GitHub Action](https://maciejziel.github.io/pytest-queryguard/ci.html) and
-  [SARIF](https://maciejziel.github.io/pytest-queryguard/sarif.html).
+  for GitHub code scanning, and the [GitHub Action](https://github.com/MaciejZiel/pytest-queryguard/tree/main/action)
+  runs pytest and uploads it. See [CI and GitHub Action](https://maciejziel.github.io/pytest-queryguard/ci.html).
 - Leave out single findings with `@pytest.mark.queryguard_ignore("Order.customer")`
-  or `queryguard_ignore`; make kinds warn with `queryguard_fail_on` or
-  `queryguard_mode = warn`. See [Ignoring findings](https://maciejziel.github.io/pytest-queryguard/ignoring.html).
+  or the `queryguard_ignore` option; make kinds warn with `queryguard_fail_on`
+  or `queryguard_mode = warn`. See [Ignoring findings](https://maciejziel.github.io/pytest-queryguard/ignoring.html).
 - Read the statements of a block in a test with `record_queries()`. See
   [Reading the queries](https://maciejziel.github.io/pytest-queryguard/python-api.html).
+- The same rules run per request in a FastAPI, Starlette or Flask app during
+  development: [in-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html).
 
 ```toml
 [tool.pytest.ini_options]
@@ -199,59 +214,14 @@ queryguard_index_ignore_tables = ["countries", "lookup_*"]
 Every option, flag and marker is in the
 [configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html).
 
-## Documentation
-
-| Page | What is in it |
-|---|---|
-| [Getting started](https://maciejziel.github.io/pytest-queryguard/getting-started.html) | Install, a first test, async and FastAPI |
-| [A test failed: now what](https://maciejziel.github.io/pytest-queryguard/when-a-test-fails.html) | Read a failure, fix it or silence it |
-| [How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html) | The rules, the thresholds and why |
-| [Configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html) | Ini options, flags, markers |
-| [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html) | `max_queries`, `max_db_time` |
-| [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html) | The same rules per request in a running FastAPI, Starlette or Flask app; a development panel |
-| [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html), [CI and Action](https://maciejziel.github.io/pytest-queryguard/ci.html), [SARIF](https://maciejziel.github.io/pytest-queryguard/sarif.html) | Adoption and code scanning |
-| [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html) | FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, budgets, legacy projects, CI |
-| [Index check](https://maciejziel.github.io/pytest-queryguard/index-check.html), [SQLite](https://maciejziel.github.io/pytest-queryguard/index-check-sqlite.html), [MySQL and MariaDB](https://maciejziel.github.io/pytest-queryguard/index-check-mysql.html), [advisor](https://maciejziel.github.io/pytest-queryguard/index-advisor.html) | Missing indexes |
-| [Unused eager loads](https://maciejziel.github.io/pytest-queryguard/unused-eager-load.html), [unused columns](https://maciejziel.github.io/pytest-queryguard/unused-columns.html) | The experimental checks |
-| [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html), [Limitations](https://maciejziel.github.io/pytest-queryguard/limitations.html) | `raiseload`, false positives, xdist, drivers |
-| [Comparison](https://maciejziel.github.io/pytest-queryguard/comparison.html), [Migrating from nplusone](https://maciejziel.github.io/pytest-queryguard/migrating-from-nplusone.html) | Other tools |
-| [Stability and versioning](https://maciejziel.github.io/pytest-queryguard/stability.html) | What is public API, deprecations |
-| [Changelog](https://github.com/MaciejZiel/pytest-queryguard/blob/main/CHANGELOG.md), [examples](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples) | |
-
-The pages are Markdown in [docs](https://github.com/MaciejZiel/pytest-queryguard/tree/main/docs); `scripts/build_docs.py` builds them
-into a static site (see Development).
-
-## How it compares
-
-Other tools find N+1 queries too: [queryspy](https://github.com/sqla-native/queryspy),
-[pytest-querycount](https://github.com/ldavidsm/pytest-querycount),
-[nplusone](https://github.com/jmcarp/nplusone) (last release 2018),
-[django-zeal](https://github.com/taobojlen/django-zeal) for Django and others.
-The [comparison page](https://maciejziel.github.io/pytest-queryguard/comparison.html) has a feature matrix (dated, with what
-was run and what was only read) and the results of running 45 scenarios against
-queryspy 0.5.0 and pytest-querycount 0.4.0 on 2026-10-12 and 2026-10-13
-(queryspy 0.5.1 and 0.6.0, released since, change only the supported Python
-versions by their changelog). In short, in my runs: pytest-queryguard fails on
-N+1 with no configuration (the other two need a flag or a marker), reported a loop of Core
-`select()` statements and a loop with literal values that queryspy missed, and
-lists the statements in a budget failure (queryspy's marker printed only the
-counts). queryspy and pytest-querycount also report runs of 2 to 4 identical
-statements, which pytest-queryguard does only when you set
-`queryguard_small_repeat_threshold`. pytest-querycount has a PostgreSQL
-missing-index check of its own, queryspy has middleware and a request panel for
-running apps (so does pytest-queryguard's [in-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html)
-since 0.5.0; the two were not compared), and django-zeal covers Django.
-Moving from nplusone: [migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-nplusone.html).
-
 ## Overhead
 
-On in-memory SQLite, the measurement adds about 9 us per Core statement and
-about 31 us per ORM statement (+22 % and +40 %). The percentages are high
-because an in-memory statement costs almost nothing; on a generated suite of
-300 tests against file-based SQLite and against PostgreSQL the difference was
-within run-to-run noise. Method, numbers and the cost of the opt-in checks:
-[Performance](https://maciejziel.github.io/pytest-queryguard/performance.html) and the
-[FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#does-it-slow-my-tests-down).
+On the 300-test suite of the comparison, pytest-queryguard 0.8.0 added 0.8 to
+1.7 % to the run time. Per statement, on in-memory SQLite, the current code
+adds about 16 us to a Core statement and 34 to 36 us to an ORM one, which is
+a large share of a statement that costs almost nothing; against a database
+on disk or over the network the share is smaller. Method and numbers: [Performance](https://maciejziel.github.io/pytest-queryguard/performance.html)
+and the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#does-it-slow-my-tests-down).
 
 ## Limitations
 
@@ -259,13 +229,33 @@ within run-to-run noise. Method, numbers and the cost of the opt-in checks:
   ORMs (Django ORM, Peewee) are not seen, and nothing says so.
 - Only the test function body is measured, not fixtures. One measurement is
   active per process; under pytest-xdist each worker measures its own tests.
+- Test code is told from the application by file: application code kept in
+  a test module or under `tests/` is taken for test code.
 - The PostgreSQL index check needs PostgreSQL 16 or newer and a sync engine or
-  asyncpg; the SQLite, MySQL and MariaDB checks judge less precisely. It says that no index can
-  serve a filter, not that an existing index is a good one.
-- Writes never count towards the repeated-statement rule; the opt-in
-  `write-loop` kind and budgets cover them.
+  asyncpg; the SQLite, MySQL and MariaDB checks judge less precisely. It says
+  that no index can serve a filter, not that an existing index is a good one.
+- A finding says that a pattern happened, not that production is slow.
 
 The full list is on the [Limitations](https://maciejziel.github.io/pytest-queryguard/limitations.html) page.
+
+## Documentation
+
+<https://maciejziel.github.io/pytest-queryguard/>, starting with
+[Getting started](https://maciejziel.github.io/pytest-queryguard/getting-started.html) and
+[A test failed: now what](https://maciejziel.github.io/pytest-queryguard/when-a-test-fails.html).
+
+| Page | What is in it |
+|---|---|
+| [How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html) | The rules, the thresholds and why |
+| [Configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html) | Ini options, flags, markers |
+| [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html) | `max_queries`, `max_db_time`, a budget file |
+| [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html), [CI and Action](https://maciejziel.github.io/pytest-queryguard/ci.html), [SARIF](https://maciejziel.github.io/pytest-queryguard/sarif.html) | Adoption and code scanning |
+| [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html) | FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, Factory Boy, legacy projects, CI |
+| [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html) | The same rules per request in a running app; a development panel |
+| [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html), [Limitations](https://maciejziel.github.io/pytest-queryguard/limitations.html) | `raiseload`, false positives, xdist, drivers |
+| [Comparison](https://maciejziel.github.io/pytest-queryguard/comparison.html), [accuracy](https://maciejziel.github.io/pytest-queryguard/accuracy.html) | Other tools, precision and recall |
+| [Stability and versioning](https://maciejziel.github.io/pytest-queryguard/stability.html) | What is public API, deprecations |
+| [Changelog](https://github.com/MaciejZiel/pytest-queryguard/blob/main/CHANGELOG.md), [examples](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples) | |
 
 ## Development
 
@@ -297,4 +287,4 @@ lines. Third-party licenses are listed in
 
 ## License
 
-MIT, see the LICENSE file.
+MIT, see the [LICENSE](https://github.com/MaciejZiel/pytest-queryguard/blob/main/LICENSE) file.

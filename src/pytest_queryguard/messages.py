@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 
 from .detectors import (
@@ -21,6 +21,7 @@ from .events import (
     Verification,
 )
 from .findings import (
+    DOCS_URL,
     KIND_CARTESIAN_LOAD,
     KIND_COLUMN_LOAD,
     KIND_MISSING_INDEX,
@@ -715,15 +716,36 @@ def format_failure(failure: Failure) -> list[str]:
     return lines
 
 
-def format_test_code_summary(findings: int, tests: int) -> str:
-    """The summary line for the findings of the test code that were left out."""
+# Tests named in the summary section of the test code's findings.
+_TEST_CODE_SHOWN = 5
+
+
+def format_test_code_summary(left_out: Mapping[str, int]) -> list[str]:
+    """The summary section for the findings of the test code that were left out.
+
+    ``left_out`` maps a test's node id to the number of its findings left out.
+    """
+    findings = sum(left_out.values())
     noun = "finding" if findings == 1 else "findings"
-    where = "test" if tests == 1 else "tests"
-    return (
-        f"queryguard: {findings} N+1 {noun} in test code left out ({tests} {where}): "
-        "statements of test modules, conftest.py, factories and helpers under "
-        "tests/, not of the application; queryguard_test_code = warn shows them"
-    )
+    them = "it" if findings == 1 else "them"
+    where = "test" if len(left_out) == 1 else "tests"
+    lines = [
+        (
+            f"{findings} N+1 {noun} in test code left out ({len(left_out)} {where}): "
+            "the statements ran only in test modules, conftest.py, factories or "
+            "helpers under tests/, not in the application."
+        ),
+        (
+            f"To see {them}: pytest -o queryguard_test_code=warn, or set "
+            "queryguard_test_code = warn (or fail) in the pytest configuration."
+        ),
+        f"Why: {DOCS_URL}how-detection-works.html#test-code",
+    ]
+    names = sorted(left_out)
+    lines.extend(f"  {name}" for name in names[:_TEST_CODE_SHOWN])
+    if len(names) > _TEST_CODE_SHOWN:
+        lines.append(f"  and {len(names) - _TEST_CODE_SHOWN} more")
+    return lines
 
 
 def format_stale_ignores(

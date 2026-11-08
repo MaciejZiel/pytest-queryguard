@@ -12,7 +12,7 @@ those `INSERT` statements as part of the test. Two things follow:
   "commit"`) expires it, so reading the created objects back reloads them one
   by one: `column-load` and `relationship-load` by the default rules.
 
-Since 0.9.0 the statements that run only in test code (the test function, a
+Since 1.0.0 the statements that run only in test code (the test function, a
 factory, a helper under `tests/`, with no frame of the application on the
 stack) are left out of the findings by default, and only counted in one line
 at the end of the run (`queryguard_test_code = off`, see
@@ -20,11 +20,11 @@ at the end of the run (`queryguard_test_code = off`, see
 test reading its own objects back are test code; the application reading
 the objects a factory committed is not. So the seeding below fails no test
 by default. This page shows what to do where it does: with
-`queryguard_test_code = fail` (or before 0.9.0), and for the application's
+`queryguard_test_code = fail` (or with 0.9.0 and earlier), and for the application's
 reads. Two ways out: seed in fixtures, which are not measured, or leave out
 the seeding findings with `queryguard_ignore`. It was run with Factory Boy
 3.3.3, SQLAlchemy 2.1.1, pytest 9.1 and Python 3.13; pytest-queryguard
-0.5.0rc3, and again with the default of 0.9.0.
+0.5.0rc3, and again with the `queryguard_test_code` default of 1.0.0.
 
 pytest-django suites that use the Django ORM are not affected: pytest-queryguard
 sees only statements that go through SQLAlchemy, so it reports nothing for
@@ -205,8 +205,8 @@ Where moving every factory call into fixtures is too much work, leave the
 findings out. By default the plugin does it for you: every frame of your code
 on the stack of a factory's `INSERT` is test code (the test function and,
 when it has hooks, `tests/factories.py`), so the finding is left out and
-counted in the summary line. With `queryguard_test_code = fail`, or before
-0.9.0, use an ignore pattern. A finding's call site is the first line outside
+counted in the summary at the end of the run. With `queryguard_test_code = fail`, or with
+0.9.0 and earlier, use an ignore pattern. A finding's call site is the first line outside
 SQLAlchemy, pytest, the standard library and `site-packages`. Factory Boy is
 installed in `site-packages`, so the call site of a factory's `INSERT` is the
 line in the test that called the factory, not `tests/factories.py`. Without

@@ -2,15 +2,14 @@
 
 [queryspy](https://github.com/sqla-native/queryspy) and pytest-queryguard
 both find N+1 queries and enforce query budgets for SQLAlchemy 2 in pytest.
-This page maps each queryspy setting to its pytest-queryguard equivalent, as
-of queryspy 0.5.0 (read in its installed package on 2026-10-13) and
-pytest-queryguard 0.4.0. It is written by the author of pytest-queryguard;
-[Comparison](comparison.md) has the measured differences, including the ones
-where queryspy is ahead. Since then queryspy 0.5.1 and 0.6.0 (2026-10-22)
-changed only the supported Python versions, by their changelog (0.6.0 needs
-Python 3.11), so the settings below are the same. The pytest-queryguard
-column was updated for 0.8.0: the suite-wide budget, the JSON file and the
-in-application mode below were added after 0.4.0.
+This page maps each queryspy setting to its pytest-queryguard equivalent. It
+was written against queryspy 0.5.0 (read in its installed package on
+2026-10-13); on 2026-11-08 the options, markers and helpers below were checked
+again in the installed queryspy 0.6.0, the current release, and are the same
+(0.6.0 adds `--queryspy-report-format`). The pytest-queryguard column is
+current for the next release, 1.0.0. It is written by the author of
+pytest-queryguard; [Comparison](comparison.md) has the measured differences,
+including the ones where queryspy is ahead.
 
 Before you move: queryspy also runs in your application, as ASGI and WSGI
 middleware with a request panel. pytest-queryguard has had an
@@ -33,9 +32,53 @@ baselined:
 queryguard_mode = "warn"
 ```
 
+## Find and replace
+
+What to change in the source, line by line; the sections below explain each
+difference.
+
+| Find | Replace with |
+|---|---|
+| `--queryspy-strict` | Delete it: failing is the default |
+| `queryspy_fail_on = lazy_load, column_load` | `queryguard_fail_on = ["relationship-load", "column-load"]` |
+| `queryspy_budget = 20` | `queryguard_max_queries = 20` |
+| `--queryspy-report=queryspy.sarif` | `--queryguard-sarif=queryguard.sarif` |
+| `--queryspy-report=queryspy.json` | `--queryguard-json=queryguard.json` (another format) |
+| `--queryspy-baseline=PATH` | `--queryguard-baseline=PATH` (record it again: another format) |
+| `--queryspy-baseline-update` | `--queryguard-update-baseline` |
+| `@pytest.mark.queryspy(max_queries=3)` | `@pytest.mark.max_queries(3)` |
+| `@pytest.mark.queryspy(allow_n_plus_one=True)` | `@pytest.mark.queryguard_ignore` |
+| `from queryspy import assert_max_queries` | `from pytest_queryguard import max_queries` |
+| `with assert_max_queries(2):` | `with max_queries(2):` |
+| `from queryspy import no_n_plus_one` | `from pytest_queryguard import record_queries` |
+| `with no_n_plus_one():` | `with record_queries() as log:`, then `log.assert_no_nplusone()` after the block |
+| `from queryspy import record` | `from pytest_queryguard import record_queries` |
+| `with record() as recorder:` | `with record_queries() as log:` |
+| `with queryspy.ignore():` | `with pytest_queryguard.ignore("*"):` |
+| `queryspy.NPlusOneError` in `pytest.raises` | `pytest_queryguard.NPlusOneDetected` |
+| `queryspy.QueryCountError` in `pytest.raises` | `pytest_queryguard.QueryBudgetExceeded` |
+
+## Loops in the test itself
+
+queryspy reports an N+1 wherever it runs in the test: a loop written in the
+test function fails it with `--queryspy-strict` (checked with queryspy 0.6.0
+on 2026-11-08). pytest-queryguard, by default, leaves out the N+1s of test
+code: the test function, `conftest.py`, factories and helpers under `tests/`.
+They are counted in a `queryguard: test code` section at the end of the run,
+which names the tests. A loop in the application that a test calls is
+reported as usual. So after the move, a suite whose queryspy findings were
+in test code reports fewer findings; to see them, or to keep failing on them:
+
+```toml
+[tool.pytest.ini_options]
+queryguard_test_code = "warn"  # or "fail"
+```
+
+See [Test code](how-detection-works.md#test-code).
+
 ## Configuration
 
-| queryspy 0.5.0 | pytest-queryguard |
+| queryspy 0.6.0 | pytest-queryguard |
 |---|---|
 | `--queryspy-strict` | Nothing: the default `queryguard_mode = fail` fails on every finding kind |
 | `queryspy_fail_on = none` (the default: report only) | `queryguard_mode = warn` |
@@ -43,7 +86,7 @@ queryguard_mode = "warn"
 | `queryspy_fail_on = lazy_load, column_load` | `queryguard_fail_on = ["relationship-load", "column-load"]`; the other kinds become warnings |
 | `queryspy_budget = 20` (every test) | `queryguard_max_queries = 20`: every test without a `max_queries` marker or a [budget file](budgets.md#lock-todays-counts-the-budget-file) entry gets it ([Budgets](budgets.md#a-default-budget-for-every-test)) |
 | `queryspy_capture_stacks = false` | No equivalent: the call site is always recorded |
-| `--queryspy-report=queryspy.sarif` | `--queryguard-sarif=queryguard.sarif` ([SARIF](sarif.md)) |
+| `--queryspy-report=queryspy.sarif` (or `--queryspy-report-format=sarif`) | `--queryguard-sarif=queryguard.sarif` ([SARIF](sarif.md)) |
 | `--queryspy-report=queryspy.json` (JSON) | `--queryguard-json=queryguard.json`: each test's statement count, database time and findings ([CI](ci.md#query-counts-as-json)); the format differs |
 | `--queryspy-baseline=PATH` | `--queryguard-baseline=PATH`, or `queryguard_baseline` in the configuration |
 | `--queryspy-baseline-update` | `--queryguard-update-baseline` |

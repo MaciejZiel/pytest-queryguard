@@ -45,7 +45,8 @@ the paths:
 ```markdown
 ## N+1 queries (pytest-queryguard)
 
-pytest-queryguard fails any test whose code runs an N+1 query.
+pytest-queryguard fails any test whose application code runs an N+1 query
+(N+1s in test code itself are only counted at the end of the run).
 After changing code that queries or loops over ORM objects:
 
 1. Run the tests that cover it:
