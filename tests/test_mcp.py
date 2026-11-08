@@ -301,6 +301,7 @@ def test_lint_reports_the_loop_without_running_tests(
     assert result["timed_out"] is False
     assert result["files"] == 2
     assert result["errors"] == []
+    assert result["errors_total"] == 0
     assert result["findings_total"] == 1
     assert result["findings_truncated"] is False
     (finding,) = result["findings"]
@@ -358,6 +359,7 @@ def test_lint_paths_that_look_like_options_are_paths(
         ({"paths": ["app.py"]}, "models must name at least one module"),
         ({"models": [], "paths": ["app.py"]}, "models must name at least one module"),
         ({"models": ["app"]}, "paths must name at least one"),
+        ({"models": ["app"], "paths": [""]}, "must not contain an empty string"),
         ({"models": ["--help"], "paths": ["app.py"]}, "models must not start with"),
         ({"models": "app", "paths": ["app.py"]}, "models must be a list of strings"),
         ({"models": ["app"], "paths": ["a"], "timeout": 0}, "timeout must be between"),

@@ -1599,30 +1599,32 @@ def _escape_property(value: str) -> str:
     return _escape_data(value).replace(":", "%3A").replace(",", "%2C")
 
 
-def _github_path(file: str, prefix: str, workspace: str | None) -> str:
-    """The path of a finding relative to the repository root, for an annotation."""
-    if Path(file).is_absolute():
-        if workspace and workspace.strip():
-            try:
-                base = Path(os.path.realpath(workspace.strip()))
-                return Path(os.path.realpath(file)).relative_to(base).as_posix()
-            except (ValueError, OSError):
-                pass
-        return file
-    return f"{prefix}/{file}" if prefix else file
+def _github_path(file: str, workspace: str | None) -> str:
+    """The path of a finding relative to the repository root, for an annotation.
+
+    In GitHub Actions (``workspace`` is ``GITHUB_WORKSPACE``) the file is
+    resolved, against the working directory when it is relative, and made
+    relative to the workspace, as the SARIF paths are; a file outside it, or
+    a run outside GitHub Actions, keeps the path the report has.
+    """
+    if workspace and workspace.strip():
+        try:
+            base = Path(os.path.realpath(workspace.strip()))
+            return Path(os.path.realpath(file)).relative_to(base).as_posix()
+        except (ValueError, OSError):
+            pass
+    return file
 
 
-def to_github(report: Report, prefix: str = "", workspace: str | None = None) -> str:
+def to_github(report: Report, workspace: str | None = None) -> str:
     """GitHub Actions workflow commands: one ``::warning`` annotation per finding.
 
-    ``prefix`` is the working directory below the repository root (see
-    :func:`sarif.workspace_prefix`), ``workspace`` the value of
-    ``GITHUB_WORKSPACE``, against which paths outside the working directory
-    are made relative.
+    ``workspace`` is the value of ``GITHUB_WORKSPACE``, the repository root
+    the paths are made relative to.
     """
     lines: list[str] = []
     for f in report.findings:
-        path = _github_path(f.file, prefix, workspace)
+        path = _github_path(f.file, workspace)
         properties = ",".join(
             (
                 f"file={_escape_property(path)}",
@@ -1661,9 +1663,7 @@ def render(report: Report, fmt: str) -> str:
         prefix = sarif.workspace_prefix(Path.cwd(), os.environ.get("GITHUB_WORKSPACE"))
         return sarif.dumps(to_sarif(report, prefix))
     if fmt == "github":
-        workspace = os.environ.get("GITHUB_WORKSPACE")
-        prefix = sarif.workspace_prefix(Path.cwd(), workspace)
-        return to_github(report, prefix, workspace)
+        return to_github(report, os.environ.get("GITHUB_WORKSPACE"))
     return text(report)
 
 

@@ -724,6 +724,33 @@ class TestLint:
         assert annotations[0].startswith("::warning::the changed files")
         assert annotations[1].startswith("::warning file=repo/lintapp/orders.py,")
 
+    @pytest.mark.skipif(shutil.which("git") is None, reason="git is required")
+    def test_a_checkout_below_the_workspace(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        # actions/checkout with path: repo; GitHub names the files relative
+        # to the repository, and so must the annotations
+        subprocess.run(["git", "init", "-q", str(workspace / "repo")], check=True)
+        files = [{"filename": "lintapp/orders.py", "status": "modified"}]
+        result, outputs, annotations = self.run(
+            tmp_path, workspace, mode="changed", pr="7", files=files
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert outputs["exit-code"] == "1"
+        assert annotations[0].startswith("::warning file=lintapp/orders.py,")
+
+    def test_too_many_changed_files_checks_everything(
+        self, tmp_path: Path, workspace: Path
+    ) -> None:
+        files: list[dict[str, object]] = [
+            {"filename": f"repo/f{i}.txt", "status": "added"} for i in range(3000)
+        ]
+        _, outputs, annotations = self.run(
+            tmp_path, workspace, mode="changed", pr="7", files=files
+        )
+        assert outputs["exit-code"] == "1"
+        assert annotations[0].startswith("::warning::the pull request changes 3000")
+
     def test_a_model_module_that_cannot_be_imported_fails_the_step(
         self, tmp_path: Path, workspace: Path
     ) -> None:

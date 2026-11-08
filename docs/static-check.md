@@ -319,9 +319,10 @@ $ python -m pytest_queryguard.lint --models app.models --format github app
 queryguard lint (experimental): 1 finding in 6 files
 ```
 
-The paths are relative to the repository root: in GitHub Actions the check
-adds the path of the working directory below `GITHUB_WORKSPACE`, as for
-SARIF. A file that is skipped (it does not parse) is a `::notice::`. The
+The paths are relative to the repository root: in GitHub Actions each file
+is made relative to `GITHUB_WORKSPACE`, also from a working directory below
+it or a path such as `../shared`; a file outside it keeps its absolute path,
+and GitHub shows its annotation in the run's summary only. A file that is skipped (it does not parse) is a `::notice::`. The
 messages are escaped as workflow commands need (`%0A` for a line break).
 The [GitHub Action](ci.md#the-static-check-as-annotations) runs it with its
 `lint` input, also only on the files a pull request changed.

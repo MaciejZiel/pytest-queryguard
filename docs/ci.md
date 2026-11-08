@@ -237,7 +237,10 @@ Add to the `with:` of the action:
 
 With `lint`, the action runs
 `python -m pytest_queryguard.lint --format github --models=app.models -- PATHS`
-in `working-directory` after pytest. Each finding is a
+in `working-directory` after pytest, the upload and the comparison, so that
+a check that cannot run does not keep those from running. The paths of the
+annotations are relative to the root of the checkout, also when
+`actions/checkout` puts it below the workspace with `path:`. Each finding is a
 [workflow command](https://docs.github.com/actions/reference/workflow-commands-for-github-actions#setting-a-warning-message),
 `::warning file=...,line=...,col=...`, which GitHub shows as an annotation on
 that line of the pull request's diff and in the run's summary. The check
@@ -247,7 +250,8 @@ the step needs your project installed, as pytest does.
 - `lint: changed` checks the Python files the pull request adds or changes
   that are in `lint-paths`, as GitHub's list of the pull request's files
   names them; that list needs `pull-requests: read`. Without it, the step
-  warns and checks all of `lint-paths`. When no such file changed, the check
+  warns and checks all of `lint-paths`, as it does for a pull request of
+  3000 files or more, the most GitHub lists. When no such file changed, the check
   does not run. On other events (a push), `changed` checks all of
   `lint-paths`.
 - Findings do not fail the job: the check is experimental and reports likely

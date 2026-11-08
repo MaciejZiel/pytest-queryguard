@@ -665,23 +665,35 @@ def test_github_output_escapes_workflow_command_text() -> None:
     assert notice == "::notice::queryguard lint skipped x%25y%0Az: bad"
 
 
-def test_github_paths_outside_the_working_directory(tmp_path: Path) -> None:
-    finding = lint.Finding(
-        file=str(tmp_path / "repo" / "lib" / "a.py"),
-        line=1,
-        column=1,
-        loop_line=1,
-        query_line=1,
-        function="f",
-        root="Order",
-        path=(("Order.customer", True),),
-    )
-    (tmp_path / "repo").mkdir()
-    report = lint.Report([finding], 1)
-    inside = lint.to_github(report, "sub", str(tmp_path / "repo"))
-    assert inside.startswith("::warning file=lib/a.py,")
-    outside = lint.to_github(report, "", str(tmp_path / "elsewhere"))
-    assert f"file={lint._escape_property(finding.file)}," in outside
+def test_github_paths_are_relative_to_the_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "backend").mkdir(parents=True)
+    monkeypatch.chdir(repo / "backend")
+
+    def path(file: str, workspace: str | None) -> str:
+        finding = lint.Finding(
+            file=file,
+            line=1,
+            column=1,
+            loop_line=1,
+            query_line=1,
+            function="f",
+            root="Order",
+            path=(("Order.customer", True),),
+        )
+        out = lint.to_github(lint.Report([finding], 1), workspace)
+        return out.split("file=", 1)[1].split(",line=", 1)[0]
+
+    # from the working directory, also above it
+    assert path("app/a.py", str(repo)) == "backend/app/a.py"
+    assert path("../shared/q.py", str(repo)) == "shared/q.py"
+    assert path(str(repo / "lib" / "a.py"), str(repo)) == "lib/a.py"
+    # outside the workspace, or outside GitHub Actions: as the report has it
+    outside = str(tmp_path / "elsewhere" / "a.py")
+    assert path(outside, str(repo)) == lint._escape_property(outside)
+    assert path("app/a.py", None) == "app/a.py"
 
 
 def test_errors(project: Path, capsys: pytest.CaptureFixture[str]) -> None:

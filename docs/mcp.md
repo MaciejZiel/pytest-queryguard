@@ -92,7 +92,8 @@ the files and directories to check; both are required lists of strings, and
 a module must not start with `-`. Each call runs the check in a new process,
 so it sees the files and the models as they are now. It returns the check's
 `exit_code` (0: nothing found, 1: findings, 2: it could not run), whether it
-`timed_out`, the number of `files` read, the files it skipped (`errors`),
+`timed_out`, the number of `files` read, the files it skipped (`errors`, at
+most 30, and their number, `errors_total`),
 and the findings as the check's [JSON output](static-check.md#json-output)
 has them (`file`, `line`, `column`, `loop_line`, `query_line`, `function`,
 `relationship`, `path`, `query_class`, `fix`, `rule`). When the check could
@@ -103,7 +104,8 @@ that does not exist). A finding means "likely N+1": confirm it with
 ## Limits
 
 Results are bounded so that one call cannot flood the agent's context: at most
-30 findings per call, of `run_tests` or `lint` (`findings_total` gives the
+30 findings per call, of `run_tests` or `lint`, whose text fields `lint`
+cuts at 300 characters (`findings_total` gives the
 number of all of them and `findings_truncated` says when some were left out), messages of 800
 characters, labels of 300, 5 stack frames, a patch of 20,000 characters
 (`patch_truncated`), the last 4,000 characters of pytest's output and a

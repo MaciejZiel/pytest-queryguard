@@ -290,6 +290,8 @@ def compare(arguments: dict[str, Any]) -> dict[str, Any]:
 def lint(arguments: dict[str, Any]) -> dict[str, Any]:
     models = _strings(arguments, "models")
     paths = _strings(arguments, "paths")
+    if "" in models or "" in paths:
+        raise ToolError("models and paths must not contain an empty string")
     if not models:
         raise ToolError(
             "models must name at least one module that defines the mapped "
@@ -320,13 +322,14 @@ def lint(arguments: dict[str, Any]) -> dict[str, Any]:
             "timed_out": status is None,
             "files": 0,
             "errors": [],
+            "errors_total": 0,
             "findings_total": 0,
             "findings": [],
             "findings_truncated": False,
             "output_tail": output_text,
         }
     raw = doc.get("findings")
-    findings = [f for f in raw if isinstance(f, dict)] if isinstance(raw, list) else []
+    findings = [_lint_finding(f) for f in raw] if isinstance(raw, list) else []
     errors = doc.get("errors")
     errors = [str(e) for e in errors] if isinstance(errors, list) else []
     files = doc.get("files")
@@ -335,10 +338,27 @@ def lint(arguments: dict[str, Any]) -> dict[str, Any]:
         "timed_out": status is None,
         "files": files if isinstance(files, int) else 0,
         "errors": [_clip(e, MAX_MESSAGE)[0] for e in errors[:MAX_FINDINGS]],
+        "errors_total": len(errors),
         "findings_total": len(findings),
         "findings": findings[:MAX_FINDINGS],
         "findings_truncated": len(findings) > MAX_FINDINGS,
         "output_tail": "",
+    }
+
+
+def _lint_finding(f: Any) -> dict[str, Any]:
+    """A finding of the check's JSON, with its text fields clipped."""
+    if not isinstance(f, dict):
+        return {}
+
+    def clip(value: Any) -> Any:
+        return _clip(value, MAX_LABEL)[0] if isinstance(value, str) else value
+
+    return {
+        key: [clip(v) for v in value[:MAX_FINDINGS]]
+        if isinstance(value, list)
+        else clip(value)
+        for key, value in f.items()
     }
 
 
