@@ -399,7 +399,8 @@ A file is test code when it is:
 
 A statement, lazy load or column load is the test code's when every frame of
 your code on its stack is test code, and no installed package other than a
-test tool (factory_boy, polyfactory, Faker, pytest plugins) or a `Session`
+test tool (factory_boy, polyfactory, model_bakery, mixer,
+django-dynamic-fixture, Faker, pytest plugins) or a `Session`
 subclass (SQLModel's `Session.exec()`) lies between the test and the
 statement: an application installed into `site-packages`
 (`pip install .`, tox) has no frame of "your code", so a statement it runs

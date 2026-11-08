@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import textwrap
 from collections.abc import Iterator
@@ -690,9 +691,20 @@ def test_github_paths_are_relative_to_the_workspace(
     assert path("app/a.py", str(repo)) == "backend/app/a.py"
     assert path("../shared/q.py", str(repo)) == "shared/q.py"
     assert path(str(repo / "lib" / "a.py"), str(repo)) == "lib/a.py"
-    # outside the workspace, or outside GitHub Actions: as the report has it
+    # outside the workspace: absolute, also when the report has it relative
     outside = str(tmp_path / "elsewhere" / "a.py")
     assert path(outside, str(repo)) == lint._escape_property(outside)
+    assert path("../../elsewhere/a.py", str(repo)) == lint._escape_property(
+        Path(os.path.abspath(outside)).as_posix()
+    )
+    # a symlink in the repository to a directory outside it: as written
+    try:
+        (repo / "linked").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    except OSError:  # Windows without the symlink privilege
+        pass
+    else:
+        assert path("../linked/a.py", str(repo)) == "linked/a.py"
+    # outside GitHub Actions: as the report has it
     assert path("app/a.py", None) == "app/a.py"
 
 

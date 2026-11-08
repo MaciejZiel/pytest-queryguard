@@ -467,6 +467,43 @@ def test_an_installed_application_called_from_the_test_is_reported(
     result.stdout.no_fnmatch_line("*in test code left out*")
 
 
+@pytest.mark.parametrize(
+    "package", ["model_bakery", "model_mommy", "mixer", "django_dynamic_fixture"]
+)
+def test_an_installed_test_data_builder_is_a_test_tool(
+    project: Any, package: str
+) -> None:
+    # model_bakery, mixer, django-dynamic-fixture: a loop of the test through
+    # one of them is the test's own, as through factory_boy
+    installed = project.path / "venv" / "lib" / "site-packages"
+    (installed / package).mkdir(parents=True)
+    (installed / package / "__init__.py").write_text(
+        "from sqlalchemy import select\n"
+        "from qgmodels import Customer\n\n\n"
+        "def make(session, names):\n"
+        "    for name in names:\n"
+        "        session.scalars(select(Customer).where(Customer.name == name)).first()\n"
+    )
+    project.makepyfile(
+        test_a=f"""
+        import os
+        import sys
+        # absolute: Python 3.10 keeps the import finder of a relative entry
+        # across runs, so it would look in the previous test's directory
+        sys.path.insert(0, os.path.abspath("venv/lib/site-packages"))
+        from {package} import make
+        from qgmodels import make_sync_session
+
+
+        def test_make():
+            make(make_sync_session(), ["c1", "c2", "c3", "c4", "c5"])
+        """
+    )
+    result = project.runpytest()
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(SUMMARY)
+
+
 def test_a_test_code_finding_keeps_its_baseline_entry(project: Any) -> None:
     project.makepyfile(test_a=TEST_LOOP)
     run = ("--queryguard-baseline=qg.json",)

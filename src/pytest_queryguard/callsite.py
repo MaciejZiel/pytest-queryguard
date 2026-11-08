@@ -490,7 +490,21 @@ _kinds: dict[str, int] = {}
 _MAX_KINDS = 4096
 _APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
 _TEST_LIBRARIES = frozenset(
-    {"factory", "polyfactory", "faker", "greenlet", "anyio", "sniffio", "xdist"}
+    {
+        "factory",
+        "polyfactory",
+        # Django's test-data builders: model_bakery (formerly model_mommy),
+        # mixer and django-dynamic-fixture (its "ddf" package only re-exports)
+        "model_bakery",
+        "model_mommy",
+        "mixer",
+        "django_dynamic_fixture",
+        "faker",
+        "greenlet",
+        "anyio",
+        "sniffio",
+        "xdist",
+    }
 )
 _INSTALLED = ("site-packages", "dist-packages")
 
