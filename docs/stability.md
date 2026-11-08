@@ -286,6 +286,13 @@ cannot parse is skipped with a message.
   `--queryguard-json` file when a program needs the data.
 - Which statements SQLAlchemy emits for a given ORM call; that depends on the
   SQLAlchemy version.
+- Which code counts as test code for `queryguard_test_code` (see
+  [Test code](how-detection-works.md#test-code)): the directories, the test
+  tools such as factory_boy and model_bakery, and the rule for a stack with
+  frames of both. A release may recognise more of it, as 0.10.0 did for an
+  application installed into `site-packages` and for model_bakery, which
+  moves a finding between the application and the test code. The option,
+  its values and its default `off` are public.
 - The index check beyond what the documentation promises: it is documented
   for PostgreSQL 16 and newer, SQLite, MySQL and MariaDB, and on older PostgreSQL servers
   it only prints a notice. It is tested on PostgreSQL 16 to 18; on a newer
@@ -456,7 +463,9 @@ checks the outcome of every test of a small suite.
 - CI runs the suite on Python 3.10 to 3.15,
   SQLAlchemy 2.0 and the latest release, the oldest and the latest pytest,
   PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8 (the whole suite, with the
-  tests' databases on the server), Windows and macOS, and under pytest-xdist. A nightly
+  tests' databases on the server), Windows and macOS, and under pytest-xdist.
+  The experimental Django support runs its own tests on Django 5.2, 6.0 and
+  6.1 with SQLite, and on PostgreSQL and MySQL (the `django` job). A nightly
   job tries the SQLAlchemy development branch, pytest pre-releases and Python
   3.16; it is allowed to fail and tells maintainers about upcoming
   incompatibilities early.
