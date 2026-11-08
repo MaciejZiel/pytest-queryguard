@@ -156,6 +156,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- New recipes: [the query count must not grow with N](docs/recipes-query-count-scaling.md)
+  (the same call with 1, 10 and 50 rows, pinned with
+  `queryguard.num_queries()` or compared with `record_queries()`, for
+  SQLAlchemy and Django) and
+  [from a Sentry N+1 issue to a failing test](docs/recipes-sentry.md). Both
+  use only the existing API, and their examples run in the test suite.
+- [Django](docs/django.md#collecting-queries-without-failing-the-test): how
+  to collect queries without failing the test (`record_queries()`, the
+  `max_queries` marker, warn mode, `--queryguard-report` and
+  `--queryguard-json`), the use case of pytest-django#1034.
+- [Comparison](docs/comparison.md) and
+  [Migrating from nplusone](docs/migrating-from-nplusone.md) cover nplus1, a
+  rewrite of nplusone under the same import name, run on 2026-11-08: on
+  SQLAlchemy 2.0 it reports `session.query()` loops but not `select()` ones,
+  and on 2.1 it does not import. The migration page no longer says that
+  pytest-queryguard does not cover Django.
 - README rewritten for a first visit: what it catches, the head-to-head
   numbers of [Comparison](docs/comparison.md) with their bias, a quick start
   on `examples/sync-n-plus-one`, and "Coming from nplusone?" and "Coming

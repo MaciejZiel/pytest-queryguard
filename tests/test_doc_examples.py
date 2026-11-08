@@ -170,6 +170,8 @@ def test_the_pages_with_projects_are_found() -> None:
         "recipes-flask-sqlalchemy.md",
         "recipes-litestar.md",
         "recipes-pytest-asyncio.md",
+        "recipes-query-count-scaling.md",
+        "recipes-sentry.md",
         "recipes-sqlmodel.md",
     } <= names
 

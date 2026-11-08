@@ -11,6 +11,8 @@ output was produced by running the code on it, and says with which versions.
 | [Litestar](recipes-litestar.md) | `TestClient` with an overridden session dependency |
 | [pytest-asyncio](recipes-pytest-asyncio.md) | Configuration pitfalls for async tests and fixtures |
 | [Budgets for hot endpoints](recipes-budgets.md) | `max_queries` and `max_db_time` on the endpoints that matter |
+| [The query count must not grow with N](recipes-query-count-scaling.md) | The same call with 1, 10 and 50 rows and the same count, for SQLAlchemy and Django |
+| [From a Sentry N+1 issue to a test](recipes-sentry.md) | A test that fails on the loop Sentry reported and passes after the fix |
 | [A session per request in a test transaction](recipes-test-transaction.md) | Per-request sessions that join the test's rolled-back transaction, instead of one shared `Session` |
 | [GraphQL resolvers](recipes-graphql.md) | Per-object resolvers: a batch loader or `selectinload` |
 | [Background tasks in tests](recipes-background-tasks.md) | Tasks run in the test body, with their own session |

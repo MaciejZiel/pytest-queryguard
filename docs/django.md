@@ -139,6 +139,60 @@ in a view, serializer or model method the test calls is. A call of the async
 ORM, which runs in a thread of asgiref with no line of the test on its stack,
 always counts as the application's.
 
+## Collecting queries without failing the test
+
+pytest-django's `django_assert_num_queries` checks the count when its block
+ends, so a wrong count fails the test before the test's own assertions run.
+[pytest-django#1034](https://github.com/pytest-dev/pytest-django/issues/1034)
+asks for a way to see the queries without that failure, for example while
+debugging why a test that also checks the logic now runs one query fewer.
+pytest-django's maintainer declined it as too niche and pointed to Django's
+`CaptureQueriesContext`. With pytest-queryguard there are several ways, none
+of them new API.
+
+`record_queries()` records the block and fails nothing; the test decides
+when to look at the count. Here the logic is checked first, then the count, and
+a wrong count prints the statements:
+
+```python
+# library/services.py
+from library.models import Author, Book
+
+
+def add_book(title, author_name):
+    author = Author.objects.create(name=author_name)
+    return Book.objects.create(title=title, author=author)
+```
+
+```python
+# tests/test_add_book.py
+from library.models import Book
+from library.services import add_book
+from pytest_queryguard import record_queries
+
+
+def test_add_book(db):
+    with record_queries() as log:
+        add_book("Dune", "Frank Herbert")
+
+    book = Book.objects.get()
+    assert book.author.name == "Frank Herbert"
+    assert log.count == 2, [query.sql for query in log]
+```
+
+The other ways:
+
+- `@pytest.mark.max_queries(n)` is checked after the test body, and when the
+  body fails, its failure is reported, not the budget. It fails only above
+  `n`, not below (see [Budgets and timing](budgets.md)).
+- `--queryguard-mode=warn` (or `queryguard_mode = warn`) turns N+1 findings
+  into `QueryGuardWarning`s, and the test passes. Budgets are not findings:
+  `max_queries`, `queryguard.num_queries()` and the budget file fail in every
+  mode.
+- `--queryguard-report` prints the tests with the most queries at the end of
+  the run, and `--queryguard-json=PATH` writes every test's count to a file
+  (see [CI](ci.md#query-counts-as-json)); neither fails a test.
+
 ## How it sees Django
 
 - **Statements** come from Django's documented
