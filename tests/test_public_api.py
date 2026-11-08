@@ -780,7 +780,7 @@ EXPECTED_TOOL_ARGUMENTS = {
     "lint": [
         "paths nargs='+'",
         "--models",
-        "--format default='text' choices=('text', 'json', 'sarif')",
+        "--format default='text' choices=('text', 'json', 'sarif', 'github')",
         "--output",
     ],
 }
@@ -855,6 +855,7 @@ EXPECTED_MCP_TOOLS = {
     "run_tests": (["args", "paths", "timeout"], []),
     "explain_finding": (["kind"], ["kind"]),
     "compare": (["base_json", "head_json"], ["base_json", "head_json"]),
+    "lint": (["models", "paths", "timeout"], ["models", "paths"]),
 }
 
 
@@ -866,6 +867,25 @@ def test_mcp_tools_and_arguments() -> None:
         for name, tool in mcp.TOOLS.items()
     }
     assert found == EXPECTED_MCP_TOOLS
+
+
+# Experimental (docs/static-check.md#pre-commit): the hooks of
+# .pre-commit-hooks.yaml, id -> (entry, language).
+EXPECTED_PRE_COMMIT_HOOKS = {
+    "queryguard-lint": ("python -m pytest_queryguard.lint", "python"),
+}
+
+
+def test_pre_commit_hooks() -> None:
+    path = Path(__file__).parents[1] / ".pre-commit-hooks.yaml"
+    if not path.is_file():
+        pytest.skip(".pre-commit-hooks.yaml is not in the sdist")
+    text = path.read_text(encoding="utf-8")
+    hooks = {}
+    for block in re.split(r"^- ", text, flags=re.MULTILINE)[1:]:
+        fields = dict(re.findall(r"^ *(id|entry|language): (.+)$", block, re.MULTILINE))
+        hooks[fields["id"]] = (fields["entry"], fields["language"])
+    assert hooks == EXPECTED_PRE_COMMIT_HOOKS
 
 
 EXPECTED_ACTION_INPUTS = {
@@ -883,8 +903,17 @@ EXPECTED_ACTION_INPUTS = {
     "comment": '"true"',
     "trend": '"false"',
     "github-token": "${{ github.token }}",
+    "lint": '"false"',
+    "lint-models": '""',
+    "lint-paths": '"."',
 }
-EXPECTED_ACTION_OUTPUTS = ["exit-code", "sarif-file", "json-file", "trend-report"]
+EXPECTED_ACTION_OUTPUTS = [
+    "exit-code",
+    "sarif-file",
+    "json-file",
+    "trend-report",
+    "lint-exit-code",
+]
 
 
 def _action_section(text: str, name: str) -> str:

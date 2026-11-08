@@ -1,7 +1,7 @@
 """Static N+1 check (experimental): lazy relationships read in a loop over a query.
 
-    python -m pytest_queryguard.lint --models app.models [--format text|json|sarif]
-        [--output FILE] PATHS...
+    python -m pytest_queryguard.lint --models app.models
+        [--format text|json|sarif|github] [--output FILE] PATHS...
 
 The pytest plugin finds N+1 queries by watching what a test runs. This module
 reads source code instead, without a database and without running anything
@@ -1590,6 +1590,66 @@ def to_sarif(report: Report, prefix: str = "") -> dict[str, Any]:
     }
 
 
+def _escape_data(value: str) -> str:
+    """A workflow command's message: one line, with ``%`` escaped first."""
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _escape_property(value: str) -> str:
+    return _escape_data(value).replace(":", "%3A").replace(",", "%2C")
+
+
+def _github_path(file: str, workspace: str | None) -> str:
+    """The path of a finding relative to the repository root, for an annotation.
+
+    In GitHub Actions (``workspace`` is ``GITHUB_WORKSPACE``) the file is
+    resolved, against the working directory when it is relative, and made
+    relative to the workspace, as the SARIF paths are; a file outside it, or
+    a run outside GitHub Actions, keeps the path the report has.
+    """
+    if workspace and workspace.strip():
+        try:
+            base = Path(os.path.realpath(workspace.strip()))
+            return Path(os.path.realpath(file)).relative_to(base).as_posix()
+        except (ValueError, OSError):
+            pass
+    return file
+
+
+def to_github(report: Report, workspace: str | None = None) -> str:
+    """GitHub Actions workflow commands: one ``::warning`` annotation per finding.
+
+    ``workspace`` is the value of ``GITHUB_WORKSPACE``, the repository root
+    the paths are made relative to.
+    """
+    lines: list[str] = []
+    for f in report.findings:
+        path = _github_path(f.file, workspace)
+        properties = ",".join(
+            (
+                f"file={_escape_property(path)}",
+                f"line={f.line}",
+                f"col={f.column}",
+                f"title={_escape_property(f'N+1: {f.relationship} (queryguard)')}",
+            )
+        )
+        message = (
+            f"{f.relationship} is lazy-loaded once per row (N+1) in the loop at "
+            f"line {f.loop_line} over the query at line {f.query_line} in "
+            f"{f.function}.\nFix: load it with the parent query, e.g. {f.fix}\n"
+            f"Rule: {RULE_ID}"
+        )
+        lines.append(f"::warning {properties}::{_escape_data(message)}")
+    for error in report.errors:
+        lines.append(f"::notice::{_escape_data(f'queryguard lint skipped {error}')}")
+    count = len(report.findings)
+    lines.append(
+        f"queryguard lint (experimental): {count} finding{'s' * (count != 1)} "
+        f"in {report.files} file{'s' * (report.files != 1)}"
+    )
+    return "\n".join(lines) + "\n"
+
+
 def _version() -> str:
     from . import __version__
 
@@ -1602,6 +1662,8 @@ def render(report: Report, fmt: str) -> str:
     if fmt == "sarif":
         prefix = sarif.workspace_prefix(Path.cwd(), os.environ.get("GITHUB_WORKSPACE"))
         return sarif.dumps(to_sarif(report, prefix))
+    if fmt == "github":
+        return to_github(report, os.environ.get("GITHUB_WORKSPACE"))
     return text(report)
 
 
@@ -1620,7 +1682,10 @@ def main(argv: list[str] | None = None) -> int:
         help="module that defines (or imports) the mapped classes; repeatable",
     )
     parser.add_argument(
-        "--format", choices=("text", "json", "sarif"), default="text", dest="fmt"
+        "--format",
+        choices=("text", "json", "sarif", "github"),
+        default="text",
+        dest="fmt",
     )
     parser.add_argument("--output", type=Path, help="write the report here too")
     args = parser.parse_args(argv)
