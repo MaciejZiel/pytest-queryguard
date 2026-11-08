@@ -354,6 +354,14 @@ jobs:
           --ignore=tests/test_mysql_index.py
           --ignore=tests/test_mysql_index_check.py
           --ignore=tests/test_mysql_index_parameters.py
+      - name: TEMP accuracy report
+        if: always()
+        run: uv run --no-sync python scripts/accuracy_report.py > accuracy.txt; cat accuracy.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: accuracy-${{ matrix.kind }}
+          path: accuracy.txt
 
   # The GitHub Action in action/ on a tiny sample project (examples/action-sample)
   # with one N+1 query: one run that reports it and does not fail (and shows
