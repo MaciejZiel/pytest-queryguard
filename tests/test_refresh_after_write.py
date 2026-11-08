@@ -26,6 +26,7 @@ from sqlalchemy.pool import StaticPool
 from pytest_queryguard import (
     NPlusOneDetected,
     QueryGuardInternalWarning,
+    errors,
     listeners,
     record_queries,
 )
@@ -249,7 +250,7 @@ def test_a_bug_in_the_after_flush_listener_is_reported_not_raised() -> None:
     try:
         with pytest.warns(QueryGuardInternalWarning), record_queries():
             listeners._on_after_flush(Broken(), None)  # type: ignore[arg-type]
-        assert isinstance(listeners._error, RuntimeError)
+        assert isinstance(errors._error, RuntimeError)
         failure = listeners.internal_failure()
         assert failure is not None
         assert "after_flush" in failure.source

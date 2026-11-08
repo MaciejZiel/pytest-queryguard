@@ -52,7 +52,7 @@ PyPI yet. If pytest does not know an option, check the
 - **Adoption on a large suite:** a [baseline](baseline.md) so only new
   findings fail, and [SARIF](sarif.md) for GitHub code scanning.
 
-What it does not do (Django, other ORMs) and where other tools are ahead:
+What it does not do (ORMs other than SQLAlchemy and, experimentally, [Django](django.md)) and where other tools are ahead:
 [Comparison with other tools](comparison.md) and [Limitations](limitations.md).
 How often it is right, on a corpus of 280 scenarios: [Accuracy](accuracy.md).
 Coming from another tool: [nplusone](migrating-from-nplusone.md),

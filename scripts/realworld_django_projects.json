@@ -1,0 +1,101 @@
+{
+  "_comment": [
+    "Django projects for .github/workflows/realworld.yml with suite=django,",
+    "each pinned to a release tag; the fields are those of",
+    "scripts/realworld_projects.json. Big suites run a part of their tests,",
+    "named in pytest_args. The tags and commands ran in GitHub Actions",
+    "(docs/django.md#real-projects)."
+  ],
+  "projects": [
+    {
+      "name": "django-rest-framework",
+      "repository": "encode/django-rest-framework",
+      "ref": "3.18.3",
+      "python": "3.13",
+      "workdir": ".",
+      "install": "uv pip install -e . --group test --group optional",
+      "prepare": "",
+      "pytest_args": "tests -p no:cacheprovider",
+      "postgres": false,
+      "env": {}
+    },
+    {
+      "name": "django-oscar",
+      "repository": "django-oscar/django-oscar",
+      "ref": "4.2.1",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "uv pip install -e '.[test]' 'django>=5.2,<5.3'",
+      "prepare": "",
+      "pytest_args": "tests/functional tests/integration",
+      "postgres": true,
+      "env": {
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "postgres",
+        "POSTGRES_DB": "oscar",
+        "DATABASE_USER": "postgres",
+        "DATABASE_PASSWORD": "postgres",
+        "DATABASE_HOST": "127.0.0.1",
+        "DATABASE_PORT": "5432"
+      }
+    },
+    {
+      "name": "saleor",
+      "repository": "saleor/saleor",
+      "ref": "3.23.47",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "uv sync --frozen",
+      "prepare": "",
+      "pytest_args": "saleor/graphql/account/tests/benchmark saleor/graphql/attribute/tests/benchmark saleor/graphql/channel/tests/benchmark saleor/graphql/checkout/tests/benchmark saleor/graphql/discount/tests/benchmark saleor/graphql/giftcard/tests/benchmark saleor/graphql/order/tests/benchmark saleor/graphql/page/tests/benchmark saleor/graphql/payment/tests/benchmark saleor/graphql/product/tests/benchmark saleor/graphql/shipping/tests/benchmark saleor/graphql/shop/tests/benchmark saleor/graphql/warehouse/tests/benchmark saleor/graphql/webhook/tests/benchmark saleor/order/tests/benchmark saleor/graphql/product/tests/queries -n 4",
+      "postgres": true,
+      "env": {
+        "POSTGRES_USER": "saleor",
+        "POSTGRES_PASSWORD": "saleor",
+        "POSTGRES_DB": "saleor",
+        "SECRET_KEY": "only-for-the-tests"
+      }
+    },
+    {
+      "name": "pretix",
+      "repository": "pretix/pretix",
+      "ref": "v2026.9.0",
+      "python": "3.12",
+      "workdir": "src",
+      "install": "uv pip install -e '..[dev]'",
+      "prepare": "",
+      "pytest_args": "tests/api -p no:sugar -n 4",
+      "postgres": false,
+      "env": {}
+    },
+    {
+      "name": "readthedocs",
+      "repository": "readthedocs/readthedocs.org",
+      "ref": "2026.11.03",
+      "python": "3.14",
+      "workdir": ".",
+      "install": "uv pip install -r requirements/testing.txt 'readthedocsext-theme @ git+https://github.com/readthedocs/ext-theme.git@62145f161cd474a2fb74ecf5b31ca7c98345e258'",
+      "prepare": "",
+      "pytest_args": "--ds=readthedocs.settings.test readthedocs/api readthedocs/projects readthedocs/builds readthedocs/organizations",
+      "postgres": false,
+      "env": {
+        "PYTHONPATH": "readthedocs:.",
+        "DJANGO_SETTINGS_SKIP_LOCAL": "True",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8"
+      }
+    },
+    {
+      "name": "django-cms",
+      "repository": "django-cms/django-cms",
+      "ref": "5.1.3",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "uv pip install pytest pytest-django -r test_requirements/django-5.2.txt",
+      "prepare": "",
+      "pytest_args": "cms/tests menus",
+      "postgres": false,
+      "env": {}
+    }
+  ]
+}

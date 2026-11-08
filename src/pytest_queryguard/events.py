@@ -12,6 +12,11 @@ if TYPE_CHECKING:
 # recorded it (blocks.current()), innermost last; () outside any block.
 
 
+# Which ORM integration recorded an event (StatementEvent.orm and the others).
+ORM_SQLALCHEMY = "sqlalchemy"
+ORM_DJANGO = "django"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CallSite:
     """A source location. Its fields are public API; its constructor is not.
@@ -78,6 +83,9 @@ class StatementEvent:
     # True when every application frame it ran from is test code: the test
     # module, a conftest.py, a factory, a helper under tests/ (callsite.TestCode).
     test_code: bool = False
+    # The ORM integration that recorded it: ORM_SQLALCHEMY or ORM_DJANGO. It
+    # picks the wording of a finding's fix; the rules do not read it.
+    orm: str = "sqlalchemy"
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +118,21 @@ class RelationshipLoadEvent:
     # lazy loads are told apart by these only, see detectors._split.
     entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
+    orm: str = "sqlalchemy"  # see StatementEvent.orm
+    # For a parent whose query is unknown: the application lines from the
+    # read outwards to the test, as (file, line). Loads of such parents are
+    # grouped by it, so one helper that two lines of the test call is not a
+    # loop. None: grouped by the reading line alone (SQLAlchemy).
+    read_path: tuple[tuple[str, int], ...] | None = field(default=None, compare=False)
+
+
+def read_key(load: RelationshipLoadEvent) -> object:
+    """How loads of parents of unknown origin are grouped: by the reading line,
+    and by the call path to it when the integration records one (Django);
+    None for a load read at no line of the application."""
+    if load.callsite is None:
+        return None
+    return (load.callsite, load.read_path)
 
 
 # What made the instance load columns again.
@@ -139,6 +162,7 @@ class ColumnLoadEvent:
     # lazy loads are told apart by these only, see detectors._split.
     entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
+    orm: str = "sqlalchemy"  # see StatementEvent.orm
 
 
 @dataclass(frozen=True, slots=True)

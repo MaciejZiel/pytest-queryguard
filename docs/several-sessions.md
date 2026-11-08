@@ -82,7 +82,7 @@ queryguard_scope = "session"
 
 | Value | What is counted together |
 |---|---|
-| `test` (default) | Everything the test runs, except `Session`s begun from lines of their own (see above). |
+| `test` (default) | Everything the test runs, except `Session`s begun from lines of their own (see above); with Django, each request of the test client still counts on its own ([Django](django.md#what-is-checked)). |
 | `session` | The statements, lazy loads, column loads and writes of one scope. A finding needs one scope to reach the threshold. |
 
 It applies to four kinds: `repeated-statement` (also the small-repeat rule),

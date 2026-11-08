@@ -250,3 +250,17 @@ def test_a_comprehension_in_a_session_method_is_passed_over() -> None:
     expected = inspect.currentframe().f_lineno - 1  # type: ignore[union-attr]
     assert sites[0] is not None
     assert sites[0].lineno == expected  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("package", ["rest_framework", "django", "sqlalchemy"])
+def test_an_orm_library_imported_late_is_a_known_library(
+    monkeypatch: pytest.MonkeyPatch, package: str
+) -> None:
+    from pytest_queryguard import callsite
+
+    # prefixes computed before the package was imported (no entry for it)
+    monkeypatch.setattr(callsite, "_prefixes", ("/nowhere/",))
+    path = f"/venv/lib/python3.13/site-packages/{package}/serializers.py"
+    assert callsite._known_library(path)
+    other = "/venv/lib/python3.13/site-packages/myapp/views.py"
+    assert not callsite._known_library(other)

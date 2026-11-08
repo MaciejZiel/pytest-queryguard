@@ -51,6 +51,8 @@ classifiers = [
 dependencies = ["pytest>=8", "sqlalchemy>=2.0.13"]
 
 [project.optional-dependencies]
+# The Django integration (experimental); docs/django.md.
+django = ["django>=5.2"]
 # The same requirement as the core dependency, so it changes nothing today. A
 # later minor release may move SQLAlchemy out of the core dependencies into
 # this extra (docs/stability.md); installing with [sqlalchemy] keeps working.
@@ -106,6 +108,16 @@ plugins = [
     "pytest-asyncio>=0.24",
     "pytest-randomly>=3.15",
 ]
+# The Django backend's tests (tests/django), which the "django" CI job runs.
+# Not in dev: pytest-django is a pytest plugin that every session would load.
+# Django (BSD-3-Clause; asgiref, BSD-3-Clause; sqlparse, BSD-3-Clause),
+# pytest-django (BSD-3-Clause), Django REST framework (BSD-3-Clause) for the
+# serializer scenarios of the Django corpus.
+django = [
+    "django>=5.2",
+    "djangorestframework>=3.16",
+    "pytest-django>=4.11",
+]
 
 [tool.hatch.version]
 path = "src/pytest_queryguard/__init__.py"
@@ -155,6 +167,8 @@ extend-select = ["I", "UP", "B"]
 # FastAPI's Depends() in a default and the mutable __mapper_args__ dictionaries
 # are how the code the corpus imitates is written.
 "tests/corpus/**" = ["B008", "RUF012"]
+# Django's Meta options and DRF's field lists are class-level lists.
+"tests/django_project/**" = ["RUF012"]
 
 [tool.mypy]
 strict = true
@@ -165,4 +179,7 @@ source = ["pytest_queryguard"]
 
 [tool.coverage.report]
 fail_under = 90
+# The Django integration: measured by the "django" CI job, which runs
+# tests/django_project with Django installed (see .github/workflows/ci.yml).
+omit = ["*/pytest_queryguard/django_backend.py"]
 show_missing = true

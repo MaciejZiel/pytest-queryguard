@@ -31,7 +31,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.pool import StaticPool
 
-from pytest_queryguard import NPlusOneDetected, listeners, record_queries
+from pytest_queryguard import NPlusOneDetected, errors, listeners, record_queries
 
 # pytester-free, but the outer plugin watches these tests too.
 pytestmark = pytest.mark.allow_nplusone
@@ -372,7 +372,7 @@ def test_without_the_refresh_context_refreshes_count_as_before(
         _create(session, 100)
         _create(session, 101)
     assert "Author.books was lazy-loaded 2 times" in _report(log)
-    assert listeners._error is None
+    assert errors._error is None
 
 
 def test_the_loader_statement_of_a_refresh_carries_the_refresh(engine: Any) -> None:

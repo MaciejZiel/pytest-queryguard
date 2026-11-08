@@ -7,6 +7,9 @@ overhead job ran, ``overhead.json`` of ``overhead.py`` (in any subdirectory:
 the workflow downloads each job's artifact into its own). A tool whose file
 is missing (its job failed, or it could not be installed) is listed as not
 run. Needs no package beyond the standard library.
+
+With ``--suite django`` it reads the files of ``django_corpus.py`` and
+``django_overhead.py`` instead: one accuracy table per Django version.
 """
 
 from __future__ import annotations
@@ -27,6 +30,8 @@ def load(directory: Path) -> tuple[dict[str, dict], dict | None]:
     overhead = None
     for path in sorted(directory.rglob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("suite") == "django":
+            continue
         if "micro" in data:
             overhead = data
         elif data.get("tool") in common.TOOLS:
@@ -187,20 +192,206 @@ def build(
     return "\n".join(lines) + "\n", payload
 
 
+def load_django(directory: Path) -> tuple[dict[str, dict[str, dict]], list[dict]]:
+    """The Django corpus results by Django version and tool, and the overheads."""
+    corpus: dict[str, dict[str, dict]] = {}
+    overheads = []
+    for path in sorted(directory.rglob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("suite") != "django":
+            continue
+        if "suite_seconds" in data:
+            overheads.append(data)
+        elif data.get("tool") in common.DJANGO_TOOLS:
+            version = ".".join(str(data["versions"].get("django", "?")).split(".")[:2])
+            corpus.setdefault(version, {})[data["tool"]] = data
+    return corpus, overheads
+
+
+def _seconds_cell(runs: list[float], base: list[float]) -> str:
+    if not runs or not base:
+        return "failed"
+    best, base_best = min(runs), min(base)
+    mid, base_mid = sorted(runs)[len(runs) // 2], sorted(base)[len(base) // 2]
+    return f"{(best - base_best) / base_best:+.1%} / {(mid - base_mid) / base_mid:+.1%}"
+
+
+def _median(values: list[float]) -> float:
+    return sorted(values)[len(values) // 2]
+
+
+def _split_rows(data: dict, keys: list[str]) -> list[str]:
+    """The fixed cost (a one-test suite) and the cost per test, against no tool."""
+    runs, one = data["suite_seconds"], data.get("one_test_seconds") or {}
+    tests = int(data.get("tests") or 0)
+    if not one.get("none") or not runs.get("none") or tests < 2:
+        return []
+    base_one, base_all = _median(one["none"]), _median(runs["none"])
+    base_each = (base_all - base_one) / (tests - 1)
+    if base_each <= 0:
+        return ["| fixed cost and cost per test | not measurable (too noisy) |"]
+    fixed, each = [], []
+    for key in keys:
+        if not one.get(key) or not runs.get(key):
+            fixed.append("failed")
+            each.append("failed")
+            continue
+        tool_one, tool_all = _median(one[key]), _median(runs[key])
+        fixed.append(f"{(tool_one - base_one) * 1000:+.0f} ms")
+        extra = (tool_all - tool_one) / (tests - 1) - base_each
+        each.append(f"{extra * 1e6:+.0f} us ({extra / base_each:+.1%})")
+    return [
+        "| fixed cost (one-test suite, median) | " + " | ".join(fixed) + " |",
+        "| added per test (median) | " + " | ".join(each) + " |",
+    ]
+
+
+def build_django(
+    corpus: dict[str, dict[str, dict]], overheads: list[dict], run_url: str = ""
+) -> tuple[str, dict]:
+    """The Markdown summary and the JSON payload of the Django head-to-head."""
+    tools = common.DJANGO_TOOLS
+    kinds = (common.REL, common.REPEAT, common.COLUMN, common.WRITE, common.UNUSED)
+    lines = ["# Head-to-head: pytest-queryguard and the Django N+1 tools", ""]
+    if run_url:
+        lines += [f"Workflow run: {run_url}", ""]
+    payload: dict[str, object] = {"run": run_url, "django": {}, "overhead": overheads}
+    if not corpus:
+        lines.append("No corpus results.")
+    for version, by_tool in sorted(corpus.items()):
+        names = set.intersection(*(set(d["scenarios"]) for d in by_tool.values()))
+        first = next(iter(by_tool.values()))
+        scenarios = {n: first["scenarios"][n] for n in sorted(names)}
+        bugs = sum(m["verdict"] == "BUG" for m in scenarios.values())
+        lines += [
+            (
+                f"## Django {version}: the Django corpus ({len(scenarios)} scenarios: "
+                f"{bugs} BUG, {len(scenarios) - bugs} CLEAN)"
+            ),
+            "",
+        ]
+        scores = {
+            key: common.score(tools[key], scenarios, verdicts(by_tool[key]))
+            for key in common.DJANGO_COMPARED
+            if key in by_tool
+        }
+        lines += common.accuracy_tables(scores, tools, kinds)
+        missing = [tools[k].label for k in common.DJANGO_COMPARED if k not in by_tool]
+        if missing:
+            lines += ["", "Not run (job failed): " + ", ".join(missing)]
+        if "none" in by_tool:
+            base = common.score(tools["none"], scenarios, verdicts(by_tool["none"]))
+            failing = [name for name, _ in base.errors]
+            lines += [
+                "",
+                "No tool: "
+                + (
+                    "every scenario passes."
+                    if not failing
+                    else f"{len(failing)} scenarios fail on their own: "
+                    + ", ".join(f"`{n}`" for n in failing)
+                ),
+            ]
+        lines += ["", "### Settings and versions", ""]
+        for key in ("none", *common.DJANGO_COMPARED):
+            if key not in by_tool:
+                continue
+            v = by_tool[key]["versions"]
+            pkg = {
+                "queryguard": "pytest-queryguard",
+                "queryguard-all": "pytest-queryguard",
+                "zeal": "django-zeal",
+                "nplusone-django": "nplusone",
+            }.get(key)
+            version_text = f" {v.get(pkg, '?')}" if pkg else ""
+            lines.append(
+                f"- **{tools[key].label}**{version_text}: {tools[key].notes} "
+                f"Python {v.get('python')}, Django {v.get('django')}, pytest {v.get('pytest')}."
+            )
+        lines += ["", "### Errors, false positives and misses per tool", ""]
+        for key, sc in scores.items():
+            lines.append(
+                f"<details><summary>{tools[key].label}: {len(sc.errors)} errors, "
+                f"{len(sc.false_positives)} CLEAN flagged, {len(sc.misses)} in-scope BUG "
+                "missed</summary>\n"
+            )
+            for name, detail in sc.errors:
+                lines.append(f"- error `{name}`: {detail.replace('|', '/')}")
+            for name in sc.false_positives:
+                kinds_seen = by_tool[key]["results"][name]["kinds"]
+                lines.append(f"- CLEAN flagged `{name}` ({', '.join(kinds_seen)})")
+            for name in sc.misses:
+                lines.append(f"- missed `{name}`")
+            lines.append("\n</details>\n")
+        payload["django"][version] = {  # type: ignore[index]
+            key: {
+                "label": tools[key].label,
+                "versions": by_tool[key]["versions"],
+                "precision": sc.precision,
+                "recall": sc.recall,
+                "in_scope_recall": sc.in_scope_recall,
+                "kinds": {
+                    k: None if t is None else vars(t) for k, t in sc.kinds.items()
+                },
+                "errors": sc.errors,
+                "false_positives": sc.false_positives,
+                "misses": sc.misses,
+                "results": by_tool[key]["results"],
+            }
+            for key, sc in scores.items()
+        }
+    lines += ["", "## Overhead", ""]
+    if not overheads:
+        lines.append("No overhead results.")
+    for data in overheads:
+        runs = data["suite_seconds"]
+        base = runs.get("none") or []
+        keys = [
+            k
+            for k in common.DJANGO_COMPARED
+            if k in runs or k in data.get("failed", {})
+        ]
+        lines += [
+            (
+                f"Django {data['versions'].get('django')}, a {data.get('tests')}-test "
+                f"pytest-django suite, {data.get('rounds')} interleaved rounds on one runner: "
+                "added wall time against no tool, best round / median round; then that "
+                "time split into a fixed cost per pytest run and a cost per test."
+            ),
+            "",
+            "| | " + " | ".join(tools[k].label for k in keys) + " |",
+            "|---|" + "---|" * len(keys),
+            "| added wall time | "
+            + " | ".join(_seconds_cell(runs.get(k) or [], base) for k in keys)
+            + " |",
+            *_split_rows(data, keys),
+            "",
+        ]
+        for key, error in (data.get("failed") or {}).items():
+            lines.append(f"- {tools[key].label} failed: {common.first_line(error)}")
+    return "\n".join(lines) + "\n", payload
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("results", type=Path)
     parser.add_argument("--markdown", type=Path, required=True)
     parser.add_argument("--json", type=Path, required=True)
+    parser.add_argument(
+        "--suite", choices=("sqlalchemy", "django"), default="sqlalchemy"
+    )
     args = parser.parse_args()
-    corpus, overhead = load(args.results)
     url = ""
     if os.environ.get("GITHUB_RUN_ID"):
         url = (
             f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/"
             f"{os.environ.get('GITHUB_REPOSITORY')}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
         )
-    markdown, payload = build(corpus, overhead, url)
+    if args.suite == "django":
+        markdown, payload = build_django(*load_django(args.results), url)
+    else:
+        corpus, overhead = load(args.results)
+        markdown, payload = build(corpus, overhead, url)
     args.markdown.write_text(markdown, encoding="utf-8")
     args.json.write_text(json.dumps(payload, indent=1), encoding="utf-8")
     print(markdown)

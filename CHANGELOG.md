@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Django ORM support (experimental, #246), next to pytest-django with no
+  settings change: statements through `connection.execute_wrapper`, so
+  budgets, `record_queries()`, the `queryguard` fixture, the baseline,
+  `--queryguard-json`, SARIF and the `repeated-statement` and `write-loop`
+  rules work for Django; `relationship-load` for foreign keys, one-to-one
+  relations both ways, reverse foreign keys, many-to-many relations and
+  generic relations,
+  grouped by the line of the parents' query as for SQLAlchemy;
+  `column-load` for fields left out by `.only()` or `.defer()`; strict mode;
+  `missing-index` with `--queryguard-index-check`.
+  The fix names `select_related()`, `prefetch_related()`, `only()`,
+  `bulk_create()` and `bulk_update()`. Deletes with their cascades and
+  batched bulk writes count as one write. Django 5.2, 6.0 and 6.1 on
+  SQLite, PostgreSQL and MySQL. Not yet for Django: the in-app mode,
+  patches and the experimental unused-eager-load and unused-columns checks.
+  Each request of the test client counts on its own, also with
+  `queryguard_scope = test`; nothing is recorded in the set-up and tear-down
+  of Django's own test cases; loads of objects the test created are grouped
+  by the call path of the read. Measured on six open-source Django projects
+  and against django-zeal and nplusone ([Django](docs/django.md#real-projects)).
+  Like the static check, it is listed under
+  [Experimental](docs/stability.md#experimental): its findings and options
+  may change in a minor release.
 - An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
   requirement as the core dependency, so installing with it changes nothing
   today. [Stability](docs/stability.md#what-is-public) now says that a later
@@ -242,6 +265,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SQLAlchemy is imported only once the project imports it: its listeners are
+  installed when collection ends or a measurement starts. A project that does
+  not use SQLAlchemy (one that only uses Django) no longer pays about 0.2 s
+  per pytest run for importing it.
 - The GitHub Action checks its switches: `fail`, `upload`, `compare` and
   `comment` must be `true` or `false` (any case), and `trend` `false`, `true`
   or 2 to 100; anything else, the empty string included, stops the action

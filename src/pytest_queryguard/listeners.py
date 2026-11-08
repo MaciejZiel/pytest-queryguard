@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import contextlib
-import itertools
-import os
 import re
 import sys
 import time
-import traceback
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from sqlalchemy import event
@@ -17,7 +14,16 @@ from sqlalchemy.orm import Mapper, ORMExecuteState, Session
 from sqlalchemy.orm.attributes import instance_state
 from sqlalchemy.pool import Pool
 
-from . import blocks, catalog, collector, indexes, mysql_index, sqlite_index, sqltext
+from . import (
+    blocks,
+    catalog,
+    collector,
+    errors,
+    indexes,
+    mysql_index,
+    sqlite_index,
+    sqltext,
+)
 from ._compat import (
     CHUNKS_CODE,
     CHUNKS_CONTEXT,
@@ -68,67 +74,38 @@ from .events import (
 
 _installed = False
 _index_installed = False
-_error: BaseException | None = None
-_failure: Failure | None = None
-# Scope numbers for the repeat rules: one per Session, one per connection that
-# no Session opened. Process-wide and never reused; the number is stored on the
-# Session or Connection object, so it cannot be mixed up by a recycled id().
-_scopes = itertools.count(1)
-_SCOPE_ATTR = "_queryguard_scope"
 # The objects the latest flush of a Session wrote, for the refresh that a
 # repository runs after each create or update (see _on_after_flush).
 _WRITTEN_ATTR = "_queryguard_written"
 _MISSING = object()
 
-
-@dataclass(frozen=True, slots=True)
-class Failure:
-    """What went wrong inside the plugin, for the warning and the summary."""
-
-    source: str  # the listener or step that raised
-    error: BaseException
-    raised_at: str | None  # "file.py:12 in function", innermost frame
-
-    @property
-    def summary(self) -> str:
-        return f"{type(self.error).__name__}: {self.error}"
-
-
-def internal_error() -> BaseException | None:
-    """The first exception swallowed by a listener, if any."""
-    return _error
-
-
-def internal_failure() -> Failure | None:
-    """Which listener or step failed first, and why; None without an error.
-
-    The error itself is the one ``internal_error()`` returns. When it was set
-    without a source (``swap_error()``), the source is "unknown".
-    """
-    if _error is None:
-        return None
-    if _failure is not None and _failure.error is _error:
-        return _failure
-    return Failure("unknown", _error, _innermost(_error))
-
-
-def _innermost(exc: BaseException) -> str | None:
-    frames = traceback.extract_tb(exc.__traceback__)
-    if not frames:
-        return None
-    last = frames[-1]
-    return f"{os.path.basename(last.filename)}:{last.lineno} in {last.name}"
+# The plugin's failure state and the scope numbers live in errors.py (no ORM
+# import); re-exported here under their old names.
+Failure = errors.Failure
+internal_error = errors.internal_error
+internal_failure = errors.internal_failure
+record_error = errors.record_error
+swap_error = errors.swap_error
+_innermost = errors._innermost
+_fail = errors.fail
 
 
 def _scope_of(owner: Any) -> int | None:
-    """The scope number of a Session or Connection, assigned on first use."""
+    """The scope number of a Session or Connection, assigned on first use.
+
+    A new scope also tells the measuring collectors the lines it began from
+    (``_note_entry``). Only SQLAlchemy's scopes do: a Django connection lives
+    across tests, so the lines of its first use say nothing about a unit of
+    work (``errors.scope_of``).
+    """
     try:
-        scope = owner.__dict__.get(_SCOPE_ATTR)
-        if scope is not None:
-            return scope  # type: ignore[no-any-return]
-        scope = next(_scopes)
-        setattr(owner, _SCOPE_ATTR, scope)
+        known = owner.__dict__.get(errors._SCOPE_ATTR)
     except (AttributeError, TypeError):
+        return None
+    if known is not None:
+        return known  # type: ignore[no-any-return]
+    scope = errors.scope_of(owner)
+    if scope is None:
         return None
     try:
         _note_entry(scope)
@@ -171,12 +148,12 @@ def scope_of_connection(conn: Any) -> int | None:
 
 def _on_after_begin(session: Session, transaction: Any, connection: Any) -> None:
     """Tell the connection which Session it serves, for every transaction."""
-    if _error is not None:
+    if errors._error is not None:
         return
     try:
         # Without the tag the connection counts as a scope of its own.
         with contextlib.suppress(AttributeError, TypeError):
-            setattr(connection, _SCOPE_ATTR, scope_of_session(session))
+            setattr(connection, errors._SCOPE_ATTR, scope_of_session(session))
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "after_begin listener (session scopes)")
 
@@ -220,7 +197,7 @@ def _on_after_flush(session: Session, flush_context: Any) -> None:
 
     Only the latest flush counts: a newer one replaces the set.
     """
-    if _error is not None:
+    if errors._error is not None:
         return
     try:
         if not collector.full_active():
@@ -405,7 +382,7 @@ def _on_instance_load(state: Any, context: Any) -> None:
     Runs for each row that becomes a new instance, so it does no more than
     store a tuple on the state; the query's call site is looked up once.
     """
-    if _error is not None or not _collectors:
+    if errors._error is not None or not _collectors:
         return
     try:
         # Session.merge() fires it without a query context for a new object.
@@ -430,7 +407,7 @@ def _on_instance_refresh(state: Any, context: Any, attrs: Any) -> None:
     different places or paths read has no known origin: which result the code
     goes on with cannot be told.
     """
-    if _error is not None or not _collectors:
+    if errors._error is not None or not _collectors:
         return
     try:
         # A bulk UPDATE or DELETE that synchronizes the Session fires it
@@ -526,16 +503,7 @@ def _current_origin(state: Any, *, oldest: bool = False) -> tuple[Any, ...] | No
     return origin  # type: ignore[no-any-return]
 
 
-def _for_target(
-    load: RelationshipLoadEvent, target: collector.QueryCollector
-) -> RelationshipLoadEvent:
-    """``load`` as ``target`` records it: without the parent's origin when that
-    was noted before ``target`` started (an object loaded before a
-    ``record_queries()`` block has none there)."""
-    parent = load.parent
-    if parent is None or parent.noted >= target.since:
-        return load
-    return replace(load, parent=None)
+_for_target = collector.for_target
 
 
 def _parent_load(parent: Any, prop: Any) -> ParentLoad | None:
@@ -551,9 +519,7 @@ def _parent_load(parent: Any, prop: Any) -> ParentLoad | None:
 
 
 def _reset_for_tests() -> None:
-    global _error, _failure
-    _error = None
-    _failure = None
+    errors.reset()
 
 
 class OrmSelect(NamedTuple):
@@ -834,7 +800,7 @@ def _on_cursor_execute(
     context: Any,
     executemany: bool,
 ) -> None:
-    if _error is not None:
+    if errors._error is not None:
         return
     try:
         targets = collector.targets()
@@ -935,7 +901,7 @@ def _on_orm_execute_strict(state: ORMExecuteState) -> None:
     strict decision is made here; the cursor listener records the load when
     its SELECT runs. A load that raises has no SELECT, so it is recorded here.
     """
-    if _error is not None:
+    if errors._error is not None:
         return
     strict: BaseException | None = None
     raiser: collector.QueryCollector | None = None
@@ -1016,7 +982,7 @@ def _on_timing_after(
     executemany: bool,
 ) -> None:
     now = time.perf_counter()  # first, so nothing else is counted as database time
-    if _error is not None:
+    if errors._error is not None:
         return
     try:
         timing = getattr(context, "_queryguard_timing", None)
@@ -1039,7 +1005,7 @@ def _on_after_cursor_execute(
     context: Any,
     executemany: bool,
 ) -> None:
-    if _error is not None:
+    if errors._error is not None:
         return
     try:
         # Every statement, in fixtures too: DDL clears the catalog cache.
@@ -1068,7 +1034,7 @@ def _guarded(
     name = event_name or getattr(handler, "__name__", "transaction")
 
     def listener(*args: Any) -> None:
-        if _error is not None:
+        if errors._error is not None:
             return
         try:
             handler(*args)
@@ -1084,29 +1050,6 @@ _on_commit_twophase = _guarded(catalog.on_commit_twophase, "commit_twophase")
 _on_rollback_twophase = _guarded(catalog.on_rollback_twophase, "rollback_twophase")
 _on_rollback_savepoint = _guarded(catalog.on_rollback_savepoint, "rollback_savepoint")
 _on_invalidate = _guarded(catalog.on_invalidate, "invalidate")
-
-
-def _fail(exc: Exception, source: str) -> None:
-    global _error, _failure
-    if _error is None:
-        _error = exc
-        _failure = Failure(source, exc, _innermost(exc))
-
-
-def record_error(exc: Exception, source: str = "plugin") -> None:
-    """Disable measurement after a bug outside the listeners (first error wins)."""
-    _fail(exc, source)
-
-
-def swap_error(new: BaseException | None) -> BaseException | None:
-    """Replace the recorded error and return the previous one.
-
-    The plugin clears it for each session and restores the outer session's
-    error afterwards, so in-process nested sessions stay independent.
-    """
-    global _error
-    old, _error = _error, new
-    return old
 
 
 # Options the ORM reads into a statement's load options. On the affected

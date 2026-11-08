@@ -8,13 +8,15 @@ from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from .blocks import IgnoreBlock, Sieve, covering
-from .collector import QueryCollector
+from .collector import QueryCollector, boundary
 from .events import (
     CAUSE_DEFERRED,
+    ORM_SQLALCHEMY,
     CallSite,
     ColumnLoadEvent,
     RelationshipLoadEvent,
     StatementEvent,
+    read_key,
 )
 from .findings import (
     KIND_COLUMN_LOAD,
@@ -141,6 +143,8 @@ class RelationshipFinding:
     # load has the same one (see events.ParentLoad); None when unknown.
     parent_root: str | None = None
     parent_path: tuple[tuple[str, bool], ...] = ()
+    # The ORM that recorded the loads (events.ORM_*): the wording of the fix.
+    orm: str = ORM_SQLALCHEMY
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +158,7 @@ class RepeatFinding:
     # See RelationshipFinding: Sessions or connection checkouts counted over.
     scopes: int = 1
     scoped: bool = False
+    orm: str = ORM_SQLALCHEMY
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +171,7 @@ class WriteLoopFinding:
     first: CallSite | None
     scopes: int = 1
     scoped: bool = False
+    orm: str = ORM_SQLALCHEMY
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +189,7 @@ class ColumnLoadFinding:
     scoped: bool = False
     base: str | None = None  # the class the query selected, for CAUSE_POLYMORPHIC
     single_table: bool = False  # CAUSE_POLYMORPHIC: the columns are in its table
+    orm: str = ORM_SQLALCHEMY
 
     @property
     def label(self) -> str:
@@ -319,28 +326,25 @@ def _same(scope: int | None) -> int | None:
     return scope
 
 
-def _units(
-    collector: QueryCollector, scoped: bool, paths: bool = True
-) -> _Units | None:
+def _units(collector: QueryCollector, scoped: bool, paths: bool = True) -> _Units:
     """What a count rule counts together: see _split.
 
     With scope "session", each scope. With "test", the scopes begun from
-    lines of their own one by one and all others together
-    (QueryCollector.unit_of). With either, the events of a call path of their
-    own one by one. Without units when events were left out (``max_events``):
-    the stored ones are not all there is, so only scope "session" splits
-    them, by scope. ``paths`` False keeps the call paths together.
+    lines of their own and the requests of Django's test client one by one,
+    and all others together (QueryCollector.unit_of). With either, the events
+    of a call path of their own one by one. When events were left out
+    (``max_events``) the stored ones are not all there is: only scope
+    "session" splits them by scope, and scope "test" by request only
+    (``collector.boundary``), without the call paths. ``paths`` False keeps
+    the call paths together.
     """
     truncated = collector.truncated
     paths = paths and not truncated
     if scoped:
         return _Units(_same, paths)
     if truncated:
-        return None
-    unit = collector.unit_of if collector.counts_units() else None
-    if unit is None and not paths:
-        return None
-    return _Units(unit, paths)
+        return _Units(boundary, False)
+    return _Units(collector.unit_of if collector.counts_units() else boundary, paths)
 
 
 def _side(items: Sequence[_T], test_code: bool | None) -> Sequence[_T]:
@@ -420,23 +424,27 @@ def _n_plus_one_groups(
     so an unknown origin never hides a loop; a load read where no line of the
     application is known counts for every group.
     """
-    unknown: dict[CallSite | None, list[RelationshipLoadEvent]] = {}
+    unknown: dict[object, list[RelationshipLoadEvent]] = {}
     groups: dict[CallSite, list[RelationshipLoadEvent]] = {}
     for load in loads:
         parent = load.parent
         if parent is None or parent.callsite is None:
-            unknown.setdefault(load.callsite, []).append(load)
+            unknown.setdefault(read_key(load), []).append(load)
         else:
             groups.setdefault(parent.callsite, []).append(load)
     # read at an unknown line (no frame of the application): may be any line
     anywhere = unknown.pop(None, [])
+    # every load of an unknown parent read at a line, whatever its call path
+    at_line: dict[CallSite | None, list[RelationshipLoadEvent]] = {}
+    for group in unknown.values():
+        at_line.setdefault(group[0].callsite, []).extend(group)
     candidates = []
     for group in groups.values():
         lines = dict.fromkeys(load.callsite for load in group)
         candidates.append(
             [
                 *group,
-                *(load for line in lines for load in unknown.get(line, ())),
+                *(load for line in lines for load in at_line.get(line, ())),
                 *anywhere,
             ]
         )
@@ -515,9 +523,12 @@ def _relationship_findings(
         for stmt in collector.statements:
             if stmt.relationship != name:
                 continue
-            rank = (2 if stmt.lazy_load else 1) * 2 + (
-                1 if not scoped or stmt.scope == scope else 0
+            same = (
+                stmt.scope == scope
+                if scoped
+                else boundary(stmt.scope) == boundary(scope)
             )
+            rank = (2 if stmt.lazy_load else 1) * 2 + (1 if same else 0)
             if rank > best_rank:
                 sample, best_rank = stmt.sql, rank
                 if rank == 5:
@@ -533,6 +544,7 @@ def _relationship_findings(
                 1 if scoped else _scope_count(best, lambda load: load.scope),
                 scoped,
                 *_parents(best),
+                best[-1].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count)
@@ -587,6 +599,7 @@ def _column_load_findings(
                 scoped,
                 base,
                 single_table,
+                best[0].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count)
@@ -675,6 +688,7 @@ def _write_loop_findings(
                 best[0].callsite,
                 1 if scoped else _scope_count(best, lambda s: s.scope),
                 scoped,
+                best[0].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count)
@@ -721,6 +735,7 @@ _SHADOWS_CATALOG = re.compile(
 )
 
 
+@functools.lru_cache(maxsize=512)
 def is_catalog_statement(sql: str) -> bool:
     """True for schema reflection that the repeat rules do not count."""
     sql = _SQL_COMMENT.sub(" ", sql)
@@ -1087,6 +1102,7 @@ def _small_repeat_findings(
                     True,
                     1 if scoped else _scope_count(best, lambda s: s.scope),
                     scoped,
+                    best[0].orm,
                 )
             )
     return sorted(found, key=lambda f: -f.count)
@@ -1127,6 +1143,7 @@ def _repeat_findings(
                 False,
                 1 if scoped else _scope_count(best, lambda s: s.scope),
                 scoped,
+                best[0].orm,
             )
         )
     return sorted(found, key=lambda f: -f.count), hidden

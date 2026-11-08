@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -518,8 +519,11 @@ def test_the_probe_records_internal_warnings(
         assert in_test["nodeid"].endswith("::test_a")
 
 
-def test_the_project_list_is_well_formed() -> None:
-    data = json.loads((SCRIPTS / "realworld_projects.json").read_text())
+@pytest.mark.parametrize(
+    "name", ["realworld_projects.json", "realworld_django_projects.json"]
+)
+def test_the_project_list_is_well_formed(name: str) -> None:
+    data = json.loads((SCRIPTS / name).read_text())
     projects = data["projects"]
     assert 4 <= len(projects) <= 6
     names = [p["name"] for p in projects]
@@ -531,6 +535,8 @@ def test_the_project_list_is_well_formed() -> None:
         assert project["ref"] and project["ref"] not in ("main", "master", "HEAD")
         assert project["repository"].count("/") == 1
         assert "," not in project["name"]
+        # GitHub masks a URL with a password and then drops the whole list
+        assert not re.search(r"://[^/@\"]+:[^/@\"]+@", json.dumps(project))
 
 
 def test_a_plugin_run_is_not_judged_against_a_baseline_that_stopped(
@@ -565,3 +571,75 @@ def test_the_table_puts_a_plugin_problem_first_and_escapes_errors(
     lines = capsys.readouterr().out.splitlines()
     assert lines[2].endswith("| plugin problem |")
     assert lines[3].count("|") == 10  # one row of nine cells, no stray pipe
+
+
+def test_other_tools_are_reported_and_never_a_problem(
+    summary: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_runs(
+        tmp_path,
+        junit(("test_a", "passed"), ("test_b", "passed")),
+        junit(("test_a", "passed"), ("test_b", "passed")),
+        counts=counts_file({}),
+    )
+    (tmp_path / "zeal.xml").write_text(
+        junit(("test_a", "passed"), ("test_b", "failed")), encoding="utf-8"
+    )
+    (tmp_path / "zeal.meta.json").write_text('{"exit": 1, "seconds": 15}')
+    message = "N+1 detected on app.Order.customer at app/orders.py:3 in f"
+    reports = [
+        {"tool": "zeal", "event": "report", "nodeid": "t::test_a", "message": message}
+    ] * 3 + [
+        {"tool": "zeal", "event": "report", "nodeid": "t::test_b", "message": message}
+    ]
+    (tmp_path / "zeal.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in reports), encoding="utf-8"
+    )
+    # nplusone ran but did not import
+    (tmp_path / "nplusone.xml").write_text(junit(("test_a", "passed")))
+    (tmp_path / "nplusone.meta.json").write_text('{"exit": 0, "seconds": 9}')
+    (tmp_path / "nplusone.jsonl").write_text(
+        json.dumps(
+            {"event": "setup-error", "message": "Traceback\nImportError: no six\n"}
+        )
+        + "\n"
+    )
+    result = summary.summarize(tmp_path, "demo", "v1")
+    assert result.problems == [] and result.harness == []
+    zeal = result.stats["tools"]["zeal"]
+    # one report per test and message, however often the tool repeats it
+    assert (zeal["reports"], zeal["messages"], zeal["tests"]) == (2, 1, 2)
+    assert zeal["broken"] == 1 and zeal["overhead_pct"] == 50.0
+    assert result.stats["tools"]["nplusone"]["setup_error"] is True
+    assert "### django-zeal: 2 reports in 2 tests" in result.report
+    assert "It did not set up: ImportError: no six" in result.report
+    assert "2× " + message in result.report
+    stats = tmp_path / "summary.json"
+    stats.write_text(json.dumps(result.stats), encoding="utf-8")
+    assert summary.main(["--table", str(stats)]) == 0
+    table = capsys.readouterr().out
+    assert "| demo | django-zeal | ok | 2 | 1 | 2 | 1 | +50.0 % |" in table
+    assert "| demo | nplusone | did not set up |" in table
+
+
+def test_no_other_tools_no_section(summary: ModuleType, tmp_path: Path) -> None:
+    write_runs(tmp_path, junit(("test_a", "passed")), junit(("test_a", "passed")))
+    result = summary.summarize(tmp_path, "demo", "v1")
+    assert "tools" not in result.stats
+
+
+def test_a_baseline_where_most_tests_fail_is_a_harness_problem(
+    summary: ModuleType, tmp_path: Path
+) -> None:
+    runs = junit(("test_a", "passed"), ("test_b", "error"), ("test_c", "error"))
+    write_runs(
+        tmp_path,
+        runs,
+        runs,
+        baseline_meta={"exit": 1, "seconds": 5},
+        plugin_meta={"exit": 1, "seconds": 5},
+        counts=counts_file({}),
+    )
+    result = summary.summarize(tmp_path, "demo", "v1")
+    assert result.problems == []
+    assert len(result.harness) == 1 and "most tests fail" in result.harness[0]

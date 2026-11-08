@@ -276,7 +276,16 @@ def summarize(directory: Path, project: str, ref: str, samples: int = 5) -> Summ
             f"the tests did not run without the plugin ({_exit(baseline)}"
             + (", no JUnit XML" if baseline.outcomes is None else "")
             + "): check the project's install and pytest_args in "
-            "scripts/realworld_projects.json and the end of baseline.log"
+            "scripts/realworld_projects.json (or realworld_django_projects.json) "
+            "and the end of baseline.log"
+        )
+    elif baseline.count("failed") > baseline.count("passed"):
+        # it ran, but most of it broke on its own: a missing service or
+        # setting, and the few tests left say little about the plugin
+        harness.append(
+            f"most tests fail without the plugin ({baseline.count('failed')} failed, "
+            f"{baseline.count('passed')} passed): check the project's install, env "
+            "and services, and the end of baseline.log"
         )
     if plugin.outcomes is None and judged:
         problems.append("the run with the plugin left no JUnit XML")
@@ -410,6 +419,12 @@ def summarize(directory: Path, project: str, ref: str, samples: int = 5) -> Summ
                     out.append(f"- `{where}` {label} ×{count} in `{test_id}`")
                 out += ["", "</details>", ""]
 
+    tools = other_tools(directory, baseline, samples)
+    if tools:
+        stats["tools"] = {name: tool.stats for name, tool in tools.items()}
+        for tool in tools.values():
+            out += tool.report
+
     if problems:
         out += ["### Problems", ""] + [f"- {p}" for p in problems] + [""]
     if harness:
@@ -417,6 +432,94 @@ def summarize(directory: Path, project: str, ref: str, samples: int = 5) -> Summ
     stats["problems"] = problems
     stats["harness"] = harness
     return Summary("\n".join(out), problems, harness, stats)
+
+
+# The other N+1 tools the Django suite also runs (scripts/realworld_django_tools.py)
+OTHER_TOOLS = {"zeal": "django-zeal", "nplusone": "nplusone"}
+
+
+@dataclass
+class ToolRun:
+    report: list[str]
+    stats: dict[str, Any]
+
+
+def other_tools(directory: Path, baseline: Run, samples: int = 5) -> dict[str, ToolRun]:
+    """What django-zeal and nplusone reported, for the runs that are there.
+
+    Never a problem of the plugin: these are other tools, measured next to it.
+    A report is one (test, message) pair; a tool that reports the same N+1
+    at every access past its threshold counts once per test.
+    """
+    found: dict[str, ToolRun] = {}
+    for name, label in OTHER_TOOLS.items():
+        if not (directory / f"{name}.meta.json").is_file():
+            continue
+        run = read_run(directory, name)
+        events = read_probe(directory / f"{name}.jsonl")
+        setup_errors = [e for e in events if e.get("event") == "setup-error"]
+        pairs: dict[tuple[str, str], int] = defaultdict(int)
+        for event in events:
+            if event.get("event") == "report":
+                message = _one_line(str(event.get("message", "")), limit=300)
+                pairs[(str(event.get("nodeid", "")), message)] += 1
+        messages: dict[str, set[str]] = defaultdict(set)
+        for test, message in pairs:
+            messages[message].add(test)
+        broken = (
+            sorted(
+                test
+                for test, outcome in baseline.outcomes.items()
+                if outcome == "passed"
+                and run.outcomes.get(test) in ("failed", "skipped")
+            )
+            if baseline.outcomes is not None and run.outcomes is not None
+            else None
+        )
+        extra = overhead(baseline, run)
+        stats: dict[str, Any] = {
+            "exit": run.exit,
+            "seconds": run.seconds,
+            "setup_error": bool(setup_errors),
+            "reports": len(pairs),
+            "messages": len(messages),
+            "tests": len({test for test, _ in pairs}),
+            "broken": None if broken is None else len(broken),
+            "overhead_pct": None if extra is None else round(extra, 1),
+        }
+        report = [
+            f"### {label}: {len(pairs)} reports in {stats['tests']} tests",
+            "",
+            (
+                f"Exit status {_exit(run)}, wall time {_seconds(run)}"
+                + ("" if extra is None else f" ({extra:+.1f} % against no tool)")
+                + "; tests that pass only without it: "
+                + ("unknown" if broken is None else str(len(broken)))
+                + "."
+            ),
+            "",
+        ]
+        for event in setup_errors[:1]:
+            lines = str(event.get("message", "")).strip().splitlines()
+            report += [
+                "It did not set up: " + (_one_line(lines[-1]) if lines else "?"),
+                "",
+            ]
+        if messages:
+            report += [f"<details><summary>{label} messages</summary>", ""]
+            ranked = sorted(messages.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+            for message, tests in ranked[: samples * 4]:
+                report.append(f"- {len(tests)}× {message} (in `{min(tests)}`)")
+            if len(ranked) > samples * 4:
+                report.append(f"- … and {len(ranked) - samples * 4} more")
+            report += ["", "</details>", ""]
+        for test in (broken or [])[:samples]:
+            message = _one_line(run.messages.get(test, ""))
+            report.append(f"- broken: `{test}`" + (f": {message}" if message else ""))
+        if broken:
+            report.append("")
+        found[name] = ToolRun(report, stats)
+    return found
 
 
 def _cell(value: object) -> str:
@@ -478,6 +581,34 @@ def table(files: list[Path]) -> str:
             f"| {'?' if overhead_pct is None else f'{overhead_pct:+.1f} %'} "
             f"| {status} |"
         )
+    tool_rows = []
+    for path in files:
+        try:
+            stats = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for name, tool in (stats.get("tools") or {}).items():
+            pct = tool.get("overhead_pct")
+            tool_rows.append(
+                f"| {stats.get('project', path.parent.name)} "
+                f"| {OTHER_TOOLS.get(name, name)} "
+                f"| {'did not set up' if tool.get('setup_error') else 'ok'} "
+                f"| {_cell(tool.get('reports'))} | {_cell(tool.get('messages'))} "
+                f"| {_cell(tool.get('tests'))} | {_cell(tool.get('broken'))} "
+                f"| {'?' if pct is None else f'{pct:+.1f} %'} |"
+            )
+    if tool_rows:
+        rows += [
+            "",
+            "Other tools on the same tests (reports: distinct test and message pairs):",
+            "",
+            (
+                "| project | tool | setup | reports | distinct messages | tests "
+                "| broken by the tool | overhead |"
+            ),
+            "|---|---|---|---|---|---|---|---|",
+            *tool_rows,
+        ]
     return "\n".join(rows) + "\n"
 
 

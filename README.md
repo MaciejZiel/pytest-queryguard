@@ -33,7 +33,7 @@ queryguard: N+1 detected
        select(Order).options(joinedload(Order.customer))
 ```
 
-Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8.
+Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html).
 
 ## What it catches
 
@@ -228,8 +228,8 @@ and the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#does-it-sl
 
 ## Limitations
 
-- SQLAlchemy only; raw DB-API connections (`sqlite3` and the like) and other
-  ORMs (Django ORM, Peewee) are not seen, and nothing says so.
+- SQLAlchemy, and Django experimentally; raw DB-API connections (`sqlite3`
+  and the like) and other ORMs (Peewee) are not seen, and nothing says so.
 - Only the test function body is measured, not fixtures. One measurement is
   active per process; under pytest-xdist each worker measures its own tests.
 - Test code is told from the application by file: application code kept in

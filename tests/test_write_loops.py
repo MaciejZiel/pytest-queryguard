@@ -418,7 +418,7 @@ def test_without_flush_detection_the_old_behavior_remains(
     # if a SQLAlchemy release moves Session._flush, statements get no token
     from pytest_queryguard import callsite
 
-    monkeypatch.setattr(callsite, "_SESSION_FILE", None)
+    monkeypatch.setattr(callsite, "_session_file", lambda: None)
     session = _unbatched_session()
     with record_queries() as log:
         session.add_all([Customer(name=f"c{i}") for i in range(6)])

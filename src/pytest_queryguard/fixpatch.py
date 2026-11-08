@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Any
 
 from .detectors import RelationshipFinding
+from .events import ORM_SQLALCHEMY
 from .findings import Insertion, SourceFix
 from .messages import loader_steps
 
@@ -988,6 +989,8 @@ def make(finding: RelationshipFinding, root: Path, since: float) -> SourceFix | 
     ``root`` is pytest's rootdir and ``since`` the time the session started:
     a file modified after it may not be the code that ran.
     """
+    if finding.orm != ORM_SQLALCHEMY:
+        return None  # the patches write SQLAlchemy loader options
     site = finding.parent_site
     entity = finding.parent_root
     if site is None or entity is None or finding.other_parent_sites:

@@ -384,6 +384,12 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   `explain_finding`, `compare`, and `lint` since 1.0.0), their
   arguments and the fields of their results. See
   [MCP server](mcp.md).
+- The Django ORM support: the `[django]` extra, what it records and reports
+  for Django code (the finding kinds and labels it produces, how it groups
+  and scopes them, the wording of its fixes) and the Django versions and
+  databases it supports. Options, files and APIs shared with SQLAlchemy keep
+  their guarantees; only what they contain for Django is experimental. See
+  [Django](django.md).
 
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in

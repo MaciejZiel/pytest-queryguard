@@ -15,7 +15,7 @@ SARIF for adoption. These are the features of the current release; the
 [measured runs](#what-i-measured) are of the dated versions named below.
 queryspy is the closest
 alternative, with its own middleware and panel; pytest-querycount writes
-budgets into your tests; Django projects need django-zeal or similar. The
+budgets into your tests; for Django, pytest-queryguard's support is experimental ([Django](django.md)) and django-zeal covers Django too. The
 [matrix](#feature-matrix), [where the others are ahead](#where-the-others-are-ahead)
 and [choosing](#choosing) have the details.
 

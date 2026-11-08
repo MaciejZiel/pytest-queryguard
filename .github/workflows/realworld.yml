@@ -8,6 +8,12 @@ name: Real-world projects
 # The projects, their pinned tags and their install and test commands are in
 # scripts/realworld_projects.json.
 #
+# With suite=django it runs the Django projects of
+# scripts/realworld_django_projects.json the same way (docs/django.md#real-projects),
+# and then twice more, under django-zeal and under nplusone
+# (scripts/realworld_django_tools.py), to see what those tools report on the
+# same tests. Those two runs are measured, never judged.
+#
 # The harness (the project list and the scripts) always comes from the commit
 # the run was started on; only the plugin that is installed comes from the
 # plugin-ref input, so a release older than this workflow can be measured too.
@@ -23,12 +29,21 @@ name: Real-world projects
 on:
   workflow_dispatch:
     inputs:
+      suite:
+        description: "Which projects: the SQLAlchemy ones or the Django ones"
+        type: choice
+        options: [sqlalchemy, django]
+        default: sqlalchemy
       projects:
-        description: "Projects to run, comma-separated names from scripts/realworld_projects.json (empty: all)"
+        description: "Projects to run, comma-separated names from the suite's projects file (empty: all)"
         required: false
         default: ""
       plugin-ref:
         description: "Branch, tag or SHA of pytest-queryguard to install (empty: the commit the run was started on)"
+        required: false
+        default: ""
+      plugin-args:
+        description: "Extra pytest arguments of the run with the plugin, split on spaces (e.g. -o queryguard_scope=session)"
         required: false
         default: ""
 
@@ -64,6 +79,7 @@ jobs:
         id: matrix
         env:
           FILTER: ${{ inputs.projects }}
+          FILE: ${{ inputs.suite == 'django' && 'scripts/realworld_django_projects.json' || 'scripts/realworld_projects.json' }}
         run: |
           matrix=$(jq -c --arg filter "$FILTER" '
             ($filter | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) as $names
@@ -71,16 +87,28 @@ jobs:
             | ($names - ($all | map(.name))) as $unknown
             | if ($unknown | length) > 0 then error("unknown projects: \($unknown | join(", "))") else . end
             | {include: [$all[] | select(($names | length) == 0 or (.name as $n | $names | index($n)))]}
-          ' scripts/realworld_projects.json)
+          ' "$FILE")
           echo "$matrix" | jq .
+          if [ "$(jq '.include | length' <<< "$matrix")" -eq 0 ]; then
+            echo "::error::no project selected from $FILE"
+            exit 1
+          fi
+          # GitHub drops a job output that holds a masked value (a database URL
+          # with a password, say) and the project jobs then never start: check
+          # the list has no such value, so that never passes as a green run.
+          if grep -Eq '://[^/@"]+:[^/@"]+@' <<< "$matrix"; then
+            echo "::error::a value in $FILE has credentials in a URL; GitHub would mask it and drop the project list"
+            exit 1
+          fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   project:
     name: ${{ matrix.name }}
     needs: select
     runs-on: ubuntu-latest
-    # the install (a few minutes) plus two runs, each cut at 10 minutes
-    timeout-minutes: 30
+    # the install (a few minutes) plus two runs, each cut at 10 minutes, and
+    # for Django two more (the other tools)
+    timeout-minutes: ${{ inputs.suite == 'django' && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
@@ -147,7 +175,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/probe"
           cp "$GITHUB_WORKSPACE/harness/scripts/realworld_probe.py" "$RUNNER_TEMP/probe/"
           uv pip freeze > "$OUT/freeze.txt"
-          python -c "import sys, sqlalchemy, pytest, pytest_queryguard as q; print(sys.version); print('sqlalchemy', sqlalchemy.__version__); print('pytest', pytest.__version__); print('pytest-queryguard', q.__version__)" | tee "$OUT/versions.txt"
+          python -c "import sys, importlib.metadata as m, pytest_queryguard as q; print(sys.version); [print(d, m.version(d)) for d in ('sqlalchemy', 'django', 'pytest', 'pytest-django') if any(x.name.lower() == d for x in m.distributions(name=d))]; print('pytest-queryguard', q.__version__)" | tee "$OUT/versions.txt"
       # One function for both runs, so they differ only in the plugin's
       # arguments. PREPARE (for example a fresh database) runs before each, so
       # the second run does not start from what the first left behind.
@@ -163,8 +191,11 @@ jobs:
         env:
           PYTEST_ARGS: ${{ matrix.pytest_args }}
           PREPARE: ${{ matrix.prepare }}
+          SUITE: ${{ inputs.suite }}
+          PLUGIN_ARGS: ${{ inputs.plugin-args }}
         run: |
           read -r -a args <<< "$PYTEST_ARGS"
+          read -r -a plugin_args <<< "$PLUGIN_ARGS"
           run() {
             local name=$1 start end code
             shift
@@ -192,7 +223,35 @@ jobs:
             -W "default::pytest_queryguard.QueryGuardWarning" \
             -W "always::pytest_queryguard.QueryGuardInternalWarning" \
             --queryguard-json="$OUT/queryguard.json" \
-            --queryguard-sarif="$OUT/queryguard.sarif"
+            --queryguard-sarif="$OUT/queryguard.sarif" \
+            ${plugin_args[0]:+"${plugin_args[@]}"}
+          if [ "$SUITE" = django ]; then
+            # The other N+1 tools for Django, each installed only now, so the
+            # two runs above did not have it. zeal's own warning is ignored by
+            # its text: some projects turn warnings into errors.
+            cp "$GITHUB_WORKSPACE/harness/scripts/realworld_django_tools.py" "$RUNNER_TEMP/probe/"
+            # Measured, never judged: a tool that does not install, or a
+            # run of it that fails, is a warning, and the summary still runs.
+            for tool in zeal nplusone; do
+              case $tool in
+                zeal) package=django-zeal==2.3.0 ;;
+                nplusone) package=nplusone==1.0.0 ;;
+              esac
+              if ! uv pip install "$package"; then
+                echo "::warning::$package did not install"
+                continue
+              fi
+              if ! (
+                export PYTHONPATH="$RUNNER_TEMP/probe${PYTHONPATH:+:$PYTHONPATH}"
+                export REALWORLD_TOOL=$tool REALWORLD_TOOL_OUT="$OUT/$tool.jsonl"
+                run "$tool" -p no:queryguard -p realworld_django_tools \
+                  -W "ignore:N+1 detected on:UserWarning"
+              ); then
+                echo "::warning::the run under $tool did not finish"
+              fi
+            done
+            uv pip freeze > "$OUT/freeze-tools.txt" || true
+          fi
       # Exit status 1: the plugin broke something; 2: the project's tests did
       # not run without the plugin either (the harness). Findings are never a
       # failure.
@@ -244,9 +303,11 @@ jobs:
         env:
           PLUGIN_SHA: ${{ needs.select.outputs.plugin-sha }}
           MATRIX: ${{ needs.select.outputs.matrix }}
+          SUITE: ${{ inputs.suite }}
+          PLUGIN_ARGS: ${{ inputs.plugin-args }}
         run: |
           {
-            echo "## Real-world projects, plugin at \`$PLUGIN_SHA\`"
+            echo "## Real-world projects ($SUITE), plugin at \`$PLUGIN_SHA\`${PLUGIN_ARGS:+, with \`$PLUGIN_ARGS\`}"
             echo
             files=()
             for name in $(jq -r '.include[].name' <<< "$MATRIX"); do

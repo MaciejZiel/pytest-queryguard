@@ -4,7 +4,7 @@ import sys
 import threading
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import callsite
 from .blocks import IgnoreBlock, covers
@@ -17,6 +17,7 @@ from .events import (
     RelationshipLoadEvent,
     ScanEvent,
     StatementEvent,
+    read_key,
 )
 from .findings import KIND_RELATIONSHIP
 
@@ -267,7 +268,12 @@ class QueryCollector:
         a fan-out) and those whose lines are unknown return None and are
         counted together, whatever lines each began from, so that a loop
         whose passes take two paths is not split in two.
+
+        A request of Django's test client is always a unit of its own
+        (``boundary``).
         """
+        if isinstance(scope, RequestScope):
+            return scope
         entries = self.entries
         if scope is None or entries is None or scope not in entries:
             return None
@@ -368,7 +374,11 @@ class QueryCollector:
             for earlier in self.relationship_loads
             if earlier.relationship == load.relationship
             and earlier.parent_key is not None
-            and (scope is None or earlier.scope == scope)
+            and (
+                (scope is None or earlier.scope == scope)
+                if self.strict_by_scope
+                else boundary(earlier.scope) == scope
+            )
             and (unit is _ALL or self.unit_of(earlier.scope) == unit)
         ]
         # with a unit, its parents per query line, as the report counts them
@@ -389,17 +399,17 @@ class QueryCollector:
         reads.add(load.callsite)
         # the parents of unknown origin per reading line, as the report groups
         # them; one read at no known line counts for every line
-        unknown: dict[CallSite | None, set[object]] = {}
+        unknown: dict[object, set[object]] = {}
         for earlier in loads:
             if earlier.parent is None or earlier.parent.callsite is None:
-                unknown.setdefault(earlier.callsite, set()).add(earlier.parent_key)
+                unknown.setdefault(read_key(earlier), set()).add(earlier.parent_key)
         anywhere = unknown.get(None, set())
         for earlier in loads:
             parent = earlier.parent
             line = None if parent is None else parent.callsite
             if line is None and earlier.callsite is not None:
                 if earlier.callsite not in reads and (
-                    len(unknown[earlier.callsite] | anywhere) < self.strict_threshold
+                    len(unknown[read_key(earlier)] | anywhere) < self.strict_threshold
                 ):
                     continue  # read elsewhere, too few to be an N+1 of its own
             elif line is not None and line != here:
@@ -422,7 +432,7 @@ class QueryCollector:
         parent = load.parent
         if parent is None or parent.callsite is None:
             return None
-        scope = load.scope if self.strict_by_scope else None
+        scope = load.scope if self.strict_by_scope else boundary(load.scope)
         return (load.relationship, parent.callsite, scope)
 
     def _strict_group(
@@ -539,6 +549,35 @@ _full_stack: list[QueryCollector] = []
 _generation = 0
 
 
+class RequestScope(int):
+    """The scope number of a request of Django's test client.
+
+    Always counted on its own, whatever queryguard_scope says: a loop of the
+    test over requests is not a loop of the application. With
+    queryguard_scope = test everything else still counts together.
+    """
+
+    __slots__ = ()
+
+
+def boundary(scope: object) -> object:
+    """The scope ``scope`` always counts in with ``queryguard_scope = test``:
+    itself for a request, else None (the whole test)."""
+    return scope if isinstance(scope, RequestScope) else None
+
+
+def for_target(
+    load: RelationshipLoadEvent, target: QueryCollector
+) -> RelationshipLoadEvent:
+    """``load`` as ``target`` records it: without the parent's origin when that
+    was noted before ``target`` started (an object loaded before a
+    ``record_queries()`` block has none there)."""
+    parent = load.parent
+    if parent is None or parent.noted >= target.since:
+        return load
+    return replace(load, parent=None)
+
+
 def generation() -> int:
     """Changes on every push/pop; lets per-measurement state detect staleness."""
     return _generation
@@ -551,8 +590,46 @@ def _rebuild() -> None:
     _full_stack[:] = _active_full
 
 
+# Called with no arguments at the start of each process-wide measurement
+# (push): an ORM integration that can only hook in once its ORM is configured
+# (Django, see backends.py) does it here. A hook must never raise.
+_push_hooks: list[Callable[[], None]] = []
+
+
+def on_push(hook: Callable[[], None]) -> None:
+    """Call ``hook`` at the start of every measurement from now on (once per hook)."""
+    if hook not in _push_hooks:
+        _push_hooks.append(hook)
+
+
+# Called with no arguments when a context-local collector opens (push_local),
+# and when the last collector of any kind closes (idle): an integration that
+# hooks into each statement (Django's execute wrapper) only while something
+# measures. A hook must never raise.
+_local_push_hooks: list[Callable[[], None]] = []
+_idle_hooks: list[Callable[[], None]] = []
+
+
+def on_push_local(hook: Callable[[], None]) -> None:
+    if hook not in _local_push_hooks:
+        _local_push_hooks.append(hook)
+
+
+def on_idle(hook: Callable[[], None]) -> None:
+    if hook not in _idle_hooks:
+        _idle_hooks.append(hook)
+
+
+def _maybe_idle() -> None:
+    if not _stack and not _live_local:
+        for hook in _idle_hooks:
+            hook()
+
+
 def push(collector: QueryCollector) -> None:
     global _generation
+    for hook in _push_hooks:
+        hook()
     _generation += 1
     collector.since = _generation
     callsite.new_measurement()
@@ -568,6 +645,7 @@ def pop(collector: QueryCollector) -> None:
             del _stack[i]
             break
     _rebuild()
+    _maybe_idle()
 
 
 def active() -> tuple[QueryCollector, ...]:
@@ -599,6 +677,8 @@ _combined: tuple[object, object, int, tuple[QueryCollector, ...]] | None = None
 
 def push_local(collector: QueryCollector) -> None:
     global _live_local
+    for hook in _local_push_hooks:
+        hook()
     with _local_lock:
         _live_local += 1
     _local.set((*_local.get(), collector))
@@ -621,7 +701,8 @@ def pop_local(collector: QueryCollector) -> None:
     for i in range(len(stack) - 1, -1, -1):
         if stack[i] is collector:
             _local.set(stack[:i] + stack[i + 1 :])
-            return
+            break
+    _maybe_idle()
 
 
 def targets() -> tuple[QueryCollector, ...]:

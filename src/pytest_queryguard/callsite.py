@@ -9,7 +9,6 @@ from pathlib import Path
 from types import CodeType, FrameType
 from typing import NamedTuple
 
-from ._compat import FLUSH_CONTEXT, FLUSH_FUNCTION, SESSION_FILE
 from .events import CallSite
 
 
@@ -22,7 +21,17 @@ def _package_dir(name: str) -> str | None:
 # Packages whose frames are never the application's. pluggy is also where the
 # walk for the callers stops (see _callers).
 _HOOK_PACKAGE = "pluggy"
-_INTERNAL_PACKAGES = ("sqlalchemy", "pytest", "_pytest", _HOOK_PACKAGE)
+# Django, asgiref (its sync/async bridge) and Django REST framework are the
+# libraries of the Django integration; only those already imported count.
+_INTERNAL_PACKAGES = (
+    "sqlalchemy",
+    "pytest",
+    "_pytest",
+    _HOOK_PACKAGE,
+    "django",
+    "asgiref",
+    "rest_framework",
+)
 
 
 def _compute_prefixes() -> tuple[str, ...]:
@@ -52,6 +61,16 @@ def _classify(filename: str) -> bool:
         return True
     parts = Path(filename).parts
     return "site-packages" in parts or "dist-packages" in parts
+
+
+def reset_internal() -> None:
+    """Classify the files again: a library of ``_INTERNAL_PACKAGES`` was
+    imported after the first classification (the Django integration)."""
+    global _prefixes
+    _prefixes = None
+    _internal.clear()
+    _kinds.clear()
+    _origins.clear()
 
 
 def _is_internal(filename: str) -> bool:
@@ -482,7 +501,13 @@ def _known_library(filename: str) -> bool:
     for i, part in enumerate(parts[:-1]):
         if part in _INSTALLED:
             top = parts[i + 1].removesuffix(".py")
-            return top in _TEST_LIBRARIES or top.startswith(("pytest", "_pytest"))
+            # the ORMs and their libraries also when imported after the
+            # prefixes were computed (DRF, first imported by a URLconf)
+            return (
+                top in _TEST_LIBRARIES
+                or top in _INTERNAL_PACKAGES
+                or top.startswith(("pytest", "_pytest"))
+            )
     return True
 
 
@@ -598,6 +623,31 @@ def _in_test_code(filename: str, frame: FrameType) -> bool:
         return result
 
 
+_MAX_READ_PATH = 32
+
+
+def read_path() -> tuple[tuple[str, int], ...]:
+    """The application lines from the caller outwards, as (file, line).
+
+    Up to the pluggy frame that ran the test or the fixture (see _callers).
+    A line is kept once (recursion repeats the line of its call: every depth
+    of one walk gets the same path), and of a deeper stack the outermost 32
+    lines are kept: those near the test are the ones two calls differ in.
+    """
+    found: dict[tuple[str, int], None] = {}
+    stop = _hook_caller()
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        if stop and os.path.normcase(filename).startswith(stop):
+            break
+        if not _is_internal(filename):
+            found[(filename, frame.f_lineno)] = None
+        frame = frame.f_back
+    path = tuple(found)
+    return path[-_MAX_READ_PATH:]
+
+
 def _site(frame: FrameType, sites: Sites) -> CallSite:
     code = frame.f_code
     key = (code.co_filename, frame.f_lineno, code.co_name)
@@ -644,7 +694,25 @@ def _first_external(
 # `flush_context`. It sits behind a generated "warned" wrapper, so the frame is
 # found by function name and file. If a SQLAlchemy release renames either, no
 # statement is tagged and the write-loop rule counts every statement, as before.
-_SESSION_FILE = SESSION_FILE
+# (Session._flush's file, its name, its local) from _compat.py, which
+# tests/test_compat.py checks; read on first use, not imported at the top:
+# _compat imports SQLAlchemy, and find_flush only runs inside its listeners.
+_flush_names: tuple[str | None, str, str] | None = None
+
+
+def _session_file() -> str | None:
+    global _flush_names
+    if _flush_names is None:
+        from . import _compat
+
+        _flush_names = (
+            _compat.SESSION_FILE,
+            _compat.FLUSH_FUNCTION,
+            _compat.FLUSH_CONTEXT,
+        )
+    return _flush_names[0]
+
+
 _flush_numbers = itertools.count(1)
 _MAX_FLUSH_DEPTH = 60
 
@@ -655,15 +723,18 @@ def find_flush() -> int | None:
     The statements of one flush share a number: a unit of work cannot make them
     fewer, so they are not a loop of the application's own writes.
     """
-    if _SESSION_FILE is None:
+    session_file = _session_file()
+    if session_file is None:
         return None
+    assert _flush_names is not None
+    _, flush_function, flush_context = _flush_names
     frame: FrameType | None = sys._getframe(1)
     for _ in range(_MAX_FLUSH_DEPTH):
         if frame is None:
             return None
         code = frame.f_code
-        if code.co_name == FLUSH_FUNCTION and code.co_filename == _SESSION_FILE:
-            context = frame.f_locals.get(FLUSH_CONTEXT)
+        if code.co_name == flush_function and code.co_filename == session_file:
+            context = frame.f_locals.get(flush_context)
             if context is None:
                 return None
             number = getattr(context, "_queryguard_flush", None)
