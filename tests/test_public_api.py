@@ -679,6 +679,48 @@ def test_finding_kinds() -> None:
     assert sorted(sarif.KINDS) == sorted(EXPECTED_KINDS)
 
 
+def test_the_readers_ignore_keys_a_later_release_adds(tmp_path: Path) -> None:
+    """docs/stability.md: a minor release may add keys to a file of format 1.
+
+    Every reader of the plugin and its tools must still read such a file, at
+    the top level and inside an entry.
+    """
+    import json
+
+    from pytest_queryguard import baseline, budgets, compare
+
+    path = tmp_path / "base.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "new": 1,
+                "findings": [
+                    {"kind": "k", "label": "l", "file": None, "function": None, "x": 1}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert baseline.load(path) == {("k", "l", None, None)}
+
+    path = tmp_path / "budgets.json"
+    path.write_text(
+        json.dumps({"format": 1, "new": {"t.py::a": 0.5}, "budgets": {"t.py::a": 3}}),
+        encoding="utf-8",
+    )
+    assert budgets.load(path) == {"t.py::a": 3}
+
+    path = tmp_path / "counts.json"
+    finding = {"kind": "k", "label": "l", "count": 2, "file": "a.py", "function": "f"}
+    entry = {"statements": 3, "new": True, "findings": [{**finding, "new": [1]}]}
+    path.write_text(
+        json.dumps({"format": 1, "new": "x", "tests": {"t.py::a": entry}}),
+        encoding="utf-8",
+    )
+    assert compare.load(path)["tests"]["t.py::a"]["statements"] == 3  # also trend's
+
+
 def _cli_arguments(main: Any, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """The positional arguments and the options of a tool's argument parser."""
     found: list[str] = []

@@ -34,7 +34,12 @@ changes by accident.
   `allow_missing_index`) and the `queryguard` fixture.
 - The meaning of the finding kinds and of the labels and patterns used by
   the `queryguard_ignore` option and marker, so that an existing ignore keeps
-  matching the same finding.
+  matching the same finding. The label of `repeated-statement` and
+  `write-loop` is the SQL text the ORM sends, normalized, and that text is
+  not public (see "What is not public"): an ORM upgrade that renders a
+  statement differently can change the label, as
+  [Baseline](baseline.md#what-an-entry-is) explains, and so can a fix to the
+  normalization, which the changelog then names.
 - The pytest entry point name (`queryguard`).
 - The in-application mode, `pytest_queryguard.app`, as described under
   [The in-application mode](#the-in-application-mode).
@@ -60,7 +65,13 @@ changes by accident.
 
 Each file has a number for its format. A reader rejects a number it does not
 know, with an error that says so. New keys may be added in a minor release
-(read a file by the keys you need and ignore the others). Changing the meaning
+(read a file by the keys you need and ignore the others); the plugin and its
+tools read their own files the same way, so a file that a later 1.x release
+wrote with more keys still reads. A value keeps its type: new data goes into
+a new key, not into a different shape of an existing one (a per-test value in
+the budget file stays a number of queries). A new key never narrows what an
+existing entry matches: a key that would (a baseline entry for one test only,
+say) changes the identity, so it needs a new format number. Changing the meaning
 of a key, removing one, or changing what identifies a finding is an
 incompatible change: the number goes up, and from 1.0 on it needs a major
 release.
@@ -69,7 +80,7 @@ release.
 |---|---|---|---|
 | Baseline file (`--queryguard-baseline`, see [Baseline](baseline.md)) | `"version": 1` | `findings`, each with `kind`, `label`, `file`, `function` (the identity of a finding) | the order of the entries |
 | Budget file (`--queryguard-budgets`, see [Budgets](budgets.md#lock-todays-counts-the-budget-file)) | `"format": 1` | `budgets`: test node id to a number of queries | the order of the entries |
-| Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the order of tests and findings |
+| Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the text of a finding's `message`, the order of tests and findings |
 | SARIF file (`--queryguard-sarif`, see [SARIF](sarif.md)) | SARIF 2.1.0 | the rule ids `queryguard/<kind>`, one per finding kind; the fingerprint key `queryguardIdentity/v1` in `partialFingerprints` and the identity it hashes, so code scanning alerts stay the same alerts after an upgrade; the result `properties` `count`, `label`, `tests` and `peakCount` | rule names, descriptions and help, message text, `primaryLocationLineHash`, `codeFlows`, `fixes` (experimental, see below) |
 | In-app panel's JSON (`<panel_path>/requests.json`, see [In-application mode](in-app.md#the-panel)) | `"format": 1` | `version`, `watched_engines`, `internal_error` and `requests`, each request with the keys of `RequestReport.to_dict()`: `id`, `name`, `method`, `path`, `route`, `status`, `started`, `duration`, `statement_count`, `truncated`, `db_time`, `budget`, `over_budget`, `error`, `statements` (`sql`, `duration`, `relationship`, `file`, `line`, `function`) and `findings` (`kind`, `label`, `file`, `line`, `function`, `count`, `message`) | the value of `version` (the package version), the `message` text; the panel's own page is served by the same release and does not check `format` |
 
