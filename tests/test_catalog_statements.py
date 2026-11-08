@@ -42,6 +42,12 @@ SITE = CallSite(filename="app.py", lineno=10, function="handler")
         ),
         "SELECT table_name FROM information_schema.tables WHERE table_name = ?",
         'SELECT 1 FROM "information_schema"."columns"',
+        # MySQL and MariaDB: what SQLAlchemy's reflection and has_table run
+        "SHOW CREATE TABLE `users`",
+        "SHOW FULL TABLES FROM `app`",
+        "show variables like ?",
+        "DESCRIBE `app`.`users`",
+        "desc users",
     ],
 )
 def test_catalog_statements_are_recognised(sql: str) -> None:
@@ -57,7 +63,8 @@ def test_catalog_statements_are_recognised(sql: str) -> None:
         "SELECT * FROM my_pg_catalog.things WHERE id = ?",
         "SELECT * FROM users WHERE name = ?",  # 'sqlite_master' was a literal
         "SELECT pragma FROM users",
-        "SHOW CREATE TABLE users",
+        "SELECT show, describe FROM users",
+        "SELECT * FROM users ORDER BY id DESC",
         # a CTE or an alias named like a catalog is the application's own data
         (
             "WITH sqlite_master AS (SELECT * FROM orders WHERE customer_id = ?) "
@@ -131,7 +138,8 @@ def _engine() -> Engine:
 
 
 def test_metadata_reflect_and_a_fresh_inspector_are_not_n_plus_one() -> None:
-    # the reproduction of the issue, on SQLite
+    # the reproduction of the issue, on SQLite (and on MySQL, DESCRIBE and
+    # SHOW CREATE TABLE, with QUERYGUARD_TEST_DB_URL)
     engine = _engine()
     with record_queries() as log:
         MetaData().reflect(engine)

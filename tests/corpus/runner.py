@@ -131,6 +131,26 @@ _patched = None
 # id(finding) -> whether it fails the test, noted by the plugin's _fails()
 FAILS = {}
 
+# The scenarios' SQLite databases on MySQL or MariaDB (tests/dbredirect.py);
+# already installed when the session runs in the process of tests/corpus.
+# The other tools run in environments of their own, without the driver.
+if os.environ.get("QUERYGUARD_TEST_DB_URL") and os.environ.get(
+    "CORPUS_TOOL", "queryguard"
+) == "queryguard":
+    import importlib.util
+    import sys
+
+    # The repository's tests/dbredirect.py, not the session's own tests/
+    # folder; the module itself when this process has it already.
+    _redirect = sys.modules.get("tests.dbredirect")
+    if _redirect is None:
+        _spec = importlib.util.spec_from_file_location(
+            "qg_dbredirect", os.environ["CORPUS_DBREDIRECT"]
+        )
+        _redirect = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_redirect)
+    _redirect.install(os.environ["QUERYGUARD_TEST_DB_URL"])
+
 try:
     if os.environ.get("CORPUS_TOOL", "queryguard") == "queryguard":
         from pytest_queryguard import plugin as _plugin
@@ -210,6 +230,9 @@ def session_env(names: list[str], out: Path, tool: str) -> dict[str, str]:
     return {
         "CORPUS_SCENARIOS": ",".join(names),
         "CORPUS_OUT": str(out),
+        "CORPUS_DBREDIRECT": str(
+            Path(__file__).resolve().parent.parent / "dbredirect.py"
+        ),
         "CORPUS_TOOL": tool,
     }
 

@@ -19,7 +19,7 @@ def test_loop():
     engine = create_engine("sqlite://")
     with engine.connect() as conn:
         for i in range(30):
-            conn.execute(text(f"select {{i}} from (select 1) where 1 = 1"))
+            conn.execute(text(f"select {{i}} from (select 1) as one where 1 = 1"))
 """
 
 SAME = """

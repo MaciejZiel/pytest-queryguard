@@ -23,7 +23,13 @@ def setup(ctx: Ctx) -> None:
 
 
 def run(ctx: Ctx) -> None:
-    with Session(ctx.engine()) as session:
+    engine = ctx.engine()
+    if engine.dialect.name == "mysql":
+        # yield_per streams on a server-side cursor there, and PyMySQL ends that
+        # stream when the selectinload runs: without the plugin too, the loop
+        # sees the first batch only. Buffered, it batches as on SQLite.
+        engine.dialect.supports_server_side_cursors = False
+    with Session(engine) as session:
         stmt = (
             select(shop.Order)
             .options(selectinload(shop.Order.lines))

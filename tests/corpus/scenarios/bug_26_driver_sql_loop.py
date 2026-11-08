@@ -9,8 +9,8 @@ setup = shop.setup
 
 
 def run(ctx: Ctx) -> None:
-    # Positional "?" is SQLite's paramstyle, "%s" is pg8000's.
-    marker = "%s" if ctx.pg_url else "?"
+    # Positional "?" is SQLite's paramstyle, "%s" is pg8000's and PyMySQL's.
+    marker = "?" if ctx.engine().dialect.paramstyle == "qmark" else "%s"
     sql = f"SELECT name FROM product WHERE id = {marker}"
     with ctx.engine().connect() as conn:
         names = [conn.exec_driver_sql(sql, (i,)).scalar_one() for i in range(1, 11)]

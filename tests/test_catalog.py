@@ -333,6 +333,7 @@ def test_closing_a_connection_with_ddl_clears_the_cache(engine: Any) -> None:
     assert _is_empty(engine)
 
 
+@pytest.mark.sqlite_only("MySQL commits DDL at once, which ends the savepoint")
 def test_a_savepoint_rolled_back_after_ddl_clears_the_cache(engine: Any) -> None:
     with engine.connect() as conn:
         savepoint = conn.begin_nested()
