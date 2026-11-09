@@ -84,6 +84,18 @@ Release candidate for 1.0.0. The public surface described in [stability](docs/st
   overhead ratio went from 0.424-0.432 to 0.402-0.415 (Core) and from
   0.377-0.384 to 0.360-0.371 (ORM) on AMD EPYC 9V74, from 0.392 to 0.386
   (Core) on EPYC 7763, and stayed the same on Intel Xeon 8370C and 8573C.
+- CI on a pull request runs a subset of the matrix (15 jobs instead of 43:
+  Python 3.10 with the oldest pytest and SQLAlchemy 2.0, 3.14 and 3.15 with
+  the latest, Windows on 3.10, PostgreSQL 18, MySQL 8.4, Django 5.2 on SQLite
+  and 6.1 on PostgreSQL, xdist on 3.10, and lint, docs, free-threaded,
+  plugins, the overhead gate and the action), so several open pull requests
+  no longer hold up the queue. A push to `main`, the release gate and a pull
+  request with the `full-ci` label run the whole matrix; the new
+  `full-ci.yml` starts it when the label is added. The required checks keep
+  their names.
+- CI has an `all-green` job that needs every other job of `ci.yml` and fails
+  when any of them failed or was cancelled (skipped is fine), so one required
+  check can stand for the whole run, for auto-merge too.
 
 ## [0.10.0] - 2026-11-08
 

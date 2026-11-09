@@ -1,0 +1,26 @@
+name: Full CI
+
+# A pull request runs a subset of ci.yml's matrix (see the comment there). The
+# full-ci label asks for all of it: this workflow runs the whole matrix once,
+# when the label is added, and ci.yml itself runs all of it on every later
+# push while the label stays. Removing the label goes back to the subset.
+# Its jobs are named "ci / ...", so they never stand in for the required
+# checks of ci.yml.
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: github.event.label.name == 'full-ci'
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
+    # what ci.yml's action job asks for, as in release-gate.yml
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write

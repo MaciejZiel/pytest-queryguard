@@ -35,6 +35,10 @@ jobs:
   #    MySQL and MariaDB, the GitHub Action). Reused, not copied.
   ci:
     uses: ./.github/workflows/ci.yml
+    # all of the matrix, also on the release pull request (ci.yml runs a
+    # subset on other pull requests)
+    with:
+      full: true
     # what ci.yml's action job asks for (it compares query counts on a pull
     # request and comments); a called workflow gets no more than its caller
     permissions:
