@@ -259,7 +259,7 @@ Each finding:
 | Key | Value |
 |---|---|
 | `rule` | `"queryguard/static-relationship-load"` |
-| `file` | path relative to the working directory (as given when outside it) |
+| `file` | path relative to the working directory, with `.` and `..` taken out (`../shared/q.py` for a file above it) |
 | `line`, `column` | the read of the relationship (1-based) |
 | `loop_line` | the loop that reads it |
 | `query_line` | the call that runs the query |
@@ -277,7 +277,7 @@ Since 0.10.0 the repository has a [pre-commit](https://pre-commit.com/) hook,
 ```yaml
 repos:
   - repo: https://github.com/MaciejZiel/pytest-queryguard
-    rev: v1.0.0   # a release tag
+    rev: v0.10.0   # a release tag, 0.10.0 or newer
     hooks:
       - id: queryguard-lint
         args: [--models, app.models]
@@ -352,12 +352,16 @@ The [GitHub Action](ci.md#the-static-check-as-annotations) runs it with its
 `queryguard/static-relationship-load`, at level `warning`, so it can be
 uploaded to GitHub code scanning like the plugin's file (see
 [SARIF output](sarif.md)). In GitHub Actions the paths are made relative to
-the repository root with `GITHUB_WORKSPACE`, as in the plugin. Its findings
+the repository root with `GITHUB_WORKSPACE`, as in the plugin; a file
+outside the repository (or, outside GitHub Actions, above the working
+directory) gets an absolute `file://` URI. Its findings
 are separate from the plugin's `relationship-load` results: the rule id is
 different, and a baseline does not apply to it. A result's fingerprint is
 made of the file, the function and the relationship path (and its position,
 when one function has the same path in two loops), not the line, so it
-survives edits elsewhere in the file.
+survives edits elsewhere in the file. The file is the `file` of the JSON
+output, so `app`, `./app` and the absolute path of `app` give the same
+fingerprints.
 
 ```yaml
       - run: python -m pytest_queryguard.lint --models app.models --format sarif --output lint.sarif app

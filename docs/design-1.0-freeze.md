@@ -110,3 +110,6 @@ say.
 1. Merge this change and #357.
 2. In #357 or a follow-up: items 3 and 4.
 3. Write down the decision on item 2 in the 1.0.0rc1 changelog entry.
+
+Steps 1 and 2 shipped in 0.10.0. [From 0.10.0 to 1.0.0](design-1.0-release.md)
+tracks what is left of this list, with the rest of the release.

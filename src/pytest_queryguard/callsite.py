@@ -7,7 +7,7 @@ import sysconfig
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from types import CodeType, FrameType
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from .events import CallSite
 
@@ -66,8 +66,9 @@ def _classify(filename: str) -> bool:
 def reset_internal() -> None:
     """Classify the files again: a library of ``_INTERNAL_PACKAGES`` was
     imported after the first classification (the Django integration)."""
-    global _prefixes
+    global _prefixes, _application_prefixes
     _prefixes = None
+    _application_prefixes = None
     _internal.clear()
     _kinds.clear()
     _origins.clear()
@@ -129,6 +130,11 @@ def _is_session_method(frame: FrameType) -> bool:
     return result
 
 
+# What _parent_greenlet_frames gives when there is no parent greenlet: an
+# exhausted iterator, shared, so the common case creates no generator.
+_NO_FRAMES: Iterator[FrameType] = iter(())
+
+
 def _parent_greenlet_frames() -> Iterator[FrameType]:
     """Frames of the greenlets above the current one, innermost first.
 
@@ -141,9 +147,19 @@ def _parent_greenlet_frames() -> Iterator[FrameType]:
     # create a second greenlet module object next to the one SQLAlchemy uses.
     module = sys.modules.get("greenlet")
     if module is None:
-        return
+        return _NO_FRAMES
     try:
         parent = module.getcurrent().parent
+    except Exception:  # noqa: BLE001  # a plugin bug must never break the user suite
+        return _NO_FRAMES
+    if parent is None:  # the main greenlet: what runs outside an async session
+        return _NO_FRAMES
+    return _greenlet_frames(parent)
+
+
+def _greenlet_frames(parent: Any) -> Iterator[FrameType]:
+    """The frames of ``parent`` and of the greenlets above it, innermost first."""
+    try:
         while parent is not None:
             frame = parent.gr_frame
             if frame is not None:
@@ -318,6 +334,7 @@ def _site_origin(
     walking = True  # before the hook call that ran the test
     library = False  # a _LIBRARY frame since the statement
     kinds = _kinds
+    internal = _INTERNAL
     frame: FrameType | None = first
     parents: Iterator[FrameType] | None = None
     while True:
@@ -330,9 +347,13 @@ def _site_origin(
             if frame is None:
                 break
         filename = frame.f_code.co_filename
-        kind = kinds.get(filename)
-        if kind is None:
+        try:
+            kind = kinds[filename]
+        except KeyError:
             kind = _kind(filename)
+        if kind == internal:  # most frames: SQLAlchemy's, between it and the app
+            frame = frame.f_back
+            continue
         if kind:
             if kind == _HOOK and walking:
                 walking = False
@@ -375,6 +396,7 @@ def _origin(
     frames: list[FrameType] = []
     key: list[object] = [library]
     kinds = _kinds
+    hook = _HOOK
     frame: FrameType | None = start
     while True:
         if frame is None:
@@ -384,10 +406,11 @@ def _origin(
             if frame is None:
                 break
         code = frame.f_code
-        kind = kinds.get(code.co_filename)
-        if kind is None:
+        try:
+            kind = kinds[code.co_filename]
+        except KeyError:
             kind = _kind(code.co_filename)
-        if kind == _HOOK:
+        if kind == hook:
             break
         frames.append(frame)
         key.append(id(code))
@@ -463,7 +486,8 @@ _MAX_ORIGINS = 1024
 # may be the application itself (installed non-editable): one lookup per frame
 # of the walk. A statement that test code reaches through a _LIBRARY frame is
 # not the test code's own. The packages of _TEST_LIBRARIES (factories, fake
-# data) are test tools, plain _INTERNAL.
+# data) are test tools, plain _INTERNAL. The parts of Django and DRF that run
+# the project's declarative code (_RUNS_THE_APPLICATION) are _LIBRARY too.
 _kinds: dict[str, int] = {}
 _MAX_KINDS = 4096
 _APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
@@ -485,6 +509,54 @@ _TEST_LIBRARIES = frozenset(
     }
 )
 _INSTALLED = ("site-packages", "dist-packages")
+# The modules of Django and DRF that serve a request or call a view: request
+# handling, views (generic ones included), the admin, DRF's views. A generic
+# view with a class-level queryset, its nested serializer or its template runs
+# no line of the project, yet its statements are the application's, not the
+# test's: as for an installed package (_LIBRARY), a statement that test code
+# reaches through them is not the test code's own. The rest of Django and DRF
+# (the ORM, a serializer or template the test uses itself, the test client's
+# login) stays _INTERNAL.
+_RUNS_THE_APPLICATION = (
+    ("django", "core/handlers/"),
+    ("django", "views/"),
+    ("django", "contrib/admin/"),
+    ("rest_framework", "views.py"),
+    ("rest_framework", "generics.py"),
+    ("rest_framework", "mixins.py"),
+    ("rest_framework", "viewsets.py"),
+)
+_application_prefixes: tuple[str, ...] | None = None
+
+
+def _package_dirs(name: str) -> list[str]:
+    """The folder of an imported package, as imported and resolved."""
+    file = getattr(sys.modules.get(name), "__file__", None)
+    if not file:
+        return []
+    return [str(Path(file).parent) + os.sep, str(Path(file).resolve().parent) + os.sep]
+
+
+def _runs_the_application(filename: str) -> bool:
+    global _application_prefixes
+    prefixes = _application_prefixes
+    if prefixes is None:
+        folders = {
+            package: _package_dirs(package)
+            for package in {package for package, _ in _RUNS_THE_APPLICATION}
+        }
+        prefixes = tuple(
+            dict.fromkeys(
+                os.path.normcase(folder + part.replace("/", os.sep))
+                for package, part in _RUNS_THE_APPLICATION
+                for folder in folders[package]
+            )
+        )
+        # kept once both are imported: DRF may be first imported by the
+        # URLconf, in the first request (each file is classified once)
+        if all(folders.values()):
+            _application_prefixes = prefixes
+    return os.path.normcase(filename).startswith(prefixes)
 
 
 def _kind(filename: str) -> int:
@@ -495,6 +567,8 @@ def _kind(filename: str) -> int:
             kind = _HOOK
         else:
             kind = _INTERNAL if _known_library(filename) else _LIBRARY
+            if kind == _INTERNAL and _runs_the_application(filename):
+                kind = _LIBRARY
     if len(_kinds) >= _MAX_KINDS:
         _kinds.clear()
     _kinds[filename] = kind
@@ -544,7 +618,10 @@ class TestCode:
     ``root`` is pytest's rootdir. A file is test code when it is a
     ``conftest.py``, a test module the session collected (``files``), a file
     below a directory named ``tests`` or ``test`` inside the rootdir, or a
-    module that defines a factory_boy or polyfactory factory class.
+    module that defines a factory_boy or polyfactory factory class. The
+    rootdir itself counts as such a directory when it is named so and is not
+    the project's root (``tests/pytest.ini``, or pytest run from inside
+    ``tests/`` with no configuration file).
     """
 
     __test__ = False  # not a test class, for pytest's collection
@@ -555,6 +632,7 @@ class TestCode:
             if root
             else None
         )
+        self.root_is_tests = self.root is not None and _tests_rootdir(self.root)
         self.files: set[str] = set()
         self.known: dict[str, bool] = {}  # filename -> test code?
 
@@ -572,6 +650,8 @@ class TestCode:
             return True
         root = self.root
         if root is not None and path.startswith(root):
+            if self.root_is_tests:
+                return True
             folders = path[len(root) :].split(os.sep)[:-1]
             if any(folder in _TEST_FOLDERS for folder in folders):
                 return True
@@ -579,6 +659,27 @@ class TestCode:
 
 
 _TEST_FOLDERS = frozenset({"tests", "test"})
+# What a project's root holds: a rootdir named "tests" is the tests folder of
+# a project only when it holds none of them and the folder above it holds one.
+# A repository checked out into a folder named "test", or an application
+# copied to /test in a container without them, is not all test code.
+_PROJECT_MARKERS = (".git", "pyproject.toml", "setup.py", "setup.cfg", "tox.ini")
+
+
+def _has_marker(path: str) -> bool:
+    return any(os.path.exists(os.path.join(path, m)) for m in _PROJECT_MARKERS)
+
+
+def _tests_rootdir(root: str) -> bool:
+    """Whether the rootdir (normalised, ending in a separator) is a project's
+    tests folder rather than the project's root."""
+    path = root.rstrip(os.sep)
+    if os.path.basename(path) not in _TEST_FOLDERS:
+        return False
+    parent = os.path.dirname(path)
+    return parent != path and not _has_marker(path) and _has_marker(parent)
+
+
 # (module, class) of the base factory classes of factory_boy and polyfactory
 _FACTORY_BASES = (
     ("factory.base", "BaseFactory"),

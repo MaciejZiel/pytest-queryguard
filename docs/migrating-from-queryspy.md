@@ -7,7 +7,7 @@ was written against queryspy 0.5.0 (read in its installed package on
 2026-10-13); on 2026-11-08 the options, markers and helpers below were checked
 again in the installed queryspy 0.6.0, the current release, and are the same
 (0.6.0 adds `--queryspy-report-format`). The pytest-queryguard column is
-current for the next release, 1.0.0. It is written by the author of
+current for 0.10.0. It is written by the author of
 pytest-queryguard; [Comparison](comparison.md) has the measured differences,
 including the ones where queryspy is ahead.
 

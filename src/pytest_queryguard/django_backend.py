@@ -32,7 +32,10 @@ process (and again for a new import of Django, as pytester sessions make):
 - ``ModelIterable.__iter__``: which query line loaded each instance, so lazy
   loads are grouped by the line of the parents' query, as for SQLAlchemy;
 - ``Collector.delete``, ``QuerySet.bulk_create`` and ``QuerySet.bulk_update``:
-  their statements form one unit of work, which the write-loop rule counts once.
+  their statements form one unit of work, which the write-loop rule counts once;
+- ``send`` and ``send_robust`` of the model signals (``post_save``, ...): the
+  receivers of a signal that a related manager's write or a ``delete()`` sends
+  read and write as usual.
 
 What other tools got wrong, avoided here: no closure or other unpicklable
 object is put on a queryset or an instance (the marks and origins pickle as a
@@ -262,6 +265,20 @@ def _install() -> None:
     # delete() reads the rows of a cascade with the queryset it was called on,
     # which may be a related manager's: that SELECT is no read of the relation
     _patch(query.QuerySet, "delete", _writing_method)
+    # ... but the receivers of the signals such a write sends (post_save of
+    # author.books.create(), post_delete of a queryset's delete()) are the
+    # application's code: their reads are reads
+    # (only these signals: Model.__init__ sends pre_init and post_init for
+    # every instance, which a wrapper on Signal.send would slow down)
+    model_signals = _module("django.db.models.signals")
+    for name in ("pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed"):
+        signal = getattr(model_signals, name)
+        for method in ("send", "send_robust"):
+            bound = getattr(signal, method)
+            if getattr(bound, _ORIGINAL, None) is None:
+                wrapper = _receivers(bound)
+                setattr(wrapper, _ORIGINAL, bound)
+                setattr(signal, method, wrapper)
     _patch_factories(descriptors)
     generic = sys.modules.get("django.contrib.contenttypes.fields")
     if generic is not None:
@@ -492,9 +509,11 @@ def _record(
         event = pending[0]
         site = event.callsite
         if isinstance(event, RelationshipLoadEvent):
-            relationship = event.relationship
-            for target in full:
-                target.add_relationship_load(collector.for_target(event, target))
+            # a lookup per item is a plain statement: the repeat rules count it
+            if not _lookup_per_item(event, sql, params, full[0]):
+                relationship = event.relationship
+                for target in full:
+                    target.add_relationship_load(collector.for_target(event, target))
         else:
             column_load = True
             event.sql = sql
@@ -536,6 +555,51 @@ def _record(
             rows.origin = _Origin(site, None, (), collector._generation)
             rows.inherited = False
     return stmt
+
+
+# (relation, parent, statement) -> the parameters it first ran with, of the
+# related-manager reads of the running measurement, see _lookup_per_item.
+_queried: dict[tuple[object, ...], Any] = {}
+_queried_since = 0  # the ``since`` of its outermost collector
+
+
+def _lookup_per_item(
+    event: RelationshipLoadEvent,
+    sql: str,
+    params: Any,
+    outermost: collector.QueryCollector,
+) -> bool:
+    """Whether a related manager runs, for a parent, a statement it ran for
+    that parent before with other values: a lookup per item.
+
+    Unlike a foreign key, a related manager caches nothing: one author's
+    ``author.books.get(pk=pk)`` or ``.filter(title=title).exists()`` per
+    item runs one statement per item for a single parent. The
+    relationship-load rule counts parents, so it would never report them; the
+    first is a load of the relation, the others are statements the repeat
+    rules count, as ``Book.objects.get(author=author, pk=pk)`` per item. The
+    same statement with the same values (``book.author.books.count()`` for
+    books of one author) stays a load of the relation.
+    """
+    if event.scalar:
+        return False
+    global _queried_since
+    if _queried_since != outermost.since:
+        _queried.clear()
+        _queried_since = outermost.since
+    # by the reading line and request too: another line (a second
+    # SerializerMethodField) reading the relation with another filter is a
+    # read of the relation of its own
+    key = (event.relationship, event.parent_key, sql, event.callsite, event.scope)
+    if key in _queried:
+        try:
+            return bool(_queried[key] != params)
+        except Exception:  # noqa: BLE001  # values that compare oddly (arrays): a load
+            return False
+    if len(_queried) >= 4096:
+        _queried.clear()
+    _queried[key] = params
+    return False
 
 
 class _Connection:
@@ -1128,6 +1192,26 @@ def _writing_method(original: Callable[..., Any]) -> Callable[..., Any]:
             return original(self, *args, **kwargs)
         finally:
             _writing.reset(token)
+
+    return method
+
+
+def _receivers(send: Callable[..., Any]) -> Callable[..., Any]:
+    """A model signal's ``send``: its receivers are the application's code,
+    also inside a related manager's write or a delete (``_writing_method``,
+    ``_in_unit``): their reads are reads, their writes are writes of their own."""
+
+    @functools.wraps(send)
+    def method(*args: Any, **kwargs: Any) -> Any:
+        if not _writing.get() and _unit.get() is None:
+            return send(*args, **kwargs)
+        writing = _writing.set(False)
+        unit = _unit.set(None)
+        try:
+            return send(*args, **kwargs)
+        finally:
+            _unit.reset(unit)
+            _writing.reset(writing)
 
     return method
 

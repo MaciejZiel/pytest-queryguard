@@ -38,12 +38,24 @@ class Book(models.Model):
     author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name="books")
 ```
 
-and a test whose code reads the author of each book:
+a function that reads the author of each book:
+
+```python
+# library/catalog.py
+from library.models import Book
+
+
+def book_lines():
+    return [f"{book.title} by {book.author.name}" for book in Book.objects.all()]
+```
+
+and a test that calls it:
 
 ```python
 # tests/test_books.py
 import pytest
 
+from library.catalog import book_lines
 from library.models import Author, Book
 
 
@@ -52,10 +64,6 @@ def books(db):
     for i in range(3):
         author = Author.objects.create(name=f"author {i}")
         Book.objects.create(title=f"book {i}", author=author)
-
-
-def book_lines():
-    return [f"{book.title} by {book.author.name}" for book in Book.objects.all()]
 
 
 def test_book_lines(books):
@@ -68,8 +76,9 @@ The test fails, at the end of the test, with:
 queryguard: N+1 detected
 
   Book.author was lazy-loaded 3 times
-  first at tests/test_books.py:15 in book_lines
-  parents loaded at tests/test_books.py:15 in book_lines
+  first at library/catalog.py:6 in book_lines
+    called from tests/test_books.py:16 in test_book_lines
+  parents loaded at library/catalog.py:6 in book_lines
   kind: relationship-load  label: Book.author
   docs: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#relationship-load
   sql: SELECT "library_author"."id", "library_author"."name" FROM "library_author" WHERE "library_author"."id" = %s LIMIT 21
@@ -87,7 +96,7 @@ writes are not measured: only the test function's body is, as for SQLAlchemy.
 |---|---|---|
 | `relationship-load` | a foreign key, a one-to-one relation (either side, multi-table inheritance included), a reverse foreign key, a many-to-many relation, a generic foreign key or a `GenericRelation` read for 2 or more objects of one query line; also `.filter()`, `.count()`, `.exists()` and `.values()` on such a relation | `select_related()` or `prefetch_related()` with the lookup, through a chain (`"author__publisher"`) |
 | `column-load` | a field left out by `.only()` or `.defer()` read for 5 or more objects | name it in `.only()`, or leave it out of `.defer()` |
-| `repeated-statement` | one SELECT shape run 5 or more times: `get()`, `filter(...).exists()`, `refresh_from_db()` or a serializer method that queries, per item | `in_bulk(ids)` or `filter(pk__in=ids)` |
+| `repeated-statement` | one SELECT shape run 5 or more times: `get()`, `filter(...).exists()`, `refresh_from_db()` or a serializer method that queries, per item; also through one object's relation (`author.books.get(pk=pk)` per item) | `in_bulk(ids)` or `filter(pk__in=ids)` |
 | `missing-index` (off by default) | a SELECT that no index serves, on SQLite, PostgreSQL (psycopg 2 or 3) and MySQL; see [Index check](index-check.md) | the index to create |
 | `write-loop` (off by default) | one INSERT, UPDATE or DELETE per row: `save()`, `create()`, `delete()` in a loop | `bulk_create()`, `bulk_update()`, `queryset.update()`, `filter(pk__in=ids).delete()` |
 
@@ -135,9 +144,12 @@ the `AsyncClient` count per connection before Django 6.1. See
 The N+1s of test code are left out by default, as for SQLAlchemy
 (`queryguard_test_code`, see [Test code](how-detection-works.md#test-code)):
 a loop in the test function, a fixture or a factory is not reported, a loop
-in a view, serializer or model method the test calls is. A call of the async
-ORM, which runs in a thread of asgiref with no line of the test on its stack,
-always counts as the application's.
+in a view, serializer or model method the test calls is. So is a loop in a
+view that runs no line of your project, through the test client or called
+directly: a generic view with a class-level `queryset`, its nested serializer
+or its template, the admin. A serializer or template the test uses itself
+(to build the expected data) is test code. A call of the async ORM, which runs in a thread of asgiref with no
+line of the test on its stack, always counts as the application's.
 
 ## Collecting queries without failing the test
 
