@@ -247,3 +247,66 @@ def test_the_test_codes_n_plus_ones_fail_with_fail(project: pytest.Pytester) -> 
     project.makepyfile(test_code=TEST_CODE)
     result = _run(project, "test_code.py")
     result.assert_outcomes(failed=2)
+
+
+DECLARATIVE = """
+from rest_framework.test import APIRequestFactory
+
+from tests.django_project.library.models import Author, Book
+from tests.django_project.library.seed import seed
+from tests.django_project.library.views import AuthorList, AuthorSerializer
+
+
+def test_nested_serializer_of_a_generic_view(client, db):
+    seed()
+    assert client.get("/api/authors/").status_code == 200
+
+
+def test_template_of_a_generic_view(client, db):
+    seed()
+    assert client.get("/books/list/").status_code == 200
+
+
+def test_generic_view_called_directly(db):
+    seed()
+    response = AuthorList.as_view()(APIRequestFactory().get("/api/authors/"))
+    assert len(response.data) == 6
+
+
+def test_loop_in_the_test(db):
+    seed()
+    names = [book.author.name for book in Book.objects.all()]
+    assert len(names) == 18
+
+
+def test_serializer_used_by_the_test(db):
+    seed()
+    expected = AuthorSerializer(Author.objects.all(), many=True).data
+    assert len(expected) == 6
+"""
+
+
+def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A generic view, its nested serializer and its template are the
+    # application's code although no line of the project is on the stack:
+    # the loop runs in Django or DRF. The default queryguard_test_code = off
+    # still leaves out the loop of the test itself, and a serializer the test
+    # uses itself to build the expected data.
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
+    project.makepyfile(test_declarative=DECLARATIVE)
+    result = _run(project, "test_declarative.py", "--queryguard-json=out.json")
+    result.assert_outcomes(passed=2, failed=3)
+    tests = json.loads((project.path / "out.json").read_text())["tests"]
+    labels = {
+        key.split("::")[-1]: [f["label"] for f in value["findings"]]
+        for key, value in tests.items()
+    }
+    assert labels == {
+        "test_nested_serializer_of_a_generic_view": ["Author.books"],
+        "test_template_of_a_generic_view": ["Book.author"],
+        "test_generic_view_called_directly": ["Author.books"],
+        "test_loop_in_the_test": [],
+        "test_serializer_used_by_the_test": [],
+    }

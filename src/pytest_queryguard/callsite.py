@@ -66,8 +66,9 @@ def _classify(filename: str) -> bool:
 def reset_internal() -> None:
     """Classify the files again: a library of ``_INTERNAL_PACKAGES`` was
     imported after the first classification (the Django integration)."""
-    global _prefixes
+    global _prefixes, _application_prefixes
     _prefixes = None
+    _application_prefixes = None
     _internal.clear()
     _kinds.clear()
     _origins.clear()
@@ -485,7 +486,8 @@ _MAX_ORIGINS = 1024
 # may be the application itself (installed non-editable): one lookup per frame
 # of the walk. A statement that test code reaches through a _LIBRARY frame is
 # not the test code's own. The packages of _TEST_LIBRARIES (factories, fake
-# data) are test tools, plain _INTERNAL.
+# data) are test tools, plain _INTERNAL. The parts of Django and DRF that run
+# the project's declarative code (_RUNS_THE_APPLICATION) are _LIBRARY too.
 _kinds: dict[str, int] = {}
 _MAX_KINDS = 4096
 _APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
@@ -507,6 +509,54 @@ _TEST_LIBRARIES = frozenset(
     }
 )
 _INSTALLED = ("site-packages", "dist-packages")
+# The modules of Django and DRF that serve a request or call a view: request
+# handling, views (generic ones included), the admin, DRF's views. A generic
+# view with a class-level queryset, its nested serializer or its template runs
+# no line of the project, yet its statements are the application's, not the
+# test's: as for an installed package (_LIBRARY), a statement that test code
+# reaches through them is not the test code's own. The rest of Django and DRF
+# (the ORM, a serializer or template the test uses itself, the test client's
+# login) stays _INTERNAL.
+_RUNS_THE_APPLICATION = (
+    ("django", "core/handlers/"),
+    ("django", "views/"),
+    ("django", "contrib/admin/"),
+    ("rest_framework", "views.py"),
+    ("rest_framework", "generics.py"),
+    ("rest_framework", "mixins.py"),
+    ("rest_framework", "viewsets.py"),
+)
+_application_prefixes: tuple[str, ...] | None = None
+
+
+def _package_dirs(name: str) -> list[str]:
+    """The folder of an imported package, as imported and resolved."""
+    file = getattr(sys.modules.get(name), "__file__", None)
+    if not file:
+        return []
+    return [str(Path(file).parent) + os.sep, str(Path(file).resolve().parent) + os.sep]
+
+
+def _runs_the_application(filename: str) -> bool:
+    global _application_prefixes
+    prefixes = _application_prefixes
+    if prefixes is None:
+        folders = {
+            package: _package_dirs(package)
+            for package in {package for package, _ in _RUNS_THE_APPLICATION}
+        }
+        prefixes = tuple(
+            dict.fromkeys(
+                os.path.normcase(folder + part.replace("/", os.sep))
+                for package, part in _RUNS_THE_APPLICATION
+                for folder in folders[package]
+            )
+        )
+        # kept once both are imported: DRF may be first imported by the
+        # URLconf, in the first request (each file is classified once)
+        if all(folders.values()):
+            _application_prefixes = prefixes
+    return os.path.normcase(filename).startswith(prefixes)
 
 
 def _kind(filename: str) -> int:
@@ -517,6 +567,8 @@ def _kind(filename: str) -> int:
             kind = _HOOK
         else:
             kind = _INTERNAL if _known_library(filename) else _LIBRARY
+            if kind == _INTERNAL and _runs_the_application(filename):
+                kind = _LIBRARY
     if len(_kinds) >= _MAX_KINDS:
         _kinds.clear()
     _kinds[filename] = kind
