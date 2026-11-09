@@ -17,12 +17,20 @@ pages = [
 ]
 
 [[section]]
+title = "Common questions"
+pages = [
+  { title = "Detect N+1 queries in SQLAlchemy tests", file = "n-plus-one-sqlalchemy-tests.md", description = "Fail a pytest test when SQLAlchemy code lazy-loads a relationship once per row or repeats a query in a loop: install pytest-queryguard, nothing to configure, with an example." },
+  { title = "Find N+1 queries in Django tests with pytest", file = "n-plus-one-django-tests.md", description = "Fail a pytest-django test when Django ORM code reads a foreign key or reverse relation once per object; the report names the line and the select_related() fix." },
+  { title = "Assert the number of SQL queries in a SQLAlchemy test", file = "count-queries-sqlalchemy-tests.md", description = "SQLAlchemy has no assertNumQueries: limit the statements a pytest test may send with the max_queries marker, or count them with record_queries()." },
+]
+
+[[section]]
 title = "Choosing and switching"
 pages = [
   { title = "Comparison with other tools", file = "comparison.md", description = "A dated comparison of pytest-queryguard with other N+1 detection tools, with what was run and what was only read." },
   { title = "Accuracy on a corpus", file = "accuracy.md", description = "How accurately pytest-queryguard finds N+1 queries on a corpus of realistic scenarios, with precision and recall." },
   { title = "Performance", file = "performance.md", description = "What pytest-queryguard costs per statement and per test suite, how it was measured on SQLite and PostgreSQL, and what was optimised." },
-  { title = "Migrating from nplusone", file = "migrating-from-nplusone.md", description = "Move from the nplusone library to pytest-queryguard: what maps to what and what differs." },
+  { title = "Migrating from nplusone", file = "migrating-from-nplusone.md", description = "Move from nplusone, which does not see SQLAlchemy 2-style queries and does not import on 2.1, to pytest-queryguard: what maps to what and what differs." },
   { title = "Migrating from queryspy", file = "migrating-from-queryspy.md", description = "Move from queryspy to pytest-queryguard: every queryspy option, marker and helper with its equivalent, and what differs." },
   { title = "Limitations", file = "limitations.md", description = "What pytest-queryguard does not see or judge: other ORMs, fixtures, drivers, plans and partial indexes." },
   { title = "FAQ", file = "faq.md", description = "Answers about overhead, raiseload, false positives, pytest-xdist, async drivers and more." },
