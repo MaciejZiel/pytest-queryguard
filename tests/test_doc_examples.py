@@ -44,7 +44,9 @@ pytestmark = pytest.mark.skipif(
 
 # page -> project in examples/ that supplies the files the page does not show
 BASES: dict[str, str] = {
+    "count-queries-sqlalchemy-tests.md": "sync-n-plus-one",
     "getting-started.md": "sync-n-plus-one",
+    "n-plus-one-sqlalchemy-tests.md": "sync-n-plus-one",
 }
 
 # Pages whose file blocks are excerpts, not a project, and why.
@@ -78,6 +80,21 @@ OTHER_SETUPS: dict[str, set[str]] = {
     # the run without the ignore pattern that the page then adds
     "recipes-factory-boy.md": {
         "  first at tests/test_orders.py:10 in test_seeded_in_the_body"
+    },
+}
+
+# Pages that say which of their tests pass and which fail, by junit test case
+# (classname.name); the other tests of their project may pass or fail with a
+# queryguard report.
+OUTCOMES: dict[str, dict[str, str]] = {
+    "count-queries-sqlalchemy-tests.md": {
+        "tests.test_query_count.test_list_orders_runs_one_query": "passed",
+        "tests.test_query_count.test_list_orders_reads_the_customers_in_the_same_query": "passed",
+        "tests.test_query_count.test_rename_two_customers": "failed",
+    },
+    "n-plus-one-sqlalchemy-tests.md": {
+        "tests.test_order_list.test_list_orders": "failed",
+        "tests.test_order_list_fixed.test_list_orders": "passed",
     },
 }
 
@@ -164,7 +181,9 @@ def test_a_page_shows_the_files_of_its_example(name: str) -> None:
 def test_the_pages_with_projects_are_found() -> None:
     names = {p.name for p in WITH_PROJECT}
     assert {
+        "count-queries-sqlalchemy-tests.md",
         "getting-started.md",
+        "n-plus-one-sqlalchemy-tests.md",
         "recipes-factory-boy.md",
         "recipes-fastapi.md",
         "recipes-flask-sqlalchemy.md",
@@ -267,6 +286,16 @@ def test_the_project_of_a_page_runs(page: Path, tmp_path: Path) -> None:
                 problems.append(
                     f"{name}: failed without a queryguard report\n{message}"
                 )
+    outcomes = {
+        f"{case.get('classname')}.{case.get('name')}": (
+            "failed" if case.find("failure") is not None else "passed"
+        )
+        for case in cases
+        if case.find("error") is None and case.find("skipped") is None
+    }
+    for name, expected in OUTCOMES.get(page.name, {}).items():
+        if outcomes.get(name) != expected:
+            problems.append(f"{name}: {outcomes.get(name)}, the page says {expected}")
     assert not problems, f"{page.name}:\n" + "\n".join(problems) + result.stdout
     printed = [
         _sql_aliases(line.rstrip())

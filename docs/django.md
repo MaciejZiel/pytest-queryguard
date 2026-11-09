@@ -38,12 +38,24 @@ class Book(models.Model):
     author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name="books")
 ```
 
-and a test whose code reads the author of each book:
+a function that reads the author of each book:
+
+```python
+# library/catalog.py
+from library.models import Book
+
+
+def book_lines():
+    return [f"{book.title} by {book.author.name}" for book in Book.objects.all()]
+```
+
+and a test that calls it:
 
 ```python
 # tests/test_books.py
 import pytest
 
+from library.catalog import book_lines
 from library.models import Author, Book
 
 
@@ -52,10 +64,6 @@ def books(db):
     for i in range(3):
         author = Author.objects.create(name=f"author {i}")
         Book.objects.create(title=f"book {i}", author=author)
-
-
-def book_lines():
-    return [f"{book.title} by {book.author.name}" for book in Book.objects.all()]
 
 
 def test_book_lines(books):
@@ -68,8 +76,9 @@ The test fails, at the end of the test, with:
 queryguard: N+1 detected
 
   Book.author was lazy-loaded 3 times
-  first at tests/test_books.py:15 in book_lines
-  parents loaded at tests/test_books.py:15 in book_lines
+  first at library/catalog.py:6 in book_lines
+    called from tests/test_books.py:16 in test_book_lines
+  parents loaded at library/catalog.py:6 in book_lines
   kind: relationship-load  label: Book.author
   docs: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#relationship-load
   sql: SELECT "library_author"."id", "library_author"."name" FROM "library_author" WHERE "library_author"."id" = %s LIMIT 21

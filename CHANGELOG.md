@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- Three short pages under "Common questions", each with a tested example:
+  [Detect N+1 queries in SQLAlchemy tests](docs/n-plus-one-sqlalchemy-tests.md),
+  [Find N+1 queries in Django tests with pytest](docs/n-plus-one-django-tests.md)
+  and [Assert the number of SQL queries in a SQLAlchemy test](docs/count-queries-sqlalchemy-tests.md).
+- The first example of [Django](docs/django.md#getting-started) puts the loop
+  in `library/catalog.py`: in the test module, as before, it is test code,
+  which the default `queryguard_test_code = off` does not report, so the test
+  passed instead of failing as the page said. The test of the Django examples
+  now runs them with the default setting.
 - [From 0.10.0 to 1.0.0](docs/design-1.0-release.md): what is left before
   1.0.0rc1 and 1.0.0, with the state of each recommendation of
   [the API freeze](docs/design-1.0-freeze.md), and the design of a separate
