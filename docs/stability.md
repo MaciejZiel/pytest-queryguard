@@ -109,7 +109,7 @@ the action download, and the pull-request comment it updates in place (found
 by the compare marker above). The action is versioned with the package: pin it to a
 release tag or a commit. The `trend` input and the `trend-report` output are
 experimental, and so are the `lint`, `lint-models` and `lint-paths` inputs
-and the `lint-exit-code` output (since 1.0.0). What the job summary and the pull-request comment say is not
+and the `lint-exit-code` output (since 0.10.0). What the job summary and the pull-request comment say is not
 public.
 
 ### Names, values and units
@@ -286,6 +286,12 @@ cannot parse is skipped with a message.
   `--queryguard-json` file when a program needs the data.
 - Which statements SQLAlchemy emits for a given ORM call; that depends on the
   SQLAlchemy version.
+- Which code counts as test code for `queryguard_test_code` (see
+  [Test code](how-detection-works.md#test-code)): the directories, the test
+  tools such as factory_boy and model_bakery, and the rule for a stack with
+  frames of both. A release may recognise more of it, for example another
+  test tool, which moves a finding between the application and the test
+  code. The option, its values and its default `off` are public.
 - The index check beyond what the documentation promises: it is documented
   for PostgreSQL 16 and newer, SQLite, MySQL and MariaDB, and on older PostgreSQL servers
   it only prints a notice. It is tested on PostgreSQL 16 to 18; on a newer
@@ -374,14 +380,14 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   [CI](ci.md#query-counts-over-the-last-runs).
 - The static check (since 0.8.0), `python -m pytest_queryguard.lint`: its options, what it
   reports, its text output, its `github` output (`--format github`, since
-  1.0.0), and the rule `queryguard/static-relationship-load`
+  0.10.0), and the rule `queryguard/static-relationship-load`
   in its SARIF output. Its JSON output has a `format` key; a change to the
   documented keys increments it. See [Static check](static-check.md).
 - The pre-commit hook `queryguard-lint` in `.pre-commit-hooks.yaml` (since
-  1.0.0): its id, the command it runs and its settings. See
+  0.10.0): its id, the command it runs and its settings. See
   [Static check](static-check.md#pre-commit).
 - The MCP server, `python -m pytest_queryguard.mcp`: its tools (`run_tests`,
-  `explain_finding`, `compare`, and `lint` since 1.0.0), their
+  `explain_finding`, `compare`, and `lint` since 0.10.0), their
   arguments and the fields of their results. See
   [MCP server](mcp.md).
 - The Django ORM support: the `[django]` extra, what it records and reports
@@ -456,7 +462,10 @@ checks the outcome of every test of a small suite.
 - CI runs the suite on Python 3.10 to 3.15,
   SQLAlchemy 2.0 and the latest release, the oldest and the latest pytest,
   PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8 (the whole suite, with the
-  tests' databases on the server), Windows and macOS, and under pytest-xdist. A nightly
+  tests' databases on the server), Windows and macOS, and under pytest-xdist.
+  The experimental Django support runs its own tests (the `django` job) on
+  Django 5.2, 6.0 and 6.1 with SQLite, Django 6.1 with PostgreSQL and
+  Django 5.2 with MySQL. A nightly
   job tries the SQLAlchemy development branch, pytest pre-releases and Python
   3.16; it is allowed to fail and tells maintainers about upcoming
   incompatibilities early.

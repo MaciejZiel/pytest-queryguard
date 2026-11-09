@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Django: an N+1 in a view that runs no line of your project is reported
+  with the default `queryguard_test_code = off`: a `ListAPIView` with a
+  class-level `queryset` and a nested serializer, a `ListView` whose
+  template reads `book.author`, the admin. Its statements were taken for the
+  test's own code and left out, so the most common DRF N+1 passed silently.
+- Django: an N+1 in a signal receiver is reported also when the save or
+  delete that sends the signal goes through a relation
+  (`author.books.create(...)`, `author.books.add(...)`) or a `delete()`.
+  The relation reads of the receiver were left out as part of the write, and
+  its writes during a delete counted as part of that delete.
+- Django: one object's relation queried once per item
+  (`author.books.get(pk=pk)` or `author.books.filter(...).exists()` in a
+  loop) is reported as a `repeated-statement`, as the same query without the
+  relation (`Book.objects.get(author=author, pk=pk)`) is. It was reported
+  by neither rule.
+
+### Documentation
+
+- [From 0.10.0 to 1.0.0](docs/design-1.0-release.md): what is left before
+  1.0.0rc1 and 1.0.0, with the state of each recommendation of
+  [the API freeze](docs/design-1.0-freeze.md), and the design of a separate
+  repository for the GitHub Action, so that it can be listed in the GitHub
+  Marketplace (not created yet).
+- [Stability](docs/stability.md#what-is-not-public): which code counts as
+  test code for `queryguard_test_code` is not public, while the option, its
+  values and its default are; the CI list names the Django job and its
+  combinations.
+- [CI](docs/ci.md#the-action) and the action's `package` input: the `lint`
+  input needs pytest-queryguard 0.10.0 or newer when `package` names a
+  release.
+- The pre-commit example in [Static check](docs/static-check.md#pre-commit)
+  pins `rev: v0.10.0`, the first tag with the hook, instead of `v1.0.0`,
+  which does not exist yet; [Migrating from queryspy](docs/migrating-from-queryspy.md)
+  says its pytest-queryguard column is current for 0.10.0, not 1.0.0.
+
+## [0.10.0] - 2026-11-08
+
 ### Added
 
 - Django ORM support (experimental, #246), next to pytest-django with no
@@ -120,21 +159,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Django: an N+1 in a view that runs no line of your project is reported
-  with the default `queryguard_test_code = off`: a `ListAPIView` with a
-  class-level `queryset` and a nested serializer, a `ListView` whose
-  template reads `book.author`, the admin. Its statements were taken for the
-  test's own code and left out, so the most common DRF N+1 passed silently.
-- Django: an N+1 in a signal receiver is reported also when the save or
-  delete that sends the signal goes through a relation
-  (`author.books.create(...)`, `author.books.add(...)`) or a `delete()`.
-  The relation reads of the receiver were left out as part of the write, and
-  its writes during a delete counted as part of that delete.
-- Django: one object's relation queried once per item
-  (`author.books.get(pk=pk)` or `author.books.filter(...).exists()` in a
-  loop) is reported as a `repeated-statement`, as the same query without the
-  relation (`Book.objects.get(author=author, pk=pk)`) is. It was reported
-  by neither rule.
+- Static check (`python -m pytest_queryguard.lint`): a file outside the
+  working directory is shown as one path however it was named on the
+  command line (`../shared/q.py`, not `../shared/../shared/q.py` or the
+  absolute path), so its SARIF fingerprints no longer change with the
+  spelling. In `--format sarif` such a file outside the repository gets an
+  absolute `file://` URI instead of a broken one such as
+  `backend/../../other/x.py`, and a file given by its absolute path is no
+  longer left out of the SARIF file; a file of the repository above the
+  working directory is relative to the repository root, as in
+  `--format github`.
+- Helpers in the tests folder (`tests/utils/client.py`) count as test code
+  also when pytest's rootdir is that folder itself (a `tests/pytest.ini`,
+  or pytest run from inside `tests/` with no configuration file) and the
+  directory above it is the project's root (it holds `.git`,
+  `pyproject.toml`, `setup.py`, `setup.cfg` or `tox.ini`); before, their
+  N+1s failed the test as if they were the application's.
 - A baseline file whose entries have keys besides `kind`, `label`, `file`
   and `function` is read, with the other keys ignored, instead of stopping
   pytest with `has unknown keys`. [Stability](docs/stability.md#files-tools-and-the-action)
@@ -202,10 +242,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Getting started, the FAQ ("Why was nothing reported for my test?"),
   llms.txt, the agent skill and the AGENTS.md snippet say that an N+1 in
   test code is left out by default and how to see it.
-- `queryguard_test_code` and the call path are documented as new in 1.0.0,
+- `queryguard_test_code` and the call path are documented as new in 0.10.0,
   not 0.9.0; the FAQ gives the added cost per statement of the call path;
   the comparison names 0.9.0 as the current release and the in-application
-  mode as no longer experimental from 1.0.0.
+  mode as no longer experimental from 0.10.0.
 - The docs navigation has a "Choosing and switching" section (comparison,
   accuracy, performance, the migration guides, limitations, FAQ) after
   "Start".
@@ -237,6 +277,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- The walk of the stack that finds each statement's call path (#356) is
+  cheaper: SQLAlchemy's frames are passed with one dictionary lookup and
+  one comparison, and a stack that ends in the main greenlet no longer
+  creates a generator for the parent greenlets. Nothing a report shows
+  changes. Measured on GitHub's runners (off and on interleaved, mean of
+  three gate runs per job, against main in the same job), the Core and ORM
+  overhead ratio went from 0.424-0.432 to 0.402-0.415 (Core) and from
+  0.377-0.384 to 0.360-0.371 (ORM) on AMD EPYC 9V74, from 0.392 to 0.386
+  (Core) on EPYC 7763, and stayed the same on Intel Xeon 8370C and 8573C.
 - CI runs the whole test suite on MySQL 8.4 and MariaDB 11.8, not only the
   index check: the `mysql` job sets `QUERYGUARD_TEST_DB_URL`, which gives
   every SQLite engine the tests create a fresh database on the server
@@ -3063,7 +3112,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.6.0...v0.7.0
