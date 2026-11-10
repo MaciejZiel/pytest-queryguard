@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-18
+
+The first stable release. The code is that of 1.0.0rc1, which has the
+changes since 0.10.0; from here on the public API described in
+[stability](docs/stability.md) changes incompatibly only in a major release,
+new checks start off or as warnings, and fixes go into the latest 1.x minor
+release. Experimental features stay exempt, as listed there.
+
+### Changed
+
+- The package's classifier is `Development Status :: 5 - Production/Stable`
+  (it was `4 - Beta`).
+
+### Documentation
+
+- [Stability](docs/stability.md#which-releases-get-fixes) says which releases
+  get fixes: the latest 1.x minor release, none for 0.x. The rules that
+  applied before 1.0 (breaking changes in a minor release, the pre-1.0 clause
+  for new checks) are kept as a historical note; a deprecation now lasts at
+  least two minor releases.
+- `SECURITY.md` names the versions that get security fixes from 1.0 on and
+  the planned Marketplace copy of the GitHub Action in its scope.
+- The README has a short Stability section.
+- The documentation describes 1.0.0: [CI](docs/ci.md#the-action) pins the
+  action to `v1.0.0`, and the pre-commit example of
+  [Static check](docs/static-check.md#pre-commit) to `rev: v1.0.0`.
+
 ## [1.0.0rc1] - 2026-11-09
 
 Release candidate for 1.0.0. The public surface described in [stability](docs/stability.md) is frozen: no renames or removals before 1.0.0 unless a blocker needs one. Install with `pip install --pre pytest-queryguard`.
@@ -3140,7 +3167,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0rc1...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0rc1...v1.0.0
 [1.0.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...v1.0.0rc1
 [0.10.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.8.0...v0.9.0
