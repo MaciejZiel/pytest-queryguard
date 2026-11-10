@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- The Litestar recipe covers advanced-alchemy's `SQLAlchemyPlugin` (the
+  session injected as `db_session`), checked with advanced-alchemy 1.12.0,
+  Litestar 2.25.0 and SQLAlchemy 2.1.8.
+
 ## [1.0.0rc1] - 2026-11-09
 
 Release candidate for 1.0.0. The public surface described in [stability](docs/stability.md) is frozen: no renames or removals before 1.0.0 unless a blocker needs one. Install with `pip install --pre pytest-queryguard`.
