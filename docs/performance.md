@@ -97,6 +97,16 @@ plugin's own functions at about 0.2 s in total, around 0.6 ms per test with the
 profiler's own inflation, and that figure fell by roughly 10 % with the
 changes below.
 
+Measured again on 2026-11-10 (`scripts/bench_suite.py --runs 5`, the same
+laptop, its scratch directory no longer waiting on the disk), the same suite
+ran at about 5.4 ms a test without the plugin, wall clock and CPU time
+alike, and 0.8.0, 0.9.0, 0.10.0 and 1.0.0rc1 each added 18 to 20 % of the
+CPU time (about 1 ms a test). The head-to-head of the same day on a GitHub
+runner gave 1.0.0rc1 +13 to +15 % (see
+[Comparison](comparison.md#head-to-head-in-github-actions)). So the "few
+percent" above holds where each test waits for the disk or the server; on a
+suite whose tests cost a few milliseconds of CPU, expect a seventh to a fifth.
+
 Two limits of this measurement: the suite is small and made up for the
 benchmark, and the databases were on the same machine, so each statement was
 cheaper than it would be over a network. Over a network the plugin's share
@@ -135,10 +145,26 @@ stale; it is emptied when a measurement starts. Measured on the laptop above wit
 3.13.18, `scripts/bench_overhead.py --runs 9`, `main` (679e494) and the
 change interleaved, twice each:
 
-| Statement | Measurement off | `main`: added | 0.10.0, first version | 0.10.0: added |
+| Statement | Measurement off | before the walk (679e494): added | the walk, first version | 0.10.0: added |
 |---|---|---|---|---|
 | Core `select` by key | 40 to 42 us | +13.3 us, +13.5 us | +19.6 us, +19.6 us | +16.5 us, +15.7 us |
 | ORM `select` by primary key | 76 to 78 us | +27.9 us, +26.6 us | +43.2 us, +43.6 us | +33.6 us, +36.3 us |
+
+1.0.0rc1 makes the walk cheaper again (SQLAlchemy's frames are passed with
+one lookup; see its changelog entry). On GitHub's runners, where the overhead
+gate measures, the ratio went down by 0.01 to 0.02 on some CPU models and
+stayed the same on others. On the laptop the difference is within the noise:
+measured on 2026-11-10 with Python 3.15.2, `scripts/bench_overhead.py --runs 9`,
+the tags `v0.10.0` and `v1.0.0rc1` interleaved. The laptop ran about 1.6
+times slower after the first round (the "off" times); a round during which
+it changed speed is left out, and the two others are given separately:
+
+| Statement | Round | Measurement off | 0.10.0: added | 1.0.0rc1: added |
+|---|---|---|---|---|
+| Core `select` by key | 1 | 39 us | +16.2 us (41 %) | +16.0 us (41 %) |
+| Core `select` by key | 2 | 65 to 66 us | +26.6 us (40 %) | +26.4 us (40 %) |
+| ORM `select` by primary key | 1 | 75 to 76 us | +32.7 us (43 %) | +31.9 us (42 %) |
+| ORM `select` by primary key | 2 | 127 us | +54.3 us (43 %) | +54.5 us (43 %) |
 
 The first version classified every application frame and computed its line
 for every statement (about 0.5 microseconds a frame); the walk of a deep
@@ -169,7 +195,7 @@ commit varies by about 5 points, so a bisect needs repeated, pinned runs.
 
 A newer measurement, on a GitHub Actions runner with n-plus-one-sniffer
 too, is the [head-to-head](comparison.md#head-to-head-in-github-actions) of
-2026-11-07. The one below is from my machine.
+2026-11-10. The one below is from my machine.
 
 pytest-queryguard 0.5.0, pytest-querycount 0.4.0 and queryspy 0.6.0, measured
 on 2026-11-05 with Python 3.14.4, SQLAlchemy 2.1.1 and pytest 9.1.1 on the

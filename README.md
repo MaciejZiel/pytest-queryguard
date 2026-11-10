@@ -61,19 +61,19 @@ explains each rule and its threshold.
 
 The [comparison page](https://maciejziel.github.io/pytest-queryguard/comparison.html)
 has a dated feature matrix and the method; the numbers below are from it.
-On 2026-11-07 a [head-to-head run in GitHub Actions](https://maciejziel.github.io/pytest-queryguard/comparison.html#head-to-head-in-github-actions)
-ran 252 scenarios of the [accuracy corpus](https://maciejziel.github.io/pytest-queryguard/accuracy.html)
-(123 with an N+1 or a similar problem, 129 without) under each pytest tool
+On 2026-11-10 a [head-to-head run in GitHub Actions](https://maciejziel.github.io/pytest-queryguard/comparison.html#head-to-head-in-github-actions)
+ran 278 scenarios of the [accuracy corpus](https://maciejziel.github.io/pytest-queryguard/accuracy.html)
+(135 with an N+1 or a similar problem, 143 without) under each pytest tool
 that supports SQLAlchemy 2, each set up the way its own documentation says to
 fail a test:
 
 | Tool | Scenarios with a problem flagged | Scenarios without one flagged | 300-test suite, added time (median) |
 |---|---|---|---|
-| pytest-queryguard 0.8.0, defaults | 106 of 123 | 2 of 129 | +1.7% |
-| queryspy 0.6.0, `--queryspy-strict` | 98 of 123 | 27 of 129 | +28.8% |
-| pytest-querycount 0.4.0, a marker on every test | 103 of 123 | 27 of 129 | +18.5% |
-| n-plus-one-sniffer `d4790f8`, a marker on every test | 103 of 123 | 25 of 129 | +29.0% |
-| nplusone 1.0.0 | does not import on SQLAlchemy 2.1; 1 of 123 on 2.0 | | |
+| pytest-queryguard 1.0.0rc1, defaults | 117 of 135 | 2 of 143 | +13.1% |
+| queryspy 0.6.0, `--queryspy-strict` | 110 of 135 | 34 of 143 | +25.7% |
+| pytest-querycount 0.4.0, a marker on every test | 115 of 135 | 35 of 143 | +15.6% |
+| n-plus-one-sniffer `d4790f8`, a marker on every test | 115 of 135 | 30 of 143 | +22.9% |
+| nplusone 1.0.0 | does not import on SQLAlchemy 2.1; 1 of 135 on 2.0 | | |
 
 The corpus was written by the author of pytest-queryguard, and its scenarios
 without a problem include the shapes this plugin was taught to leave alone,
@@ -219,8 +219,8 @@ Every option, flag and marker is in the
 
 ## Overhead
 
-On the 300-test suite of the comparison, pytest-queryguard 0.8.0 added 0.8 to
-1.7 % to the run time. Per statement, on in-memory SQLite, the current code
+On the 300-test suite of the comparison (about 5 ms a test), pytest-queryguard
+1.0.0rc1 added 13 to 15 % to the run time on a GitHub runner. Per statement, on in-memory SQLite, the current code
 adds about 16 us to a Core statement and 34 to 36 us to an ORM one, which is
 a large share of a statement that costs almost nothing; against a database
 on disk or over the network the share is smaller. Method and numbers: [Performance](https://maciejziel.github.io/pytest-queryguard/performance.html)
