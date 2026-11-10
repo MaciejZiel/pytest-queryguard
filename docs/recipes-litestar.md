@@ -2,9 +2,10 @@
 
 Litestar's `TestClient` runs the application on an anyio portal in another
 thread, as FastAPI's does; the queries of the request are counted. This page
-uses a plain async session dependency (`Provide`), not Litestar's SQLAlchemy
-plugin from advanced-alchemy, which was not run. Versions: Litestar 2.24.0,
-SQLAlchemy 2.1.4, aiosqlite, installed with:
+uses a plain async session dependency (`Provide`); the same setup with
+advanced-alchemy's `SQLAlchemyPlugin` is at the
+[end of the page](#with-advanced-alchemys-sqlalchemyplugin). Versions:
+Litestar 2.24.0, SQLAlchemy 2.1.4, aiosqlite, installed with:
 
 ```console
 pip install pytest-queryguard litestar aiosqlite "sqlalchemy[asyncio]"
@@ -172,3 +173,105 @@ Pytest also shows the captured log lines of Litestar's test client; they are
 left out above. `NamedDependency[AsyncSession]` marks a handler argument as coming from
 `dependencies`. In Litestar 2.24 the unmarked form (`session: AsyncSession`)
 also worked here, but emitted a `LitestarDeprecationWarning`.
+
+## With advanced-alchemy's SQLAlchemyPlugin
+
+Most Litestar applications get their session from the `SQLAlchemyPlugin` of
+[advanced-alchemy](https://github.com/litestar-org/advanced-alchemy), which
+injects it as `db_session`. The queries of that session are counted the same
+way. Checked with advanced-alchemy 1.12.0, Litestar 2.25.0 and SQLAlchemy
+2.1.8, installed with:
+
+```console
+pip install pytest-queryguard advanced-alchemy litestar aiosqlite "sqlalchemy[asyncio]"
+```
+
+The models are the same. The application takes the plugin's configuration
+instead of a session provider:
+
+```python
+from advanced_alchemy.extensions.litestar import (
+    AsyncSessionConfig,
+    SQLAlchemyAsyncConfig,
+    SQLAlchemyPlugin,
+)
+from litestar import Litestar, get
+from litestar.di import NamedDependency
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models import Base, Order
+
+SessionDep = NamedDependency[AsyncSession]
+
+
+@get("/orders")
+async def list_orders(db_session: SessionDep) -> list[str]:
+    names = []
+    for order in (await db_session.scalars(select(Order))).all():
+        names.append((await order.awaitable_attrs.customer).name)
+    return names
+
+
+@get("/orders-fixed")
+async def list_orders_fixed(db_session: SessionDep) -> list[str]:
+    stmt = select(Order).options(selectinload(Order.customer))
+    return [order.customer.name for order in (await db_session.scalars(stmt)).all()]
+
+
+def create_app(config: SQLAlchemyAsyncConfig) -> Litestar:
+    return Litestar(
+        [list_orders, list_orders_fixed], plugins=[SQLAlchemyPlugin(config=config)]
+    )
+
+
+app = create_app(
+    SQLAlchemyAsyncConfig(
+        connection_string="sqlite+aiosqlite:///app.db",
+        metadata=Base.metadata,
+        session_config=AsyncSessionConfig(expire_on_commit=False),
+    )
+)
+```
+
+In the test fixture, the configuration gets the in-memory engine through
+`engine_instance`, and the `on_startup` hook seeds the database through the
+plugin's own session:
+
+```python
+import pytest
+from advanced_alchemy.extensions.litestar import AsyncSessionConfig, SQLAlchemyAsyncConfig
+from app.main import create_app
+from app.models import Base, Customer, Order
+from litestar.testing import TestClient
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import StaticPool
+
+
+@pytest.fixture
+def client():
+    engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
+    config = SQLAlchemyAsyncConfig(
+        engine_instance=engine,
+        metadata=Base.metadata,
+        session_config=AsyncSessionConfig(expire_on_commit=False),
+    )
+
+    async def on_startup() -> None:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        async with config.get_session() as session:
+            session.add_all(Customer(id=i, name=f"customer {i}") for i in range(1, 6))
+            session.add_all(Order(id=i, customer_id=i) for i in range(1, 6))
+            await session.commit()
+
+    app = create_app(config)
+    app.on_startup.append(on_startup)
+    with TestClient(app) as test_client:
+        yield test_client
+```
+
+With the same `tests/test_orders.py`, `test_orders` fails with the same
+report, at the lines of this `app/main.py` (`first at app/main.py:21 in
+list_orders`), and `test_orders_fixed` passes.
