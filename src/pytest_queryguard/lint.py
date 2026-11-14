@@ -1424,10 +1424,32 @@ def python_files(paths: Iterable[Path]) -> list[Path]:
 
 
 def display_path(path: Path) -> str:
+    """The path of a checked file in the report, the same however it was spelled.
+
+    Relative to the working directory, from the resolved file (``.``, ``..``
+    and symlinks taken out). One exception, as in ``_github_path``: a file
+    named by a relative path through a symlink to a directory outside the
+    working directory keeps that name (``../linked/a.py``) when it still
+    leads to the same file. A file that has no relative path, on another
+    Windows drive, is absolute.
+    """
+    cwd = os.getcwd()  # the physical directory, as abspath() and relpath() use
     try:
-        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError:
-        return path.as_posix()
+        resolved = os.path.realpath(path)
+    except OSError:
+        resolved = os.path.abspath(path)
+    real_cwd = os.path.realpath(cwd)
+    try:
+        shown = os.path.relpath(resolved, real_cwd)
+    except ValueError:  # another drive
+        return Path(resolved).as_posix()
+    if shown.startswith(os.pardir) and not path.is_absolute():
+        written = os.path.relpath(os.path.abspath(path), cwd)
+        if written != shown and os.path.realpath(os.path.join(cwd, written)) == (
+            resolved
+        ):
+            shown = written
+    return Path(shown).as_posix()
 
 
 @dataclass(slots=True)
@@ -1529,15 +1551,47 @@ _SARIF_RULE = {
 }
 
 
-def to_sarif(report: Report, prefix: str = "") -> dict[str, Any]:
+def _sarif_uri(file: str, workspace: str | None) -> str | None:
+    """The ``artifactLocation.uri`` of a finding's file.
+
+    In GitHub Actions relative to the repository root, as the annotations of
+    ``--format github`` are; outside it relative to the working directory. A
+    file outside the repository (or, with no workspace, above the working
+    directory) gets an absolute ``file://`` URI, which SARIF 2.1.0 allows
+    without ``uriBaseId``, where a relative path with ``..`` would leave the
+    base it is read against.
+    """
+    if workspace and not _inside(os.getcwd(), workspace):
+        workspace = None  # another checkout, or a stale GITHUB_WORKSPACE
+    path = _github_path(file, workspace)
+    if os.path.isabs(path) or path == ".." or path.startswith("../"):
+        return Path(os.path.abspath(file)).as_uri()
+    return sarif.repo_path(path)
+
+
+def _inside(path: str, root: str) -> bool:
+    try:
+        Path(os.path.realpath(path)).relative_to(os.path.realpath(root.strip()))
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def to_sarif(report: Report, *, workspace: str | None = None) -> dict[str, Any]:
+    """The report as SARIF 2.1.0; ``workspace`` is ``GITHUB_WORKSPACE``.
+
+    With the working directory outside the workspace, the paths stay relative
+    to the working directory.
+
+    The fingerprints come from the report's paths, which ``display_path``
+    makes the same however a file was named on the command line.
+    """
     results = []
     seen: dict[tuple[str, str, str | None, str | None], int] = {}
     for f in report.findings:
-        path = sarif.repo_path(f.file)
+        path = _sarif_uri(f.file, workspace)
         if path is None:
             continue
-        if prefix:
-            path = f"{prefix}/{path}"
         # not the line, which moves with every edit above it: the path, the
         # function and, for a repeat in the same function, its position
         identity = (RULE_ID, " -> ".join(f.labels), f.file, f.function)
@@ -1672,8 +1726,9 @@ def render(report: Report, fmt: str) -> str:
     if fmt == "json":
         return json.dumps(to_json(report), indent=2, ensure_ascii=False) + "\n"
     if fmt == "sarif":
-        prefix = sarif.workspace_prefix(Path.cwd(), os.environ.get("GITHUB_WORKSPACE"))
-        return sarif.dumps(to_sarif(report, prefix))
+        return sarif.dumps(
+            to_sarif(report, workspace=os.environ.get("GITHUB_WORKSPACE"))
+        )
     if fmt == "github":
         return to_github(report, os.environ.get("GITHUB_WORKSPACE"))
     return text(report)

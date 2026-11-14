@@ -1,6 +1,6 @@
 # In your editor
 
-Since 1.0.0.
+Since 0.10.0.
 
 pytest-queryguard has no editor extension. Its output is regular enough for
 the tools editors already have: a problem matcher turns the test run and the

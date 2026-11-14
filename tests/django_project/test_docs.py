@@ -1,7 +1,8 @@
 """The Django examples of the docs run as the pages say: the getting-started
-example of docs/django.md fails as shown there, and the examples of
-"Collecting queries without failing the test" and of the scaling recipe pass,
-and the example of "Without pytest" fails under ``manage.py test`` as shown."""
+examples of docs/django.md and docs/n-plus-one-django-tests.md fail as shown
+there, the examples of "Collecting queries without failing the test" and of
+the scaling recipe pass, and the example of "Without pytest" fails under
+``manage.py test`` as shown."""
 
 from __future__ import annotations
 
@@ -13,9 +14,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import INNER_ADDOPTS
+
 DOCS = Path(__file__).resolve().parents[2] / "docs"
 DOC = DOCS / "django.md"
 SCALING = DOCS / "recipes-query-count-scaling.md"
+LANDING = DOCS / "n-plus-one-django-tests.md"
 
 SETTINGS = """
 SECRET_KEY = "docs"
@@ -47,6 +51,9 @@ def _project(
 ) -> pytest.RunResult:
     # the ini file names the settings, as in a project of its own
     monkeypatch.delenv("DJANGO_SETTINGS_MODULE", raising=False)
+    # the default queryguard_test_code, as for a reader, not the inner sessions'
+    # "fail" that tests/conftest.py sets
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     for name, source in files.items():
         path = pytester.path / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,11 +73,17 @@ def _pick(files: dict[str, str], *names: str) -> dict[str, str]:
 def test_the_pages_show_these_files() -> None:
     assert set(_files(DOC)) == {
         "library/models.py",
+        "library/catalog.py",
         "tests/test_books.py",
         "library/services.py",
         "tests/test_add_book.py",
         "library/listing.py",
         "library/tests.py",
+    }
+    assert set(_files(LANDING)) == {
+        "library/models.py",
+        "library/catalog.py",
+        "tests/test_books.py",
     }
     assert set(_files(SCALING)) == {
         "library/reports.py",
@@ -78,13 +91,16 @@ def test_the_pages_show_these_files() -> None:
     }
 
 
+@pytest.mark.parametrize("doc", [DOC, LANDING], ids=lambda doc: doc.name)
 def test_the_getting_started_example(
-    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, doc: Path
 ) -> None:
-    files = _pick(_files(DOC), "library/models.py", "tests/test_books.py")
+    files = _pick(
+        _files(doc), "library/models.py", "library/catalog.py", "tests/test_books.py"
+    )
     result = _project(pytester, monkeypatch, files)
     result.assert_outcomes(failed=1)
-    shown = _blocks("text")[0]
+    shown = _blocks("text", doc)[0]
     out = result.stdout.str()
     for line in shown.splitlines():
         assert line in out, line

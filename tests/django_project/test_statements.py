@@ -132,6 +132,25 @@ def test_a_cascade_delete_is_one_unit() -> None:
     assert detections(collector, write_loop_threshold=2) == []
 
 
+def _touch_the_book(sender: object, instance: Review, **kwargs: object) -> None:
+    Book.objects.filter(pk=instance.book_id).update(pages=1)  # a write per row
+
+
+def test_a_receivers_writes_are_no_part_of_the_delete() -> None:
+    from django.db.models.signals import post_delete
+
+    post_delete.connect(_touch_the_book, sender=Review)
+    try:
+        with measure() as collector:
+            Review.objects.filter(pk__in=[1, 2, 3, 4]).delete()
+    finally:
+        post_delete.disconnect(_touch_the_book, sender=Review)
+    (finding,) = detections(collector, write_loop_threshold=2)
+    assert isinstance(finding, WriteLoopFinding)
+    assert finding.verb == "UPDATE"
+    assert finding.count == 4
+
+
 def test_delete_in_a_loop_is_a_write_loop() -> None:
     reviews = list(Review.objects.all()[:4])
     with measure() as collector:

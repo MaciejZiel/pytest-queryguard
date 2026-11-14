@@ -12,7 +12,7 @@ those `INSERT` statements as part of the test. Two things follow:
   "commit"`) expires it, so reading the created objects back reloads them one
   by one: `column-load` and `relationship-load` by the default rules.
 
-Since 1.0.0 the statements that run only in test code (the test function, a
+Since 0.10.0 the statements that run only in test code (the test function, a
 factory, a helper under `tests/`, with no frame of the application on the
 stack) are left out of the findings by default, and only counted in a section
 at the end of the run (`queryguard_test_code = off`, see
@@ -24,7 +24,7 @@ by default. This page shows what to do where it does: with
 reads. Two ways out: seed in fixtures, which are not measured, or leave out
 the seeding findings with `queryguard_ignore`. It was run with Factory Boy
 3.3.3, SQLAlchemy 2.1.1, pytest 9.1 and Python 3.13; pytest-queryguard
-0.5.0rc3, and again with the `queryguard_test_code` default of 1.0.0.
+0.5.0rc3, and again with the `queryguard_test_code` default of 0.10.0.
 
 What follows applies to SQLAlchemy suites. For pytest-django suites (the
 Django support is experimental, see [Django](django.md)) the same rule

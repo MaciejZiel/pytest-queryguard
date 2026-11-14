@@ -9,10 +9,10 @@ enforce it.
 flags and markers, the finding kinds, and the files and tools
 [listed below](#files-tools-and-the-action) are public; the wording of
 messages is not. A deprecated name keeps working with a
-`QueryGuardDeprecationWarning` for at least one minor release and three
-months. Until 1.0 a minor release may still break things, deprecating first
-where possible and always saying so in the changelog; features marked
-[experimental](#experimental) may change in any minor release.
+`QueryGuardDeprecationWarning` for at least two minor releases and three
+months, and is removed only in a major release. Features marked
+[experimental](#experimental) may change in any minor release. Fixes go into
+the latest minor release (see [Which releases get fixes](#which-releases-get-fixes)).
 
 ## What is public
 
@@ -109,7 +109,7 @@ the action download, and the pull-request comment it updates in place (found
 by the compare marker above). The action is versioned with the package: pin it to a
 release tag or a commit. The `trend` input and the `trend-report` output are
 experimental, and so are the `lint`, `lint-models` and `lint-paths` inputs
-and the `lint-exit-code` output (since 1.0.0). What the job summary and the pull-request comment say is not
+and the `lint-exit-code` output (since 0.10.0). What the job summary and the pull-request comment say is not
 public.
 
 ### Names, values and units
@@ -286,6 +286,12 @@ cannot parse is skipped with a message.
   `--queryguard-json` file when a program needs the data.
 - Which statements SQLAlchemy emits for a given ORM call; that depends on the
   SQLAlchemy version.
+- Which code counts as test code for `queryguard_test_code` (see
+  [Test code](how-detection-works.md#test-code)): the directories, the test
+  tools such as factory_boy and model_bakery, and the rule for a stack with
+  frames of both. A release may recognise more of it, for example another
+  test tool, which moves a finding between the application and the test
+  code. The option, its values and its default `off` are public.
 - The index check beyond what the documentation promises: it is documented
   for PostgreSQL 16 and newer, SQLite, MySQL and MariaDB, and on older PostgreSQL servers
   it only prints a notice. It is tested on PostgreSQL 16 to 18; on a newer
@@ -298,25 +304,36 @@ cannot parse is skipped with a message.
   that is a fix, not a breaking change.
 - Minor (`x.Y.0`): new public API, new options with a default that keeps
   today's behaviour, new finding kinds that are off or reported as warnings
-  first (from 1.0 on; see below for 0.x), deprecations, dropping support for an end-of-life Python,
+  first, deprecations, dropping support for an end-of-life Python,
   SQLAlchemy or pytest series, and moving SQLAlchemy from the core
   dependencies into the `sqlalchemy` extra (see "How to install it" above).
 - Major (`X.0.0`): removals of deprecated API, changed defaults, and
   incompatible changes to anything listed under "What is public".
 
-While the version is below 1.0, a minor release may also contain breaking
-changes. They are still deprecated first whenever that is possible, and are
-always listed under "Changed" or "Removed" in the changelog.
+### Which releases get fixes
 
-**Pre-1.0 clause for new checks.** While the version is 0.x, a minor release
-may change the defaults of newly added detectors: switch a new check on, or let
-it fail tests by default, instead of introducing it off or as a warning first.
-Every such change is named in the introduction at the top of the changelog
-entry and listed first under "Changed", in a "Behavior changes" group, with the
-option that turns it off. The
-0.4.0 changelog entry is an example: the `column-load` kind is on by default, the index
-advisor is on whenever the index check is on, and the index check fails tests
-on SQLite, MySQL and MariaDB. From 1.0 on, the rules above apply strictly: a new check is off or
+From 1.0.0 on, bug fixes go into a patch release of the latest minor release
+(`1.Y.Z`) and into `main`. Older minor releases get no backports: a fix
+reaches you by upgrading to the latest 1.x, which the rules above keep
+compatible. Security fixes follow the same rule (see the
+[security policy](https://github.com/MaciejZiel/pytest-queryguard/blob/main/SECURITY.md)).
+The 0.x releases get no fixes.
+
+### Before 1.0 (history)
+
+The 0.x releases (0.1.0 to 0.10.0) followed looser rules: a minor release
+could also contain breaking changes, deprecated first whenever that was
+possible and always listed under "Changed" or "Removed" in the changelog.
+
+**Pre-1.0 clause for new checks.** While the version was 0.x, a minor release
+could change the defaults of newly added detectors: switch a new check on, or
+let it fail tests by default, instead of introducing it off or as a warning
+first. Every such change was named in the introduction at the top of the
+changelog entry and listed first under "Changed", in a "Behavior changes"
+group, with the option that turns it off. The 0.4.0 changelog entry is an
+example: the `column-load` kind is on by default, the index advisor is on
+whenever the index check is on, and the index check fails tests on SQLite,
+MySQL and MariaDB. From 1.0 on, the rules above apply strictly: a new check is off or
 only warns until a later minor release, and a change of default needs a major
 release.
 
@@ -332,16 +349,17 @@ release.
    warning once per run.
 2. The deprecation is listed under "Deprecated" in the changelog, and the
    documentation points to the replacement.
-3. It stays for at least one minor release (two, from 1.0 on) and at least
+3. It stays for at least two minor releases (one before 1.0) and at least
    three months after the release that deprecated it, whichever is longer.
-4. It is removed in the next major release (before 1.0: in a minor release),
-   listed under "Removed".
+4. It is removed in the next major release (before 1.0 it could be removed in
+   a minor release), listed under "Removed".
 
 A security or data-loss fix may skip these steps; the changelog says so.
 
 A new finding kind, or a stricter version of an existing check, first appears
 in a release where it can be turned off with an ini option, and the changelog
-says how. Before 1.0 it may be on by default (see the pre-1.0 clause above).
+says how. Before 1.0 it could be on by default (see the
+[pre-1.0 clause](#before-10-history)).
 
 ## Experimental
 
@@ -374,14 +392,14 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   [CI](ci.md#query-counts-over-the-last-runs).
 - The static check (since 0.8.0), `python -m pytest_queryguard.lint`: its options, what it
   reports, its text output, its `github` output (`--format github`, since
-  1.0.0), and the rule `queryguard/static-relationship-load`
+  0.10.0), and the rule `queryguard/static-relationship-load`
   in its SARIF output. Its JSON output has a `format` key; a change to the
   documented keys increments it. See [Static check](static-check.md).
 - The pre-commit hook `queryguard-lint` in `.pre-commit-hooks.yaml` (since
-  1.0.0): its id, the command it runs and its settings. See
+  0.10.0): its id, the command it runs and its settings. See
   [Static check](static-check.md#pre-commit).
 - The MCP server, `python -m pytest_queryguard.mcp`: its tools (`run_tests`,
-  `explain_finding`, `compare`, and `lint` since 1.0.0), their
+  `explain_finding`, `compare`, and `lint` since 0.10.0), their
   arguments and the fields of their results. See
   [MCP server](mcp.md).
 - The Django ORM support: the `[django]` extra, what it records and reports
@@ -390,6 +408,12 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   databases it supports. Options, files and APIs shared with SQLAlchemy keep
   their guarantees; only what they contain for Django is experimental. See
   [Django](django.md).
+- The Django test runner for `manage.py test` (since 1.1.0),
+  `pytest_queryguard.django`: `QueryGuardRunner`, `QueryGuardTestCase`, the
+  `QUERYGUARD` setting and its keys, `--queryguard-mode`, and the failures
+  and warnings it reports. It is used only when you set it as `TEST_RUNNER`
+  or mix it into a test case, so it changes nothing for a project that does
+  not. See [Django](django.md#without-pytest-managepy-test).
 
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
@@ -456,7 +480,10 @@ checks the outcome of every test of a small suite.
 - CI runs the suite on Python 3.10 to 3.15,
   SQLAlchemy 2.0 and the latest release, the oldest and the latest pytest,
   PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8 (the whole suite, with the
-  tests' databases on the server), Windows and macOS, and under pytest-xdist. A nightly
+  tests' databases on the server), Windows and macOS, and under pytest-xdist.
+  The experimental Django support runs its own tests (the `django` job) on
+  Django 5.2, 6.0 and 6.1 with SQLite, Django 6.1 with PostgreSQL and
+  Django 5.2 with MySQL. A nightly
   job tries the SQLAlchemy development branch, pytest pre-releases and Python
   3.16; it is allowed to fail and tells maintainers about upcoming
   incompatibilities early.

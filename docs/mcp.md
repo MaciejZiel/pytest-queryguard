@@ -83,7 +83,7 @@ fewer statements and of new and fixed findings, and the Markdown report.
 
 ### lint
 
-`lint(models, paths, timeout=120)` (since 1.0.0) runs the experimental
+`lint(models, paths, timeout=120)` (since 0.10.0) runs the experimental
 [static check](static-check.md),
 `python -m pytest_queryguard.lint --format=json --models=M ... -- PATHS`, in
 the server's working directory: no database, no pytest. `models` are the

@@ -9,6 +9,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- N+1 detection without pytest, for Django projects that run
+  `manage.py test` (experimental): `pytest_queryguard.django.QueryGuardRunner`,
+  a `DiscoverRunner` set with `TEST_RUNNER`, measures `setUp()`, the test
+  method and `tearDown()` of every test as the plugin does and fails or warns
+  with the plugin's report; `QueryGuardTestCase` does the same for the test
+  cases it is mixed into, under any runner. Settings in `QUERYGUARD = {...}`
+  with the ini options' names, `--queryguard-mode` on the command line; works
+  with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
+  index check without pytest yet
+  ([Django](docs/django.md#without-pytest-managepy-test)).
+
+## [1.0.0] - 2026-11-14
+
+The first stable release. The code is that of 1.0.0rc1, which has the
+changes since 0.10.0; from here on the public API described in
+[stability](docs/stability.md) changes incompatibly only in a major release,
+new checks start off or as warnings, and fixes go into the latest 1.x minor
+release. Experimental features stay exempt, as listed there.
+
+### Changed
+
+- The package's classifier is `Development Status :: 5 - Production/Stable`
+  (it was `4 - Beta`).
+
+### Documentation
+
+- [Stability](docs/stability.md#which-releases-get-fixes) says which releases
+  get fixes: the latest 1.x minor release, none for 0.x. The rules that
+  applied before 1.0 (breaking changes in a minor release, the pre-1.0 clause
+  for new checks) are kept as a historical note; a deprecation now lasts at
+  least two minor releases.
+- `SECURITY.md` names the versions that get security fixes from 1.0 on and
+  the planned Marketplace copy of the GitHub Action in its scope.
+- The README has a short Stability section.
+- The documentation describes 1.0.0: [CI](docs/ci.md#the-action) pins the
+  action to `v1.0.0`, and the pre-commit example of
+  [Static check](docs/static-check.md#pre-commit) to `rev: v1.0.0`.
+- The Litestar recipe covers advanced-alchemy's `SQLAlchemyPlugin` (the
+  session injected as `db_session`), checked with advanced-alchemy 1.12.0,
+  Litestar 2.25.0 and SQLAlchemy 2.1.8.
+- The head-to-head numbers of [Comparison](docs/comparison.md#head-to-head-in-github-actions),
+  [Accuracy](docs/accuracy.md#comparison-with-other-tools) and the README
+  are from a run of 2026-11-10 on 1.0.0rc1 (278 scenarios instead of 252).
+  The other tools' versions were checked again and are unchanged. The suite
+  overhead of pytest-queryguard is +13 to +15% on the runner, not the +0.8
+  to +1.7% of the run of 2026-11-07, which could not be reproduced: on a
+  laptop 0.8.0 to 1.0.0rc1 all add 18 to 20% to that suite;
+  [Performance](docs/performance.md#a-realistic-case-a-suite-of-300-tests)
+  and the FAQ say so. [Performance](docs/performance.md#the-call-path-0100)
+  compares the call path of 0.10.0 and 1.0.0rc1.
+
+## [1.0.0rc1] - 2026-11-09
+
+Release candidate for 1.0.0. The public surface described in [stability](docs/stability.md) is frozen: no renames or removals before 1.0.0 unless a blocker needs one. Install with `pip install --pre pytest-queryguard`.
+
+### Fixed
+
+- Django: an N+1 in a view that runs no line of your project is reported
+  with the default `queryguard_test_code = off`: a `ListAPIView` with a
+  class-level `queryset` and a nested serializer, a `ListView` whose
+  template reads `book.author`, the admin. Its statements were taken for the
+  test's own code and left out, so the most common DRF N+1 passed silently.
+- Django: an N+1 in a signal receiver is reported also when the save or
+  delete that sends the signal goes through a relation
+  (`author.books.create(...)`, `author.books.add(...)`) or a `delete()`.
+  The relation reads of the receiver were left out as part of the write, and
+  its writes during a delete counted as part of that delete.
+- Django: one object's relation queried once per item
+  (`author.books.get(pk=pk)` or `author.books.filter(...).exists()` in a
+  loop) is reported as a `repeated-statement`, as the same query without the
+  relation (`Book.objects.get(author=author, pk=pk)`) is. It was reported
+  by neither rule.
+- Static check (`python -m pytest_queryguard.lint`): a file outside the
+  working directory is shown as one path however it was named on the
+  command line (`../shared/q.py`, not `../shared/../shared/q.py` or the
+  absolute path), so its SARIF fingerprints no longer change with the
+  spelling. In `--format sarif` such a file outside the repository gets an
+  absolute `file://` URI instead of a broken one such as
+  `backend/../../other/x.py`, and a file given by its absolute path is no
+  longer left out of the SARIF file; a file of the repository above the
+  working directory is relative to the repository root, as in
+  `--format github`.
+- Helpers in the tests folder (`tests/utils/client.py`) count as test code
+  also when pytest's rootdir is that folder itself (a `tests/pytest.ini`,
+  or pytest run from inside `tests/` with no configuration file) and the
+  directory above it is the project's root (it holds `.git`,
+  `pyproject.toml`, `setup.py`, `setup.cfg` or `tox.ini`); before, their
+  N+1s failed the test as if they were the application's.
+
+### Documentation
+
+- Three short pages under "Common questions", each with a tested example:
+  [Detect N+1 queries in SQLAlchemy tests](docs/n-plus-one-sqlalchemy-tests.md),
+  [Find N+1 queries in Django tests with pytest](docs/n-plus-one-django-tests.md)
+  and [Assert the number of SQL queries in a SQLAlchemy test](docs/count-queries-sqlalchemy-tests.md).
+- The first example of [Django](docs/django.md#getting-started) puts the loop
+  in `library/catalog.py`: in the test module, as before, it is test code,
+  which the default `queryguard_test_code = off` does not report, so the test
+  passed instead of failing as the page said. The test of the Django examples
+  now runs them with the default setting.
+- [From 0.10.0 to 1.0.0](docs/design-1.0-release.md): what is left before
+  1.0.0rc1 and 1.0.0, with the state of each recommendation of
+  [the API freeze](docs/design-1.0-freeze.md), and the design of a separate
+  repository for the GitHub Action, so that it can be listed in the GitHub
+  Marketplace (not created yet).
+- [Stability](docs/stability.md#what-is-not-public): which code counts as
+  test code for `queryguard_test_code` is not public, while the option, its
+  values and its default are; the CI list names the Django job and its
+  combinations.
+- [CI](docs/ci.md#the-action) and the action's `package` input: the `lint`
+  input needs pytest-queryguard 0.10.0 or newer when `package` names a
+  release.
+- The pre-commit example in [Static check](docs/static-check.md#pre-commit)
+  pins `rev: v0.10.0`, the first tag with the hook, instead of `v1.0.0`,
+  which does not exist yet; [Migrating from queryspy](docs/migrating-from-queryspy.md)
+  says its pytest-queryguard column is current for 0.10.0, not 1.0.0.
+
+### Internal
+
+- The walk of the stack that finds each statement's call path (#356) is
+  cheaper: SQLAlchemy's frames are passed with one dictionary lookup and
+  one comparison, and a stack that ends in the main greenlet no longer
+  creates a generator for the parent greenlets. Nothing a report shows
+  changes. Measured on GitHub's runners (off and on interleaved, mean of
+  three gate runs per job, against main in the same job), the Core and ORM
+  overhead ratio went from 0.424-0.432 to 0.402-0.415 (Core) and from
+  0.377-0.384 to 0.360-0.371 (ORM) on AMD EPYC 9V74, from 0.392 to 0.386
+  (Core) on EPYC 7763, and stayed the same on Intel Xeon 8370C and 8573C.
+- CI on a pull request runs a subset of the matrix (15 jobs instead of 43:
+  Python 3.10 with the oldest pytest and SQLAlchemy 2.0, 3.14 and 3.15 with
+  the latest, Windows on 3.10, PostgreSQL 18, MySQL 8.4, Django 5.2 on SQLite
+  and 6.1 on PostgreSQL, xdist on 3.10, and lint, docs, free-threaded,
+  plugins, the overhead gate and the action), so several open pull requests
+  no longer hold up the queue. A push to `main`, the release gate and a pull
+  request with the `full-ci` label run the whole matrix; the new
+  `full-ci.yml` starts it when the label is added. The required checks keep
+  their names.
+- CI has an `all-green` job that needs every other job of `ci.yml` and fails
+  when any of them failed or was cancelled (skipped is fine), so one required
+  check can stand for the whole run, for auto-merge too.
+
+## [0.10.0] - 2026-11-08
+
+### Added
+
 - Django ORM support (experimental, #246), next to pytest-django with no
   settings change: statements through `connection.execute_wrapper`, so
   budgets, `record_queries()`, the `queryguard` fixture, the baseline,
@@ -32,16 +177,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Like the static check, it is listed under
   [Experimental](docs/stability.md#experimental): its findings and options
   may change in a minor release.
-- N+1 detection without pytest, for Django projects that run
-  `manage.py test` (experimental): `pytest_queryguard.django.QueryGuardRunner`,
-  a `DiscoverRunner` set with `TEST_RUNNER`, measures `setUp()`, the test
-  method and `tearDown()` of every test as the plugin does and fails or warns
-  with the plugin's report; `QueryGuardTestCase` does the same for the test
-  cases it is mixed into, under any runner. Settings in `QUERYGUARD = {...}`
-  with the ini options' names, `--queryguard-mode` on the command line; works
-  with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
-  index check without pytest yet
-  ([Django](docs/django.md#without-pytest-managepy-test)).
 - An extra, `pytest-queryguard[sqlalchemy]`, with the same SQLAlchemy
   requirement as the core dependency, so installing with it changes nothing
   today. [Stability](docs/stability.md#what-is-public) now says that a later
@@ -197,10 +332,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Getting started, the FAQ ("Why was nothing reported for my test?"),
   llms.txt, the agent skill and the AGENTS.md snippet say that an N+1 in
   test code is left out by default and how to see it.
-- `queryguard_test_code` and the call path are documented as new in 1.0.0,
+- `queryguard_test_code` and the call path are documented as new in 0.10.0,
   not 0.9.0; the FAQ gives the added cost per statement of the call path;
   the comparison names 0.9.0 as the current release and the in-application
-  mode as no longer experimental from 1.0.0.
+  mode as no longer experimental from 0.10.0.
 - The docs navigation has a "Choosing and switching" section (comparison,
   accuracy, performance, the migration guides, limitations, FAQ) after
   "Start".
@@ -3058,7 +3193,10 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0rc1...v1.0.0
+[1.0.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...v1.0.0rc1
+[0.10.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.6.0...v0.7.0

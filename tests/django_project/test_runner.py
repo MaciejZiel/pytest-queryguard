@@ -114,6 +114,10 @@ def _run(
     env = {k: v for k, v in os.environ.items() if not k.startswith("QUERYGUARD_")}
     env["DJANGO_SETTINGS_MODULE"] = "qg_settings"
     env["PYTHONPATH"] = os.pathsep.join([str(project), str(ROOT)])
+    # The tests rewrite qg_settings.py between runs, sometimes to a file of the
+    # same size within the same second ('fail' -> 'warn'); a cached .pyc,
+    # checked by mtime in seconds and size, would then be loaded stale.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     env.pop("PYTHONWARNINGS", None)
     return subprocess.run(
         [sys.executable, *command, "test", "-v", "2", *args],

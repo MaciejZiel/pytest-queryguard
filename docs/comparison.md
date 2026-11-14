@@ -36,9 +36,9 @@ and [choosing](#choosing) have the details.
   fixes in its N+1 detection. The cells marked (v) were verified on queryspy
   0.5.0 and were not run again on 0.6.0.
 - The [head-to-head](#head-to-head-in-github-actions) numbers (accuracy
-  and overhead of queryspy 0.6.0, pytest-querycount 0.4.0,
-  n-plus-one-sniffer and nplusone 1.0.0) were measured on **2026-11-07** in
-  GitHub Actions.
+  and overhead of pytest-queryguard 1.0.0rc1, queryspy 0.6.0,
+  pytest-querycount 0.4.0, n-plus-one-sniffer and nplusone 1.0.0) were
+  measured on **2026-11-10** in GitHub Actions.
 - Marks in the matrix: **(v)** verified by running the package or reading its
   installed source on that date (for queryspy, version 0.5.0; see above); **(r)** read in the package's PyPI
   description only, not run. Anything I could not check is marked as such.
@@ -47,7 +47,7 @@ and [choosing](#choosing) have the details.
 
 | Tool | Version (release date) | First release on PyPI | Targets | License |
 |---|---|---|---|---|
-| pytest-queryguard | 0.9.0 (2026-11-07) | 2026-10-10 | SQLAlchemy 2 | MIT |
+| pytest-queryguard | 1.0.0rc1 (2026-11-10); 0.10.0 (2026-11-08) is the latest final release | 2026-10-10 | SQLAlchemy 2; Django (experimental) | MIT |
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.6.0 (2026-10-22) | 2026-08-04 | SQLAlchemy 2.0+, Python 3.11+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |
@@ -63,9 +63,11 @@ and [choosing](#choosing) have the details.
 Release dates come from the PyPI JSON API on 2026-10-12, re-checked on 2026-10-13 and 2026-11-05;
 the rows of pytest-queryguard, django-nplus1, django-query-doctor and
 n-plus-one-sniffer were read on 2026-11-07 (PyPI and GitHub), the row of
-nplus1 on 2026-11-08. Most of these
+nplus1 on 2026-11-08. Every row was checked again on 2026-11-10 (PyPI, and
+GitHub for n-plus-one-sniffer, whose latest commit is still `d4790f8`): only
+pytest-queryguard had a new release. Most of these
 projects are young: pytest-queryguard, queryspy and pytest-querycount shipped
-their first release in the last three months, so expect all of them to change. This
+their first release in the second half of 2026, so expect all of them to change. This
 table will be out of date; check the projects' own pages.
 
 orm-lens is a different kind of tool: it reads the source of Django and
@@ -159,15 +161,16 @@ not work.
   nplusone and django-zeal run inside Django, Flask and WSGI apps.
   pytest-queryguard has had an in-application mode (see
   [In-application mode](in-app.md)) since 0.5.0; it is no longer
-  experimental from 1.0.0.
+  experimental from 0.10.0.
 - **Other databases and drivers in their test matrix.** The queryspy README
   says it is tested against SQLite, PostgreSQL and MySQL with psycopg,
   asyncpg, pymysql, aiomysql and aiosqlite. pytest-queryguard's CI runs the
   whole suite on SQLite (also through aiosqlite) and on PostgreSQL 14 to 18
   through pg8000 and asyncpg, once more with psycopg 3 (see the [FAQ](faq.md));
-  on MySQL 8.4 and MariaDB 11.8, through PyMySQL and aiomysql, it runs only
-  the tests of the index check.
-- **Django.** django-zeal and nplusone cover Django; pytest-queryguard does not.
+  and on MySQL 8.4 and MariaDB 11.8 through PyMySQL and aiomysql.
+- **Django.** django-zeal and nplusone have covered Django for years;
+  pytest-queryguard's Django support is new in 0.10.0 and experimental (see
+  [Django](django.md)).
 - **Budgets in the test source.** `pytest-querycount --querycount-write-budgets`
   edits your tests to add an exact `max_queries` marker to each, so the
   budget is visible next to the test it limits. pytest-queryguard records
@@ -199,7 +202,7 @@ or worked around them since.
   setup ([prosopite#22](https://github.com/charkost/prosopite/issues/22)).
   pytest-queryguard measures only the test function body; fixtures are not
   measured (see [How detection works](how-detection-works.md) and the
-  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)). From 1.0.0 it
+  [FAQ](faq.md#the-code-i-want-to-check-runs-in-a-fixture)). From 0.10.0 it
   also leaves out, by default, the N+1s of test code run in the body (a
   factory, a helper under `tests/`, the test's own loop) and counts them at
   the end of the run (see [Test code](how-detection-works.md#test-code)).
@@ -248,14 +251,14 @@ that. See
 
 ### Head-to-head in GitHub Actions
 
-Measured on **2026-11-07** by the
-[head-to-head workflow](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42391426710) (`.github/workflows/head-to-head.yml`, the
+Measured on **2026-11-10** by the
+[head-to-head workflow](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42846041338) (`.github/workflows/head-to-head.yml`, the
 adapters in `scripts/head_to_head/`), which anyone can run again from the
 Actions tab; it also runs once a month. Every tool that runs inside pytest
 and supports SQLAlchemy 2 is in it: queryspy 0.6.0, pytest-querycount
 0.4.0, n-plus-one-sniffer (not on PyPI, installed from git at `d4790f8`,
 reported as 0.1.0) and nplusone 1.0.0. orm-lens is not: it reads source code
-and has no pytest mode. pytest-queryguard is 0.8.0 at the commit of the run.
+and has no pytest mode. pytest-queryguard is 1.0.0rc1, run from its tag `v1.0.0rc1`.
 Python 3.13.18, SQLAlchemy 2.1.1, pytest 9.1.1 on `ubuntu-latest` (x86_64,
 4 CPUs).
 
@@ -271,17 +274,17 @@ the failed test's report (or, for pytest-queryguard, when it recorded a
 finding); a test that failed for any other reason is an **error**, never a
 pass. A run with no tool at all passes every scenario.
 
-**Accuracy**, on the 252 scenarios of the [accuracy corpus](accuracy.md)
-that ran (123 BUG, 129 CLEAN):
+**Accuracy**, on the 278 scenarios of the [accuracy corpus](accuracy.md)
+that ran (135 BUG, 143 CLEAN):
 
 | tool | BUG flagged | CLEAN flagged | errors | precision | recall (all BUG) | recall (BUG of kinds it claims) |
 |---|---|---|---|---|---|---|
-| pytest-queryguard, defaults | 106 | 2 | 0 | 98% | 86% | 97% |
-| pytest-queryguard, all opt-in rules | 122 | 8 | 0 | 94% | 99% | 99% |
-| queryspy 0.6.0 | 98 | 27 | 0 | 78% | 80% | 95% |
-| pytest-querycount 0.4.0 | 103 | 27 | 0 | 79% | 84% | 100% |
-| n-plus-one-sniffer `d4790f8` | 103 | 25 | 0 | 80% | 84% | 97% |
-| nplusone 1.0.0, SQLAlchemy 2.1.1 | 0 | 0 | 252 | n/a | 0% | 0% |
+| pytest-queryguard, defaults | 117 | 2 | 0 | 98% | 87% | 97% |
+| pytest-queryguard, all opt-in rules | 134 | 9 | 0 | 94% | 99% | 99% |
+| queryspy 0.6.0 | 110 | 34 | 0 | 76% | 81% | 96% |
+| pytest-querycount 0.4.0 | 115 | 35 | 0 | 77% | 85% | 100% |
+| n-plus-one-sniffer `d4790f8` | 115 | 30 | 0 | 79% | 85% | 97% |
+| nplusone 1.0.0, SQLAlchemy 2.1.1 | 0 | 0 | 278 | n/a | 0% | 0% |
 | nplusone 1.0.0, SQLAlchemy 2.0.54 | 1 | 0 | 2 | 100% | 1% | 2% |
 
 Precision and recall per finding kind, with `n/a` for the kinds a tool does
@@ -296,13 +299,17 @@ include the shapes pytest-queryguard was taught to leave alone (pagination,
 `ignore()` API, and the thresholds of the other tools were left at their
 defaults. What the table does show: the three working plugins catch nearly
 every N+1 shape they claim (pytest-querycount all of them), and each fails
-25 to 27 of the 129 CLEAN scenarios, where pytest-queryguard fails 2 by
+30 to 35 of the 143 CLEAN scenarios, where pytest-queryguard fails 2 by
 default. nplusone does not import on SQLAlchemy 2.1, and on 2.0 it misses
 every lazy load of the corpus (2.0-style `select()` bypasses the
 `Query.__iter__` it patches) and raises `AttributeError` on two
 `subqueryload` scenarios.
 
-**Overhead**, same run, one job, every tool in its own virtual environment
+**Overhead**, same run (its `overhead` job ran twice: in the
+[first attempt](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42846041338/attempts/1)
+the run with no tool varied by 38% between rounds, so the numbers below are
+from [the second](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/42846041338/attempts/2)),
+one job, every tool in its own virtual environment
 with the same Python, pytest and SQLAlchemy, the tools interleaved and their
 order reversed every round, 15 rounds, each a fresh process pinned to one
 core. Per statement: `scripts/compare/bench_micro.py` (in-memory SQLite),
@@ -313,16 +320,26 @@ the suite, which reads one parent twice per test).
 
 | | pytest-queryguard | queryspy | pytest-querycount | n-plus-one-sniffer |
 |---|---|---|---|---|
-| 300-test suite, added wall time (best of 15) | +0.8% | +28.9% | +18.7% | +28.1% |
-| 300-test suite, added wall time (median of 15) | +1.7% | +28.8% | +18.5% | +29.0% |
-| Core `select`, added per statement | +17.7 us | +9.5 us | +94.0 us | +16.4 us |
-| ORM `select`, added per statement | +26.6 us | +100.5 us | +100.1 us | +14.0 us |
-| Lazy load, added per statement | +37.2 us | +122.8 us | +112.4 us | +16.4 us |
+| 300-test suite, added wall time (best of 15) | +14.8% | +25.8% | +16.3% | +23.0% |
+| 300-test suite, added wall time (median of 15) | +13.1% | +25.7% | +15.6% | +22.9% |
+| Core `select`, added per statement | +18.9 us | +8.4 us | +68.5 us | +14.0 us |
+| ORM `select`, added per statement | +33.5 us | +105.4 us | +107.6 us | +13.6 us |
+| Lazy load, added per statement | +66.0 us | +139.1 us | +121.3 us | +24.3 us |
 
-n-plus-one-sniffer adds the least per statement (one `before_cursor_execute`
-listener and a regular expression) but about 28% to the suite, so most of its cost
-is outside the statements measured here; queryspy adds the least to a Core statement. pytest-queryguard
-adds the least to the suite. nplusone has no overhead figure: it does not
+n-plus-one-sniffer adds the least to an ORM statement and a lazy load (one
+`before_cursor_execute` listener and a regular expression) but about 23% to
+the suite, so most of its cost is outside the statements measured here;
+queryspy adds the least to a Core statement. pytest-queryguard adds the
+least to the suite, with pytest-querycount close behind.
+
+The run of 2026-11-07 gave pytest-queryguard 0.8.0 +0.8% (best) and +1.7%
+(median) on the same suite. I could not reproduce it: the first attempt of
+this run gave +0.7% for the median too, but from a runner whose times varied
+by 38%, and on my laptop on 2026-11-10 (`scripts/bench_suite.py --runs 5`,
+CPU time of the test process) 0.8.0, 0.9.0, 0.10.0 and 1.0.0rc1 each added
+18 to 20% to this suite. Read the suite cost as about a seventh to a fifth
+of the run time of a suite this cheap (about 5 ms a test), the same since
+0.8.0, not 2%. nplusone has no overhead figure: it does not
 import on SQLAlchemy 2.1. Shared CI runners are noisy, which is why both the
 best and the median are given.
 
@@ -471,7 +488,7 @@ suggestion for the expression.
 ### Overhead
 
 See the [head-to-head](#head-to-head-in-github-actions) above for the
-numbers of 2026-11-07 on a CI runner. The earlier measurement of 2026-11-05
+numbers of 2026-11-10 on a CI runner. The earlier measurement of 2026-11-05
 on my machine (pytest-queryguard 0.5.0, pytest-querycount 0.4.0, queryspy
 0.6.0), with its method and the script `scripts/compare/run.py`, is in
 [Performance](performance.md#comparison-with-other-plugins): +1.8 to +2.4%
@@ -502,8 +519,9 @@ pytest-queryguard only.
   pytest-querycount (it and pytest-queryguard both register a `max_queries`
   marker; I did not test installing both). For budgets kept in a file next to
   the tests, pytest-queryguard's [budget file](budgets.md#lock-todays-counts-the-budget-file).
-- You are on Django: django-zeal, or django-nplus1 or django-query-doctor
-  (read, not run; see above).
+- You are on Django: django-zeal is the established choice;
+  pytest-queryguard's [Django support](django.md) is experimental since
+  0.10.0. django-nplus1 and django-query-doctor were read, not run (see above).
 - You want to assert exact SQL: pytest-capquery, after checking its license.
 - You have nplusone on an old SQLAlchemy: see
   [Migrating from nplusone](migrating-from-nplusone.md). If you only want
