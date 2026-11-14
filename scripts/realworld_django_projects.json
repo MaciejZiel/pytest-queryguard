@@ -96,6 +96,70 @@
       "pytest_args": "cms/tests menus",
       "postgres": false,
       "env": {}
+    },
+    {
+      "name": "paperless-ngx",
+      "repository": "paperless-ngx/paperless-ngx",
+      "ref": "v3.4.2",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "sudo apt-get update -q && sudo apt-get install -y -q unpaper tesseract-ocr ghostscript poppler-utils qpdf && uv sync --frozen --no-default-groups --group testing",
+      "prepare": "",
+      "pytest_args": "src/documents/tests/test_api_app_config.py src/documents/tests/test_api_bulk_edit.py src/documents/tests/test_api_custom_fields.py src/documents/tests/test_api_document_versions.py src/documents/tests/test_api_documents.py src/documents/tests/test_api_filter_by_custom_fields.py src/documents/tests/test_api_objects.py src/documents/tests/test_api_permissions.py src/documents/tests/test_api_profile.py src/documents/tests/test_api_tasks.py src/documents/tests/test_api_trash.py src/documents/tests/test_api_uisettings.py src/documents/tests/test_api_workflows.py src/documents/tests/test_workflows.py -o addopts= -p no:randomly -p no:cacheprovider -n 4",
+      "postgres": false,
+      "env": {
+        "PAPERLESS_CI_TEST": "1"
+      }
+    },
+    {
+      "name": "tandoor",
+      "repository": "TandoorRecipes/recipes",
+      "ref": "2.7.2",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "sudo apt-get update -q && sudo apt-get install -y -q libsasl2-dev libldap2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config && uv pip install -r requirements.txt",
+      "prepare": "",
+      "pytest_args": "cookbook/tests/api -o addopts= -p no:cacheprovider -n 4",
+      "postgres": false,
+      "env": {}
+    },
+    {
+      "name": "django-allauth",
+      "repository": "pennersr/django-allauth",
+      "ref": "65.22.1",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "sudo apt-get update -q && sudo apt-get install -y -q gettext && uv pip install -e '.[headless,mfa,openid,socialaccount,steam]' 'django~=5.2.0' 'pytest>=8.3.5,<9' pytest-asyncio==1.3.0 'pytest-django>=4.11,<4.13' 'Pillow>=9.0' 'pyyaml>=6.0.2,<7' 'djangorestframework>=3.16,<4' 'django-ninja>=1.3.0,<2' && (cd allauth && python ../manage.py compilemessages)",
+      "prepare": "",
+      "pytest_args": "--ds=tests.projects.regular.settings tests -p no:cacheprovider",
+      "postgres": false,
+      "env": {}
+    },
+    {
+      "name": "strawberry-django",
+      "repository": "strawberry-graphql/strawberry-django",
+      "ref": "0.96.3",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "uv sync --frozen && uv pip install 'django==5.2.*'",
+      "prepare": "",
+      "pytest_args": "tests -o addopts=--nomigrations -p no:cacheprovider -n 4",
+      "postgres": false,
+      "env": {}
+    },
+    {
+      "name": "label-studio",
+      "repository": "HumanSignal/label-studio",
+      "ref": "1.23.2",
+      "python": "3.12",
+      "workdir": "label_studio",
+      "install": "sudo apt-get update -q && sudo apt-get install -y -q libldap2-dev libsasl2-dev libxml2-dev libxslt-dev && pipx install 'poetry>=2,<3' && poetry config virtualenvs.create false && poetry install --with test && python core/version.py",
+      "prepare": "",
+      "pytest_args": "tests/data_manager data_manager projects tasks organizations users -p no:cacheprovider -n 4",
+      "postgres": false,
+      "env": {
+        "DJANGO_DB": "sqlite"
+      }
     }
   ]
 }
