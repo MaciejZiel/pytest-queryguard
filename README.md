@@ -241,6 +241,12 @@ and the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#does-it-sl
 
 The full list is on the [Limitations](https://maciejziel.github.io/pytest-queryguard/limitations.html) page.
 
+## Stability
+
+1.0 is stable: the public API (options, markers, finding kinds, files, the action) breaks only in a
+major release, deprecations last two minor releases, and fixes go into the latest 1.x. Experimental
+features (static check, MCP server, Django) are exempt. See [Stability](https://maciejziel.github.io/pytest-queryguard/stability.html).
+
 ## Documentation
 
 <https://maciejziel.github.io/pytest-queryguard/>, starting with

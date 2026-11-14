@@ -9,10 +9,10 @@ enforce it.
 flags and markers, the finding kinds, and the files and tools
 [listed below](#files-tools-and-the-action) are public; the wording of
 messages is not. A deprecated name keeps working with a
-`QueryGuardDeprecationWarning` for at least one minor release and three
-months. Until 1.0 a minor release may still break things, deprecating first
-where possible and always saying so in the changelog; features marked
-[experimental](#experimental) may change in any minor release.
+`QueryGuardDeprecationWarning` for at least two minor releases and three
+months, and is removed only in a major release. Features marked
+[experimental](#experimental) may change in any minor release. Fixes go into
+the latest minor release (see [Which releases get fixes](#which-releases-get-fixes)).
 
 ## What is public
 
@@ -304,25 +304,36 @@ cannot parse is skipped with a message.
   that is a fix, not a breaking change.
 - Minor (`x.Y.0`): new public API, new options with a default that keeps
   today's behaviour, new finding kinds that are off or reported as warnings
-  first (from 1.0 on; see below for 0.x), deprecations, dropping support for an end-of-life Python,
+  first, deprecations, dropping support for an end-of-life Python,
   SQLAlchemy or pytest series, and moving SQLAlchemy from the core
   dependencies into the `sqlalchemy` extra (see "How to install it" above).
 - Major (`X.0.0`): removals of deprecated API, changed defaults, and
   incompatible changes to anything listed under "What is public".
 
-While the version is below 1.0, a minor release may also contain breaking
-changes. They are still deprecated first whenever that is possible, and are
-always listed under "Changed" or "Removed" in the changelog.
+### Which releases get fixes
 
-**Pre-1.0 clause for new checks.** While the version is 0.x, a minor release
-may change the defaults of newly added detectors: switch a new check on, or let
-it fail tests by default, instead of introducing it off or as a warning first.
-Every such change is named in the introduction at the top of the changelog
-entry and listed first under "Changed", in a "Behavior changes" group, with the
-option that turns it off. The
-0.4.0 changelog entry is an example: the `column-load` kind is on by default, the index
-advisor is on whenever the index check is on, and the index check fails tests
-on SQLite, MySQL and MariaDB. From 1.0 on, the rules above apply strictly: a new check is off or
+From 1.0.0 on, bug fixes go into a patch release of the latest minor release
+(`1.Y.Z`) and into `main`. Older minor releases get no backports: a fix
+reaches you by upgrading to the latest 1.x, which the rules above keep
+compatible. Security fixes follow the same rule (see the
+[security policy](https://github.com/MaciejZiel/pytest-queryguard/blob/main/SECURITY.md)).
+The 0.x releases get no fixes.
+
+### Before 1.0 (history)
+
+The 0.x releases (0.1.0 to 0.10.0) followed looser rules: a minor release
+could also contain breaking changes, deprecated first whenever that was
+possible and always listed under "Changed" or "Removed" in the changelog.
+
+**Pre-1.0 clause for new checks.** While the version was 0.x, a minor release
+could change the defaults of newly added detectors: switch a new check on, or
+let it fail tests by default, instead of introducing it off or as a warning
+first. Every such change was named in the introduction at the top of the
+changelog entry and listed first under "Changed", in a "Behavior changes"
+group, with the option that turns it off. The 0.4.0 changelog entry is an
+example: the `column-load` kind is on by default, the index advisor is on
+whenever the index check is on, and the index check fails tests on SQLite,
+MySQL and MariaDB. From 1.0 on, the rules above apply strictly: a new check is off or
 only warns until a later minor release, and a change of default needs a major
 release.
 
@@ -338,16 +349,17 @@ release.
    warning once per run.
 2. The deprecation is listed under "Deprecated" in the changelog, and the
    documentation points to the replacement.
-3. It stays for at least one minor release (two, from 1.0 on) and at least
+3. It stays for at least two minor releases (one before 1.0) and at least
    three months after the release that deprecated it, whichever is longer.
-4. It is removed in the next major release (before 1.0: in a minor release),
-   listed under "Removed".
+4. It is removed in the next major release (before 1.0 it could be removed in
+   a minor release), listed under "Removed".
 
 A security or data-loss fix may skip these steps; the changelog says so.
 
 A new finding kind, or a stricter version of an existing check, first appears
 in a release where it can be turned off with an ini option, and the changelog
-says how. Before 1.0 it may be on by default (see the pre-1.0 clause above).
+says how. Before 1.0 it could be on by default (see the
+[pre-1.0 clause](#before-10-history)).
 
 ## Experimental
 
