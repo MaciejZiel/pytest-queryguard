@@ -3,20 +3,62 @@
 Since 0.10.0.
 
 A coding agent writes data-access code fast, and an N+1 query passes every
-test that only checks results. pytest-queryguard fails those tests; the files
+test that only checks results. pytest-queryguard fails those tests, for
+SQLAlchemy 2 and for the Django ORM ([experimental](django.md)); the files
 on this page tell an agent (Claude Code, Cursor, Codex, Copilot and other
 tools that read `AGENTS.md`) to run them, read the findings as data, apply the
-suggested loader option and run the tests again to check the fix. They are
-short on purpose: the agent learns the loop, the tool does the measuring.
+suggested loader option (`joinedload`/`selectinload`, or
+`select_related`/`prefetch_related` in Django) and run the tests again to
+check the fix. They are short on purpose: the agent learns the loop, the tool
+does the measuring.
+
+For agents that look things up, the documentation site has
+[`llms.txt`](https://maciejziel.github.io/pytest-queryguard/llms.txt), a
+summary, and
+[`llms-full.txt`](https://maciejziel.github.io/pytest-queryguard/llms-full.txt),
+every page in one Markdown file (see [llmstxt.org](https://llmstxt.org/)).
 
 For an agent that speaks MCP, the [MCP server](mcp.md) gives the same loop
 as tools: `run_tests` and the static check, `lint`.
+
+## Claude Code plugin
+
+The repository is a Claude Code plugin marketplace with one plugin, which
+installs the skill below from the `main` branch; the skill works with any
+1.x release of the package. In a terminal:
+
+```console
+claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard
+```
+
+or, inside Claude Code,
+`/plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`.
+Claude Code before 2.1.275 needs two steps:
+
+```console
+claude plugin marketplace add MaciejZiel/pytest-queryguard
+claude plugin install pytest-queryguard@pytest-queryguard
+```
+
+Add `--scope project` to the install to record it in the project's
+`.claude/settings.json`, for everyone who works on it. Claude Code then loads
+the skill when the task matches its description, or on
+`/pytest-queryguard:pytest-queryguard`. `claude plugin update
+pytest-queryguard@pytest-queryguard` gets the skill as it is on `main` now
+(the plugin has no version number of its own, so each commit is a new
+version).
+
+The plugin does not start the [MCP server](mcp.md): that one has to run
+with the interpreter of your project, so add it per project as its page
+says.
 
 ## A skill (Claude Code and other agents that read SKILL.md)
 
 The repository has a skill,
 [`skills/pytest-queryguard/SKILL.md`](https://github.com/MaciejZiel/pytest-queryguard/blob/main/skills/pytest-queryguard/SKILL.md).
-Copy it into your project, where Claude Code finds project skills:
+Without the plugin, copy it into your project, where Claude Code finds
+project skills (Codex and other agents that read `SKILL.md` files have
+their own skills directory):
 
 ```console
 mkdir -p .claude/skills/pytest-queryguard
@@ -25,9 +67,11 @@ curl -fsSL -o .claude/skills/pytest-queryguard/SKILL.md \
 ```
 
 (`~/.claude/skills/pytest-queryguard/` makes it available in every
-project.) Its description makes the agent load it after changing code that
-loads ORM objects, when a test fails with `queryguard: N+1 detected`, or when
-asked to look for N+1 queries. It tells the agent to:
+project.) Its description makes the agent load it when the user mentions
+N+1 queries, "too many queries", a lazy load in a loop, `assertNumQueries`
+or a query count test, or an alternative to nplusone or django-zeal; after
+changing code that loads ORM objects; and when a test fails with
+`queryguard: N+1 detected`. It tells the agent to:
 
 1. check that the plugin is installed in the project's environment;
 2. run the tests of the changed code with `--queryguard-json` and
@@ -55,7 +99,8 @@ After changing code that queries or loops over ORM objects:
    `label`, `file`, `line`, `count` and `message`. The `message` names the
    query that loaded the parents (`parents loaded at`) and the fix (`fix:`).
 3. Fix at that query, not in the loop: `joinedload(...)` for a many-to-one,
-   `selectinload(...)` for a collection; for `repeated-statement`, one query
+   `selectinload(...)` for a collection (Django: `select_related(...)`,
+   `prefetch_related(...)`); for `repeated-statement`, one query
    with `IN (...)`. If `.queryguard.patch` is not empty, `git apply` it from
    pytest's rootdir.
 4. Re-run the same command; done when the findings are gone and tests pass.
@@ -73,18 +118,19 @@ agent edits a file the globs match:
 
 ```markdown
 ---
-description: Find and fix N+1 queries with pytest-queryguard after changing SQLAlchemy data access
+description: Find and fix N+1 queries with pytest-queryguard after changing SQLAlchemy or Django ORM data access
 globs: app/**/*.py,tests/**/*.py
 alwaysApply: false
 ---
 
-After changing code that queries or loops over SQLAlchemy objects, run the
+After changing code that queries or loops over SQLAlchemy or Django objects, run the
 tests that cover it with
 `python -m pytest <tests> --queryguard-json=.queryguard.json --queryguard-write-patch=.queryguard.patch -q`.
 Read the findings in `.queryguard.json` (`tests[...].findings[]`: `kind`,
 `label`, `file`, `line`, `message`). Put the loader option on the query
 named by `parents loaded at` in `message` (`joinedload` for many-to-one,
-`selectinload` for collections), or `git apply .queryguard.patch`. Re-run
+`selectinload` for collections; Django: `select_related`,
+`prefetch_related`), or `git apply .queryguard.patch`. Re-run
 the same command until the findings are gone. Never silence a finding with
 `ignore()`, a marker or a baseline entry unless asked.
 ```

@@ -1,16 +1,19 @@
 # pytest-queryguard
 
+<!-- mcp-name: io.github.MaciejZiel/pytest-queryguard (owner check of the MCP Registry, read from the PyPI description) -->
+
 [![CI](https://github.com/MaciejZiel/pytest-queryguard/actions/workflows/ci.yml/badge.svg)](https://github.com/MaciejZiel/pytest-queryguard/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/pytest-queryguard)](https://pypi.org/project/pytest-queryguard/)
 [![Python](https://img.shields.io/pypi/pyversions/pytest-queryguard)](https://pypi.org/project/pytest-queryguard/)
 [![License](https://img.shields.io/pypi/l/pytest-queryguard)](https://github.com/MaciejZiel/pytest-queryguard/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-maciejziel.github.io-blue)](https://maciejziel.github.io/pytest-queryguard/)
 
-A pytest plugin that fails a test when the SQLAlchemy 2 code it runs sends one
-query per row (N+1), and enforces query budgets. Sync, async and FastAPI code;
-nothing to import or configure. A test database holds a handful of rows, so
-such code passes its tests and sends hundreds of queries in production. This
-test passes without the plugin:
+A pytest plugin that fails a test when the SQLAlchemy 2 or Django ORM code it
+runs sends one query per row (an N+1 query: a lazy load in a loop), and
+enforces query-count budgets, an `assertNumQueries` for SQLAlchemy. Sync,
+async and FastAPI code; nothing to import or configure. A test database holds
+a handful of rows, so such code passes its tests and sends hundreds of queries
+in production. This test passes without the plugin:
 
 ```python
 def test_list_orders(session):
@@ -34,6 +37,10 @@ queryguard: N+1 detected
 ```
 
 Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html).
+For coding agents: a Claude Code plugin
+(`claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`),
+an agent skill, an MCP server and [llms.txt](https://maciejziel.github.io/pytest-queryguard/llms.txt);
+see [Coding agents](https://maciejziel.github.io/pytest-queryguard/agents.html).
 
 ## What it catches
 

@@ -1,13 +1,15 @@
 ---
 name: pytest-queryguard
-description: Find and fix N+1 queries and other repeated SQL in SQLAlchemy 2 code with pytest-queryguard, then prove the fix by re-running the tests. Use after changing code that loads ORM objects (queries, loops over results, serializers, endpoints), when a test fails with "queryguard: N+1 detected", or when asked to find N+1 queries in a project that uses SQLAlchemy and pytest.
+description: Find, fix and prevent N+1 queries and other repeated SQL in SQLAlchemy 2 or Django ORM code with the pytest plugin pytest-queryguard, then prove the fix by re-running the tests. Use when the user mentions N+1 queries, "too many queries", a lazy load in a loop, slow ORM endpoints or serializers, select_related/prefetch_related/joinedload/selectinload, counting or limiting SQL queries in a test (assertNumQueries, django_assert_num_queries, a query count test, a query budget), or an alternative to nplusone or django-zeal; after changing code that loads ORM objects in a project that uses pytest; or when a test fails with a queryguard "N+1 detected" report.
 ---
 
 # Finding and fixing N+1 queries with pytest-queryguard
 
 pytest-queryguard is a pytest plugin: once installed, every test fails when
-its code runs an N+1 query. It measures; do not guess from reading the code
-when you can run the tests.
+its code runs an N+1 query, with no marker or code change. It measures; do
+not guess from reading the code when you can run the tests. It supports
+SQLAlchemy 2 (sync, async, FastAPI, Flask-SQLAlchemy, SQLModel) and,
+experimentally, the Django ORM next to pytest-django.
 
 ## 1. Check that it is installed
 
@@ -17,8 +19,9 @@ Use the project's own environment (`uv run`, `poetry run`, the `.venv`):
 python -m pytest --help | grep queryguard-json
 ```
 
-Nothing printed: it is not installed. Add `pytest-queryguard` to the
-project's test dependencies only if the user agrees.
+Nothing printed: it is not installed. Add it to the project's test
+dependencies only if the user agrees: `pytest-queryguard` for SQLAlchemy,
+`pytest-queryguard[django]` (with pytest-django) for Django.
 
 ## 2. Run the tests that cover the code
 
@@ -52,14 +55,18 @@ see the test code's findings, add `-o queryguard_test_code=warn`.
 ## 3. Fix
 
 - `relationship-load`: add the loader option on the query that loaded the
-  parents (the `parents loaded at` line), not in the loop:
-  `joinedload(Order.customer)` for a many-to-one or one-to-one,
+  parents (the `parents loaded at` line), not in the loop.
+  SQLAlchemy: `joinedload(Order.customer)` for a many-to-one or one-to-one,
   `selectinload(Order.items)` for a collection, chained for a path:
   `selectinload(Order.items).joinedload(Item.product)`.
   When `.queryguard.patch` is not empty, `git apply --check .queryguard.patch`
   then `git apply .queryguard.patch` from pytest's rootdir adds exactly that.
+  Django: `select_related("author")` for a foreign key or one-to-one,
+  `prefetch_related("books")` for a reverse or many-to-many relation,
+  `"author__publisher"` for a chain.
 - `repeated-statement`: one query with `WHERE id IN (...)` or a join
-  instead of one query per item.
+  instead of one query per item (Django: `in_bulk(ids)`,
+  `filter(pk__in=ids)`).
 - `column-load` after `commit()`: `expire_on_commit=False` on the session,
   or load the objects again with one query.
 - Anything else: follow the `fix:` line of `message` and the `docs` link
@@ -75,11 +82,20 @@ Run the same command again. Done when the finding is gone and the tests pass.
 A fix that loads too much shows up as `unused-eager-load` (when enabled);
 drop that option.
 
+## Asked for a query count test
+
+For "assert the number of queries" (SQLAlchemy has no `assertNumQueries`):
+`@pytest.mark.max_queries(n)` on the test, or `with max_queries(n):` (from
+`pytest_queryguard import max_queries`) around the call; the `queryguard`
+fixture's `num_queries(n)` asserts an exact count. The failure lists every
+statement with its call site. Prefer the N+1 check to a hand-picked number:
+it needs no number and fails when the count grows with the rows.
+
 ## Without running tests
 
 `python -m pytest_queryguard.lint --models app.models --format json app/`
-reads the code without a database and reports loops over a query that read
-a lazy relationship. It is an early warning that misses N+1 queries crossing
+reads SQLAlchemy code without a database and reports loops over a query
+that read a lazy relationship. It is an early warning that misses N+1 queries crossing
 functions; the tests measure. With the MCP server
 (`python -m pytest_queryguard.mcp`), the same steps are the tools
 `run_tests` and `lint`.
