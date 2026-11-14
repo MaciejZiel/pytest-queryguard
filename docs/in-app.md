@@ -199,7 +199,8 @@ print(report.statement_count, [f.label for f in report.findings])
 
 As a decorator, each call is a unit, named after the function unless a name
 is given. A coroutine function is measured across its awaits, a generator
-function over its whole iteration, and `async with` works too:
+function over its whole iteration (its own statements, not those the code
+reading it runs between items), and `async with` works too:
 
 ```python
 @queryguard.track(default_budget=20)

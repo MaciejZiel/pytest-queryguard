@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `track()` on a generator function (sync or async) no longer counts the
+  statements of the code that consumes the generator between items, and two
+  such generators read in turn each end their own unit; before, the unit stayed
+  current between items, and the first generator to end finished the unit of
+  the other.
+
 ### Internal
+
+- `tests/inapp/test_request_lifecycle.py`: one matrix of a request's lifecycle
+  phases (streamed sync and async bodies, close callbacks, files, background
+  tasks, errors half way through a body, `HEAD`, mounted applications,
+  middleware order, concurrent and interleaved requests) for the ASGI and WSGI
+  middleware and `track()`, each request checked to keep exactly its own
+  statements; and a checklist in CONTRIBUTING.md, linked from the pull request
+  template, for code that scopes something to a request.
 
 - The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi tests (the `fastapi_project` fixture now skips when fastapi is missing), so it runs the plugin's tests again instead of failing in `uv sync`.
 

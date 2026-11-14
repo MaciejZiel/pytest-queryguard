@@ -744,7 +744,9 @@ class track:  # a function to its callers, as in 0.5.0
         """Measure each call of ``function`` as a unit of its own.
 
         For a generator function the unit spans the iteration, from the first
-        item to the last; a coroutine function is measured across its awaits.
+        item to the last, and counts the generator's own statements only, not
+        those of the code that consumes it between items; a coroutine function
+        is measured across its awaits.
         """
         if self._tracker is not None:
             raise RuntimeError("a started track() unit cannot decorate a function")
@@ -756,15 +758,58 @@ class track:  # a function to its callers, as in 0.5.0
         if inspect.isasyncgenfunction(function):
 
             async def wrapper(*args: Any, **kwargs: Any) -> Any:
-                async with unit:
-                    async for item in call(*args, **kwargs):
-                        yield item
+                own = _Own(unit._begin())
+                steps = call(*args, **kwargs)
+                ended = False
+                try:
+                    action, value = steps.asend, None
+                    while True:
+                        with own:
+                            try:
+                                item = await action(value)
+                            except StopAsyncIteration:
+                                ended = True
+                                break
+                        try:
+                            value = yield item
+                            action = steps.asend
+                        except GeneratorExit:
+                            raise
+                        except BaseException as exc:  # noqa: BLE001  # thrown in: pass it on
+                            action, value = steps.athrow, exc
+                finally:
+                    with own:
+                        await steps.aclose()
+                    own.finish(ended)
 
         elif inspect.isgeneratorfunction(function):
 
             def wrapper(*args: Any, **kwargs: Any) -> Any:
-                with unit:
-                    return (yield from call(*args, **kwargs))
+                own = _Own(unit._begin())
+                steps = call(*args, **kwargs)
+                ended = False
+                try:
+                    action, value = steps.send, None
+                    while True:
+                        with own:
+                            try:
+                                item = action(value)
+                            except StopIteration as stop:
+                                ended = True
+                                result = stop.value
+                                break
+                        try:
+                            value = yield item
+                            action = steps.send
+                        except GeneratorExit:
+                            raise
+                        except BaseException as exc:  # noqa: BLE001  # thrown in: pass it on
+                            action, value = steps.throw, exc
+                finally:
+                    with own:
+                        steps.close()
+                    own.finish(ended)
+                return result
 
         elif _is_async(function):
 
@@ -780,6 +825,44 @@ class track:  # a function to its callers, as in 0.5.0
 
         result: Callable[_P, _R] = functools.wraps(function)(wrapper)
         return result
+
+
+class _Own:
+    """The current unit of a generator decorated with ``track()``.
+
+    A generator runs in its consumer's context, so a unit set inside it would
+    stay current between items: the consumer's statements would count for
+    it, and its exit would end whatever unit is current then (another
+    generator's). Each step instead sets the generator's own value of
+    ``current`` (its unit, or a unit the generator entered and has not left)
+    and puts the consumer's back afterwards. Only this unit's ``current``
+    moves; other context variables behave as in any generator.
+    """
+
+    __slots__ = ("_state", "_token", "tracker")
+
+    def __init__(self, tracker: Tracker) -> None:
+        tracker.detach()  # the consumer's context is not the unit's
+        self.tracker = tracker
+        self._state: Active | None = tracker.active
+        self._token: contextvars.Token[Active | None] | None = None
+
+    def __enter__(self) -> None:
+        self._token = current.set(self._state)
+
+    def __exit__(self, *exc: object) -> None:
+        self._state = current.get()
+        token, self._token = self._token, None
+        if token is not None:
+            current.reset(token)
+
+    def finish(self, ended: bool) -> None:
+        """End the unit; ``ended``: the generator ran to its end, so raise
+        a warning a filter turned into an error (not over an exception, nor
+        when the consumer closed it early, as ``with`` does on GeneratorExit)."""
+        self.tracker.finish()
+        if ended and self.tracker.warning is not None:
+            raise self.tracker.warning
 
 
 # What inspect.signature() shows: calling track(...) gives a unit.
