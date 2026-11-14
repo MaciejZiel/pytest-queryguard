@@ -331,6 +331,42 @@ def test_async_client_requests_count_on_their_own() -> None:
     assert finding.first.function == "six_books_async"
 
 
+@pytest.mark.django_db(transaction=True)
+def test_asgi_handler_requests_count_on_their_own() -> None:
+    import asyncio
+
+    from django.core.handlers.asgi import ASGIHandler
+
+    async def get(path: str) -> list[dict[str, object]]:
+        sent: list[dict[str, object]] = []
+        body_read = False
+
+        async def receive() -> dict[str, object]:
+            nonlocal body_read
+            if not body_read:
+                body_read = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await asyncio.Event().wait()  # no disconnect; cancelled at the end
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        scope = {"type": "http", "method": "GET", "path": path, "query_string": b""}
+        await ASGIHandler()({**scope, "headers": []}, receive, send)
+        return sent
+
+    async def requests() -> None:
+        for pk in range(1, 7):
+            assert (await get(f"/async/books/{pk}/"))[0]["status"] == 200
+
+    with measure() as collector:
+        asyncio.run(requests())
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    assert len({s.scope for s in gets}) == 6
+    assert detections(collector) == []
+
+
 def test_only_a_request_is_a_boundary_with_the_test_scope() -> None:
     from pytest_queryguard.collector import RequestScope, boundary
 

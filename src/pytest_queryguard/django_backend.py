@@ -302,12 +302,10 @@ def _install() -> None:
     )
     # An async handler (AsyncClient, ASGI) sends request_started with
     # Signal.asend, which before Django 6.1 runs sync receivers in a task of
-    # their own: the scope set there never reaches the request.
-    _patch(
-        _module("django.core.handlers.base").BaseHandler,
-        "get_response_async",
-        _get_response_async,
-    )
+    # their own: the scope set there never reaches the request. The handler
+    # opens one itself, around the whole request (a streamed body included).
+    _patch(_module("django.core.handlers.asgi").ASGIHandler, "handle", _in_request)
+    _patch(_module("django.test.client").AsyncClientHandler, "__call__", _in_request)
     sync = sys.modules.get("asgiref.sync")
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
@@ -886,18 +884,22 @@ def _on_request_finished(sender: Any, **kwargs: Any) -> None:
     _request.set(None)
 
 
-def _get_response_async(original: Callable[..., Any]) -> Callable[..., Any]:
+def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
     """One scope per request of an async handler, as ``_on_request_started``."""
 
     @functools.wraps(original)
-    async def get_response_async(self: Any, request: Any) -> Any:
-        token = _request.set(collector.RequestScope(next(errors.scopes)))
+    async def method(self: Any, *args: Any, **kwargs: Any) -> Any:
         try:
-            return await original(self, request)
+            token = _request.set(collector.RequestScope(next(errors.scopes)))
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _fail(exc, "Django integration (async request)")
+            return await original(self, *args, **kwargs)
+        try:
+            return await original(self, *args, **kwargs)
         finally:
             _request.reset(token)
 
-    return get_response_async
+    return method
 
 
 def _site() -> Any:
