@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Internal
+
+- The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi test modules, so it runs the plugin's tests again instead of failing in `uv sync`.
+
 ## [1.0.0] - 2026-11-14
 
 The first stable release. The code is that of 1.0.0rc1, which has the
