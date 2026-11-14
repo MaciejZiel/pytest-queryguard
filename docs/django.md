@@ -163,7 +163,9 @@ AssertionError: queryguard: N+1 detected
 
 A test that fails on its own, or is skipped, is reported as it is, without
 the analysis. A project with a runner of its own subclasses
-`QueryGuardRunner` instead of `DiscoverRunner`. To check only some test
+`QueryGuardRunner` instead of `DiscoverRunner`; a `test_runner` that picks
+its own result class (xmlrunner's `XMLTestRunner`) keeps it, and the tests
+are measured all the same. To check only some test
 cases, under any runner, mix `QueryGuardTestCase` in instead:
 
 ```python
@@ -190,7 +192,9 @@ or a bad value stops the run with `ImproperlyConfigured` before the test
 database is created (with the mixin alone, at the first test it measures).
 
 **Warn mode** issues each report as a `QueryGuardWarning` at the test
-method, shown after the test (also with `--buffer`).
+method, shown after the test (also with `--buffer`). Django sends warnings
+to the `py.warnings` logger: with the default `LOGGING` they reach stderr; a
+`LOGGING` of your own decides where they go.
 `python -W "error:queryguard:UserWarning" manage.py test` turns them into
 test errors (the message starts with `queryguard:`; `-W` cannot name
 `QueryGuardWarning`, which is not imported when Python starts).
@@ -203,7 +207,10 @@ calls is. `ignore()` blocks work as under pytest.
 
 **`--parallel`** works, with `fork`, `spawn` and `forkserver` workers: each
 worker measures its tests and the failures come back as any test failure;
-warnings are printed by the worker.
+warnings are printed by the worker. A `QueryGuardRunner` subclass with a
+`parallel_test_suite` of its own must subclass `QueryGuardParallelTestSuite`;
+otherwise the run stops with `ImproperlyConfigured`, as its workers would
+measure nothing.
 
 **Not available without pytest** (yet): the `max_queries` marker and the
 budget file (the `max_queries()` context manager works), the

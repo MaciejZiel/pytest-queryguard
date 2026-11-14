@@ -21,6 +21,7 @@ import pytest
 from django.core.exceptions import ImproperlyConfigured
 
 from pytest_queryguard import django as qg_django
+from pytest_queryguard import plugin
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -394,6 +395,77 @@ def test_the_mixin_under_django_s_own_runner(tmp_path: Path) -> None:
     assert "Book.author was lazy-loaded 18 times" in result.stderr
 
 
+OWN_RUNNER = """
+import unittest
+
+from django.test.runner import ParallelTestSuite
+
+from pytest_queryguard.django import QueryGuardRunner
+
+
+class OwnResult(unittest.TextTestResult):
+    def stopTestRun(self):
+        super().stopTestRun()
+        self.stream.writeln(f"own result: {self.testsRun} run")
+
+
+class OwnTextRunner(unittest.TextTestRunner):
+    # as xmlrunner's XMLTestRunner: its own result class when given none
+    def __init__(self, *args, resultclass=None, **kwargs):
+        super().__init__(*args, resultclass=resultclass or OwnResult, **kwargs)
+
+
+class Runner(QueryGuardRunner):
+    test_runner = OwnTextRunner
+
+
+class PlainParallel(QueryGuardRunner):
+    parallel_test_suite = ParallelTestSuite
+"""
+
+
+def _with_runner(tmp_path: Path, runner: str, cases: str = CASES) -> Path:
+    project = _project(tmp_path, cases, None)
+    (tmp_path / "own_runner.py").write_text(OWN_RUNNER)
+    settings = tmp_path / "qg_settings.py"
+    settings.write_text(
+        settings.read_text().replace(
+            "pytest_queryguard.django.QueryGuardRunner", f"own_runner.{runner}"
+        )
+    )
+    return project
+
+
+def test_a_test_runner_with_its_own_result_class(tmp_path: Path) -> None:
+    project = _with_runner(tmp_path, "Runner")
+    result = _run(
+        project,
+        "cases.test_books.Books.test_n_plus_one",
+        "cases.test_books.Books.test_clean",
+        "cases.test_books.Books.test_skipped",
+    )
+    output = result.stderr
+    assert "own result: 3 run" in output, output
+    assert _outcomes(output) == {
+        "test_n_plus_one": "FAIL",
+        "test_clean": "ok",
+        "test_skipped": "skipped",
+    }, output
+    assert "Book.author was lazy-loaded 18 times" in output
+
+
+def test_a_parallel_suite_that_does_not_measure_stops_the_run(
+    tmp_path: Path,
+) -> None:
+    project = _with_runner(tmp_path, "PlainParallel", PARALLEL)
+    result = _run(project, "--parallel=2")
+    assert result.returncode != 0
+    assert "must subclass pytest_queryguard.django.QueryGuardParallelTestSuite" in (
+        result.stderr
+    ), result.stderr
+    assert "Creating test database" not in result.stderr
+
+
 def test_bad_settings_stop_the_run(tmp_path: Path) -> None:
     project = _project(tmp_path, CASES, {"mode": "loud"})
     result = _run(project)
@@ -413,6 +485,7 @@ def test_read_config_defaults_match_the_plugin() -> None:
     assert config.repeat_threshold == 5
     assert config.test_code == "off"
     assert config.max_events == 10_000
+    assert qg_django.DEFAULT_MAX_EVENTS == plugin.DEFAULT_MAX_EVENTS
 
 
 def test_read_config_values_and_precedence() -> None:

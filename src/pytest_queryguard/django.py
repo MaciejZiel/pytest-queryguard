@@ -369,6 +369,14 @@ def _end(test: Any) -> None:
         return
     if not measurement.done:
         _stop(measurement)
+        # a skip returns before the cleanups run: drop ours, which holds the test
+        cleanups = getattr(test, "_cleanups", None)
+        if isinstance(cleanups, list):
+            cleanups[:] = [
+                cleanup
+                for cleanup in cleanups
+                if not (cleanup[0] is _finish and cleanup[1][1:] == (measurement,))
+            ]
     for shown in measurement.shown:
         with contextlib.suppress(Exception):
             warnings.showwarning(
@@ -588,6 +596,20 @@ def _guarded(base: type) -> type:
     return guarded
 
 
+def _wrap_run(test: unittest.TestCase) -> None:
+    """Measure ``test`` whatever result class runs it, as the mixin does."""
+    original = test.run
+
+    def run(result: unittest.TestResult | None = None) -> Any:
+        _begin(test)
+        try:
+            return original(result)
+        finally:
+            _end(test)
+
+    test.run = run  # type: ignore[method-assign]
+
+
 class QueryGuardRunner(DiscoverRunner):  # type: ignore[misc]
     """``DiscoverRunner`` that fails (or warns about) the N+1s of each test.
 
@@ -609,6 +631,7 @@ class QueryGuardRunner(DiscoverRunner):  # type: ignore[misc]
         if queryguard_mode is not None:
             _overrides["mode"] = queryguard_mode
         self._queryguard_parallel = False
+        self._queryguard_wrapped = False
         # bad settings stop the run here, before a database is created
         _get_state()
 
@@ -624,11 +647,27 @@ class QueryGuardRunner(DiscoverRunner):  # type: ignore[misc]
 
     def build_suite(self, *args: Any, **kwargs: Any) -> Any:
         suite = super().build_suite(*args, **kwargs)
+        state = _get_state()
         if isinstance(suite, ParallelTestSuite):
+            if state.config.mode != "off" and not isinstance(
+                suite, QueryGuardParallelTestSuite
+            ):
+                # its workers would run Django's own result: nothing measured
+                raise ImproperlyConfigured(
+                    "pytest-queryguard: with --parallel, the parallel_test_suite "
+                    "of a QueryGuardRunner subclass must subclass "
+                    "pytest_queryguard.django.QueryGuardParallelTestSuite; "
+                    f"{type(suite).__qualname__} does not"
+                )
             # the workers measure; the main process only replays their events
             self._queryguard_parallel = True
             suite.process_setup_args = (dict(_overrides),)
-        state = _get_state()
+        elif state.config.mode != "off" and self._own_resultclass():
+            # a test runner that picks its own result class when given none
+            # (xmlrunner's XMLTestRunner): measure the tests, not the result
+            self._queryguard_wrapped = True
+            for test in _iter_tests(suite):
+                _wrap_run(test)
         if state.config.mode != "off":
             try:
                 state.note_tests(_iter_tests(suite))
@@ -636,9 +675,18 @@ class QueryGuardRunner(DiscoverRunner):  # type: ignore[misc]
                 record_error(exc, "test modules")
         return suite
 
+    def _own_resultclass(self) -> bool:
+        """Whether test_runner chooses its result class itself: Django gives it
+        none, and its __init__ is not unittest's, which takes its class's."""
+        return (
+            super().get_resultclass() is None
+            and getattr(self.test_runner, "__init__", None)
+            is not unittest.TextTestRunner.__init__
+        )
+
     def get_resultclass(self) -> Any:
         base = super().get_resultclass()
-        if self._queryguard_parallel:
+        if self._queryguard_parallel or self._queryguard_wrapped:
             return base
         if base is None:
             # the result class of the test runner (test_runner), not unittest's
