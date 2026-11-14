@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from django.http import HttpRequest, JsonResponse
+import io
+from collections.abc import AsyncIterator, Iterator
+
+from django.http import FileResponse, HttpRequest, JsonResponse, StreamingHttpResponse
 from rest_framework import generics, serializers
 
 from .models import Author, Book
@@ -66,3 +69,38 @@ async def one_book_async(request: HttpRequest, pk: int) -> JsonResponse:
 async def six_books_async(request: HttpRequest) -> JsonResponse:
     titles = [(await Book.objects.aget(pk=pk)).title for pk in range(1, 7)]
     return JsonResponse({"titles": titles})
+
+
+async def stream_book_async(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    async def title() -> AsyncIterator[str]:
+        yield (await Book.objects.aget(pk=pk)).title
+
+    return StreamingHttpResponse(title())
+
+
+def stream_book(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    def title() -> Iterator[str]:
+        yield Book.objects.get(pk=pk).title
+
+    return StreamingHttpResponse(title())
+
+
+class _BookFile(io.RawIOBase):
+    """A file whose content is a book's title, read from the database."""
+
+    def __init__(self, pk: int) -> None:
+        self.pk = pk
+        self.done = False
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        if self.done:
+            return b""
+        self.done = True
+        return Book.objects.get(pk=self.pk).title.encode()
+
+
+def book_file(request: HttpRequest, pk: int) -> FileResponse:
+    return FileResponse(_BookFile(pk))

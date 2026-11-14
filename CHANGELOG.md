@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   user, its permissions, the session) were reported as an N+1. Seen on
   strawberry-django, whose GraphQL test client sends each query through
   `AsyncClient`: 30 false `relationship-load` findings.
+- Django (experimental): a streamed body (`StreamingHttpResponse`,
+  `FileResponse`) that a test reads from an `AsyncClient` response after the
+  call returned counts in its request, on every Django version.
 
 ## [1.0.0] - 2026-11-14
 

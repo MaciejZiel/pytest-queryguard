@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from django.db import connection, connections, transaction
 
@@ -365,6 +367,49 @@ def test_asgi_handler_requests_count_on_their_own() -> None:
     gets = [s for s in collector.statements if "library_book" in s.sql]
     assert len({s.scope for s in gets}) == 6
     assert detections(collector) == []
+
+
+async def _content(response: Any) -> bytes:
+    from asgiref.sync import sync_to_async
+
+    if response.is_async:
+        return b"".join([part async for part in response.streaming_content])
+    # a sync body (as Django's ASGI handler reads it): in a thread
+    return await sync_to_async(b"".join)(response.streaming_content)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("path", ["stream/async", "stream", "file"])
+def test_a_streamed_body_counts_in_its_async_request(path: str) -> None:
+    # the body is read from the database while the test consumes it, after
+    # the client returned (a review of #386)
+    import asyncio
+
+    from django.test import AsyncClient
+
+    async def requests() -> None:
+        client = AsyncClient()
+        for pk in range(1, 7):
+            response = await client.get(f"/{path}/{pk}/")
+            assert await _content(response)
+
+    with measure() as collector:
+        asyncio.run(requests())
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    assert len(gets) == 6
+    assert len({s.scope for s in gets}) == 6
+    assert detections(collector, scope="session") == []
+
+
+@pytest.mark.parametrize("path", ["stream", "file"])
+def test_a_streamed_body_counts_in_its_request(client, path: str) -> None:  # type: ignore[no-untyped-def]
+    with measure() as collector:
+        for pk in range(1, 7):
+            assert b"".join(client.get(f"/{path}/{pk}/").streaming_content)
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    assert len(gets) == 6
+    assert len({s.scope for s in gets}) == 6
+    assert detections(collector, scope="session") == []
 
 
 def test_only_a_request_is_a_boundary_with_the_test_scope() -> None:
