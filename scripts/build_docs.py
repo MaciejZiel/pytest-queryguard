@@ -148,6 +148,13 @@ def render(page: Page, errors: list[str]) -> None:
         errors.append(f"{page.source.name}: no top-level heading")
 
 
+def link_target(by_source: dict[Path, Page], page: Page, path: str) -> Page | None:
+    """The page a relative link's path points to (the page itself if empty)."""
+    if not path:
+        return page
+    return by_source.get((page.source.parent / unquote(path)).resolve())
+
+
 def check_and_rewrite_links(pages: list[Page], errors: list[str]) -> None:
     by_source = {page.source: page for page in pages}
     link = re.compile(r'(<a\s[^>]*?href=")([^"]*)(")')
@@ -160,19 +167,14 @@ def check_and_rewrite_links(pages: list[Page], errors: list[str]) -> None:
         if parts.scheme or parts.netloc:
             errors.append(f"{page.source.name}: unsupported link {href!r}")
             return match.group(0)
-        if not parts.path:
-            target, fragment = page, parts.fragment
-        else:
-            resolved = (page.source.parent / unquote(parts.path)).resolve()
-            target = by_source.get(resolved)
-            if target is None:
-                errors.append(
-                    f"{page.source.name}: link {href!r} leaves the documentation or "
-                    "points to a page that is not in docs/site.toml; use an absolute URL "
-                    "for files outside it"
-                )
-                return match.group(0)
-            fragment = parts.fragment
+        target, fragment = link_target(by_source, page, parts.path), parts.fragment
+        if target is None:
+            errors.append(
+                f"{page.source.name}: link {href!r} leaves the documentation or "
+                "points to a page that is not in docs/site.toml; use an absolute URL "
+                "for files outside it"
+            )
+            return match.group(0)
         if fragment and fragment not in target.ids:
             errors.append(
                 f"{page.source.name}: no anchor #{fragment} in {target.source.name}"
@@ -196,11 +198,16 @@ class Site:
     has_image: bool
 
 
+def page_url(site: Site, page: Page) -> str:
+    """The canonical URL of a page: the site's root for the home page."""
+    return site.base_url + ("" if page.url == "index.html" else page.url)
+
+
 def head(site: Site, page: Page) -> str:
     title = f"{page.title} - {site.title}"
     if page.url == "index.html" and site.tagline:
         title = f"{site.title}: {site.tagline}"
-    canonical = site.base_url + ("" if page.url == "index.html" else page.url)
+    canonical = page_url(site, page)
     description = html.escape(page.description, quote=True)
     meta = [
         '<meta charset="utf-8">',
@@ -401,15 +408,16 @@ def sitemap(site: Site, pages: list[Page]) -> str:
     )
 
 
-# Left out of llms-full.txt: the changelog is long and the design notes
-# describe earlier releases; an agent reading them would learn outdated behaviour.
+# Left out of llms-full.txt, which is read whole: the changelog (long), the
+# design notes (they describe earlier releases, so an agent would learn
+# outdated behaviour), the release checklist (for maintainers) and the
+# accuracy tables (large; the page itself is linked from the others).
 LLMS_FULL_SKIPPED_SECTIONS = frozenset({"Design notes"})
-LLMS_FULL_SKIPPED_FILES = frozenset({"CHANGELOG.md"})
-MARKDOWN_LINK = re.compile(r"(\]\()([^)\s]+)(\))")
-
-
-def page_url(site: Site, page: Page) -> str:
-    return site.base_url + ("" if page.url == "index.html" else page.url)
+LLMS_FULL_SKIPPED_FILES = frozenset({"CHANGELOG.md", "releasing.md", "accuracy.md"})
+# Inline links, with an optional title, and reference definitions.
+MARKDOWN_LINK = re.compile(r'(\]\()([^)\s]+)((?:\s+"[^"]*")?\))')
+MARKDOWN_REFERENCE = re.compile(r"^(\[[^\]]+\]:[ \t]+)(\S+)()", re.MULTILINE)
+FENCED_CODE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
 
 
 def llms_full(site: Site, pages: list[Page]) -> str:
@@ -420,21 +428,32 @@ def llms_full(site: Site, pages: list[Page]) -> str:
         parts = urlsplit(match.group(2))
         if parts.scheme or parts.netloc:
             return match.group(0)
-        target = page
-        if parts.path:
-            target = by_source.get((page.source.parent / unquote(parts.path)).resolve())
-            if target is None:  # not a page; the strict build reports such links
-                return match.group(0)
+        target = link_target(by_source, page, parts.path)
+        if target is None:  # not a page; the strict build reports such links
+            return match.group(0)
         url = page_url(site, target)
         if parts.fragment:
             url += "#" + parts.fragment
         return match.group(1) + url + match.group(3)
 
+    def rewrite(page: Page, text: str) -> str:
+        out, last = [], 0
+        for code in FENCED_CODE.finditer(text):  # code samples stay as they are
+            out.append(text[last : code.start()])
+            out.append(code.group(0))
+            last = code.end()
+        out.append(text[last:])
+        for i in range(0, len(out), 2):
+            for pattern in (MARKDOWN_LINK, MARKDOWN_REFERENCE):
+                out[i] = pattern.sub(lambda m: absolute(page, m), out[i])
+        return "".join(out)
+
     intro = (
         f"# {site.title}\n\n> {site.tagline}\n\n"
         f"The documentation at {site.base_url} as one Markdown file, page by page "
-        "in the order of its navigation; the changelog and the design notes are "
-        f"left out. A short summary is {site.base_url}llms.txt.\n"
+        "in the order of its navigation. Left out: the changelog, the design "
+        "notes, the release checklist and the accuracy tables, which are on the "
+        f"site. A short summary is {site.base_url}llms.txt.\n"
     )
     chunks = [intro]
     for page in pages:
@@ -443,8 +462,7 @@ def llms_full(site: Site, pages: list[Page]) -> str:
             or page.source.name in LLMS_FULL_SKIPPED_FILES
         ):
             continue
-        text = page.source.read_text(encoding="utf-8").strip()
-        text = MARKDOWN_LINK.sub(lambda m, p=page: absolute(p, m), text)
+        text = rewrite(page, page.source.read_text(encoding="utf-8").strip())
         chunks.append(f"Source: {page_url(site, page)}\n\n{text}\n")
     return "\n---\n\n".join(chunks)
 

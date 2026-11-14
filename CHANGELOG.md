@@ -13,11 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`.claude-plugin/`) whose `pytest-queryguard` plugin installs the agent
   skill, with
   `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`
-  ([Coding agents](docs/agents.md#claude-code-plugin)). Its version follows
-  the package's, and the release gate checks it.
+  ([Coding agents](docs/agents.md#claude-code-plugin)). It is installed from
+  the `main` branch and updated with each commit.
 - The documentation site publishes `llms.txt` at its root, and
-  `llms-full.txt`, every page but the changelog and the design notes in one
-  Markdown file with absolute links, for language models
+  `llms-full.txt`, the user documentation in one Markdown file with absolute
+  links (without the changelog, the design notes, the release checklist and
+  the accuracy tables), for language models
   ([llmstxt.org](https://llmstxt.org/)).
 - The README has the hidden `mcp-name` line the official MCP Registry
   reads from the PyPI description to check who owns a server name, so the

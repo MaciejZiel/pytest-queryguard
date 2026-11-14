@@ -154,16 +154,18 @@ flask_app.wsgi_app = queryguard.QueryGuardWSGI(flask_app.wsgi_app)
 
 ## Coding agents: Claude Code plugin, skill, MCP server
 
-The agent skill (skills/pytest-queryguard/SKILL.md) tells an agent to run the tests with `--queryguard-json`, read the findings, apply the loader option and re-run. Claude Code installs it as a plugin from this repository:
+The agent skill (skills/pytest-queryguard/SKILL.md) tells an agent to run the tests with `--queryguard-json`, read the findings, apply the loader option and re-run. Claude Code installs it as a plugin from this repository's `main` branch:
 
 ```
-claude plugin marketplace add MaciejZiel/pytest-queryguard
-claude plugin install pytest-queryguard@pytest-queryguard
+claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard
 ```
+
+Claude Code before 2.1.275 needs `claude plugin marketplace add MaciejZiel/pytest-queryguard`, then `claude plugin install pytest-queryguard@pytest-queryguard`.
 
 AGENTS.md and Cursor rule snippets are in https://maciejziel.github.io/pytest-queryguard/agents.html.
 
-MCP server (experimental): 
+### MCP server (experimental)
+
 `python -m pytest_queryguard.mcp` is a Model Context Protocol server over stdio (JSON-RPC 2.0, one message per line, standard library only). Add it to Claude Code with `claude mcp add queryguard -- python -m pytest_queryguard.mcp`, or to Cursor's `mcp.json` with `"command": "python", "args": ["-m", "pytest_queryguard.mcp"]`, using the project's interpreter, from the project directory. Tools: `run_tests(args, paths, timeout)` runs `python -m pytest` there and returns each test's findings (kind, label, file, line, function, count, message, fix hint, stack), the totals, the rootdir and the patch for `git apply`, all size-capped; `explain_finding(kind)`; `compare(base_json, head_json)` over two `--queryguard-json` files; `lint(models, paths, timeout)` (since 0.10.0) runs the static check without a database. It runs only pytest and the static check, without a shell. VS Code problem matchers are in docs/editor.md. Experimental; see docs/mcp.md.
 
 ## Configuration
@@ -266,7 +268,16 @@ Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_
 - [Comparison with other tools](https://maciejziel.github.io/pytest-queryguard/comparison.html): nplusone, django-zeal, queryspy, pytest-querycount and others
 - [Migrating from nplusone](https://maciejziel.github.io/pytest-queryguard/migrating-from-nplusone.html)
 - [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html) and [CI and GitHub Action](https://maciejziel.github.io/pytest-queryguard/ci.html): adopting it on an existing project
+- [Ignoring findings](https://maciejziel.github.io/pytest-queryguard/ignoring.html): `ignore()`, the `queryguard_ignore` marker and option
+- [Reading the queries](https://maciejziel.github.io/pytest-queryguard/python-api.html): `record_queries()` and `QueryLog`
+- [SARIF output](https://maciejziel.github.io/pytest-queryguard/sarif.html): GitHub code scanning
 - [Index check](https://maciejziel.github.io/pytest-queryguard/index-check.html): PostgreSQL; SQLite, MySQL and MariaDB have their own pages
+- [Index advisor](https://maciejziel.github.io/pytest-queryguard/index-advisor.html): the suggested `CREATE INDEX` and its hypopg check
+- [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html): the same rules on every request of a running app
+- [Static check](https://maciejziel.github.io/pytest-queryguard/static-check.html): lazy loads in loops, without running the code
+- [Unused eager loads](https://maciejziel.github.io/pytest-queryguard/unused-eager-load.html) and [unused columns](https://maciejziel.github.io/pytest-queryguard/unused-columns.html) (experimental)
+- [Editor setup](https://maciejziel.github.io/pytest-queryguard/editor.html): VS Code problem matchers
+- [Migrating from queryspy](https://maciejziel.github.io/pytest-queryguard/migrating-from-queryspy.html)
 - [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html): FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, GraphQL, factory_boy and more
 - [Limitations](https://maciejziel.github.io/pytest-queryguard/limitations.html) and [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html)
 - [Stability](https://maciejziel.github.io/pytest-queryguard/stability.html): what is public API under semantic versioning

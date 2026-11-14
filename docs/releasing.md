@@ -22,7 +22,7 @@ pull request's copy of the gate.
 | 5 | Upgrade: the newest earlier final release from PyPI is installed, the new wheel is installed over it, and the tiny project runs before and after. | `release_gate.py upgrade` |
 | 6 | Overhead: the per-statement overhead of the measurement is at most 125 % of `scripts/bench_baseline.json` (Core and ORM loops), measured as in [How the overhead is measured](#how-the-overhead-is-measured). | `release_gate.py bench` |
 | 7 | The wheel has `py.typed`, `LICENSE`, the entry point and only the package; no tests, docs, scripts, caches or scratch files. The wheel's METADATA has the license expression and file, a Markdown long description, the Homepage, Documentation, Changelog and Issues URLs, `Framework :: Pytest` and `Typing :: Typed`; its Python classifiers are the versions `ci.yml` tests (less a pre-release interpreter listed in `PRE_RELEASE_PYTHONS`) and `Requires-Python` the oldest of them; the lower bounds of `pytest` and `sqlalchemy` are the versions the `oldest-versions` job installs; a final release from 1.0.0 on says `Development Status :: 5 - Production/Stable`, any other release does not. The sdist has the license, README, changelog, `pyproject.toml` and sources and no scratch files. The release workflow runs this check again on the files it publishes. | `release_gate.py contents` |
-| 8 | `__version__`, the top entry of `CHANGELOG.md`, its date (a valid date, not in the future, not older than the entry below it) and the link references at the bottom (`[Unreleased]` compares the newest tag with `HEAD`, each entry compares the previous tag with itself) agree, and so does the version the documentation says it describes (`docs/index.md`, `docs/getting-started.md`, `llms.txt`, the `version` of `.claude-plugin/plugin.json`). The workflow in `docs/ci.md` pins the action to `@v` plus `__version__` (for a pre-release, the newest final release in the changelog). | `release_gate.py consistency` |
+| 8 | `__version__`, the top entry of `CHANGELOG.md`, its date (a valid date, not in the future, not older than the entry below it) and the link references at the bottom (`[Unreleased]` compares the newest tag with `HEAD`, each entry compares the previous tag with itself) agree, and so does the version the documentation says it describes (`docs/index.md`, `docs/getting-started.md`, `llms.txt`). The workflow in `docs/ci.md` pins the action to `@v` plus `__version__` (for a pre-release, the newest final release in the changelog). | `release_gate.py consistency` |
 | 9 | Static check accuracy: on the same corpus, linted without running it, the precision and recall of the experimental static check (`python -m pytest_queryguard.lint`) are at least the minimums in `scripts/lint_accuracy_thresholds.json` (see [Static check](static-check.md#release-thresholds)), at least as many scenarios are linted as it records, and no disagreement with a verdict is undocumented. | `release_gate.py lint-accuracy` |
 
 ## Running it
@@ -51,11 +51,10 @@ projects (only Litestar, pytest-asyncio and SQLModel may be missing).
 
 1. A pull request bumps `__version__`, dates the changelog entry and fixes the
    link references. It also updates the version the documentation describes
-   (`docs/index.md`, `docs/getting-started.md`, `llms.txt`) and the
-   `version` of `.claude-plugin/plugin.json`, and drops the sentence there
-   that says the "since X" parts are not on PyPI yet; for a pre-release
-   (`X.Y.Zrc1`) both may stay as they are, since pip still installs the last
-   final release. For a final release it also bumps the
+   (`docs/index.md`, `docs/getting-started.md`, `llms.txt`) and drops the
+   sentence there that says the "since X" parts are not on PyPI yet; for a
+   pre-release (`X.Y.Zrc1`) both may stay as they are, since pip still
+   installs the last final release. For a final release it also bumps the
    `MaciejZiel/pytest-queryguard/action@vX.Y.Z` pin in `docs/ci.md` to the new
    version (a pre-release keeps the last final one). The gate runs on it.
 2. After it is merged, run the gate on `main` and wait for it to be green.

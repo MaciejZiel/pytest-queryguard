@@ -23,9 +23,9 @@ as tools: `run_tests` and the static check, `lint`.
 
 ## Claude Code plugin
 
-Since 1.0.0 (the plugin is in the repository, so it works with any release
-of the package). The repository is a Claude Code plugin marketplace with one
-plugin, which installs the skill below. In a terminal:
+The repository is a Claude Code plugin marketplace with one plugin, which
+installs the skill below from the `main` branch; the skill works with any
+1.x release of the package. In a terminal:
 
 ```console
 claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard
@@ -44,8 +44,9 @@ Add `--scope project` to the install to record it in the project's
 `.claude/settings.json`, for everyone who works on it. Claude Code then loads
 the skill when the task matches its description, or on
 `/pytest-queryguard:pytest-queryguard`. `claude plugin update
-pytest-queryguard@pytest-queryguard` gets a newer version; the plugin's
-version follows the package's.
+pytest-queryguard@pytest-queryguard` gets the skill as it is on `main` now
+(the plugin has no version number of its own, so each commit is a new
+version).
 
 The plugin does not start the [MCP server](mcp.md): that one has to run
 with the interpreter of your project, so add it per project as its page

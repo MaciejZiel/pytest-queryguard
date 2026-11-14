@@ -230,5 +230,38 @@ def test_llms_txt_and_llms_full_txt_are_published(site: Path) -> None:
     assert f"\nSource: {base}\n" in full  # the home page, by its canonical URL
     assert f"\nSource: {base}changelog.html" not in full
     assert f"\nSource: {base}design" not in full
+    assert f"\nSource: {base}releasing.html" not in full
     # links are absolute: the file is read on its own, away from the site
     assert not re.findall(r"\]\((?!https?://|mailto:)[^)\s]+\)", full)
+
+
+def test_llms_full_txt_makes_links_absolute_outside_code(tmp_path: Path) -> None:
+    module = _load()
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(
+        '# Home\n\n[inline](other.md#real) [titled](other.md "T") [here](#home) '
+        "[web](https://x.test/a)\n\n[ref]: other.md\n\n"
+        "```python\nhandlers[0](other.md)\n```\n",
+        encoding="utf-8",
+    )
+    (docs / "other.md").write_text("# Other\n\n## Real\n\ntext\n", encoding="utf-8")
+    (docs / "site.toml").write_text(
+        'title = "T"\ntagline = "t"\nbase_url = "https://x.test/"\n'
+        'repo_url = "https://x.test/r"\n[[section]]\ntitle = "S"\npages = [\n'
+        '  { title = "Home", file = "index.md", description = "d" },\n'
+        '  { title = "Other", file = "other.md", description = "d" },\n]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "llms.txt").write_text("# T\n", encoding="utf-8")
+    module.DOCS = docs
+    module.ROOT = tmp_path
+    assert module.build(tmp_path / "out", strict=True) == 0
+    full = (tmp_path / "out" / "llms-full.txt").read_text(encoding="utf-8")
+    assert "[inline](https://x.test/other.html#real)" in full
+    assert '[titled](https://x.test/other.html "T")' in full
+    assert "[here](https://x.test/#home)" in full
+    assert "[web](https://x.test/a)" in full
+    assert "[ref]: https://x.test/other.html" in full
+    assert "handlers[0](other.md)" in full  # code is left alone
+    assert "\nSource: https://x.test/other.html\n" in full

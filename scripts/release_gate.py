@@ -70,8 +70,6 @@ DOC_VERSIONS: dict[str, str] = {
     "docs/index.md": rf"These pages\s+describe\s+({VERSION})\b",
     "docs/getting-started.md": rf"`pytest-queryguard-({VERSION})`",
     "llms.txt": rf"This file describes ({VERSION})\b",
-    # Claude Code updates an installed plugin only when this version changes.
-    ".claude-plugin/plugin.json": rf'"version": "({VERSION})"',
 }
 # The note that the parts marked "since X" are not released yet; X must be
 # newer than the release.
@@ -86,8 +84,7 @@ def _release(version: str) -> tuple[int, ...]:
 
 
 def check_doc_versions(version: str, texts: dict[str, str] | None = None) -> list[str]:
-    """The version that docs/index.md, getting-started.md, llms.txt and the
-    Claude Code plugin manifest describe.
+    """The version that docs/index.md, getting-started.md and llms.txt describe.
 
     It is ``__version__``; during a pre-release (``1.2.0rc1``) it may also be
     an older final release, since pip installs that one by default. A note
