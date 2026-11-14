@@ -210,3 +210,25 @@ def test_the_docs_link_of_every_finding_kind_has_its_page_and_anchor(
         text = (site / page).read_text(encoding="utf-8")
         if anchor:
             assert f'id="{anchor}"' in text, f"{kind}: no #{anchor} in {page}"
+
+
+def test_llms_txt_and_llms_full_txt_are_published(site: Path) -> None:
+    """https://llmstxt.org/: agents look for /llms.txt at the site root."""
+    published = (site / "llms.txt").read_text(encoding="utf-8")
+    assert published == (ROOT / "llms.txt").read_text(encoding="utf-8")
+    base = "https://maciejziel.github.io/pytest-queryguard/"
+    # every link from llms.txt into the site points to a page that exists
+    for target in re.findall(re.escape(base) + r"([\w./-]*)", published):
+        target = target.rstrip(".")  # a URL at the end of a sentence
+        assert target == "" or (site / target).is_file(), target
+    assert f"{base}llms-full.txt" in published
+
+    full = (site / "llms-full.txt").read_text(encoding="utf-8")
+    assert full.startswith("# pytest-queryguard\n\n> ")
+    for page in ("getting-started.html", "django.html", "agents.html", "faq.html"):
+        assert f"\nSource: {base}{page}\n" in full, page
+    assert f"\nSource: {base}\n" in full  # the home page, by its canonical URL
+    assert f"\nSource: {base}changelog.html" not in full
+    assert f"\nSource: {base}design" not in full
+    # links are absolute: the file is read on its own, away from the site
+    assert not re.findall(r"\]\((?!https?://|mailto:)[^)\s]+\)", full)

@@ -1,0 +1,13 @@
+{
+  "name": "pytest-queryguard",
+  "version": "1.0.0",
+  "description": "Find and fix N+1 queries, too many queries and lazy loads in loops in SQLAlchemy 2 and Django ORM code with pytest-queryguard, then prove the fix by re-running the tests.",
+  "author": {
+    "name": "Maciej Zieliński",
+    "url": "https://github.com/MaciejZiel"
+  },
+  "homepage": "https://maciejziel.github.io/pytest-queryguard/agents.html",
+  "repository": "https://github.com/MaciejZiel/pytest-queryguard",
+  "license": "MIT",
+  "keywords": ["pytest", "sqlalchemy", "django", "n+1", "n-plus-one", "query-count", "assertNumQueries"]
+}

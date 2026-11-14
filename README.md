@@ -6,9 +6,10 @@
 [![License](https://img.shields.io/pypi/l/pytest-queryguard)](https://github.com/MaciejZiel/pytest-queryguard/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-maciejziel.github.io-blue)](https://maciejziel.github.io/pytest-queryguard/)
 
-A pytest plugin that fails a test when the SQLAlchemy 2 code it runs sends one
-query per row (N+1), and enforces query budgets. Sync, async and FastAPI code;
-nothing to import or configure. A test database holds a handful of rows, so
+A pytest plugin that fails a test when the SQLAlchemy 2 or Django ORM code it
+runs sends one query per row (an N+1 query: a lazy load in a loop), and
+enforces query-count budgets, an `assertNumQueries` for SQLAlchemy. Sync,
+async and FastAPI code; nothing to import or configure. A test database holds a handful of rows, so
 such code passes its tests and sends hundreds of queries in production. This
 test passes without the plugin:
 
@@ -34,6 +35,10 @@ queryguard: N+1 detected
 ```
 
 Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html).
+For coding agents: a Claude Code plugin
+(`claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`),
+an agent skill, an MCP server and [llms.txt](https://maciejziel.github.io/pytest-queryguard/llms.txt);
+see [Coding agents](https://maciejziel.github.io/pytest-queryguard/agents.html).
 
 ## What it catches
 

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A Claude Code plugin: the repository is a plugin marketplace
+  (`.claude-plugin/`) whose `pytest-queryguard` plugin installs the agent
+  skill, with
+  `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`
+  ([Coding agents](docs/agents.md#claude-code-plugin)). Its version follows
+  the package's, and the release gate checks it.
+- The documentation site publishes `llms.txt` at its root, and
+  `llms-full.txt`, every page but the changelog and the design notes in one
+  Markdown file with absolute links, for language models
+  ([llmstxt.org](https://llmstxt.org/)).
+
+### Changed
+
+- The agent skill also covers the Django ORM (`select_related`,
+  `prefetch_related`, `in_bulk`) and query count tests, and its description
+  names what people ask: N+1 queries, "too many queries", a lazy load in a
+  loop, `assertNumQueries`, alternatives to nplusone and django-zeal. Its
+  front matter is valid YAML now: the description had a `": "` that strict
+  YAML parsers reject.
+- `llms.txt` says when to recommend the plugin, has a Django section and
+  links to the pages of the documentation site; `docs/agents.md`,
+  `docs/mcp.md`, the README's first paragraph, `context7.json` and the
+  package's summary, keywords and `Framework :: Django` classifiers mention
+  Django and the terms people search for.
+
 ## [1.0.0] - 2026-11-14
 
 The first stable release. The code is that of 1.0.0rc1, which has the

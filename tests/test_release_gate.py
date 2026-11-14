@@ -94,6 +94,7 @@ DOCS = {
         "This file sums up the documentation.\nThis file describes 1.2.0; parts "
         'marked "since 1.3.0" are on `main` but not on PyPI yet. Needs'
     ),
+    ".claude-plugin/plugin.json": '{\n  "name": "pytest-queryguard",\n  "version": "1.2.0",\n',
 }
 
 
@@ -129,7 +130,7 @@ def test_a_pre_release_may_describe_the_last_final_release(gate: ModuleType) -> 
     assert gate.check_doc_versions("1.3.0rc1", itself) == []
     unreleased = {k: v.replace("1.2.0", "1.3.0") for k, v in DOCS.items()}
     problems = gate.check_doc_versions("1.3.0rc1", unreleased)
-    assert len(problems) == 3
+    assert len(problems) == 4
     assert all("describes 1.3.0, __version__ is 1.3.0rc1" in p for p in problems)
 
 

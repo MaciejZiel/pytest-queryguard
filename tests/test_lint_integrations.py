@@ -238,6 +238,10 @@ def test_the_skill_has_front_matter() -> None:
     assert re.fullmatch(r"[a-z0-9-]{1,64}", fields["name"])
     assert len(fields["description"]) <= 1024
     assert "N+1" in fields["description"]
+    # plain YAML scalars: ": " or " #" would end the value or fail to parse
+    for value in fields.values():
+        assert ": " not in value and " #" not in value, value
+        assert not value.startswith(("'", '"', "[", "{", ">", "|", "*", "&", "!"))
     # short: an agent reads all of it
     assert len(text.splitlines()) < 150
 
