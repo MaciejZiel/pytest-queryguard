@@ -16,6 +16,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alone on `main`. Xeon 6975P-C did not come up in 80 jobs and still falls
   back. See [Releasing](docs/releasing.md#when-a-threshold-has-to-change).
 
+## [1.0.0] - 2026-11-14
+
+The first stable release. The code is that of 1.0.0rc1, which has the
+changes since 0.10.0; from here on the public API described in
+[stability](docs/stability.md) changes incompatibly only in a major release,
+new checks start off or as warnings, and fixes go into the latest 1.x minor
+release. Experimental features stay exempt, as listed there.
+
+### Changed
+
+- The package's classifier is `Development Status :: 5 - Production/Stable`
+  (it was `4 - Beta`).
+
+### Documentation
+
+- [Stability](docs/stability.md#which-releases-get-fixes) says which releases
+  get fixes: the latest 1.x minor release, none for 0.x. The rules that
+  applied before 1.0 (breaking changes in a minor release, the pre-1.0 clause
+  for new checks) are kept as a historical note; a deprecation now lasts at
+  least two minor releases.
+- `SECURITY.md` names the versions that get security fixes from 1.0 on and
+  the planned Marketplace copy of the GitHub Action in its scope.
+- The README has a short Stability section.
+- The documentation describes 1.0.0: [CI](docs/ci.md#the-action) pins the
+  action to `v1.0.0`, and the pre-commit example of
+  [Static check](docs/static-check.md#pre-commit) to `rev: v1.0.0`.
+- The Litestar recipe covers advanced-alchemy's `SQLAlchemyPlugin` (the
+  session injected as `db_session`), checked with advanced-alchemy 1.12.0,
+  Litestar 2.25.0 and SQLAlchemy 2.1.8.
+- The head-to-head numbers of [Comparison](docs/comparison.md#head-to-head-in-github-actions),
+  [Accuracy](docs/accuracy.md#comparison-with-other-tools) and the README
+  are from a run of 2026-11-10 on 1.0.0rc1 (278 scenarios instead of 252).
+  The other tools' versions were checked again and are unchanged. The suite
+  overhead of pytest-queryguard is +13 to +15% on the runner, not the +0.8
+  to +1.7% of the run of 2026-11-07, which could not be reproduced: on a
+  laptop 0.8.0 to 1.0.0rc1 all add 18 to 20% to that suite;
+  [Performance](docs/performance.md#a-realistic-case-a-suite-of-300-tests)
+  and the FAQ say so. [Performance](docs/performance.md#the-call-path-0100)
+  compares the call path of 0.10.0 and 1.0.0rc1.
+
+## [1.0.0rc1] - 2026-11-09
+
+Release candidate for 1.0.0. The public surface described in [stability](docs/stability.md) is frozen: no renames or removals before 1.0.0 unless a blocker needs one. Install with `pip install --pre pytest-queryguard`.
+
 ### Fixed
 
 - Django: an N+1 in a view that runs no line of your project is reported
@@ -33,6 +77,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loop) is reported as a `repeated-statement`, as the same query without the
   relation (`Book.objects.get(author=author, pk=pk)`) is. It was reported
   by neither rule.
+- Static check (`python -m pytest_queryguard.lint`): a file outside the
+  working directory is shown as one path however it was named on the
+  command line (`../shared/q.py`, not `../shared/../shared/q.py` or the
+  absolute path), so its SARIF fingerprints no longer change with the
+  spelling. In `--format sarif` such a file outside the repository gets an
+  absolute `file://` URI instead of a broken one such as
+  `backend/../../other/x.py`, and a file given by its absolute path is no
+  longer left out of the SARIF file; a file of the repository above the
+  working directory is relative to the repository root, as in
+  `--format github`.
+- Helpers in the tests folder (`tests/utils/client.py`) count as test code
+  also when pytest's rootdir is that folder itself (a `tests/pytest.ini`,
+  or pytest run from inside `tests/` with no configuration file) and the
+  directory above it is the project's root (it holds `.git`,
+  `pyproject.toml`, `setup.py`, `setup.cfg` or `tox.ini`); before, their
+  N+1s failed the test as if they were the application's.
 
 ### Documentation
 
@@ -64,6 +124,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- The walk of the stack that finds each statement's call path (#356) is
+  cheaper: SQLAlchemy's frames are passed with one dictionary lookup and
+  one comparison, and a stack that ends in the main greenlet no longer
+  creates a generator for the parent greenlets. Nothing a report shows
+  changes. Measured on GitHub's runners (off and on interleaved, mean of
+  three gate runs per job, against main in the same job), the Core and ORM
+  overhead ratio went from 0.424-0.432 to 0.402-0.415 (Core) and from
+  0.377-0.384 to 0.360-0.371 (ORM) on AMD EPYC 9V74, from 0.392 to 0.386
+  (Core) on EPYC 7763, and stayed the same on Intel Xeon 8370C and 8573C.
 - CI on a pull request runs a subset of the matrix (15 jobs instead of 43:
   Python 3.10 with the oldest pytest and SQLAlchemy 2.0, 3.14 and 3.15 with
   the latest, Windows on 3.10, PostgreSQL 18, MySQL 8.4, Django 5.2 on SQLite
@@ -192,22 +261,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Static check (`python -m pytest_queryguard.lint`): a file outside the
-  working directory is shown as one path however it was named on the
-  command line (`../shared/q.py`, not `../shared/../shared/q.py` or the
-  absolute path), so its SARIF fingerprints no longer change with the
-  spelling. In `--format sarif` such a file outside the repository gets an
-  absolute `file://` URI instead of a broken one such as
-  `backend/../../other/x.py`, and a file given by its absolute path is no
-  longer left out of the SARIF file; a file of the repository above the
-  working directory is relative to the repository root, as in
-  `--format github`.
-- Helpers in the tests folder (`tests/utils/client.py`) count as test code
-  also when pytest's rootdir is that folder itself (a `tests/pytest.ini`,
-  or pytest run from inside `tests/` with no configuration file) and the
-  directory above it is the project's root (it holds `.git`,
-  `pyproject.toml`, `setup.py`, `setup.cfg` or `tox.ini`); before, their
-  N+1s failed the test as if they were the application's.
 - A baseline file whose entries have keys besides `kind`, `label`, `file`
   and `function` is read, with the other keys ignored, instead of stopping
   pytest with `has unknown keys`. [Stability](docs/stability.md#files-tools-and-the-action)
@@ -310,15 +363,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
-- The walk of the stack that finds each statement's call path (#356) is
-  cheaper: SQLAlchemy's frames are passed with one dictionary lookup and
-  one comparison, and a stack that ends in the main greenlet no longer
-  creates a generator for the parent greenlets. Nothing a report shows
-  changes. Measured on GitHub's runners (off and on interleaved, mean of
-  three gate runs per job, against main in the same job), the Core and ORM
-  overhead ratio went from 0.424-0.432 to 0.402-0.415 (Core) and from
-  0.377-0.384 to 0.360-0.371 (ORM) on AMD EPYC 9V74, from 0.392 to 0.386
-  (Core) on EPYC 7763, and stayed the same on Intel Xeon 8370C and 8573C.
 - CI runs the whole test suite on MySQL 8.4 and MariaDB 11.8, not only the
   index check: the `mysql` job sets `QUERYGUARD_TEST_DB_URL`, which gives
   every SQLite engine the tests create a fresh database on the server
@@ -3145,7 +3189,9 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0rc1...v1.0.0
+[1.0.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...v1.0.0rc1
 [0.10.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.7.0...v0.8.0

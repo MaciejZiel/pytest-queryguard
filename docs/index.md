@@ -29,10 +29,9 @@ pip install pytest-queryguard
 ```
 
 It is on by default: there is nothing to import or configure. These pages
-describe 0.10.0, see [Getting started](getting-started.md#install). Parts
-marked "since 1.0.0" describe the next release; they are on `main` but not on
-PyPI yet. If pytest does not know an option, check the
-[changelog](../CHANGELOG.md) under Unreleased.
+describe 1.0.0, see [Getting started](getting-started.md#install). If pytest
+does not know an option, check the [changelog](../CHANGELOG.md) for the
+release that added it.
 
 ## What is different
 
@@ -41,8 +40,8 @@ PyPI yet. If pytest does not know an option, check the
   marker, an option or a fixture before a test fails, and some never fail
   one.
 - **Few false alarms.** In the [head-to-head run](comparison.md#head-to-head-in-github-actions)
-  of 2026-11-07 it flagged 2 of 129 scenarios without a problem; the other
-  working plugins flagged 25 to 27. The corpus is the author's, so read it
+  of 2026-11-10 it flagged 2 of 143 scenarios without a problem; the other
+  working plugins flagged 30 to 35. The corpus is the author's, so read it
   with that bias.
 - **More than lazy loads.** Repeated statements from `session.get()` loops,
   Core and `text()`, deferred and expired column loads, and query budgets

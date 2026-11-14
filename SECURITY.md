@@ -2,9 +2,17 @@
 
 ## Supported versions
 
-Security fixes go into the latest release on PyPI and into `main`. Older
-releases do not get backports. The project is pre-1.0, so upgrading to the
-latest release is the way to receive a fix.
+From 1.0.0 on, security fixes go into a patch release of the latest 1.x
+minor release and into `main`. Older minor releases do not get backports, and
+the 0.x releases get no fixes at all: upgrade to the latest 1.x release to
+receive one. The [stability policy](docs/stability.md#which-releases-get-fixes)
+keeps such an upgrade compatible within 1.x.
+
+| Version | Security fixes |
+|---|---|
+| latest 1.x minor release | yes |
+| older 1.x minor releases | no, upgrade to the latest 1.x |
+| 0.x | no |
 
 ## Reporting a vulnerability
 
@@ -24,7 +32,9 @@ you if you want it. Please keep the details private until then.
 pytest-queryguard runs inside a test process and reads the SQL that process
 sends. Examples that are in scope: reading or writing files outside the paths
 a user configured (baseline and SARIF output), code execution from a crafted
-baseline or configuration file, and the `action/` GitHub Action. This is a
+baseline or configuration file, and the GitHub Action: `action/` in this
+repository and, once it exists, its copy for the GitHub Marketplace in
+`MaciejZiel/pytest-queryguard-action`, which is generated from `action/`. This is a
 single-maintainer project, so replies are best effort.
 
 A finding that the plugin misses or reports wrongly is a normal bug: use the
