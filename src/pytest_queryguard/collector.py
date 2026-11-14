@@ -367,7 +367,7 @@ class QueryCollector:
         Computed once per group, when it reaches the threshold, or, with
         ``unit``, from the loads of that unit only (see ``_strict_decide``).
         """
-        here = query_line(load.parent)
+        here = query_line(load)
         first: CallSite | None = None
         other_lines = False
         loads = [
@@ -386,7 +386,7 @@ class QueryCollector:
         per_line: dict[object, set[object]] = {}
         if unit is not _ALL:
             for earlier in loads:
-                line = query_line(earlier.parent)
+                line = query_line(earlier)
                 if line is not None:
                     per_line.setdefault(line, set()).add(earlier.parent_key)
         # the lines that read this group's relationship: a parent of unknown
@@ -394,7 +394,7 @@ class QueryCollector:
         reads = {
             earlier.callsite
             for earlier in loads
-            if earlier.parent is not None and query_line(earlier.parent) == here
+            if earlier.parent is not None and query_line(earlier) == here
         }
         reads.add(load.callsite)
         # the parents of unknown origin per reading line, as the report groups
@@ -405,7 +405,7 @@ class QueryCollector:
                 unknown.setdefault(read_key(earlier), set()).add(earlier.parent_key)
         anywhere = unknown.get(None, set())
         for earlier in loads:
-            line = query_line(earlier.parent)
+            line = query_line(earlier)
             if line is None and earlier.callsite is not None:
                 if earlier.callsite not in reads and (
                     len(unknown[read_key(earlier)] | anywhere) < self.strict_threshold
@@ -421,14 +421,14 @@ class QueryCollector:
                     continue  # a line with too few parents is no N+1
             if first is None and earlier.callsite is not None:
                 first = earlier.callsite
-            if line != here:
-                other_lines = True
+            if _site_of(line) != _site_of(here):
+                other_lines = True  # as the report: query lines, not call paths
         return first, other_lines
 
     def _strict_key(self, load: RelationshipLoadEvent) -> tuple[object, ...] | None:
-        """(relationship, query site of the parents, scope), or None when the
-        parent's query line is unknown (such loads never count here)."""
-        line = query_line(load.parent)
+        """(relationship, query line of the parents (``query_line``), scope),
+        or None when it is unknown (such loads never count here)."""
+        line = query_line(load)
         if line is None:
             return None
         scope = load.scope if self.strict_by_scope else boundary(load.scope)
@@ -557,6 +557,11 @@ class RequestScope(int):
     """
 
     __slots__ = ()
+
+
+def _site_of(line: object) -> object:
+    """The query's call site of a ``query_line()`` key, without its path."""
+    return line[0] if isinstance(line, tuple) else line
 
 
 def boundary(scope: object) -> object:

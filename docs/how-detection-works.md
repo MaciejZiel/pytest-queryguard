@@ -70,10 +70,10 @@ mode groups them: a loop over the rows of one query is an N+1, two
 single-object lookups that each read the relationship
 (`session.get(Order, 1).customer`, then `session.get(Order, 2).customer`) are
 not. Lookups made one by one at the same line (`for id in ids:
-get_order(id).customer`) count together. With Django, a lookup of one object
-(`get()`, `first()`) is also told apart by the lines that called it: a helper
-that gets one object and reads its relationship, called once from each of two
-lines, is two lookups, while the same helper called in a loop is an N+1. The finding counts the lazy loads of
+get_order(id).customer`) count together. With Django, the parents of one query line
+are also told apart by the lines that called the read: a helper that gets one
+object and reads its relationship, called once from each of two lines, is two
+lookups, while the same helper called in a loop is an N+1. The finding counts the lazy loads of
 the groups that reach the threshold; when several do, it names the first
 query line and how many others. When the query of a parent is unknown
 (objects the test created that a query or `session.get()` handed back without

@@ -417,7 +417,8 @@ def _n_plus_one_groups(
     As in strict mode, the parents are grouped by the query line that loaded
     them, and a group needs ``threshold`` distinct parents, so two
     single-object lookups at two lines are no N+1 (#307), nor are two at one
-    line reached from two lines (``query_line``). A parent whose
+    line whose objects are read through two call paths (``query_line``,
+    Django: a lookup helper called from two lines). A parent whose
     query is unknown (made by the test, loaded before the measurement, read
     by two queries) is grouped by the line that read the relationship
     instead: a loop reads it at one line, straight-line code that reads the
@@ -429,7 +430,7 @@ def _n_plus_one_groups(
     unknown: dict[object, list[RelationshipLoadEvent]] = {}
     groups: dict[object, list[RelationshipLoadEvent]] = {}
     for load in loads:
-        line = query_line(load.parent)
+        line = query_line(load)
         if line is None:
             unknown.setdefault(read_key(load), []).append(load)
         else:

@@ -103,20 +103,6 @@ class ParentLoad:
     # The collector generation its origin was noted in: a measurement that
     # started later (a record_queries() block) does not use it.
     noted: int = field(default=0, compare=False)
-    # For a query that returned one object (a get()): the application lines
-    # from the query outwards to the test, as (file, line), so a lookup
-    # helper called from two lines is two query lines (see query_line). None:
-    # the query line alone (more objects, or SQLAlchemy).
-    lookup_path: tuple[tuple[str, int], ...] | None = field(default=None, compare=False)
-
-
-def query_line(parent: ParentLoad | None) -> object:
-    """How lazy loads of parents of a known query are grouped: by the query
-    line and, for a lookup of one object, its call path (one lookup per pass
-    of a loop shares it); None when the parent's query is unknown."""
-    if parent is None or parent.callsite is None:
-        return None
-    return (parent.callsite, parent.lookup_path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,11 +119,23 @@ class RelationshipLoadEvent:
     entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
     orm: str = "sqlalchemy"  # see StatementEvent.orm
-    # For a parent whose query is unknown: the application lines from the
-    # read outwards to the test, as (file, line). Loads of such parents are
-    # grouped by it, so one helper that two lines of the test call is not a
-    # loop. None: grouped by the reading line alone (SQLAlchemy).
+    # The application lines from the read outwards to the test, as (file,
+    # line). Loads of parents whose query is unknown are grouped by it, so
+    # one helper that two lines of the test call is not a loop; loads of
+    # parents of a known query by that query's line and it (query_line), so
+    # one lookup helper called from two lines is not either. None: grouped by
+    # the lines alone (SQLAlchemy).
     read_path: tuple[tuple[str, int], ...] | None = field(default=None, compare=False)
+
+
+def query_line(load: RelationshipLoadEvent) -> object:
+    """How loads of parents of a known query are grouped: by the query's line
+    and the call path of the read (``read_path``, Django), which every pass of
+    a loop shares; None when the parent's query is unknown."""
+    parent = load.parent
+    if parent is None or parent.callsite is None:
+        return None
+    return (parent.callsite, load.read_path)
 
 
 def read_key(load: RelationshipLoadEvent) -> object:
