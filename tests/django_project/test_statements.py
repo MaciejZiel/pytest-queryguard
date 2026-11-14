@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import django
+from typing import Any
+
 import pytest
 from django.db import connection, connections, transaction
 
 from pytest_queryguard import QueryBudgetExceeded, record_queries
-from pytest_queryguard.detectors import WriteLoopFinding
+from pytest_queryguard.detectors import RepeatFinding, WriteLoopFinding
 from pytest_queryguard.events import ORM_DJANGO
 from pytest_queryguard.messages import make_finding
 
@@ -302,14 +303,113 @@ def test_async_client_requests_are_scopes_that_end() -> None:
         Author.objects.count()
     gets = [s for s in collector.statements if "library_book" in s.sql]
     after = collector.statements[-1]
-    if django.VERSION >= (6, 1):
-        assert len({s.scope for s in gets}) == 2
-        assert after.scope not in {s.scope for s in gets}
-    else:
-        # before 6.1, Signal.asend runs sync receivers in tasks of their own:
-        # the scope they set never reaches the request, which counts per
-        # connection (the one of asgiref's thread)
-        assert len({s.scope for s in gets}) == 1
+    # also before Django 6.1, whose Signal.asend runs the sync receivers of
+    # request_started in a task of their own (seen on strawberry-django)
+    assert len({s.scope for s in gets}) == 2
+    assert after.scope not in {s.scope for s in gets}
+    assert detections(collector) == []
+
+
+@pytest.mark.django_db(transaction=True)
+def test_async_client_requests_count_on_their_own() -> None:
+    import asyncio
+
+    from django.test import AsyncClient
+
+    async def requests() -> None:
+        client = AsyncClient()
+        for pk in range(1, 7):
+            assert (await client.get(f"/async/books/{pk}/")).json()["author"]
+        # one request whose view gets a book per item
+        assert (await client.get("/async/books/six/")).status_code == 200
+
+    with measure() as collector:
+        asyncio.run(requests())
+    (finding,) = detections(collector)
+    # the six gets of the one view, not the six requests of one book each
+    assert isinstance(finding, RepeatFinding)
+    assert finding.count == 6
+    assert finding.first is not None
+    assert finding.first.function == "six_books_async"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_asgi_handler_requests_count_on_their_own() -> None:
+    import asyncio
+
+    from django.core.handlers.asgi import ASGIHandler
+
+    async def get(path: str) -> list[dict[str, object]]:
+        sent: list[dict[str, object]] = []
+        body_read = False
+
+        async def receive() -> dict[str, object]:
+            nonlocal body_read
+            if not body_read:
+                body_read = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            await asyncio.Event().wait()  # no disconnect; cancelled at the end
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        scope = {"type": "http", "method": "GET", "path": path, "query_string": b""}
+        await ASGIHandler()({**scope, "headers": []}, receive, send)
+        return sent
+
+    async def requests() -> None:
+        for pk in range(1, 7):
+            assert (await get(f"/async/books/{pk}/"))[0]["status"] == 200
+
+    with measure() as collector:
+        asyncio.run(requests())
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    assert len({s.scope for s in gets}) == 6
+    assert detections(collector) == []
+
+
+async def _content(response: Any) -> bytes:
+    from asgiref.sync import sync_to_async
+
+    if response.is_async:
+        return b"".join([part async for part in response.streaming_content])
+    # a sync body (as Django's ASGI handler reads it): in a thread
+    return await sync_to_async(b"".join)(response.streaming_content)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("path", ["stream/async", "stream", "file"])
+def test_a_streamed_body_counts_in_its_async_request(path: str) -> None:
+    # the body is read from the database while the test consumes it, after
+    # the client returned (a review of #386)
+    import asyncio
+
+    from django.test import AsyncClient
+
+    async def requests() -> None:
+        client = AsyncClient()
+        for pk in range(1, 7):
+            response = await client.get(f"/{path}/{pk}/")
+            assert await _content(response)
+
+    with measure() as collector:
+        asyncio.run(requests())
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    assert len(gets) == 6
+    assert len({s.scope for s in gets}) == 6
+    assert detections(collector, scope="session") == []
+
+
+@pytest.mark.parametrize("path", ["stream", "file"])
+def test_a_streamed_body_counts_in_its_request(client, path: str) -> None:  # type: ignore[no-untyped-def]
+    with measure() as collector:
+        for pk in range(1, 7):
+            assert b"".join(client.get(f"/{path}/{pk}/").streaming_content)
+    gets = [s for s in collector.statements if "library_book" in s.sql]
+    assert len(gets) == 6
+    assert len({s.scope for s in gets}) == 6
+    assert detections(collector, scope="session") == []
 
 
 def test_only_a_request_is_a_boundary_with_the_test_scope() -> None:

@@ -300,6 +300,12 @@ def _install() -> None:
     requests.request_finished.connect(
         _on_request_finished, weak=False, dispatch_uid=_DISPATCH_UID
     )
+    # An async handler (AsyncClient, ASGI) sends request_started with
+    # Signal.asend, which before Django 6.1 runs sync receivers in a task of
+    # their own: the scope set there never reaches the request. The handler
+    # opens one itself, around the whole request (a streamed body included).
+    _patch(_module("django.core.handlers.asgi").ASGIHandler, "handle", _in_request)
+    _patch(_module("django.test.client").AsyncClientHandler, "__call__", _in_request)
     sync = sys.modules.get("asgiref.sync")
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
@@ -876,6 +882,81 @@ def _on_request_started(sender: Any, **kwargs: Any) -> None:
 
 def _on_request_finished(sender: Any, **kwargs: Any) -> None:
     _request.set(None)
+
+
+def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
+    """One scope per request of an async handler, as ``_on_request_started``.
+
+    A streamed body that the caller reads after the call returned (the
+    ``AsyncClient``'s response) is read in that scope too.
+    """
+
+    @functools.wraps(original)
+    async def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            scope = collector.RequestScope(next(errors.scopes))
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _fail(exc, "Django integration (async request)")
+            return await original(self, *args, **kwargs)
+        token = _request.set(scope)
+        try:
+            response = await original(self, *args, **kwargs)
+        finally:
+            _request.reset(token)
+        if getattr(response, "streaming", False):
+            try:
+                response.streaming_content = _in_scope(
+                    response.streaming_content, scope
+                )
+            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+                _fail(exc, "Django integration (streamed response)")
+        return response
+
+    return method
+
+
+def _in_scope(content: Any, scope: int) -> Any:
+    """``content`` (a streamed body), each part made in the request ``scope``."""
+    if hasattr(content, "__aiter__"):
+        return _in_scope_async(content.__aiter__(), scope)
+    return _in_scope_sync(iter(content), scope)
+
+
+_END = object()
+
+
+def _in_scope_sync(parts: Iterator[Any], scope: int) -> Iterator[Any]:
+    try:
+        while True:
+            token = _request.set(scope)
+            try:
+                part = next(parts, _END)
+            finally:
+                _request.reset(token)
+            if part is _END:
+                return
+            yield part
+    finally:
+        close = getattr(parts, "close", None)
+        if close is not None:
+            close()
+
+
+async def _in_scope_async(parts: Any, scope: int) -> Any:
+    try:
+        while True:
+            token = _request.set(scope)
+            try:
+                part = await parts.__anext__()
+            except StopAsyncIteration:
+                return
+            finally:
+                _request.reset(token)
+            yield part
+    finally:
+        close = getattr(parts, "aclose", None)
+        if close is not None:
+            await close()
 
 
 def _site() -> Any:
