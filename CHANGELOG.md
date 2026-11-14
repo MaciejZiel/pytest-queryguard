@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.0] - 2026-11-18
+## [1.0.0] - 2026-11-14
 
 The first stable release. The code is that of 1.0.0rc1, which has the
 changes since 0.10.0; from here on the public API described in
@@ -33,6 +33,19 @@ release. Experimental features stay exempt, as listed there.
 - The documentation describes 1.0.0: [CI](docs/ci.md#the-action) pins the
   action to `v1.0.0`, and the pre-commit example of
   [Static check](docs/static-check.md#pre-commit) to `rev: v1.0.0`.
+- The Litestar recipe covers advanced-alchemy's `SQLAlchemyPlugin` (the
+  session injected as `db_session`), checked with advanced-alchemy 1.12.0,
+  Litestar 2.25.0 and SQLAlchemy 2.1.8.
+- The head-to-head numbers of [Comparison](docs/comparison.md#head-to-head-in-github-actions),
+  [Accuracy](docs/accuracy.md#comparison-with-other-tools) and the README
+  are from a run of 2026-11-10 on 1.0.0rc1 (278 scenarios instead of 252).
+  The other tools' versions were checked again and are unchanged. The suite
+  overhead of pytest-queryguard is +13 to +15% on the runner, not the +0.8
+  to +1.7% of the run of 2026-11-07, which could not be reproduced: on a
+  laptop 0.8.0 to 1.0.0rc1 all add 18 to 20% to that suite;
+  [Performance](docs/performance.md#a-realistic-case-a-suite-of-300-tests)
+  and the FAQ say so. [Performance](docs/performance.md#the-call-path-0100)
+  compares the call path of 0.10.0 and 1.0.0rc1.
 
 ## [1.0.0rc1] - 2026-11-09
 

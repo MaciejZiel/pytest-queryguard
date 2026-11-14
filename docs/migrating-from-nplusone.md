@@ -51,9 +51,9 @@ for the first three rows, Python 3.9 for the last) and ran the same N+1 loop:
 | 1.3.24 | Works: `NPlusOneError: Potential n+1 query detected on Order.customer` |
 
 The [head-to-head run](comparison.md#head-to-head-in-github-actions) of
-2026-11-07 gives the same picture on a larger set: on the 252 scenarios of the
+2026-11-10 gives the same picture on a larger set: on the 278 scenarios of the
 [accuracy corpus](accuracy.md), nplusone 1.0.0 did not import on SQLAlchemy
-2.1.1, and on 2.0.54 it flagged 1 of the 123 scenarios with an N+1.
+2.1.1, and on 2.0.54 it flagged 1 of the 135 scenarios with an N+1.
 
 So moving to SQLAlchemy 2 means moving off nplusone. The table is one small
 project on one date, not a full compatibility test of nplusone; the 2.0.54 and

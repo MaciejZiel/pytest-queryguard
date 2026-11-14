@@ -256,7 +256,10 @@ microseconds, and a statement that goes to a real database takes far longer, so
 the share is much smaller there. These are micro-benchmarks. On a generated
 suite of 300 tests against a file-based SQLite database and against PostgreSQL
 the difference between running with and without the plugin was smaller than the
-run-to-run noise; see [Performance](performance.md) for the method and numbers.
+run-to-run noise while each test waited for the disk; when they did not (about
+5 ms of CPU a test), the plugin added 13 to 20 % to the run. See
+[Performance](performance.md#a-realistic-case-a-suite-of-300-tests) for the
+method and numbers.
 
 The options that are off by default cost nothing until you turn them on:
 
