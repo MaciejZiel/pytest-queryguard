@@ -280,8 +280,7 @@ uv run mypy src
 uv run --group docs python scripts/build_docs.py --strict   # the docs site, into site/
 ```
 
-The PostgreSQL tests run when `QUERYGUARD_PG_URL` points to a server, and are
-skipped otherwise:
+The PostgreSQL tests run when `QUERYGUARD_PG_URL` points to a server, and are skipped otherwise:
 
 ```bash
 docker run -d --rm --name qg-postgres -p 55432:5432 -e POSTGRES_PASSWORD=pg postgres:17
@@ -293,6 +292,8 @@ Coverage is measured with `coverage run` rather than `pytest --cov`, because
 `--cov` starts after pytest has imported the plugin and misses its import-time
 lines. Third-party licenses are listed in
 [3rdparty_licenses.md](https://github.com/MaciejZiel/pytest-queryguard/blob/main/3rdparty_licenses.md).
+
+Thanks to [@Muguett-DBY](https://github.com/Muguett-DBY) for fixes and tests: [#202](https://github.com/MaciejZiel/pytest-queryguard/pull/202), [#203](https://github.com/MaciejZiel/pytest-queryguard/pull/203), [#210](https://github.com/MaciejZiel/pytest-queryguard/pull/210), [#211](https://github.com/MaciejZiel/pytest-queryguard/pull/211), [#287](https://github.com/MaciejZiel/pytest-queryguard/pull/287), [#293](https://github.com/MaciejZiel/pytest-queryguard/pull/293).
 
 ## License
 
