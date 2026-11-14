@@ -300,6 +300,14 @@ def _install() -> None:
     requests.request_finished.connect(
         _on_request_finished, weak=False, dispatch_uid=_DISPATCH_UID
     )
+    # An async handler (AsyncClient, ASGI) sends request_started with
+    # Signal.asend, which before Django 6.1 runs sync receivers in a task of
+    # their own: the scope set there never reaches the request.
+    _patch(
+        _module("django.core.handlers.base").BaseHandler,
+        "get_response_async",
+        _get_response_async,
+    )
     sync = sys.modules.get("asgiref.sync")
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
@@ -876,6 +884,20 @@ def _on_request_started(sender: Any, **kwargs: Any) -> None:
 
 def _on_request_finished(sender: Any, **kwargs: Any) -> None:
     _request.set(None)
+
+
+def _get_response_async(original: Callable[..., Any]) -> Callable[..., Any]:
+    """One scope per request of an async handler, as ``_on_request_started``."""
+
+    @functools.wraps(original)
+    async def get_response_async(self: Any, request: Any) -> Any:
+        token = _request.set(collector.RequestScope(next(errors.scopes)))
+        try:
+            return await original(self, request)
+        finally:
+            _request.reset(token)
+
+    return get_response_async
 
 
 def _site() -> Any:

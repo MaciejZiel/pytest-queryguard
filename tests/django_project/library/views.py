@@ -56,3 +56,13 @@ def three_books(request: HttpRequest) -> JsonResponse:
 def one_book(request: HttpRequest, pk: int) -> JsonResponse:
     book = Book.objects.get(pk=pk)
     return JsonResponse({"title": book.title, "author": book.author.name})
+
+
+async def one_book_async(request: HttpRequest, pk: int) -> JsonResponse:
+    book = await Book.objects.select_related("author").aget(pk=pk)
+    return JsonResponse({"title": book.title, "author": book.author.name})
+
+
+async def six_books_async(request: HttpRequest) -> JsonResponse:
+    titles = [(await Book.objects.aget(pk=pk)).title for pk in range(1, 7)]
+    return JsonResponse({"titles": titles})

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Django (experimental): each request of the `AsyncClient` counts on its own
+  on Django 5.2 and 6.0 too, as it did on 6.1 and as requests of the sync
+  test client always did. Before 6.1, `Signal.asend` runs the receivers of
+  `request_started` in a task of their own, so the requests of a test were
+  counted together per connection, and lookups each request makes once (the
+  user, its permissions, the session) were reported as an N+1. Seen on
+  strawberry-django, whose GraphQL test client sends each query through
+  `AsyncClient`: 30 false `relationship-load` findings.
+
 ## [1.0.0] - 2026-11-14
 
 The first stable release. The code is that of 1.0.0rc1, which has the

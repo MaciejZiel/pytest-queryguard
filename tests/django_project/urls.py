@@ -15,6 +15,9 @@ urlpatterns = [
     path("books/", views.book_titles),
     path("books/three/", views.three_books),
     path("books/<int:pk>/", views.one_book),
+    # async views, for the async test client
+    path("async/books/six/", views.six_books_async),
+    path("async/books/<int:pk>/", views.one_book_async),
     # a generic view: no line of the project runs, the template reads the author
     path("books/list/", ListView.as_view(model=Book)),
 ]
