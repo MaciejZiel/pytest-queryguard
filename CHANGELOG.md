@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_from_request()` for the token's and the cookie's session (3 false
   `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
 
+### Internal
+
+- The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi tests (the `fastapi_project` fixture now skips when fastapi is missing), so it runs the plugin's tests again instead of failing in `uv sync`.
+
 ## [1.0.0] - 2026-11-14
 
 The first stable release. The code is that of 1.0.0rc1, which has the
