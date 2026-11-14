@@ -149,6 +149,50 @@ Recording changes nothing else. The plugin's N+1 detection, budgets and
 index check see the same statements. Like `max_queries()`, `record_queries()`
 also works outside pytest.
 
+## The count must not grow: `assert_queries_do_not_grow()`
+
+Since 1.1.0. A list should send the same number of statements for 1 row as
+for 10. `assert_queries_do_not_grow(fn, sizes=(1, 10), *, setup=None)` runs
+`fn` once per size, each run in its own `record_queries()` block, and raises
+`QueryBudgetExceeded` when a larger size sends more statements than the
+smallest one:
+
+```python
+from pytest_queryguard import assert_queries_do_not_grow
+
+from app.orders_fixed import list_orders
+
+
+def test_list_orders_does_not_grow(make_session):
+    assert_queries_do_not_grow(list_orders, sizes=(1, 10, 50), setup=make_session)
+```
+
+- `sizes`: at least two different integers of 0 or more, run in ascending
+  order (default `(1, 10)`). Use more than one row for the larger sizes: with
+  one row a query per row cannot be told from a constant one.
+- `setup`: called with the size before `fn`, and not recorded; create that
+  many rows there. `fn` gets what it returned. Without `setup`, `fn` gets the
+  size.
+- It returns the `QueryLog` of each size, keyed by size in ascending order.
+- The failure gives the count per size and each statement that grew (the
+  same shape, without literals and parameters, from the same line): how often
+  it ran at each size, the relationship it lazy-loaded, its line and the
+  lines that called it, and a fix, like the N+1 report. With SQLAlchemy the
+  fix names `selectinload()` or `joinedload()`, with Django
+  `select_related()` or `prefetch_related()`.
+- Statements from any thread count, as in `record_queries()`. The seeding in
+  `setup` is left out of the comparison, but the plugin still sees it as
+  part of the test, so a default budget counts it.
+- `assert_queries_do_not_grow_async()` takes the same arguments and is
+  awaited; `fn` and `setup` may be coroutine functions or plain functions,
+  and what they return is awaited when it is awaitable. The sync version
+  raises `TypeError` when `fn` or `setup` returns an awaitable.
+- After an internal error it raises `RuntimeError` instead of comparing
+  counts that may be incomplete, like `assert_no_nplusone()`.
+
+The [scaling recipe](recipes-query-count-scaling.md) shows it with
+SQLAlchemy and Django, and its failure.
+
 ## Leaving out a block: `ignore()`
 
 `ignore(*kinds, reason=None)` leaves out the findings of the given kinds that

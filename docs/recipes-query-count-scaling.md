@@ -14,9 +14,9 @@ row in a shape the rules do not recognise, a loop that stays under a
 threshold, or one more constant query, fails too. And it says in the test what
 the code promises: "one statement, whatever the size of the page".
 
-Both tests below use only `record_queries()` and the `queryguard` fixture
-(see [Reading the queries](python-api.md) and
-[Budgets and timing](budgets.md)). The SQLAlchemy project was run with
+The tests below use the `queryguard` fixture (see
+[Budgets and timing](budgets.md)) and `assert_queries_do_not_grow()` (since
+1.1.0, see [Reading the queries](python-api.md#the-count-must-not-grow-assert_queries_do_not_grow)). The SQLAlchemy project was run with
 SQLAlchemy 2.0 and 2.1; a test builds it from the files of this page and runs
 it. The Django version is [at the end](#django).
 
@@ -138,7 +138,7 @@ fails unless the block sends exactly one statement:
 ```python
 import pytest
 from app.orders import list_orders, list_orders_lazy
-from pytest_queryguard import record_queries
+from pytest_queryguard import assert_queries_do_not_grow
 
 SIZES = [1, 10, 50]
 
@@ -158,22 +158,21 @@ def test_list_orders_lazy_runs_one_query(queryguard, session, rows):
 
 
 def test_list_orders_count_does_not_grow(make_session):
-    counts = {}
-    for rows in SIZES:
-        session = make_session(rows)
-        with record_queries() as log:
-            list_orders(session)
-        counts[rows] = log.count
-    assert counts[1] == counts[10] == counts[50], counts
+    assert_queries_do_not_grow(list_orders, sizes=SIZES, setup=make_session)
+
+
+def test_list_orders_lazy_count_does_not_grow(make_session):
+    assert_queries_do_not_grow(list_orders_lazy, sizes=SIZES, setup=make_session)
 ```
 
-`list_orders` passes for every size. `list_orders_lazy` fails for each of
-them, already with one row, because the block sends the order query and one
-customer query per order:
+`list_orders` passes for every size. `list_orders_lazy` fails each
+`num_queries(1)` case, already with one row, because the block sends the
+order query and one customer query per order (the failure of the last test is
+[below](#compare-the-sizes-without-writing-the-number-down)):
 
 ```
 $ pytest --tb=short
-tests/test_orders.py ...FFF.                                             [100%]
+tests/test_orders.py ...FFF.F                                            [100%]
 
 =================================== FAILURES ===================================
 ___________________ test_list_orders_lazy_runs_one_query[1] ____________________
@@ -189,7 +188,8 @@ E     2. SELECT customer.id, customer.name FROM customer WHERE customer.id = ?  
 FAILED tests/test_orders.py::test_list_orders_lazy_runs_one_query[1] - pytest...
 FAILED tests/test_orders.py::test_list_orders_lazy_runs_one_query[10] - pytes...
 FAILED tests/test_orders.py::test_list_orders_lazy_runs_one_query[50] - pytes...
-3 failed, 4 passed in 0.30s
+FAILED tests/test_orders.py::test_list_orders_lazy_count_does_not_grow - pyte...
+4 failed, 4 passed in 0.43s
 ```
 
 The cases with 10 and 50 rows fail with 11 and 51 statements, each listed
@@ -204,10 +204,35 @@ direction to be a decision. `queryguard.max_queries(n)` accepts fewer.
 ### Compare the sizes without writing the number down
 
 When the exact number is not the point (it depends on the database, or on
-what else the endpoint does), `test_list_orders_count_does_not_grow` above
-records each size with `record_queries()` and only asserts that the counts are
-equal. A failure shows the counts by size, for example
-`{1: 2, 10: 11, 50: 51}` for `list_orders_lazy`.
+what else the endpoint does), `assert_queries_do_not_grow()` runs the
+function once per size and fails when a larger size sends more statements
+than the smallest one. `setup=make_session` builds the database for each
+size before the function runs, and is not recorded; the function gets what
+`setup` returned. The last test above fails on `list_orders_lazy` with the
+count per size and the statement that grew, its line and a fix:
+
+```
+__________________ test_list_orders_lazy_count_does_not_grow ___________________
+tests/test_orders.py:27: in test_list_orders_lazy_count_does_not_grow
+    assert_queries_do_not_grow(list_orders_lazy, sizes=SIZES, setup=make_session)
+E   pytest_queryguard.QueryBudgetExceeded: queryguard: the number of statements grows with the size: 2 at size 1, 11 at size 10, 51 at size 50
+E
+E     SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
+E     ran 1 time at size 1, 10 times at size 10, 50 times at size 50 (loads Order.customer)
+E     first at app/orders.py:17 in list_orders_lazy
+E       called from tests/test_orders.py:27 in test_list_orders_lazy_count_does_not_grow
+E     fix: load Order.customer with the parent query, e.g.
+E          .options(selectinload(Order.customer)), or joinedload() for a many-to-one
+E
+E     docs: https://maciejziel.github.io/pytest-queryguard/recipes-query-count-scaling.html
+```
+
+It returns the `QueryLog` of each size, keyed by size, for further checks.
+For async code, `await assert_queries_do_not_grow_async(...)` takes coroutine
+functions as `fn` and `setup` (see
+[Reading the queries](python-api.md#the-count-must-not-grow-assert_queries_do_not_grow)).
+Before 1.1.0 the same check was a loop of `record_queries()` blocks that
+compared `log.count` by size.
 
 The sizes matter:
 
@@ -216,10 +241,11 @@ The sizes matter:
 - 10 and 50 are above the default thresholds (2 parents for a relationship, 5
   runs of one `SELECT`), so the N+1 rules can also report what grows.
 - Seed the rows outside the measured block. In a fixture (`session` above)
-  nothing of the seeding is counted. A factory called in the test body
-  (`make_session` in the last test) is left out of the `record_queries()`
-  block, but the plugin still sees its statements as part of the test, so a
-  default budget (`queryguard_max_queries` or a budget file) counts them.
+  nothing of the seeding is counted. The `setup` of
+  `assert_queries_do_not_grow()` (`make_session` in the last tests) is left
+  out of what it compares, but the plugin still sees its statements as part
+  of the test, so a default budget (`queryguard_max_queries` or a budget
+  file) counts them.
 
 ## Django
 
@@ -244,10 +270,11 @@ import pytest
 
 from library.models import Author, Book
 from library.reports import book_lines
-from pytest_queryguard import record_queries
+from pytest_queryguard import assert_queries_do_not_grow
 
 
 def make_books(count):
+    Book.objects.all().delete()
     authors = Author.objects.bulk_create(
         Author(name=f"author {i}") for i in range(count)
     )
@@ -264,19 +291,15 @@ def test_book_lines_runs_one_query(db, queryguard, count):
 
 
 def test_book_lines_count_does_not_grow(db):
-    counts = {}
-    for count in (1, 10, 50):
-        Book.objects.all().delete()
-        make_books(count)
-        with record_queries() as log:
-            book_lines()
-        counts[count] = log.count
-    assert counts[1] == counts[10] == counts[50], counts
+    assert_queries_do_not_grow(
+        lambda _: book_lines(), sizes=(1, 10, 50), setup=make_books
+    )
 ```
 
 `queryguard.num_queries()` is the plugin's equivalent of pytest-django's
 `django_assert_num_queries`. Without `select_related("author")` both tests
-fail: the first with 2, 11 and 51 statements, the second on the counts,
-`{1: 2, 10: 11, 50: 51}`. Without the blocks, the N+1 rule alone would fail
+fail: the first with 2, 11 and 51 statements, the second with
+`2 at size 1, 11 at size 10, 51 at size 50`, the lazy load of `Book.author`
+and the fix `.select_related("author")`. Without the blocks, the N+1 rule alone would fail
 the cases with 10 and 50 books on `Book.author`. A test in this repository
 runs both versions with Django 5.2 to 6.1.

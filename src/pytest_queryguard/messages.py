@@ -647,6 +647,73 @@ def format_time_budget(
     return "\n".join(lines)
 
 
+def _times(count: int) -> str:
+    return "1 time" if count == 1 else f"{count} times"
+
+
+def _growth_fix(event: StatementEvent, fix: str) -> list[str]:
+    django = event.orm == ORM_DJANGO
+    if fix == "relationship":
+        name = event.relationship or ""
+        if django:
+            field = name.rpartition(".")[2]
+            return [
+                f"  fix: load {name} with the parent query, e.g.",
+                f'       .select_related("{field}"), or .prefetch_related("{field}")',
+                "       for a to-many relationship",
+            ]
+        return [
+            f"  fix: load {name} with the parent query, e.g.",
+            f"       .options(selectinload({name})), or joinedload() for a many-to-one",
+        ]
+    if fix == "write":
+        if django:
+            return [
+                "  fix: write the rows together: Model.objects.bulk_create(rows),",
+                "       bulk_update(rows, fields) or filter(pk__in=ids).delete()",
+            ]
+        return [
+            "  fix: write the rows together: session.add_all(rows) and one flush,",
+            "       or one bulk INSERT, UPDATE or DELETE for all of them",
+        ]
+    return list(_REPEAT_FIX_DJANGO if django else _REPEAT_FIX)
+
+
+def format_growth(
+    counts: Mapping[int, int],
+    grown: Sequence[tuple[StatementEvent, Mapping[int, int], str]],
+    *,
+    cwd: Path | None = None,
+) -> str:
+    """The failure of ``assert_queries_do_not_grow()``.
+
+    ``counts`` is the number of statements per size, in ascending order;
+    ``grown`` the statements that ran more often at a larger size, each with
+    its count per size and the kind of fix (``relationship``, ``write`` or
+    ``repeat``).
+    """
+    per_size = ", ".join(f"{count} at size {size}" for size, count in counts.items())
+    lines = [f"queryguard: the number of statements grows with the size: {per_size}"]
+    for event, by_size, fix in grown:
+        runs = ", ".join(
+            f"{_times(count)} at size {size}" for size, count in by_size.items()
+        )
+        if event.relationship is not None and fix == "relationship":
+            runs += f" (loads {event.relationship})"
+        site = event.callsite
+        lines.extend(
+            [
+                "",
+                f"  {_truncate(event.sql)}",
+                f"  ran {runs}",
+                *_first_at(site, _stack(site, cwd), cwd),
+                *_growth_fix(event, fix),
+            ]
+        )
+    lines.extend(["", f"  docs: {DOCS_URL}recipes-query-count-scaling.html"])
+    return "\n".join(lines)
+
+
 def _verification_line(verification: Verification) -> str:
     if verification.error is not None:
         return f"  hypopg: could not verify this index: {_truncate(verification.error)}"

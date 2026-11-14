@@ -601,6 +601,8 @@ def test_public_names() -> None:
         "QueryGuardWarning",
         "QueryLog",
         "__version__",
+        "assert_queries_do_not_grow",
+        "assert_queries_do_not_grow_async",
         "ignore",
         "max_db_time",
         "max_queries",
