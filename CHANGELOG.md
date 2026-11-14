@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- N+1 detection without pytest, for Django projects that run
+  `manage.py test` (experimental): `pytest_queryguard.django.QueryGuardRunner`,
+  a `DiscoverRunner` set with `TEST_RUNNER`, measures `setUp()`, the test
+  method and `tearDown()` of every test as the plugin does and fails or warns
+  with the plugin's report; `QueryGuardTestCase` does the same for the test
+  cases it is mixed into, under any runner. Settings in `QUERYGUARD = {...}`
+  with the ini options' names, `--queryguard-mode` on the command line; works
+  with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
+  index check without pytest yet
+  ([Django](docs/django.md#without-pytest-managepy-test)).
+
 ### Internal
 
 - The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi tests (the `fastapi_project` fixture now skips when fastapi is missing), so it runs the plugin's tests again instead of failing in `uv sync`.
