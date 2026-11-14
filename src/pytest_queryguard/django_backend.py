@@ -929,11 +929,11 @@ def _relationship_event(
         path.entry,
         path.test_code,
         orm=ORM_DJANGO,
-        read_path=_read_path(parent),
+        read_path=_read_path(),
     )
 
 
-def _read_path(parent: ParentLoad | None) -> tuple[tuple[str, int], ...]:
+def _read_path() -> tuple[tuple[str, int], ...]:
     """The call path of a read (see ``RelationshipLoadEvent.read_path``):
     objects the test created and read through one helper at two lines of the
     test are two reads, not a loop, and so are two objects that one lookup
@@ -1279,7 +1279,7 @@ def _execute_sql(
                 path.entry,
                 path.test_code,
                 orm=ORM_DJANGO,
-                read_path=_read_path(parent),
+                read_path=_read_path(),
             )
             pending: _Pending | None = (
                 event,
