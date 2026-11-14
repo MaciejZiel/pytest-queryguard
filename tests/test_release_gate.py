@@ -142,10 +142,8 @@ def test_a_released_version_must_not_be_pending(gate: ModuleType, path: str) -> 
     assert len(problems) == 2
 
 
-def _ci(tag: str) -> str:
-    return (
-        f"      - uses: MaciejZiel/pytest-queryguard/action@{tag}   # a release tag\n"
-    )
+def _ci(tag: str, spelling: str = "MaciejZiel/pytest-queryguard-action") -> str:
+    return f"      - uses: {spelling}@{tag}   # a release tag\n"
 
 
 def test_the_action_pin_is_the_release(gate: ModuleType) -> None:
@@ -186,6 +184,17 @@ def test_every_action_pin_is_checked(gate: ModuleType) -> None:
     assert gate.check_action_pin("1.2.0", GOOD, text) == [
         "docs/ci.md pins the action to v1.1.0; it must be v1.2.0 (__version__ is 1.2.0)"
     ]
+
+
+def test_both_spellings_of_the_action_are_checked(gate: ModuleType) -> None:
+    subdirectory = "MaciejZiel/pytest-queryguard/action"
+    assert gate.check_action_pin("1.2.0", GOOD, _ci("v1.2.0", subdirectory)) == []
+    text = _ci("v1.2.0") + _ci("v1.1.0", subdirectory)
+    assert gate.check_action_pin("1.2.0", GOOD, text) == [
+        "docs/ci.md pins the action to v1.1.0; it must be v1.2.0 (__version__ is 1.2.0)"
+    ]
+    # the moving major tag is not a release pin
+    assert gate.check_action_pin("1.2.0", GOOD, _ci("v1")) != []
 
 
 def test_the_accuracy_thresholds_are_recorded_in_the_docs() -> None:

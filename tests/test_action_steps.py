@@ -777,3 +777,68 @@ class TestLint:
         assert result.returncode == 1
         assert "exit-code" not in outputs
         assert "lint-paths cannot be split" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell")
+class TestInstall:
+    """What the install step gives pip, in both places the action lives."""
+
+    def run(
+        self, tmp_path: Path, action_path: Path, package: str = ""
+    ) -> tuple[subprocess.CompletedProcess[str], str]:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        log = tmp_path / "pip.log"
+        fake = bin_dir / "python"
+        fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$QG_LOG"\n')
+        fake.chmod(0o755)
+        result, _ = run_script(
+            "Install pytest-queryguard",
+            tmp_path,
+            {
+                "QG_PACKAGE": package,
+                "QG_ACTION_PATH": str(action_path),
+                "QG_LOG": str(log),
+            },
+            check=False,
+            bin_dir=bin_dir,
+        )
+        return result, log.read_text() if log.exists() else ""
+
+    def test_this_repository_installs_the_checkout(self, tmp_path: Path) -> None:
+        root = tmp_path / "pytest-queryguard"
+        (root / "action").mkdir(parents=True)
+        (root / "pyproject.toml").write_text("")
+        result, log = self.run(tmp_path, root / "action")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert log.splitlines()[-1] == f"{root / 'action'}/.."
+
+    def test_the_action_repository_installs_its_wheel(self, tmp_path: Path) -> None:
+        root = tmp_path / "pytest-queryguard-action"
+        (root / "dist").mkdir(parents=True)
+        wheel = root / "dist" / "pytest_queryguard-1.0.0-py3-none-any.whl"
+        wheel.write_text("")
+        result, log = self.run(tmp_path, root)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert log.splitlines()[-1] == str(wheel)
+
+    @pytest.mark.parametrize("count", [0, 2])
+    def test_no_single_wheel_stops(self, tmp_path: Path, count: int) -> None:
+        root = tmp_path / "pytest-queryguard-action"
+        (root / "dist").mkdir(parents=True)
+        for version in ["1.0.0", "1.0.1"][:count]:
+            (
+                root / "dist" / f"pytest_queryguard-{version}-py3-none-any.whl"
+            ).write_text("")
+        result, log = self.run(tmp_path, root)
+        assert result.returncode != 0
+        assert f"found {count} pytest-queryguard wheels" in result.stdout
+        assert log == ""
+
+    def test_a_package_input_wins(self, tmp_path: Path) -> None:
+        result, log = self.run(
+            tmp_path, tmp_path / "nowhere", "pytest-queryguard==1.0.0"
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert log.splitlines()[-1] == "pytest-queryguard==1.0.0"

@@ -107,7 +107,11 @@ inputs with their defaults and accepted values, its outputs (`exit-code`,
 the category turned into `-`), which later runs of older and newer versions of
 the action download, and the pull-request comment it updates in place (found
 by the compare marker above). The action is versioned with the package: pin it to a
-release tag or a commit. The `trend` input and the `trend-report` output are
+release tag or a commit. This holds in both places it lives: the `vX.Y.Z` of
+[`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action)
+is the same action as `action/` at this repository's `vX.Y.Z`. Its major tag
+(`v1`) moves only to final releases of that major version, and `action/`
+here keeps working for every 1.x release. The `trend` input and the `trend-report` output are
 experimental, and so are the `lint`, `lint-models` and `lint-paths` inputs
 and the `lint-exit-code` output (since 0.10.0). What the job summary and the pull-request comment say is not
 public.

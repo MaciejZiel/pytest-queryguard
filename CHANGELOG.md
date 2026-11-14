@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The GitHub Action is listed for the GitHub Marketplace from its own
+  repository, [`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action):
+  `uses: MaciejZiel/pytest-queryguard-action@v1.0.0`, or `@v1` for the newest
+  1.x final release. It is a copy of `action/action.yml` with the plugin
+  wheel of the release in `dist/`; `action/` here stays the source and keeps
+  working, and switching is a change of the `uses:` line only (same inputs,
+  outputs, artifact name and comment marker). The action has a `branding`
+  for the listing.
+
+### Changed
+
+- With an empty `package` input the action installs the plugin from the
+  checkout above `action/` when it finds a `pyproject.toml` there (this
+  repository, as before), and otherwise the one wheel in `dist/` next to
+  `action.yml` (the action repository); without either the step stops with
+  an error naming the `package` input.
+
+### Documentation
+
+- [CI](docs/ci.md#the-action), the README, `llms.txt` and `SECURITY.md`
+  point to the action repository; [Stability](docs/stability.md#files-tools-and-the-action)
+  says that its `vX.Y.Z` is the same action as `action/` at `vX.Y.Z` and
+  that `v1` moves only to final releases; [Releasing](docs/releasing.md)
+  has the step that updates it. The release gate accepts the pin in
+  `docs/ci.md` in both spellings.
+
 ## [1.0.0] - 2026-11-14
 
 The first stable release. The code is that of 1.0.0rc1, which has the

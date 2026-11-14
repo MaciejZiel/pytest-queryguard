@@ -120,8 +120,10 @@ def check_doc_versions(version: str, texts: dict[str, str] | None = None) -> lis
     return problems
 
 
-# The GitHub Action pinned in the workflow that docs/ci.md shows.
-ACTION_PIN = rf"MaciejZiel/pytest-queryguard/action@v({VERSION})\b"
+# The GitHub Action pinned in the workflow that docs/ci.md shows, in either
+# spelling: the Marketplace repository (MaciejZiel/pytest-queryguard-action)
+# or action/ of this one.
+ACTION_PIN = rf"MaciejZiel/pytest-queryguard(?:-action|/action)@v({VERSION})\b"
 
 
 def check_action_pin(
