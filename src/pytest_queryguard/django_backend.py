@@ -110,7 +110,7 @@ class _Frozen:
 class _Origin(_Frozen):
     """Where an instance was loaded: the query line, its class and the path."""
 
-    __slots__ = ("deferring", "noted", "path", "root", "site")
+    __slots__ = ("deferring", "lookup_path", "noted", "path", "root", "site")
 
     def __init__(
         self,
@@ -119,6 +119,7 @@ class _Origin(_Frozen):
         path: tuple[tuple[str, bool], ...],
         noted: int,
         deferring: bool = False,
+        lookup_path: tuple[tuple[str, int], ...] | None = None,
     ) -> None:
         self.site = site
         self.root = root
@@ -126,6 +127,8 @@ class _Origin(_Frozen):
         self.noted = noted
         # the query left out fields (.only(), .defer())
         self.deferring = deferring
+        # the query returned one object: its call path (ParentLoad.lookup_path)
+        self.lookup_path = lookup_path
 
 
 class _Load(_Frozen):
@@ -746,12 +749,15 @@ def _noting(rows: Iterator[Any], queryset: Any) -> Iterator[Any]:
     origin: _Origin | None = None
     related: list[tuple[tuple[str, ...], _Origin]] = []
     first = True
+    own = False  # the origin is this query's, not a lazy load's
+    only: Any = None  # the one object so far
     try:
         for obj in rows:
             if first:
                 first = False
                 try:
                     origin = _rows_origin(local, before, queryset)
+                    own = not local.inherited
                 except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
                     _fail(exc, "Django integration (instance origins)")
                 if origin is not None and origin.root is not None:
@@ -759,23 +765,52 @@ def _noting(rows: Iterator[Any], queryset: Any) -> Iterator[Any]:
                         related = _related_origins(queryset, origin)
                     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
                         _fail(exc, "Django integration (select_related origins)")
+                only = obj
+            else:
+                only = None
             if origin is not None:
-                obj._state.__dict__[_ORIGIN] = origin
-                for caches, step_origin in related:
-                    target = obj
-                    for cache in caches:
-                        target = target._state.fields_cache.get(cache)
-                        if target is None:
-                            break
-                    else:
-                        target._state.__dict__[_ORIGIN] = step_origin
+                _note_origin(obj, origin, related)
             yield obj
+        if only is not None and own and origin is not None:
+            # A lookup of one object (get(), first()): the call path tells a
+            # helper called from two lines from one called in a loop. Taken
+            # here, while the code that ran the query is still on the stack.
+            try:
+                path = callsite.read_path()
+                _note_origin(
+                    only,
+                    _with_lookup_path(origin, path),
+                    [(c, _with_lookup_path(o, path)) for c, o in related],
+                )
+            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+                _fail(exc, "Django integration (lookup call path)")
     finally:
         # closed early (a break out of .iterator()): close Django's generator
         # too, whose finally closes its (server-side) cursor
         close = getattr(rows, "close", None)
         if close is not None:
             close()
+
+
+def _note_origin(
+    obj: Any, origin: _Origin, related: list[tuple[tuple[str, ...], _Origin]]
+) -> None:
+    """Note ``origin`` on ``obj`` and the origins of its select_related objects."""
+    obj._state.__dict__[_ORIGIN] = origin
+    for caches, step_origin in related:
+        target = obj
+        for cache in caches:
+            target = target._state.fields_cache.get(cache)
+            if target is None:
+                break
+        else:
+            target._state.__dict__[_ORIGIN] = step_origin
+
+
+def _with_lookup_path(origin: _Origin, path: tuple[tuple[str, int], ...]) -> _Origin:
+    return _Origin(
+        origin.site, origin.root, origin.path, origin.noted, origin.deferring, path
+    )
 
 
 def _related_origins(
@@ -847,7 +882,9 @@ def _parent(origin: _Origin | None) -> ParentLoad | None:
         return None
     if origin.site is None and origin.root is None:
         return None
-    return ParentLoad(origin.site, origin.root, origin.path, origin.noted)
+    return ParentLoad(
+        origin.site, origin.root, origin.path, origin.noted, origin.lookup_path
+    )
 
 
 def _child_origin(origin: _Origin | None, label: str, scalar: bool) -> _Origin | None:
@@ -855,7 +892,9 @@ def _child_origin(origin: _Origin | None, label: str, scalar: bool) -> _Origin |
     if origin is None:
         return None
     path = origin.path + ((label, scalar),) if origin.root is not None else ()
-    return _Origin(origin.site, origin.root, path, origin.noted)
+    return _Origin(
+        origin.site, origin.root, path, origin.noted, lookup_path=origin.lookup_path
+    )
 
 
 def _key(instance: Any) -> object:

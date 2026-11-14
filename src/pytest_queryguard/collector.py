@@ -17,6 +17,7 @@ from .events import (
     RelationshipLoadEvent,
     ScanEvent,
     StatementEvent,
+    query_line,
     read_key,
 )
 from .findings import KIND_RELATIONSHIP
@@ -366,7 +367,7 @@ class QueryCollector:
         Computed once per group, when it reaches the threshold, or, with
         ``unit``, from the loads of that unit only (see ``_strict_decide``).
         """
-        here = load.parent.callsite if load.parent is not None else None
+        here = query_line(load.parent)
         first: CallSite | None = None
         other_lines = False
         loads = [
@@ -382,19 +383,18 @@ class QueryCollector:
             and (unit is _ALL or self.unit_of(earlier.scope) == unit)
         ]
         # with a unit, its parents per query line, as the report counts them
-        per_line: dict[CallSite, set[object]] = {}
+        per_line: dict[object, set[object]] = {}
         if unit is not _ALL:
             for earlier in loads:
-                if earlier.parent is not None and earlier.parent.callsite is not None:
-                    per_line.setdefault(earlier.parent.callsite, set()).add(
-                        earlier.parent_key
-                    )
+                line = query_line(earlier.parent)
+                if line is not None:
+                    per_line.setdefault(line, set()).add(earlier.parent_key)
         # the lines that read this group's relationship: a parent of unknown
         # origin joins the group when read at one of them (or at no known line)
         reads = {
             earlier.callsite
             for earlier in loads
-            if earlier.parent is not None and earlier.parent.callsite == here
+            if earlier.parent is not None and query_line(earlier.parent) == here
         }
         reads.add(load.callsite)
         # the parents of unknown origin per reading line, as the report groups
@@ -405,8 +405,7 @@ class QueryCollector:
                 unknown.setdefault(read_key(earlier), set()).add(earlier.parent_key)
         anywhere = unknown.get(None, set())
         for earlier in loads:
-            parent = earlier.parent
-            line = None if parent is None else parent.callsite
+            line = query_line(earlier.parent)
             if line is None and earlier.callsite is not None:
                 if earlier.callsite not in reads and (
                     len(unknown[read_key(earlier)] | anywhere) < self.strict_threshold
@@ -429,11 +428,11 @@ class QueryCollector:
     def _strict_key(self, load: RelationshipLoadEvent) -> tuple[object, ...] | None:
         """(relationship, query site of the parents, scope), or None when the
         parent's query line is unknown (such loads never count here)."""
-        parent = load.parent
-        if parent is None or parent.callsite is None:
+        line = query_line(load.parent)
+        if line is None:
             return None
         scope = load.scope if self.strict_by_scope else boundary(load.scope)
-        return (load.relationship, parent.callsite, scope)
+        return (load.relationship, line, scope)
 
     def _strict_group(
         self, key: tuple[object, ...], load: RelationshipLoadEvent

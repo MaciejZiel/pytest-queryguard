@@ -103,6 +103,20 @@ class ParentLoad:
     # The collector generation its origin was noted in: a measurement that
     # started later (a record_queries() block) does not use it.
     noted: int = field(default=0, compare=False)
+    # For a query that returned one object (a get()): the application lines
+    # from the query outwards to the test, as (file, line), so a lookup
+    # helper called from two lines is two query lines (see query_line). None:
+    # the query line alone (more objects, or SQLAlchemy).
+    lookup_path: tuple[tuple[str, int], ...] | None = field(default=None, compare=False)
+
+
+def query_line(parent: ParentLoad | None) -> object:
+    """How lazy loads of parents of a known query are grouped: by the query
+    line and, for a lookup of one object, its call path (one lookup per pass
+    of a loop shares it); None when the parent's query is unknown."""
+    if parent is None or parent.callsite is None:
+        return None
+    return (parent.callsite, parent.lookup_path)
 
 
 @dataclass(frozen=True, slots=True)
