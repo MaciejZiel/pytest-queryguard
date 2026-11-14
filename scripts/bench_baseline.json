@@ -17,6 +17,14 @@
     "INTEL(R) XEON(R) PLATINUM 8573C": {
       "core": 0.403,
       "orm": 0.382
+    },
+    "Intel(R) Xeon(R) 6973P-C": {
+      "core": 0.398,
+      "orm": 0.295
+    },
+    "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz": {
+      "core": 0.35,
+      "orm": 0.35
     }
   }
 }

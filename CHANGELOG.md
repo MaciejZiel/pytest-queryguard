@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- The overhead baseline has entries for two more CPU models of
+  `ubuntu-latest`, which fell back to the highest entry: Intel Xeon 6973P-C
+  (dropped when the baseline was recorded again) and Xeon Platinum 8370C
+  (never recorded), from green logs of the release gate's overhead job run
+  alone on `main`. Xeon 6975P-C did not come up in 80 jobs and still falls
+  back. See [Releasing](docs/releasing.md#when-a-threshold-has-to-change).
 - The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi tests (the `fastapi_project` fixture now skips when fastapi is missing), so it runs the plugin's tests again instead of failing in `uv sync`.
 
 ## [1.0.0] - 2026-11-14
