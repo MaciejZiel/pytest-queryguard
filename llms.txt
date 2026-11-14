@@ -187,7 +187,7 @@ Command-line options:
 - `--queryguard-show-patch` / `--queryguard-write-patch=PATH` (experimental, since 0.8.0): print under each `relationship-load` finding, or write to one file for `git apply` from the rootdir, a patch that adds the loader option (and its import) to the `select(Entity)` or `session.query(Entity)` call of the parent query line; only when that line is certain (docs/when-a-test-fails.md#a-patch-for-the-parent-query). `--no-queryguard-show-patch` turns `queryguard_show_patch` off for this run.
 - `--queryguard-index-check` / `--no-queryguard-index-check`: turn the missing-index check on or off for this run.
 
-Adopting on an existing project: record a baseline, run the GitHub Action in `action/` (pytest, SARIF upload; docs/ci.md), and ignore single findings with the `queryguard_ignore("Order.customer", kind=..., file=..., function=..., stack=...)` marker or the `queryguard_ignore` option, or a block of code with `with pytest_queryguard.ignore("relationship-load"):` (covers the thread or asyncio task that enters it, not threads started inside it).
+Adopting on an existing project: record a baseline, run the GitHub Action `MaciejZiel/pytest-queryguard-action` (a generated copy of `action/` of this repository; pytest, SARIF upload; docs/ci.md), and ignore single findings with the `queryguard_ignore("Order.customer", kind=..., file=..., function=..., stack=...)` marker or the `queryguard_ignore` option, or a block of code with `with pytest_queryguard.ignore("relationship-load"):` (covers the thread or asyncio task that enters it, not threads started inside it).
 
 ## Missing-index check (PostgreSQL 16+, SQLite, MySQL and MariaDB)
 

@@ -2,8 +2,9 @@
 
 pytest-queryguard already fails the test run on a new N+1 query, so any CI
 that runs pytest enforces it. To also see the findings in the GitHub UI, as
-code scanning alerts with a file, a line and a fix hint, use the action in
-this repository or upload the [SARIF file](sarif.md) yourself.
+code scanning alerts with a file, a line and a fix hint, use the
+[pytest-queryguard action](https://github.com/MaciejZiel/pytest-queryguard-action)
+or upload the [SARIF file](sarif.md) yourself.
 
 ## The action
 
@@ -31,11 +32,26 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[test]"        # your project and its test dependencies
-      - uses: MaciejZiel/pytest-queryguard/action@v1.0.0   # a release tag, or a commit SHA
+      - uses: MaciejZiel/pytest-queryguard-action@v1.0.0   # a release tag, or a commit SHA
         with:
           pytest-args: tests/   # no -x: see below
           # baseline: queryguard-baseline.json   # add once the file exists, see below
 ```
+
+The action lives in
+[`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action),
+the repository listed in the GitHub Marketplace. It holds a copy of
+`action/action.yml` of this repository that each release copies there, so its
+`vX.Y.Z` is the same action as this repository's `vX.Y.Z`; issues and
+changes go to this repository. A release tag or a commit SHA is the safer
+pin: it never changes, and Dependabot proposes the updates. `@v1` follows the
+newest 1.x final release (never a release candidate), so a run can change
+without a change to your workflow. Existing workflows that use
+`MaciejZiel/pytest-queryguard/action@<tag>` keep working and get every 1.x
+release too; switching is a change of the `uses:` line only, and the
+comparison with the base branch, the trend and open code scanning alerts carry
+over, since the inputs, outputs, artifact name, category and comment marker
+are the same.
 
 The `push` trigger is limited to `main` so that a pull request does not run
 the workflow twice, once for the push and once for the pull request.
@@ -55,7 +71,8 @@ use a baseline, create it locally with
 `baseline` line.
 
 You do not need to set `package`. Left empty, the action installs the plugin
-from its own checkout, so the plugin version is the one that ref ships: pin the
+its own ref ships (the release's wheel in `dist/` of the action repository,
+the same file as on PyPI, or the checkout above `action/` here), so pin the
 action to a release tag or a commit and you get the plugin of that release. A
 fixed default such as `pytest-queryguard` would let pip pick an older release
 (for example 0.3.0, which has no `--queryguard-sarif`), and pytest would stop
@@ -77,7 +94,7 @@ failed. Install your own project first: the action does not know how.
 |---|---|---|
 | `pytest-args` | empty | Arguments for pytest, as a list of shell words: quotes group words (`-k "a or b"`). The value is split by Python's `shlex` and is not evaluated by a shell, so `$(...)`, backticks and `$VAR` are passed to pytest as literal text. |
 | `python-version` | empty | Set up this Python. Empty: use the `python` on PATH. |
-| `package` | empty | What to `pip install`. Empty: the plugin from the action's own checkout, matching the pinned ref. Otherwise a requirement like `pytest-queryguard>=0.6` (the oldest release the action works with; 0.8.0 for `trend`, 0.10.0 for `lint`), or a path. |
+| `package` | empty | What to `pip install`. Empty: the plugin the action's own ref ships, matching the pinned ref. Otherwise a requirement like `pytest-queryguard>=0.6` (the oldest release the action works with; 0.8.0 for `trend`, 0.10.0 for `lint`), or a path. |
 | `baseline` | empty | Baseline file, see [baseline.md](baseline.md). Empty: `queryguard_baseline` from your config. |
 | `fail` | `true` | `true`: fail the step when pytest fails. `false`: a failed test run does not fail the step, only report. An invalid input or a failed install still fails it. |
 | `working-directory` | `.` | Where to run pytest. Locations in the SARIF file are still relative to the repository root (see [SARIF output](sarif.md#paths-and-the-repository-root)). |
@@ -444,3 +461,10 @@ also has `trend: "5"`; when the trend wrote a report, the job checks that it
 has this run's row. None of them
 uploads: a sample upload with no results would make every pull request report
 "1 configuration not found" in its checks.
+
+`tests/test_action_steps.py` runs the shell steps of `action/action.yml` with
+crafted inputs, among them the install step in both layouts: with a
+`pyproject.toml` above the action (this repository) and with a wheel in
+`dist/` (the action repository). The action repository's own workflow runs
+the copy there, with the default `package`, on a project like
+`examples/action-sample`.
