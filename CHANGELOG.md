@@ -20,11 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- With an empty `package` input the action installs the plugin from the
-  checkout above `action/` when it finds a `pyproject.toml` there (this
-  repository, as before), and otherwise the one wheel in `dist/` next to
-  `action.yml` (the action repository); without either the step stops with
-  an error naming the `package` input.
+- With an empty `package` input the action installs the one plugin wheel in
+  `dist/` next to `action.yml` (the action repository), and without one the
+  checkout above `action/` when it has a `pyproject.toml` (this repository,
+  as before); otherwise the step stops with an error naming the `package`
+  input.
 
 ### Documentation
 
@@ -32,8 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   point to the action repository; [Stability](docs/stability.md#files-tools-and-the-action)
   says that its `vX.Y.Z` is the same action as `action/` at `vX.Y.Z` and
   that `v1` moves only to final releases; [Releasing](docs/releasing.md)
-  has the step that updates it. The release gate accepts the pin in
-  `docs/ci.md` in both spellings.
+  has the step that updates it. The release gate checks the pin in
+  `docs/ci.md` in the action repository's spelling.
 
 ## [1.0.0] - 2026-11-14
 

@@ -195,7 +195,7 @@ which can verify a suggested index with hypopg.
   See [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html).
 - `pytest --queryguard-sarif=queryguard.sarif` writes the findings as SARIF
   for GitHub code scanning, and the [GitHub Action](https://github.com/MaciejZiel/pytest-queryguard-action)
-  (`uses: MaciejZiel/pytest-queryguard-action@v1`) runs pytest and uploads it. See [CI and GitHub Action](https://maciejziel.github.io/pytest-queryguard/ci.html).
+  runs pytest and uploads it. See [CI and GitHub Action](https://maciejziel.github.io/pytest-queryguard/ci.html).
 - Leave out single findings with `@pytest.mark.queryguard_ignore("Order.customer")`
   or the `queryguard_ignore` option; make kinds warn with `queryguard_fail_on`
   or `queryguard_mode = warn`. See [Ignoring findings](https://maciejziel.github.io/pytest-queryguard/ignoring.html).

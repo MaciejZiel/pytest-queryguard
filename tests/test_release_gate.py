@@ -186,15 +186,20 @@ def test_every_action_pin_is_checked(gate: ModuleType) -> None:
     ]
 
 
-def test_both_spellings_of_the_action_are_checked(gate: ModuleType) -> None:
-    subdirectory = "MaciejZiel/pytest-queryguard/action"
-    assert gate.check_action_pin("1.2.0", GOOD, _ci("v1.2.0", subdirectory)) == []
-    text = _ci("v1.2.0") + _ci("v1.1.0", subdirectory)
-    assert gate.check_action_pin("1.2.0", GOOD, text) == [
-        "docs/ci.md pins the action to v1.1.0; it must be v1.2.0 (__version__ is 1.2.0)"
-    ]
-    # the moving major tag is not a release pin
-    assert gate.check_action_pin("1.2.0", GOOD, _ci("v1")) != []
+@pytest.mark.parametrize(
+    "line",
+    [
+        # the subdirectory of this repository is not the documented pin
+        _ci("v1.2.0", "MaciejZiel/pytest-queryguard/action"),
+        # nor is the moving major tag
+        _ci("v1"),
+    ],
+)
+def test_only_a_release_of_the_action_repository_is_a_pin(
+    gate: ModuleType, line: str
+) -> None:
+    (problem,) = gate.check_action_pin("1.2.0", GOOD, line)
+    assert "does not pin the action to a release tag" in problem
 
 
 def test_the_accuracy_thresholds_are_recorded_in_the_docs() -> None:

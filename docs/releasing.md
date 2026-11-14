@@ -67,11 +67,12 @@ projects (only Litestar, pytest-asyncio and SQLModel may be missing).
    (until `release.yml` does it, see the
    [design](design-1.0-release.md#how-a-release-reaches-the-action-repository)):
    replace `action.yml` with `action/action.yml` of the tag and the wheel in
-   `dist/` with the one published to PyPI (check its sha256), commit as
-   "pytest-queryguard X.Y.Z", tag `vX.Y.Z`, and for a final release move
-   `v1` to that commit (`git tag -f v1`, `git push -f origin v1`); a
-   pre-release gets its own tag only. Wait for its "Test the action"
-   workflow to pass, then create the GitHub release of the tag.
+   `dist/` with the one published to PyPI (check its sha256), bump the
+   `@vX.Y.Z` pin in its README for a final release, commit as
+   "pytest-queryguard X.Y.Z" and push to `main`. When its "Test the action"
+   workflow passes on that commit, tag it `vX.Y.Z`, and for a final release
+   only, move `v1` to it (`git tag -f v1`, `git push -f origin v1`). Then
+   create the GitHub release of the tag (a final release is the latest).
 
 ## How the overhead is measured
 

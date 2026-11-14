@@ -823,6 +823,19 @@ class TestInstall:
         assert result.returncode == 0, result.stdout + result.stderr
         assert log.splitlines()[-1] == str(wheel)
 
+    def test_the_wheel_wins_over_a_project_above_the_action(
+        self, tmp_path: Path
+    ) -> None:
+        # the Marketplace copy checked out inside a project of its own
+        (tmp_path / "pyproject.toml").write_text("")
+        root = tmp_path / "pytest-queryguard-action"
+        (root / "dist").mkdir(parents=True)
+        wheel = root / "dist" / "pytest_queryguard-1.0.0-py3-none-any.whl"
+        wheel.write_text("")
+        result, log = self.run(tmp_path, root)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert log.splitlines()[-1] == str(wheel)
+
     @pytest.mark.parametrize("count", [0, 2])
     def test_no_single_wheel_stops(self, tmp_path: Path, count: int) -> None:
         root = tmp_path / "pytest-queryguard-action"
