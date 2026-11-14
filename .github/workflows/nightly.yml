@@ -40,9 +40,9 @@ jobs:
             # refuses to build for 3.16, so uv sync failed before any test ran.
             # This entry installs the locked dev group without fastapi and
             # pydantic, and leaves out the test modules that import fastapi at
-            # module level (tests/corpus and tests/test_examples.py already
-            # skip through importorskip). Revert to a plain uv sync once
-            # pydantic-core publishes cp316 wheels.
+            # module level (tests/corpus, tests/test_examples.py and the
+            # fastapi_project fixture skip through importorskip). Revert to a
+            # plain uv sync once pydantic-core publishes cp316 wheels.
             without-pydantic: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
