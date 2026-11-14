@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
+
 ### Internal
 
 - The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi tests (the `fastapi_project` fixture now skips when fastapi is missing), so it runs the plugin's tests again instead of failing in `uv sync`.
