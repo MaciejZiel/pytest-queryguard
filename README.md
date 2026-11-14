@@ -1,5 +1,7 @@
 # pytest-queryguard
 
+<!-- mcp-name: io.github.MaciejZiel/pytest-queryguard (owner check of the MCP Registry, read from the PyPI description) -->
+
 [![CI](https://github.com/MaciejZiel/pytest-queryguard/actions/workflows/ci.yml/badge.svg)](https://github.com/MaciejZiel/pytest-queryguard/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/pytest-queryguard)](https://pypi.org/project/pytest-queryguard/)
 [![Python](https://img.shields.io/pypi/pyversions/pytest-queryguard)](https://pypi.org/project/pytest-queryguard/)

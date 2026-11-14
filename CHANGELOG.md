@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `llms-full.txt`, every page but the changelog and the design notes in one
   Markdown file with absolute links, for language models
   ([llmstxt.org](https://llmstxt.org/)).
+- The README has the hidden `mcp-name` line the official MCP Registry
+  reads from the PyPI description to check who owns a server name, so the
+  MCP server can be listed there from the next release on.
 
 ### Changed
 
