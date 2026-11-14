@@ -378,8 +378,8 @@ The other ways:
 
 ## Accuracy
 
-The Django corpus in `tests/django_project/corpus` has 73 scenarios, 37 with
-an N+1 or another finding and 36 without, run in five configurations:
+The Django corpus in `tests/django_project/corpus` has 75 scenarios, 38 with
+an N+1 or another finding and 37 without, run in five configurations:
 foreign keys, reverse relations, many-to-many relations, one-to-one relations,
 generic relations,
 multi-table inheritance, `select_related()`, `prefetch_related()` and
@@ -387,26 +387,26 @@ multi-table inheritance, `select_related()`, `prefetch_related()` and
 serializers, admin list, change and delete pages, templates, `get()` and
 `exists()` per item, `save()` and `delete()` in a loop against bulk writes and
 cascades, signals, `iterator()`, pagination, helpers called for objects the
-test created, and requests of the test client. On SQLite, with Django 5.2 and
+test created, lookup helpers called from two lines, and requests of the test client. On SQLite, with Django 5.2 and
 6.1, in the default configuration:
 
 | Kind | Precision | Recall |
 |---|---|---|
-| `relationship-load` | 100 % (22 of 22) | 100 % |
+| `relationship-load` | 100 % (23 of 23) | 100 % |
 | `column-load` | 100 % (5 of 5) | 100 % |
-| `repeated-statement` | 100 % (7 of 7) | 100 % |
+| `repeated-statement` | 100 % (8 of 8) | 100 % |
 | `write-loop` (threshold 2) | 100 % (7 of 7) | 100 % |
 
 The same holds in the other four configurations (small repeats, a column-load
 threshold of 2, write loops, strict mode) and on PostgreSQL 17 and MySQL 8.4,
-except for one scenario with two N+1s in strict mode: the test stops at the
+except for two scenarios with two findings each in strict mode: the test stops at the
 first, before the second is complete. `scripts/django_accuracy_report.py`
 prints them.
 
 **These numbers are biased.** We wrote the corpus, together with the
 integration: it says that the cases it names work, not how often the rules
-are right on other code. Five of its scenarios (`clean_35`, `clean_36`,
-`bug_35` to `bug_37`) were added after the runs on real projects below found
+are right on other code. Seven of its scenarios (`clean_35` to `clean_37`,
+`bug_35` to `bug_38`) were added after the runs on real projects below found
 false positives, each before its fix. For an estimate on code we did not
 write, see [Real projects](#real-projects).
 

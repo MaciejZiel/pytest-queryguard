@@ -119,11 +119,23 @@ class RelationshipLoadEvent:
     entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
     orm: str = "sqlalchemy"  # see StatementEvent.orm
-    # For a parent whose query is unknown: the application lines from the
-    # read outwards to the test, as (file, line). Loads of such parents are
-    # grouped by it, so one helper that two lines of the test call is not a
-    # loop. None: grouped by the reading line alone (SQLAlchemy).
+    # The application lines from the read outwards to the test, as (file,
+    # line). Loads of parents whose query is unknown are grouped by it, so
+    # one helper that two lines of the test call is not a loop; loads of
+    # parents of a known query by that query's line and it (query_line), so
+    # one lookup helper called from two lines is not either. None: grouped by
+    # the lines alone (SQLAlchemy).
     read_path: tuple[tuple[str, int], ...] | None = field(default=None, compare=False)
+
+
+def query_line(load: RelationshipLoadEvent) -> object:
+    """How loads of parents of a known query are grouped: by the query's line
+    and the call path of the read (``read_path``, Django), which every pass of
+    a loop shares; None when the parent's query is unknown."""
+    parent = load.parent
+    if parent is None or parent.callsite is None:
+        return None
+    return (parent.callsite, load.read_path)
 
 
 def read_key(load: RelationshipLoadEvent) -> object:

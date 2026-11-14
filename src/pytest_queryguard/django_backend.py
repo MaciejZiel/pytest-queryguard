@@ -1010,17 +1010,16 @@ def _relationship_event(
         path.entry,
         path.test_code,
         orm=ORM_DJANGO,
-        read_path=_read_path(parent),
+        read_path=_read_path(),
     )
 
 
-def _read_path(parent: ParentLoad | None) -> tuple[tuple[str, int], ...] | None:
-    """The call path of a read whose parent's query is unknown (see
-    ``RelationshipLoadEvent.read_path``): objects the test created and read
-    through one helper at two lines of the test are two reads, not a loop.
-    In an asgiref thread (the async ORM) the path is the awaiting line's."""
-    if parent is not None and parent.callsite is not None:
-        return None
+def _read_path() -> tuple[tuple[str, int], ...]:
+    """The call path of a read (see ``RelationshipLoadEvent.read_path``):
+    objects the test created and read through one helper at two lines of the
+    test are two reads, not a loop, and so are two objects that one lookup
+    helper gets and reads, called from two lines. In an asgiref thread (the
+    async ORM) the path is the awaiting line's."""
     path = callsite.read_path()
     if not path:
         site = _async_site.get()
@@ -1361,7 +1360,7 @@ def _execute_sql(
                 path.entry,
                 path.test_code,
                 orm=ORM_DJANGO,
-                read_path=_read_path(parent),
+                read_path=_read_path(),
             )
             pending: _Pending | None = (
                 event,

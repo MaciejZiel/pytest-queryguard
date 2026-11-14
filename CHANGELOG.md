@@ -7,41 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- N+1 detection without pytest, for Django projects that run
-  `manage.py test` (experimental): `pytest_queryguard.django.QueryGuardRunner`,
-  a `DiscoverRunner` set with `TEST_RUNNER`, measures `setUp()`, the test
-  method and `tearDown()` of every test as the plugin does and fails or warns
-  with the plugin's report; `QueryGuardTestCase` does the same for the test
-  cases it is mixed into, under any runner. Settings in `QUERYGUARD = {...}`
-  with the ini options' names, `--queryguard-mode` on the command line; works
-  with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
-  index check without pytest yet
-  ([Django](docs/django.md#without-pytest-managepy-test)).
-
 ### Fixed
 
-- Django (experimental): each request of the `AsyncClient` counts on its own
-  on Django 5.2 and 6.0 too, as it did on 6.1 and as requests of the sync
-  test client always did. Before 6.1, `Signal.asend` runs the receivers of
-  `request_started` in a task of their own, so the requests of a test were
-  counted together per connection, and lookups each request makes once (the
-  user, its permissions, the session) were reported as an N+1. Seen on
-  strawberry-django, whose GraphQL test client sends each query through
-  `AsyncClient`: 30 false `relationship-load` findings.
-- Django (experimental): a streamed body (`StreamingHttpResponse`,
-  `FileResponse`) that a test reads from an `AsyncClient` response after the
-  call returned counts in its request, on every Django version.
+- Django (experimental): a helper that gets one object and reads its relation
+  is no longer an N+1 when it runs once from each of two lines (one request
+  that handles two sessions, say): the parents of one query line are grouped
+  by the call path of the read too, which every pass of a loop shares, so the
+  same helper in a loop is still found. Seen on django-allauth, `UserSession.user` read by
+  `create_from_request()` for the token's and the cookie's session (3 false
+  `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
 
 ### Internal
 
-- The overhead baseline has entries for two more CPU models of
-  `ubuntu-latest`, which fell back to the highest entry: Intel Xeon 6973P-C
-  (dropped when the baseline was recorded again) and Xeon Platinum 8370C
-  (never recorded), from green logs of the release gate's overhead job run
-  alone on `main`. Xeon 6975P-C did not come up in 80 jobs and still falls
-  back. See [Releasing](docs/releasing.md#when-a-threshold-has-to-change).
 - The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi tests (the `fastapi_project` fixture now skips when fastapi is missing), so it runs the plugin's tests again instead of failing in `uv sync`.
 
 ## [1.0.0] - 2026-11-14
