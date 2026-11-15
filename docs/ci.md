@@ -40,7 +40,8 @@ jobs:
 
 The action lives in
 [`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action),
-the repository listed in the GitHub Marketplace. It holds a copy of
+the repository listed in the GitHub Marketplace as
+[pytest-queryguard](https://github.com/marketplace/actions/pytest-queryguard). It holds a copy of
 `action/action.yml` of this repository that each release copies there, so its
 `vX.Y.Z` is the same action as this repository's `vX.Y.Z`; issues and
 changes go to this repository. A release tag or a commit SHA is the safer

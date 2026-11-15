@@ -98,7 +98,8 @@ touches `editors/vscode/`.
 
 ## Publishing
 
-The extension is not published yet. Publishing needs the owner's accounts;
+The extension is in the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=maciejziel.pytest-queryguard);
+it is not on Open VSX yet. Publishing needs the owner's accounts;
 the steps, from a checkout of the commit to publish:
 
 1. Set `version` in `package.json` and add a line to `CHANGELOG.md` of this

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Link the launch article on dev.to from the README and the docs index, the
+  VS Code Marketplace listing of the extension from the editor page and the
+  GitHub Marketplace listing of the action from the CI page, and mention
+  pytest-pghealth (PostgreSQL schema checks, same author) on the index check
+  page.
+
 ## [1.1.0rc1] - 2026-11-15
 
 Release candidate for 1.1.0. New: route budgets in pytest, `assert_queries_do_not_grow()`, baseline labels that match across databases and SQLAlchemy versions, a VS Code extension, `llms.txt` and a Claude Code plugin for coding agents, and the GitHub Action in its own Marketplace repository. The Django ORM support is no longer experimental; its `manage.py test` runner and route budgets are new and start experimental. Two changes to watch when upgrading: a loop of the test that calls the application once per pass is now the test code's repetition, not an N+1 (see Changed), and a baseline written by 1.1 does not match on 1.0.x where a label changes form. Install with `pip install --pre pytest-queryguard`.

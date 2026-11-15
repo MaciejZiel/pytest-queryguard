@@ -256,6 +256,12 @@ affect the index check, but with patterns it matches
 missing-index findings the same way the `queryguard_ignore` option does
 (`@pytest.mark.queryguard_ignore("audit_log", kind="missing-index")`).
 
+The check judges the statements a test runs, not the schema: a foreign key
+without an index is found only once a test filters on it. For the schema
+itself (foreign keys without an index, duplicate indexes, tables without a
+primary key) there is [pytest-pghealth](https://github.com/MaciejZiel/pytest-pghealth),
+a separate pytest plugin for PostgreSQL by the same author, on PyPI.
+
 ## PostgreSQL versions
 
 | PostgreSQL | index check | trailing-column rule | notice in the session summary |
