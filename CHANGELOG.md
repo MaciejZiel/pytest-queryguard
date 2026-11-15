@@ -53,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The README has the hidden `mcp-name` line the official MCP Registry
   reads from the PyPI description to check who owns a server name, so the
   MCP server can be listed there from the next release on.
+- The GitHub Action is listed for the GitHub Marketplace from its own
+  repository, [`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action):
+  `uses: MaciejZiel/pytest-queryguard-action@v1.0.0`, or `@v1` for the newest
+  1.x final release. It is a copy of `action/action.yml` with the plugin
+  wheel of the release in `dist/`; `action/` here stays the source and keeps
+  working, and switching is a change of the `uses:` line only (same inputs,
+  outputs, artifact name and comment marker). The action has a `branding`
+  for the listing.
 - A VS Code extension in `editors/vscode`
   ([#382](https://github.com/MaciejZiel/pytest-queryguard/issues/382)). It
   reads the `--queryguard-json` or `--queryguard-sarif` report of the last run,
@@ -104,6 +112,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/mcp.md`, the README's first paragraph, `context7.json` and the
   package's summary, keywords and `Framework :: Django` classifiers mention
   Django and the terms people search for.
+- With an empty `package` input the action installs the one plugin wheel in
+  `dist/` next to `action.yml` (the action repository), and without one the
+  checkout above `action/` when it has a `pyproject.toml` (this repository,
+  as before); otherwise the step stops with an error naming the `package`
+  input.
 
 ### Fixed
 
@@ -185,6 +198,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/realworld_django_projects.json`. The
   [Django design note](docs/design-django.md#5-out-of-experimental) lists
   what is still missing before the Django support stops being experimental.
+- [CI](docs/ci.md#the-action), the README, `llms.txt` and `SECURITY.md`
+  point to the action repository; [Stability](docs/stability.md#files-tools-and-the-action)
+  says that its `vX.Y.Z` is the same action as `action/` at `vX.Y.Z` and
+  that `v1` moves only to final releases; [Releasing](docs/releasing.md)
+  has the step that updates it. The release gate checks the pin in
+  `docs/ci.md` in the action repository's spelling.
 - [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
 
 ### Internal
