@@ -87,6 +87,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   middleware of the project name the line that awaited them, not the
   middleware's `get_response(request)` line, which asgiref's thread had on
   its stack.
+- Django (experimental): the statements of a thread that test code starts
+  (its target is test code, as `oscar.test.utils.run_concurrently` is) count
+  on their own, as a request does: each thread has a connection of its own,
+  and five threads that each place one order are no loop. Seen on
+  django-oscar's concurrency test (2 false findings). A thread that the
+  application starts, one per item, still counts with the rest of the test.
+  The requests of the live server count one by one, as before; now tested.
 
 ### Documentation
 

@@ -269,7 +269,13 @@ and that is no loop of the application. The rest of the test counts as a
 whole. With `queryguard_scope = session`, statements outside a request also
 count per database connection, as a Session does for SQLAlchemy. Requests of
 the `AsyncClient` (and of an ASGI handler) count on their own too, on every
-supported Django version. A streamed body (`StreamingHttpResponse`,
+supported Django version, and so do the requests of the live server
+(`live_server`, `LiveServerTestCase`), each in a thread of the server. A
+thread that runs test code (its target is a function of the test: a helper
+that runs a function in five threads to test a race) is a unit of its own as
+well, on its connection; a thread whose target is a function of the
+application is not, also when the test started it
+(`Thread(target=place_order)`). A streamed body (`StreamingHttpResponse`,
 `FileResponse`) counts in its request when the test reads it, also after
 other requests. See
 [Several sessions or requests](several-sessions.md).
@@ -496,9 +502,12 @@ positives it showed, each fixed with a scenario added first:
   `_pre_setup` and `_post_teardown` now (a test in `tests/django_project`;
   the corpus cannot hold a `TransactionTestCase`).
 
-Not fixed: work spread over threads (the two false findings above) still
-counts together with `queryguard_scope = test`; `queryguard_scope = session`
-counts each connection on its own.
+Fixed since: work spread over threads (the two false findings above) counted
+together with `queryguard_scope = test`. A thread that test code starts (its
+target is test code, as `oscar.test.utils.run_concurrently` is) has a
+connection of its own, and its statements now count on their own, as a
+request does. A thread that the application starts, one per item, is still
+counted with the rest of the test.
 
 ### Five more projects (2026-11-14)
 
