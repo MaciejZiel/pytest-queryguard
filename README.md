@@ -199,8 +199,8 @@ which can verify a suggested index with hypopg.
 - Leave out single findings with `@pytest.mark.queryguard_ignore("Order.customer")`
   or the `queryguard_ignore` option; make kinds warn with `queryguard_fail_on`
   or `queryguard_mode = warn`. See [Ignoring findings](https://maciejziel.github.io/pytest-queryguard/ignoring.html).
-- Read the statements of a block in a test with `record_queries()`. See
-  [Reading the queries](https://maciejziel.github.io/pytest-queryguard/python-api.html).
+- `record_queries()` reads a block's statements; `assert_queries_do_not_grow()`
+  fails when the count grows with the rows. See [Reading the queries](https://maciejziel.github.io/pytest-queryguard/python-api.html).
 - The same rules run per request in a FastAPI, Starlette or Flask app during
   development: [in-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html).
 
