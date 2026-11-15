@@ -234,6 +234,7 @@ STARLETTE_HTTPX_FILTER = (
 
 @pytest.fixture
 def fastapi_project(project: pytest.Pytester) -> pytest.Pytester:
+    pytest.importorskip("fastapi")
     project.makeini(STARLETTE_HTTPX_FILTER)
     return project
 

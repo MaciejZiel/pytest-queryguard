@@ -1436,7 +1436,9 @@ def _leave_out_test_code(
             # the run never showed it, and with warn or fail later it must be.
             baseline = settings.baseline or frozenset()
             settings.seen.update(
-                f.identity for f in findings if f.test_code and f.identity in baseline
+                baselines.key(f)
+                for f in findings
+                if f.test_code and baselines.key(f) in baseline
             )
     return kept
 
@@ -1600,7 +1602,7 @@ def _apply_baseline(
     Records every finding it gets, for the stale-entry report and for an update.
     """
     if settings.baselining:
-        settings.seen.update(f.identity for f in findings)
+        settings.seen.update(baselines.key(f) for f in findings)
         if settings.update_baseline:
             findings = []
         else:
@@ -2224,7 +2226,7 @@ def pytest_testnodedown(node: Any, error: object) -> None:
         if error is not None or output.get("queryguard_incomplete", True):
             settings.baseline_incomplete = True
         for identity in output.get("queryguard_seen", []):
-            settings.seen.add(_identity(identity))
+            settings.seen.add(baselines.portable(_identity(identity)))
         for file, function in output.get("queryguard_executed", []):
             settings.executed.add((file, function))
         sarif.merge_wire(settings.reported, output.get("queryguard_reported", []))

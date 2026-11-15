@@ -147,6 +147,31 @@ def test_lookups_at_one_line_in_a_loop_are() -> None:
     assert labels(collector) == {(REL, "Book.author")}
 
 
+def _author_of(pk: int) -> str:
+    return Book.objects.get(pk=pk).author.name
+
+
+def test_one_lookup_helper_called_from_two_lines_is_no_n_plus_one() -> None:
+    # the lookups share their query line but not the lines that called it
+    with measure() as collector:
+        first = _author_of(1)
+        second = _author_of(7)
+    assert first != second
+    assert detections(collector) == []
+
+
+def test_one_query_line_in_a_loop_with_one_row_or_more_is_one_group() -> None:
+    # a pass that gets one row and one that gets several share the call path
+    with measure() as collector:
+        names = [
+            book.author.name
+            for ids in ((1,), (4, 7), (10,), (13, 16))
+            for book in Book.objects.filter(pk__in=ids)
+        ]
+    assert len(names) == 6
+    assert _one(collector).count == 6
+
+
 def test_iterator_in_a_loop() -> None:
     with measure() as collector:
         names = [b.author.name for b in Book.objects.iterator(chunk_size=5)]

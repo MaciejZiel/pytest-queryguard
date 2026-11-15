@@ -96,6 +96,46 @@ database or operating system specific path, or anything risky), add the
 `full-ci` label: `.github/workflows/full-ci.yml` runs the whole matrix at
 once, and every later push runs it while the label stays.
 
+### When code scopes something to a request
+
+Most bugs found from outside so far had one cause: a scope (a request, a
+`track()` unit, a recording) tied to a call frame, while the work it
+covers starts before or ends after that frame. A change that sets, resets or
+reads such a scope (a `ContextVar`, a token, a signal handler, a WSGI or
+ASGI middleware, the Django backend's request patches) needs a test for
+each of these that applies, with a statement run in that phase and a check
+that it lands in its own request and nowhere else (no other request, no
+enclosing `track()`):
+
+- the body produced after the handler returned: a sync and an async
+  generator, a `StreamingHttpResponse`/`StreamingResponse`, read by a test
+  client after its call returned (#386);
+- the response iterable's `__iter__` and `close()`, close callbacks
+  (`call_on_close`), and a body closed unread or half read (#203);
+- a file the server sends: `wsgi.file_wrapper`, `FileResponse`,
+  `http.response.pathsend` (#211);
+- background tasks, sync (thread pool) and async, after the response;
+- an exception half way through the body: the request still ends, once,
+  and the next one starts clean;
+- a `HEAD` request;
+- the order of middleware: ours outside and inside another
+  (`BaseHTTPMiddleware`), and an application mounted under a prefix
+  (`root_path`, `SCRIPT_NAME`) (#210);
+- threads and tasks: a test client running the app in its own thread,
+  concurrent requests on one event loop, bodies of several requests read in
+  turn, `asyncio.gather` running receivers in tasks of their own (#386);
+- a scope that spans a generator: the consumer's code between items is not
+  inside it, two generators read in turn each end their own, and a scope
+  entered inside the generator across a `yield` stays its current one (the
+  `track()` decorator);
+- work that finishes after recording ended: a statement started in the
+  scope and completed in another thread (#202).
+
+`tests/inapp/test_request_lifecycle.py` is the matrix for the in-app
+middleware and `track()`; add a row there (or to the Django tests) rather
+than a test of one framework. Tests that start a Python subprocess with
+`-I` pass `-X utf8` and read its output as UTF-8 (#287).
+
 ## Releasing
 
 Only a maintainer releases, and a release never starts with a tag: it starts

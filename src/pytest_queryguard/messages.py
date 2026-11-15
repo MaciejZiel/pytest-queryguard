@@ -8,6 +8,7 @@ from .detectors import (
     Detection,
     RelationshipFinding,
     WriteLoopFinding,
+    normalize,
 )
 from .errors import Failure
 from .events import (
@@ -39,6 +40,7 @@ from .findings import (
     docs_url,
 )
 from .indexes import table_label
+from .sqltext import skip_prefix
 
 _SQL_LIMIT = 200
 _REPEAT_FIX = [
@@ -644,6 +646,79 @@ def format_time_budget(
             f"  ... {missing} more {'statement was' if missing == 1 else 'statements were'} not stored "
             "(queryguard_max_events), so the slowest list may be incomplete"
         )
+    return "\n".join(lines)
+
+
+def _times(count: int) -> str:
+    return "1 time" if count == 1 else f"{count} times"
+
+
+def _growth_fix(event: StatementEvent, fix: str) -> list[str]:
+    django = event.orm == ORM_DJANGO
+    if fix == "relationship":
+        name = event.relationship or ""
+        model = name.partition(".")[0]
+        if django:
+            return [
+                f"  fix: load {name} with the query that loads the {model} rows:",
+                "       select_related() for a foreign key or one-to-one,",
+                "       prefetch_related() for a to-many relationship",
+            ]
+        return [
+            f"  fix: load {name} with the query that loads the {model} rows:",
+            f"       .options(joinedload({name})) for a many-to-one,",
+            f"       .options(selectinload({name})) for a collection",
+        ]
+    if fix == "write":
+        start = skip_prefix(event.sql) or 0
+        verb = event.sql[start : start + 6].upper()
+        fixes = _WRITE_FIX_DJANGO if django else _WRITE_FIX
+        return list(fixes.get(verb, fixes["INSERT"]))
+    if _IN_LIST in normalize(event.sql):
+        return list(_BATCHED_FIX)
+    return list(_REPEAT_FIX_DJANGO if django else _REPEAT_FIX)
+
+
+def format_growth(
+    counts: Mapping[int, int],
+    grown: Sequence[tuple[StatementEvent, Mapping[int, int], str]],
+    *,
+    cwd: Path | None = None,
+) -> str:
+    """The failure of ``assert_queries_do_not_grow()``.
+
+    ``counts`` is the number of statements per size, in ascending order;
+    ``grown`` the statements that ran more often at a larger size, each with
+    its count per size and the kind of fix (``relationship``, ``write`` or
+    ``repeat``).
+    """
+    per_size = ", ".join(f"{count} at size {size}" for size, count in counts.items())
+    sizes = list(counts)
+    if any(counts[size] > counts[sizes[0]] for size in sizes[1:]):
+        head = f"the number of statements grows with the size: {per_size}"
+    else:
+        head = (
+            "a statement runs more often at a larger size "
+            f"(statements in total: {per_size})"
+        )
+    lines = [f"queryguard: {head}"]
+    for event, by_size, fix in grown:
+        runs = ", ".join(
+            f"{_times(count)} at size {size}" for size, count in by_size.items()
+        )
+        if event.relationship is not None and not event.column_load:
+            runs += f" (loads {event.relationship})"
+        site = event.callsite
+        lines.extend(
+            [
+                "",
+                f"  {_truncate(event.sql)}",
+                f"  ran {runs}",
+                *_first_at(site, _stack(site, cwd), cwd),
+                *_growth_fix(event, fix),
+            ]
+        )
+    lines.extend(["", f"  docs: {DOCS_URL}recipes-query-count-scaling.html"])
     return "\n".join(lines)
 
 
