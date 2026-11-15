@@ -21,8 +21,10 @@ Django and the standard library only (and the plugin, for ``Guarded``).
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import sys
 import traceback
 import unittest
 import warnings
@@ -38,6 +40,10 @@ INTERNAL = "QueryGuardInternalWarning"
 _outcomes: dict[str, tuple[str, str]] = {}
 _findings: dict[str, list[dict[str, Any]]] = {}
 _current: list[str] = [""]
+# set once the suite ran to the end (suite_result): a run cut short, by the
+# workflow's timeout say, still writes what it has, marked incomplete
+_finished: list[bool] = [False]
+_installed: list[bool] = [False]
 _RANK = {"failed": 0, "skipped": 1, "passed": 2}
 
 
@@ -118,21 +124,34 @@ def write_counts(path: Path) -> None:
     for test_id in sorted(_outcomes):
         classname, _, name = test_id.rpartition(".")
         tests[f"{classname}::{name}"] = {"findings": _findings.get(test_id, [])}
-    data = {"format": 1, "complete": True, "tests": tests}
+    data = {"format": 1, "complete": _finished[0] and not _disabled(), "tests": tests}
     path.write_text(json.dumps(data, indent=1, sort_keys=True), encoding="utf-8")
 
 
+def _disabled() -> bool:
+    """Whether the plugin disabled itself after an internal error."""
+    errors = sys.modules.get("pytest_queryguard.errors")
+    return errors is not None and errors.internal_error() is not None
+
+
 class _Recorded(DiscoverRunner):
-    """A runner that writes the outcomes of its run (``REALWORLD_RUN``)."""
+    """A runner that writes the outcomes of its run (``REALWORLD_RUN``).
+
+    The files are written at exit, so a run that a timeout interrupts still
+    leaves them; never from a frame around the run: a frame of this file on
+    the stack while the tests run would be a frame of the application to the
+    plugin, and make the statements of the test code the application's.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        atexit.register(self._write)
 
     def get_resultclass(self) -> Any:
         return Recording
 
-    # Written after the run, not around it: a frame of this file on the
-    # stack while the tests run would be a frame of the application to the
-    # plugin, and make the statements of the test code the application's.
     def suite_result(self, suite: Any, result: Any, **kwargs: Any) -> Any:
-        self._write()
+        _finished[0] = True
         return super().suite_result(suite, result, **kwargs)
 
     def _write(self) -> None:
@@ -161,28 +180,40 @@ def _probe(message: Warning | str, filename: str, lineno: int) -> None:
 
 
 def _install_recorders() -> None:
-    """Record the findings the runner makes and its internal warnings."""
+    """Record the findings the runner makes and its internal warnings.
+
+    The findings are those of the runner's application side (its ``_detect``
+    with ``test_code`` other than True), less the test code's repetition: what
+    it reports with its default settings. Internal, so tied to the plugin's
+    version; a project's own ``QUERYGUARD["ignore"]`` is not applied.
+    """
+    if _installed[0]:
+        return
+    _installed[0] = True
     import pytest_queryguard.django as runner_module
+    from pytest_queryguard.messages import make_findings
 
-    original = getattr(runner_module, "make_findings")  # noqa: B009  # not exported
+    detect = getattr(runner_module, "_detect")  # noqa: B009  # internal
 
-    def make_findings(*args: Any, **kwargs: Any) -> Any:
-        found = original(*args, **kwargs)
-        _findings.setdefault(_current[0], []).extend(
-            {
-                "kind": f.kind,
-                "label": f.label,
-                "file": f.file,
-                "line": f.line,
-                "function": f.function,
-                "count": f.count,
-            }
-            for f in found
-            if not f.test_code
-        )
+    def recording(collector: Any, config: Any, sieve: Any, test_code: Any) -> Any:
+        found = detect(collector, config, sieve, test_code)
+        if test_code is not True:
+            _findings.setdefault(_current[0], []).extend(
+                {
+                    "kind": f.kind,
+                    "label": f.label,
+                    "file": f.file,
+                    "line": f.line,
+                    "function": f.function,
+                    "count": f.count,
+                }
+                for f in make_findings(found)
+                if not f.test_code
+            )
         return found
 
-    setattr(runner_module, "make_findings", make_findings)  # noqa: B010
+    setattr(runner_module, "_detect", recording)  # noqa: B010
+    warnings.simplefilter("always", runner_module.QueryGuardInternalWarning)
     shown = warnings.showwarning
 
     def showwarning(
@@ -217,6 +248,11 @@ def _guarded() -> type:
             path = _out("queryguard.json")
             if path is not None:
                 write_counts(path)
+            if _disabled() and not (_out("probe.jsonl") or Path()).exists():
+                # the warning was filtered out: the error is recorded anyway
+                _probe(
+                    "pytest-queryguard disabled itself after an internal error", "", 0
+                )
 
     return Guarded
 

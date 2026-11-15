@@ -539,7 +539,10 @@ def test_the_project_list_is_well_formed(name: str) -> None:
         if project.get("mysql"):
             assert {"DATABASE_NAME", "DATABASE_PASSWORD"} <= set(project["env"])
         if project.get("test_command"):
+            # split on spaces; the runner records the outcomes in one process
             assert not project["pytest_args"], project["name"]
+            assert '"' not in project["test_command"], project["name"]
+            assert "--parallel" not in project["test_command"], project["name"]
         assert project["ref"] and project["ref"] not in ("main", "master", "HEAD")
         assert project["repository"].count("/") == 1
         assert "," not in project["name"]
