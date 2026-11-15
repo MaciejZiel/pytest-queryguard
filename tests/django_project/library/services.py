@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from .models import Book
+from .models import Book, Publisher
+
+LIMIT = 10
+
+
+def add_publisher(name: str) -> Publisher:
+    """A service with a limit: counts the publishers, then adds one."""
+    if Publisher.objects.count() >= LIMIT:
+        raise ValueError("too many publishers")
+    return Publisher.objects.create(name=name)
 
 
 def title_and_author(pk: int) -> str:

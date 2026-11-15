@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 from tests.corpus.kit import Ctx
-from tests.corpus.scenarios.clean_142_requests_in_a_loop_of_the_test import order_page
+from tests.corpus.scenarios.clean_142_requests_in_a_test_loop import order_page
 
 
 def run(ctx: Ctx) -> None:

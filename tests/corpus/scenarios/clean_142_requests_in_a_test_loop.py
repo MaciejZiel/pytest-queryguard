@@ -7,7 +7,7 @@ lines. Each call looks its category up and reads the customer of its one
 order: the application does the work once per call, as it does for each
 request in production, and no call repeats it. The loop is the test's, so
 the repetition is the test code's (``queryguard_test_code``). The test body
-is in ``testside/clean_142_requests_in_a_loop_of_the_test.py``.
+is in ``testside/clean_142_requests_in_a_test_loop.py``.
 """
 
 from ..domains import shop
@@ -20,7 +20,7 @@ KNOWN = {
     "strict": "strict mode raises at the lazy load, before later loads show "
     "that each call of the test's loop reads one customer",
 }
-TEST_SIDE = "clean_142_requests_in_a_loop_of_the_test"
+TEST_SIDE = "clean_142_requests_in_a_test_loop"
 setup = shop.setup
 
 __all__ = ["order_page"]

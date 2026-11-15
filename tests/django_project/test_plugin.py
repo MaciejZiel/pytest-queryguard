@@ -386,14 +386,28 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
 
 
 TEST_LOOPS = """
+import pytest
+
 from tests.django_project.library.seed import seed
-from tests.django_project.library.services import tag_counts, title_and_author
+from tests.django_project.library.services import (
+    add_publisher,
+    tag_counts,
+    title_and_author,
+)
 
 
 def test_one_call_per_case(db):
     seed()
     for pk in range(1, 7):
         assert title_and_author(pk)
+
+
+def test_arrange_with_a_service_in_a_loop(db):
+    # as Undercut's tests: services.create_league() ten times to reach a limit
+    for i in range(10):
+        add_publisher(f"p{i}")
+    with pytest.raises(ValueError):
+        add_publisher("one too many")
 
 
 def test_a_loop_of_the_application_in_each_pass(db):
@@ -413,7 +427,7 @@ def test_a_loop_of_the_test_that_calls_the_application_once_per_pass(
     monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     project.makepyfile(test_loops=TEST_LOOPS)
     result = _run(project, "test_loops.py", "--queryguard-json=out.json")
-    result.assert_outcomes(passed=1, failed=1)
+    result.assert_outcomes(passed=2, failed=1)
     tests = json.loads((project.path / "out.json").read_text())["tests"]
     labels = {
         key.split("::")[-1]: [f["label"] for f in value["findings"]]
@@ -421,15 +435,16 @@ def test_a_loop_of_the_test_that_calls_the_application_once_per_pass(
     }
     assert labels == {
         "test_one_call_per_case": [],
+        "test_arrange_with_a_service_in_a_loop": [],
         "test_a_loop_of_the_application_in_each_pass": ["Book.tags"],
     }
-    result.stdout.fnmatch_lines(["*N+1 findings in test code left out (1 test)*"])
+    result.stdout.fnmatch_lines(["*N+1 findings in test code left out (2 tests)*"])
     # as warnings with "warn", and as before 1.1.0 with "fail"
     warned = _run(project, "test_loops.py", "-o", "queryguard_test_code=warn")
-    warned.assert_outcomes(passed=1, failed=1)
+    warned.assert_outcomes(passed=2, failed=1)
     warned.stdout.fnmatch_lines(
         ["*QueryGuardWarning*", "*Book.author was lazy-loaded 6 times*"]
     )
     _run(project, "test_loops.py", "-o", "queryguard_test_code=fail").assert_outcomes(
-        failed=2
+        failed=3
     )

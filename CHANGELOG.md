@@ -45,7 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [Stability](docs/stability.md#what-is-not-public)); strict mode, which
   decides at the lazy load, still raises at the second pass. See
   [Loops of the test](docs/how-detection-works.md#loops-of-the-test); corpus
-  scenarios `clean_142` and `bug_137`.
+  scenarios `clean_142`, `clean_143` and `bug_137`. Seen also on a Django
+  project's suite, where five tests needed a `queryguard_ignore` marker for
+  an arrange step that calls a service in a loop.
 - Baseline labels no longer depend on the database: a `repeated-statement`
   or `write-loop` entry is written and compared without schema qualifiers,
   identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,

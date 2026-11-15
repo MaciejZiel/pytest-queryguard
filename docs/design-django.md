@@ -525,7 +525,9 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    governs ([Loops of the test](how-detection-works.md#loops-of-the-test)).
    A pass of a test loop is a unit, as a request is, only when the
    application did the work once in it. Fixtures and assertions on separate
-   lines were already calls on separate lines.
+   lines were already calls on separate lines. Corpus `clean_143` is the
+   arrange-loop case seen on another Django project (a service called per
+   row by the test, five tests marked).
 3. **Work spread over threads** (django-oscar's concurrency test) still
    counts together with `queryguard_scope = test`.
 4. ~~**Freeze the Django surface**~~ Done in 1.1.0:
