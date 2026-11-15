@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import inspect
+import json
 import re
 import unittest
 from pathlib import Path
@@ -23,7 +24,9 @@ import pytest
 from django.test.runner import DiscoverRunner
 
 import pytest_queryguard.django as qg_django
+from pytest_queryguard.baseline import portable_sql
 from pytest_queryguard.messages import make_findings
+from tests.test_public_api import EXPECTED_INI
 
 from .helpers import detections, labels, measure
 from .library.models import Author, Book, Place, Tag
@@ -35,6 +38,14 @@ REPEAT = "repeated-statement"
 COLUMN = "column-load"
 
 EXPECTED_ALL = ["QueryGuardRunner", "QueryGuardTestCase"]
+
+# The label of a repeated get() as a baseline writes it (the same on every
+# database); the full label is the SQL Django sends, normalized
+REPEAT_LABEL = (
+    "SELECT library_book.id, library_book.title, library_book.body, "
+    "library_book.pages, library_book.author_id FROM library_book "
+    "WHERE library_book.id = ? LIMIT ?"
+)
 
 # The QUERYGUARD setting: its keys, the ini options' names without the
 # "queryguard_" prefix, and their defaults
@@ -74,20 +85,25 @@ def test_the_runner_is_a_discover_runner_with_its_option() -> None:
     mode = init.parameters["queryguard_mode"]
     assert mode.kind is inspect.Parameter.KEYWORD_ONLY
     assert mode.default is None
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(exit_on_error=False)
     qg_django.QueryGuardRunner.add_arguments(parser)
-    (option,) = [a for a in parser._actions if a.dest == "queryguard_mode"]
-    assert option.option_strings == ["--queryguard-mode"]
-    assert list(option.choices or ()) == ["fail", "warn", "off"]
-    assert option.default is None
+    assert parser.parse_args([]).queryguard_mode is None
+    for value in ("fail", "warn", "off"):
+        parsed = parser.parse_args(["--queryguard-mode", value])
+        assert parsed.queryguard_mode == value
+    with pytest.raises((argparse.ArgumentError, SystemExit)):
+        parser.parse_args(["--queryguard-mode", "strict"])
 
 
 def test_the_test_case_mixin_wraps_run() -> None:
+    assert str(inspect.signature(qg_django.QueryGuardTestCase.run)) == (
+        "(self, result: 'unittest.TestResult | None' = None) -> 'Any'"
+    )
+
     class Case(qg_django.QueryGuardTestCase, unittest.TestCase):
         def test_nothing(self) -> None:
             pass
 
-    assert "run" in vars(qg_django.QueryGuardTestCase)
     result = unittest.TestResult()
     Case("test_nothing").run(result)
     assert result.wasSuccessful()
@@ -100,12 +116,19 @@ def test_settings_keys_and_defaults() -> None:
     } == EXPECTED_SETTINGS
 
 
-def test_settings_keys_are_ini_options_of_the_plugin(
-    pytestconfig: pytest.Config,
-) -> None:
-    for key in EXPECTED_SETTINGS:
-        # raises ValueError for an ini option the plugin does not define
-        pytestconfig.getini(f"queryguard_{key}")
+def test_settings_defaults_are_the_ini_options_defaults() -> None:
+    # tests/test_public_api.py snapshots the ini options; a key of QUERYGUARD
+    # is one of them without the prefix, with the same default (0 for "off"
+    # of a threshold, an empty list for a line list)
+    def as_ini(value: object) -> str:
+        return "0" if value is None else "[]" if value == () else str(value)
+
+    # an unset queryguard_scope is "test"
+    ini = {**EXPECTED_INI, "queryguard_scope": "test"}
+
+    assert {
+        f"queryguard_{key}": as_ini(value) for key, value in EXPECTED_SETTINGS.items()
+    } == {f"queryguard_{key}": ini[f"queryguard_{key}"] for key in EXPECTED_SETTINGS}
 
 
 @pytest.mark.allow_nplusone
@@ -143,19 +166,23 @@ def test_the_fix_each_finding_names() -> None:
     assert 'Book.objects.select_related("author")' in messages["Book.author"]
     assert 'Author.objects.prefetch_related("books")' in messages["Author.books"]
     assert 'Book.objects.only(..., "body")' in messages["Book.body"]
-    (repeat,) = [text for label, text in messages.items() if "library_book" in label]
-    assert "in_bulk" in repeat or "filter(pk__in" in repeat
+    portable = {portable_sql(label): text for label, text in messages.items()}
+    assert portable.keys() == {"Book.author", "Author.books", "Book.body", REPEAT_LABEL}
+    assert "Model.objects.in_bulk(ids)" in portable[REPEAT_LABEL]
+    assert "filter(pk__in=ids)" in portable[REPEAT_LABEL]
 
 
 def test_supported_django_versions_and_databases() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert re.search(r'^django = \["django>=5\.2"\]$', pyproject, re.MULTILINE)
-    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    versions = sorted({version for version, _ in EXPECTED_MATRIX})
+    listed = f"Django {', '.join(versions[:-1])} or {versions[-1]}"
+    assert listed in (ROOT / "docs" / "django.md").read_text(encoding="utf-8")
+    workflows = ROOT / ".github" / "workflows"
+    if not workflows.is_dir():
+        pytest.skip("the workflows are not in the sdist")
+    ci = (workflows / "ci.yml").read_text(encoding="utf-8")
     full = re.search(r"'(\[\{\"django\".*?\])'", ci)
     assert full is not None
-    tested = set(
-        re.findall(
-            r'"django":"([\d.]+)", "python-version":"[\d.]+", "db":"(\w+)"', full[1]
-        )
-    )
+    tested = {(job["django"], job["db"]) for job in json.loads(full[1])}
     assert tested == EXPECTED_MATRIX
