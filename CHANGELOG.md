@@ -43,7 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AsyncClient`: 30 false `relationship-load` findings.
 - Django (experimental): a streamed body (`StreamingHttpResponse`,
   `FileResponse`) that a test reads from an `AsyncClient` response after the
-  call returned counts in its request, on every Django version.
+  call returned counts in its request, on every Django version. On Django
+  6.1, where `request_started` reaches the request's own context, the
+  request no longer gets a second scope there: its view and its streamed
+  body count as one request.
 
 ### Internal
 

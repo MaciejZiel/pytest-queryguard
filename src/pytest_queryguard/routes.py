@@ -296,7 +296,7 @@ def end(test: QueryCollector | None, root: Path | None) -> list[str]:
         _Request(u.method, u.path, u.route, list(u.collector.statements), u.collector)
         for u in units
     ]
-    if test is not None and state.django:
+    if test is not None:
         requests.extend(_django_requests(state, test))
     return _report(state.budgets, requests, root)
 
@@ -326,10 +326,15 @@ def _django_requests(state: _State, test: QueryCollector) -> list[_Request]:
     by_scope: dict[int, list[StatementEvent]] = {}
     for stmt in list(test.statements):
         scope = stmt.scope
-        if isinstance(scope, RequestScope) and scope in state.django:
+        if isinstance(scope, RequestScope):
             by_scope.setdefault(scope, []).append(stmt)
+    with state.lock:
+        named = dict(state.django)
     requests = []
-    for scope, (method, path, route) in sorted(state.django.items()):
+    for scope in sorted(by_scope.keys() | named.keys()):
+        # a request answered before URL resolution (by a middleware) has no
+        # name: only the default budget applies to it
+        method, path, route = named.get(scope, (None, None, None))
         requests.append(_Request(method, path, route, by_scope.get(scope, [])))
     return requests
 
@@ -338,7 +343,7 @@ def _report(
     budgets: RouteBudgets, requests: list[_Request], root: Path | None
 ) -> list[str]:
     """One failure text per route (or path) with requests over its budget."""
-    over: dict[tuple[str, str], tuple[int, str, list[_Request]]] = {}
+    over: dict[tuple[str, str, int, str], list[_Request]] = {}
     for request in requests:
         found = budgets.limit(request.method, request.route, request.path)
         if found is None:
@@ -346,11 +351,11 @@ def _report(
         limit, source = found
         if request.count <= limit:
             continue
-        name = request.route or request.path or "?"
-        key = (request.method or "", name)
-        over.setdefault(key, (limit, source, []))[2].append(request)
+        name = request.route or request.path or "a request without a route"
+        key = (request.method or "", name, limit, source)
+        over.setdefault(key, []).append(request)
     texts = []
-    for (method, name), (limit, source, group) in over.items():
+    for (method, name, limit, source), group in over.items():
         worst = max(group, key=lambda r: r.count)
         texts.append(_text(method, name, limit, source, worst, len(group), root))
     return texts
@@ -366,7 +371,7 @@ def _text(
     root: Path | None,
 ) -> str:
     route = f"{method} {name}".strip()
-    request = f"{worst.method or ''} {worst.path or ''}".strip()
+    request = f"{worst.method or ''} {worst.path or ''}".strip() or "it"
     noun = "statement" if limit == 1 else "statements"
     lines = [
         (
@@ -407,14 +412,25 @@ def _asgi_route(scope: Any, root_path: str) -> str | None:
     template = scope.get("path_template")  # Litestar
     if isinstance(template, str) and template:
         return template
-    route = getattr(scope.get("route"), "path", None)  # Starlette, FastAPI
-    if not isinstance(route, str):
-        return None
-    # A mounted sub-application's route is relative to its mount.
+    matched = scope.get("route")
+    route = getattr(matched, "path", None)  # Starlette, FastAPI
+    # A mounted sub-application's route is relative to its mount; the root
+    # path below the application's own is the mount's.
     prefix = scope.get("root_path") or ""
-    if not isinstance(prefix, str) or not prefix.startswith(root_path):
-        return route
-    return prefix[len(root_path) :] + route
+    mount = (
+        prefix[len(root_path) :]
+        if isinstance(prefix, str) and prefix.startswith(root_path)
+        else ""
+    )
+    if not isinstance(route, str):
+        # FastAPI puts back the route it found before a Mount: name the
+        # request by its mount (a plain ASGI application mounted)
+        return mount or None
+    if hasattr(matched, "routes"):
+        # The Mount itself: no route inside it matched (a plain ASGI app, a
+        # 404 of a sub-application). Its own path is already in the prefix.
+        return mount or route
+    return mount + route
 
 
 def _asgi(original: Callable[..., Any]) -> Callable[..., Any]:
@@ -438,7 +454,9 @@ def _asgi(original: Callable[..., Any]) -> Callable[..., Any]:
         finally:
             try:
                 unit.leave(tokens)
-                unit.route = _asgi_route(scope, root_path)
+                # a WSGI application mounted inside (Flask) may have named it
+                if unit.route is None:
+                    unit.route = _asgi_route(scope, root_path)
                 unit.finish()
             except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
                 record_error(exc, "route budgets (end of a request)")
@@ -525,7 +543,8 @@ def _on_flask_request(sender: Any, **extra: Any) -> None:
 
         rule = request.url_rule
         if rule is not None:
-            unit.route = rule.rule
+            # with the prefix it is mounted at, if any
+            unit.route = request.script_root + rule.rule
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "route budgets (Flask route)")
 

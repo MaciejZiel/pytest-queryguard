@@ -3056,12 +3056,6 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         record_error(exc, "start of the measurement")
         _report_internal_error(item.config)
         return (yield)
-    if route_budgets is not None:
-        try:
-            routes.begin(route_budgets, settings.max_events)
-        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-            record_error(exc, "route budgets")
-            route_budgets = None
     if strict_hook is not None:
         collector.strict = strict_hook
         collector.strict_threshold = settings.relationship
@@ -3071,6 +3065,13 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     # the test's own failure, after strict mode raised in it
     other_error: BaseException | None = None
     recording = blocks.record_entered(collector)
+    if route_budgets is not None:
+        # last before the test runs: the finally below always ends it
+        try:
+            routes.begin(route_budgets, settings.max_events)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "route budgets")
+            route_budgets = None
     try:
         result = yield
     except BaseException as exc:

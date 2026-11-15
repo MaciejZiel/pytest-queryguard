@@ -70,6 +70,15 @@ def item(item_id: int, n: int = 2):
 
 
 app.mount("/sub", sub)
+
+
+async def raw(scope, receive, send):  # a plain ASGI application, mounted
+    run(2)
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b""})
+
+
+app.mount("/raw", raw)
 """
 
 
@@ -283,6 +292,33 @@ def test_a_mounted_application_has_its_mount_prefix(
         ]
     )
     assert result.stdout.str().count("may run at most") == 1
+
+
+def test_a_mounted_plain_asgi_application_is_named_by_its_mount(
+    project: pytest.Pytester,
+) -> None:
+    _ini(project, "GET /raw=1")
+    _test(project, "    client.get('/raw/anything')")
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*route budget: GET /raw may run at most 1 *"])
+
+
+def test_requests_of_one_route_with_different_limits_are_apart(
+    project: pytest.Pytester,
+) -> None:
+    _ini(project, "GET /books/1=10\nGET /books/{book_id}=2")
+    _test(project, "    client.get('/books/2')\n    client.get('/books/1?n=12')")
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*may run at most 2 statements per request, GET /books/2 ran 3",
+            '*(the limit is "GET /books/{book_id}" in queryguard_route_budgets)',
+            "*may run at most 10 statements per request, GET /books/1 ran 12",
+            '*(the limit is "GET /books/1" in queryguard_route_budgets)',
+        ]
+    )
 
 
 def test_an_async_client_in_the_test_loop(project: pytest.Pytester) -> None:

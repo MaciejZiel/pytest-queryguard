@@ -30,6 +30,42 @@ def test_marker(client, seeded):
     assert client.get("/books/").status_code == 200
 
 
+@pytest.mark.django_db(transaction=True)
+def test_async_client():
+    import asyncio
+
+    from django.test import AsyncClient
+    from tests.django_project.library.seed import seed
+
+    seed()
+
+    async def get():
+        assert (await AsyncClient().get("/async/books/1/")).status_code == 200
+
+    asyncio.run(get())
+
+
+def test_streamed(client, seeded):
+    response = client.get("/stream/1/")
+    assert b"".join(response.streaming_content)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_streamed_async():
+    import asyncio
+
+    from django.test import AsyncClient
+    from tests.django_project.library.seed import seed
+
+    seed()
+
+    async def get():
+        response = await AsyncClient().get("/stream/async/1/")
+        assert [part async for part in response.streaming_content]
+
+    asyncio.run(get())
+
+
 def test_unresolved(client, seeded):
     assert client.get("/nowhere/").status_code == 404
 """
@@ -66,8 +102,13 @@ def _run(project: pytest.Pytester, *args: str) -> pytest.RunResult:
 
 
 def test_a_django_request_over_its_route_budget(project: pytest.Pytester) -> None:
-    result = _run(project, "-o", "queryguard_route_budgets=GET /books/<int:pk>/=1")
-    result.assert_outcomes(passed=3, failed=1)
+    result = _run(
+        project,
+        "-o",
+        "queryguard_route_budgets=GET /books/<int:pk>/=1\nGET /async/books/*=0",
+    )
+    result.assert_outcomes(passed=5, failed=2)
+    assert "GET /async/books/1/ ran 1" in result.stdout.str()
     result.stdout.fnmatch_lines(
         [
             (
@@ -85,12 +126,29 @@ def test_the_default_budget_and_the_marker(project: pytest.Pytester) -> None:
     result = _run(project, "-o", "queryguard_route_default_budget=1")
     # /books/ runs a statement per book: over the default; the marker turns
     # the default off for its test; a request no route matched has none
-    result.assert_outcomes(passed=2, failed=2)
+    result.assert_outcomes(passed=5, failed=2)
     out = result.stdout.str()
     assert "GET /books/ may run at most 1 statement per request" in out
     assert "test_marker" not in out.split("short test summary")[-1]
     assert "/nowhere/" not in out
 
 
+def test_a_streamed_body_counts_for_its_request(project: pytest.Pytester) -> None:
+    result = _run(project, "-o", "queryguard_route_budgets=/stream/*=0", "-k", "stream")
+    result.assert_outcomes(failed=2, deselected=5)
+    result.stdout.fnmatch_lines(
+        [
+            (
+                "*GET /stream/<int:pk>/ may run at most 0 statements per request, "
+                "GET /stream/1/ ran 1"
+            ),
+            (
+                "*GET /stream/async/<int:pk>/ may run at most 0 statements per "
+                "request, GET /stream/async/1/ ran 1"
+            ),
+        ]
+    )
+
+
 def test_without_route_budgets_nothing_fails(project: pytest.Pytester) -> None:
-    _run(project).assert_outcomes(passed=4)
+    _run(project).assert_outcomes(passed=7)

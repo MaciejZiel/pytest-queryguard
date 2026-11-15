@@ -124,7 +124,15 @@ Litestar's `TestClient`, Flask's `test_client()`, Django's `Client`. A
 request without a route template (a 404, a Django request no URL pattern
 resolved) matches by its path. The Flask test client reads a body only when
 the test does (`response.data`); a body never read counts up to the end of
-the test.
+the test. Django ends a streamed response's request when its body is read to
+the end or closed; until then, statements of the test count for it.
+
+The plugin hooks into an application framework when a test with route
+budgets starts, so the framework must be imported by then: in the test
+module, a `conftest.py` or a fixture, as usual. A framework first imported
+inside the test function is measured from the next test on. A Django request
+that a middleware answers before URL resolution has no route or path: only
+`queryguard_route_default_budget` applies to it.
 
 Statements stored per request follow `queryguard_max_events`, as a test's do;
 past it they are counted but not listed. A Django request is counted from the
