@@ -1,0 +1,131 @@
+{
+  "name": "pytest-queryguard",
+  "displayName": "pytest-queryguard",
+  "description": "Shows the N+1 queries that pytest-queryguard found in the last test run on their lines: SQL, count and fix on hover.",
+  "version": "0.1.0",
+  "publisher": "maciejziel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MaciejZiel/pytest-queryguard.git",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/MaciejZiel/pytest-queryguard/issues"
+  },
+  "homepage": "https://maciejziel.github.io/pytest-queryguard/editor.html",
+  "keywords": [
+    "pytest",
+    "sqlalchemy",
+    "n+1",
+    "django",
+    "sql"
+  ],
+  "categories": [
+    "Testing",
+    "Linters"
+  ],
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:python",
+    "workspaceContains:**/queryguard.json",
+    "workspaceContains:**/queryguard.sarif"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "queryguard.runFile",
+        "title": "Run pytest on This File",
+        "category": "queryguard"
+      },
+      {
+        "command": "queryguard.runTest",
+        "title": "Run pytest on the Test at the Cursor",
+        "category": "queryguard"
+      },
+      {
+        "command": "queryguard.runAll",
+        "title": "Run pytest on the Whole Project",
+        "category": "queryguard"
+      },
+      {
+        "command": "queryguard.refresh",
+        "title": "Reload the Report",
+        "category": "queryguard"
+      },
+      {
+        "command": "queryguard.clear",
+        "title": "Clear the Findings",
+        "category": "queryguard"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "queryguard.runFile",
+          "when": "editorLangId == python"
+        },
+        {
+          "command": "queryguard.runTest",
+          "when": "editorLangId == python"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "pytest-queryguard",
+      "properties": {
+        "queryguard.reportFile": {
+          "type": "string",
+          "default": "queryguard.json",
+          "scope": "resource",
+          "markdownDescription": "The report the findings are read from, relative to `#queryguard.pytestDirectory#`: a `--queryguard-json` file, or a `--queryguard-sarif` file when it ends in `.sarif`. The run commands write it, and the extension reloads it whenever it changes."
+        },
+        "queryguard.pytestDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "The directory pytest runs in, relative to the workspace folder (empty: the folder itself). The files named in the report are looked up relative to it, so it should be pytest's rootdir: the directory of your `pytest.ini` or `pyproject.toml`."
+        },
+        "queryguard.pythonPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "The Python that runs `python -m pytest`. Empty: the interpreter selected in the Python extension, or `python3` (`python` on Windows) without it."
+        },
+        "queryguard.pytestArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "More arguments for pytest, put before the file or test, e.g. `[\"-p\", \"no:randomly\"]`."
+        },
+        "queryguard.showBaselined": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Also mark the findings that the baseline accepts (as hints). Only a `--queryguard-json` report lists them."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "test": "npm run compile && node --test \"out/test/unit/*.test.js\"",
+    "test:integration": "npm run compile && node out/test/integration/runTests.js",
+    "package": "vsce package --no-dependencies",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/vscode": "1.90.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.1.1",
+    "typescript": "6.0.3"
+  }
+}
