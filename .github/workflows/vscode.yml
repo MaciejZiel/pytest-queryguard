@@ -1,0 +1,74 @@
+name: vscode
+
+# The VS Code extension in editors/vscode: unit tests, integration tests in a
+# real VS Code (the oldest version package.json allows and the newest) and the
+# .vsix, uploaded as the artifact pytest-queryguard-vsix. Nothing is published
+# from here; editors/vscode/README.md has the publishing steps. findings.py is
+# in the paths because a unit test compares the extension's documentation
+# links with its table.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "editors/vscode/**"
+      - "src/pytest_queryguard/findings.py"
+      - ".github/workflows/vscode.yml"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - "src/pytest_queryguard/findings.py"
+      - ".github/workflows/vscode.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        vscode: ["1.90.0", "stable"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      # no install scripts: the only one is @vscode/vsce-sign's, which signing
+      # needs and packaging does not
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - name: Integration tests
+        env:
+          VSCODE_VERSION: ${{ matrix.vscode }}
+        run: xvfb-run -a npm run test:integration
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run package
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pytest-queryguard-vsix
+          path: editors/vscode/*.vsix
+          if-no-files-found: error

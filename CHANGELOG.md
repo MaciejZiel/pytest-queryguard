@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   working, and switching is a change of the `uses:` line only (same inputs,
   outputs, artifact name and comment marker). The action has a `branding`
   for the listing.
+- A VS Code extension in `editors/vscode`
+  ([#382](https://github.com/MaciejZiel/pytest-queryguard/issues/382)). It
+  reads the `--queryguard-json` or `--queryguard-sarif` report of the last run,
+  marks each finding on its line, and reloads when the report changes; the
+  hover shows the SQL, the count, the fix and the tests, and the quick actions
+  open the documentation and apply a SARIF fix. Its commands run pytest on the
+  current file, the test at the cursor or the whole project. A new `vscode`
+  workflow tests it in VS Code 1.90 and the latest release and builds the
+  `.vsix` as an artifact. It is not published to the Marketplace or Open VSX
+  yet; see [In your editor](docs/editor.md#vs-code-the-extension).
 
 ### Changed
 
@@ -87,8 +97,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current between items, and the first generator to end finished the unit of
   the other.
 
+- Django (experimental): a finding of a view that runs no line of the project
+  between Django and the query (a DRF generic view with a class-level
+  `queryset` and its `ModelSerializer`, a `TemplateResponse` rendered after
+  the view returned) names the view class or function, with the test line
+  that made the request as its caller. It named the first project frame on
+  the stack, which in most projects is a middleware's
+  `get_response(request)` line: seen on paperless-ngx, Tandoor and Label
+  Studio. A view of Django's own (`ListView` in the URLconf) points at the
+  test line, as it did without a project middleware.
+- Django (experimental): the async ORM calls of an async view under a sync
+  middleware of the project name the line that awaited them, not the
+  middleware's `get_response(request)` line, which asgiref's thread had on
+  its stack.
+
 ### Documentation
 
+- [Django](docs/django.md#out-of-scope-for-django): what is out of scope for
+  Django, with the reason for each: `unused-eager-load`, `unused-columns`,
+  `cartesian-load`, fix patches, the static check and the in-application
+  mode. A decision about scope, not a gap before the Django support leaves
+  experimental.
 - [Django](docs/django.md#five-more-projects-2026-11-14): the test suites of
   five more open-source Django projects (paperless-ngx, Tandoor,
   django-allauth, strawberry-django, Label Studio; 5,478 tests). The plugin
@@ -104,9 +133,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that `v1` moves only to final releases; [Releasing](docs/releasing.md)
   has the step that updates it. The release gate checks the pin in
   `docs/ci.md` in the action repository's spelling.
+- [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
 
 ### Internal
 
+- `tests/django_project/test_public_api.py` snapshots the Django surface, as
+  `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,
+  `QueryGuardRunner`'s `--queryguard-mode`, the `QUERYGUARD` keys and
+  defaults, the labels of Django findings and the loader each fix names, and
+  the Django versions and databases CI tests
+  ([Stability](docs/stability.md#experimental)).
 - `tests/inapp/test_request_lifecycle.py`: one matrix of a request's lifecycle
   phases (streamed sync and async bodies, close callbacks, files, background
   tasks, errors half way through a body, `HEAD`, mounted applications,
