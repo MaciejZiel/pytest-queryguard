@@ -525,7 +525,9 @@ def test_the_probe_records_internal_warnings(
 def test_the_project_list_is_well_formed(name: str) -> None:
     data = json.loads((SCRIPTS / name).read_text())
     projects = data["projects"]
-    assert 4 <= len(projects) <= 6
+    # a full run is one job per project on shared runners; the "projects"
+    # input of realworld.yml runs a part of a longer list
+    assert 4 <= len(projects) <= 12
     names = [p["name"] for p in projects]
     assert len(set(names)) == len(names)
     keys = {"name", "repository", "ref", "python", "workdir", "install"}
