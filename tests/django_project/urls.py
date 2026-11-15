@@ -21,6 +21,7 @@ urlpatterns = [
     # streamed responses, read from the database while they are consumed
     path("stream/async/<int:pk>/", views.stream_book_async),
     path("stream/<int:pk>/", views.stream_book),
+    path("stream/broken/<int:pk>/", views.stream_book_broken),
     path("file/<int:pk>/", views.book_file),
     # a generic view: no line of the project runs, the template reads the author
     path("books/list/", ListView.as_view(model=Book)),

@@ -306,6 +306,9 @@ def _install() -> None:
     # opens one itself, around the whole request (a streamed body included).
     _patch(_module("django.core.handlers.asgi").ASGIHandler, "handle", _in_request)
     _patch(_module("django.test.client").AsyncClientHandler, "__call__", _in_request)
+    # The sync test client: request_started sets the scope, but a streamed
+    # body read after another request started would be read in that one's.
+    _patch(_module("django.test.client").ClientHandler, "__call__", _body_in_request)
     sync = sys.modules.get("asgiref.sync")
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
@@ -915,6 +918,31 @@ def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
     return method
 
 
+def _body_in_request(original: Callable[..., Any]) -> Callable[..., Any]:
+    """A streamed body of the sync test client, read in its request's scope.
+
+    ``request_started`` set the scope during the call, and a streamed body's
+    ``request_finished`` comes only at its end; a test that reads several
+    bodies in turn reads each in its own request.
+    """
+
+    @functools.wraps(original)
+    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        response = original(self, *args, **kwargs)
+        if getattr(response, "streaming", False):
+            try:
+                scope = _request.get()
+                if scope is not None:
+                    response.streaming_content = _in_scope(
+                        response.streaming_content, scope
+                    )
+            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+                _fail(exc, "Django integration (streamed response)")
+        return response
+
+    return method
+
+
 def _in_scope(content: Any, scope: int) -> Any:
     """``content`` (a streamed body), each part made in the request ``scope``."""
     if hasattr(content, "__aiter__"):
@@ -937,9 +965,16 @@ def _in_scope_sync(parts: Iterator[Any], scope: int) -> Iterator[Any]:
                 return
             yield part
     finally:
-        close = getattr(parts, "close", None)
-        if close is not None:
-            close()
+        try:
+            close = getattr(parts, "close", None)
+            if close is not None:
+                close()
+        finally:
+            # The request is over once its body is: the code that read it
+            # does not stay in its scope (its request_finished, sent inside
+            # a step above, was undone with the step).
+            if _request.get() is scope:
+                _request.set(None)
 
 
 async def _in_scope_async(parts: Any, scope: int) -> Any:
