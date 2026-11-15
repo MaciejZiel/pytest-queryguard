@@ -536,10 +536,9 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    Django 6.0, only DRF ran on 6.1, and `QueryGuardRunner` has not run on a
    `manage.py test` project yet. Most Django projects found for outreach use
    `manage.py test`.
-6. **Say what is out of scope for Django**: `unused-eager-load`,
-   `unused-columns`, `cartesian-load`, fix patches, the static check and
-   the in-app mode. Leaving them out is fine, but the docs have to say so
-   as a scope decision rather than as a gap.
+6. ~~**Say what is out of scope for Django**~~ Done in 1.1.0:
+   [Out of scope for Django](django.md#out-of-scope-for-django) gives the
+   reason for each.
 7. **Overhead on statement-heavy suites**: django-cms ran 8.6 % to 15.9 %
    slower with the plugin. The other ten projects were within the noise of a
    single run.

@@ -372,9 +372,29 @@ The other ways:
   fix names `.only()`. Generated fields are left out.
 - **Durations** include the time of other `execute_wrapper`s, since the
   plugin's wrapper is the outermost.
-- Not for Django yet: `unused-eager-load`, `unused-columns`, `cartesian-load`,
-  `--queryguard-write-patch` and `--queryguard-show-patch` (Django findings
-  have no patch), the static check and the in-application mode.
+- Some features are SQLAlchemy only by decision: see
+  [Out of scope for Django](#out-of-scope-for-django).
+
+## Out of scope for Django
+
+These features of the plugin are not offered for Django code, and are not
+planned. Each is a decision about scope, not a gap that the Django support
+leaving experimental depends on. They find nothing in Django code; with
+SQLAlchemy in the same project they work for its code as usual.
+
+| Feature | Why not for Django |
+|---|---|
+| `unused-eager-load` (`queryguard_unused_eager_load`) | A `prefetch_related()` or `select_related()` whose objects the test never reads. Telling that apart needs a hook on every read of Django's prefetch caches and of each `select_related()` object, and it is wrong where a template or serializer reads them only for some rows: nplusone reports it and flags three of the CLEAN scenarios of the Django corpus. Its cost is one extra query, not one per row. |
+| `unused-columns` (`queryguard_unused_columns`) | Columns loaded and never read. For Django it would mean watching every field read of every instance; the gain is a narrower `SELECT`, which `.only()` gives where it matters. `column-load` covers the harmful direction: a field left out and then read per row. |
+| `cartesian-load` (`queryguard_cartesian_load`) | The rows multiplied by eager-loading two collections in one `JOIN`. `select_related()` follows only foreign keys and one-to-one relations, and `prefetch_related()` runs a query per relation, so the Django ORM does not build such a query from loader options. |
+| Fix patches (`--queryguard-write-patch`, `--queryguard-show-patch`) | A patch adds a loader option at the line of the parents' query. In Django that query is often a class attribute (`queryset = Book.objects.all()` of a generic view), a manager method or a chain built over several lines, so a patch would be wrong as often as right. Each message names the code to add (`select_related("author")`). |
+| The static check (`python -m pytest_queryguard.lint`) | It reads SQLAlchemy relationships from the source. For Django it would have to resolve models, managers and querysets across files, which a test run sees directly. |
+| The in-application mode (`pytest_queryguard.app`) | It watches a SQLAlchemy engine in a running application. Django has django-debug-toolbar and django-silk for that; the plugin checks Django code in its tests. |
+
+`QueryGuardRunner` (`manage.py test`) has no baseline, JSON, SARIF, budget
+files, strict mode or index check yet: that is a gap of the runner, not of
+the Django support, see
+[Without pytest](#without-pytest-managepy-test).
 
 ## Accuracy
 
