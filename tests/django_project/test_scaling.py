@@ -20,12 +20,10 @@ pytestmark = pytest.mark.allow_nplusone
 def make_books(count: int) -> None:
     Book.objects.all().delete()
     Author.objects.all().delete()
-    authors = Author.objects.bulk_create(
-        Author(name=f"author {i}") for i in range(count)
-    )
-    Book.objects.bulk_create(
-        Book(title=f"book {i}", author=author) for i, author in enumerate(authors)
-    )
+    # one by one: MySQL gives bulk_create() objects no primary keys
+    for i in range(count):
+        author = Author.objects.create(name=f"author {i}")
+        Book.objects.create(title=f"book {i}", author=author)
 
 
 def book_lines() -> list[str]:

@@ -107,8 +107,9 @@ def test_a_lazy_load_per_row_fails_with_the_counts_and_the_fix(
         "queryguard: the number of statements grows with the size: "
         "2 at size 1, 11 at size 10, 51 at size 50"
     )
-    # SQLAlchemy 2.0 adds column labels (customers.id AS customers_id)
-    shown = [re.sub(r" AS \w+", "", line) for line in lines]
+    # SQLAlchemy 2.0 adds column labels (customers.id AS customers_id), and
+    # the MySQL job's driver writes %s
+    shown = [re.sub(r" AS \w+", "", line).replace("%s", "?") for line in lines]
     assert (
         "  SELECT customers.id, customers.name FROM customers "
         "WHERE customers.id = ?" in shown
