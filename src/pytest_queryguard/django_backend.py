@@ -306,6 +306,9 @@ def _install() -> None:
     # opens one itself, around the whole request (a streamed body included).
     _patch(_module("django.core.handlers.asgi").ASGIHandler, "handle", _in_request)
     _patch(_module("django.test.client").AsyncClientHandler, "__call__", _in_request)
+    # The sync test client: request_started sets the scope, but a streamed
+    # body read after another request started would be read in that one's.
+    _patch(_module("django.test.client").ClientHandler, "__call__", _body_in_request)
     sync = sys.modules.get("asgiref.sync")
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
@@ -916,16 +919,42 @@ def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
         finally:
             _async_request.reset(handled)
             _request.reset(token)
-        if getattr(response, "streaming", False):
-            try:
-                response.streaming_content = _in_scope(
-                    response.streaming_content, scope
-                )
-            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-                _fail(exc, "Django integration (streamed response)")
+        _scoped_body(response, scope)
         return response
 
     return method
+
+
+def _body_in_request(original: Callable[..., Any]) -> Callable[..., Any]:
+    """A streamed body of the sync test client, read in its request's scope.
+
+    ``request_started`` set the scope during the call, and a streamed body's
+    ``request_finished`` comes only at its end. The body takes the scope
+    along, and the caller leaves it: the test's own code after the call
+    (before, between or without reading bodies) is in no request.
+    """
+
+    @functools.wraps(original)
+    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        response = original(self, *args, **kwargs)
+        scope = _request.get()
+        if scope is not None and _scoped_body(response, scope):
+            _request.set(None)
+        return response
+
+    return method
+
+
+def _scoped_body(response: Any, scope: int) -> bool:
+    """Read a streamed ``response``'s body in ``scope``; True when it is one."""
+    if not getattr(response, "streaming", False):
+        return False
+    try:
+        response.streaming_content = _in_scope(response.streaming_content, scope)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "Django integration (streamed response)")
+        return False
+    return True
 
 
 def _in_scope(content: Any, scope: int) -> Any:
@@ -1023,17 +1052,16 @@ def _relationship_event(
         path.entry,
         path.test_code,
         orm=ORM_DJANGO,
-        read_path=_read_path(parent),
+        read_path=_read_path(),
     )
 
 
-def _read_path(parent: ParentLoad | None) -> tuple[tuple[str, int], ...] | None:
-    """The call path of a read whose parent's query is unknown (see
-    ``RelationshipLoadEvent.read_path``): objects the test created and read
-    through one helper at two lines of the test are two reads, not a loop.
-    In an asgiref thread (the async ORM) the path is the awaiting line's."""
-    if parent is not None and parent.callsite is not None:
-        return None
+def _read_path() -> tuple[tuple[str, int], ...]:
+    """The call path of a read (see ``RelationshipLoadEvent.read_path``):
+    objects the test created and read through one helper at two lines of the
+    test are two reads, not a loop, and so are two objects that one lookup
+    helper gets and reads, called from two lines. In an asgiref thread (the
+    async ORM) the path is the awaiting line's."""
     path = callsite.read_path()
     if not path:
         site = _async_site.get()
@@ -1374,7 +1402,7 @@ def _execute_sql(
                 path.entry,
                 path.test_code,
                 orm=ORM_DJANGO,
-                read_path=_read_path(parent),
+                read_path=_read_path(),
             )
             pending: _Pending | None = (
                 event,

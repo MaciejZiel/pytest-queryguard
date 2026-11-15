@@ -36,6 +36,8 @@ EXPECTED_ALL = [
     "QueryGuardWarning",
     "QueryLog",
     "__version__",
+    "assert_queries_do_not_grow",
+    "assert_queries_do_not_grow_async",
     "ignore",
     "max_db_time",
     "max_queries",
@@ -43,6 +45,14 @@ EXPECTED_ALL = [
 ]
 
 EXPECTED_FUNCTIONS = {
+    "assert_queries_do_not_grow": (
+        "(fn: 'Callable[[Any], object]', sizes: 'Iterable[int]' = (1, 10), *, "
+        "setup: 'Callable[[int], object] | None' = None) -> 'dict[int, QueryLog]'"
+    ),
+    "assert_queries_do_not_grow_async": (
+        "(fn: 'Callable[[Any], object]', sizes: 'Iterable[int]' = (1, 10), *, "
+        "setup: 'Callable[[int], object] | None' = None) -> 'dict[int, QueryLog]'"
+    ),
     "ignore": "(*kinds: 'str', reason: 'str | None' = None) -> 'IgnoreBlock'",
     "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
     "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryLog]'",

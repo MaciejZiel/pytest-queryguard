@@ -12,6 +12,7 @@ from .api import (
 )
 from .blocks import ignore
 from .events import CallSite
+from .scaling import assert_queries_do_not_grow, assert_queries_do_not_grow_async
 from .warnings import (
     QueryGuardDeprecationWarning,
     QueryGuardInternalWarning,
@@ -31,6 +32,8 @@ __all__ = [
     "QueryGuardWarning",
     "QueryLog",
     "__version__",
+    "assert_queries_do_not_grow",
+    "assert_queries_do_not_grow_async",
     "ignore",
     "max_db_time",
     "max_queries",

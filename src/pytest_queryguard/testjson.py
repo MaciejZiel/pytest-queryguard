@@ -30,6 +30,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .baseline import key
 from .collector import QueryCollector
 from .fileio import atomic_write_text
 from .findings import Finding, message_text
@@ -133,7 +134,7 @@ def record_findings(
                 {"file": file, "function": function, "line": line}
                 for file, line, function in f.stack
             ],
-            "baselined": baseline is not None and f.identity in baseline,
+            "baselined": baseline is not None and key(f) in baseline,
             "message": message_text(f),
         }
         for f in findings
