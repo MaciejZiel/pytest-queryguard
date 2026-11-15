@@ -28,6 +28,8 @@ class QueryBudgetExceeded(AssertionError):
     time than ``max_db_time()`` allows, or, for the fixture's
     ``num_queries()``, any other number of statements than expected (fewer
     count only when recording was complete: not after an internal error).
+    ``assert_queries_do_not_grow()`` raises it when a larger size runs more
+    statements than the smallest one.
     """
 
 

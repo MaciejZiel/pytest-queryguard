@@ -104,3 +104,11 @@ class _BookFile(io.RawIOBase):
 
 def book_file(request: HttpRequest, pk: int) -> FileResponse:
     return FileResponse(_BookFile(pk))
+
+
+def stream_book_broken(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    def title() -> Iterator[str]:
+        yield Book.objects.get(pk=pk).title
+        raise RuntimeError("body bug")
+
+    return StreamingHttpResponse(title())
