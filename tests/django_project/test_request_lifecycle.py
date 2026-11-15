@@ -114,6 +114,43 @@ def test_concurrent_async_client_requests_keep_their_scope() -> None:
     _expect_one_scope_per_request(collector)
 
 
+# Django warns that it reads the async body synchronously: expected here.
+@pytest.mark.filterwarnings(
+    "ignore:StreamingHttpResponse must consume asynchronous iterators"
+)
+@pytest.mark.parametrize("read", ["unread", "half", "all"])
+@pytest.mark.parametrize("path", ["stream/{pk}/", "file/{pk}/", "stream/async/{pk}/"])
+def test_test_code_around_a_streamed_body_is_in_no_request(
+    path: str, read: str
+) -> None:
+    """The test's statements between the call and the body's end, or with an
+    unread body, are the test's own, not the request's."""
+    from django.test import Client
+
+    from pytest_queryguard.collector import RequestScope
+
+    from .library.models import Author
+
+    client = Client()
+    with measure() as collector:
+        for pk in BOOKS:
+            response = client.get("/" + path.format(pk=pk))
+            Author.objects.count()  # before the body
+            if read == "half":
+                next(iter(response))
+            elif read == "all":
+                assert b"".join(response)
+            Author.objects.count()  # after it
+            response.close()
+    authors = [s for s in collector.statements if "library_author" in s.sql]
+    assert len(authors) == 2 * len(BOOKS)
+    assert not any(isinstance(s.scope, RequestScope) for s in authors)
+    if read != "unread":
+        gets = [s for s in collector.statements if "library_book" in s.sql]
+        assert len({s.scope for s in gets}) == len(gets) == len(BOOKS)
+        assert all(isinstance(s.scope, RequestScope) for s in gets)
+
+
 def test_head_requests_keep_their_scope() -> None:
     from django.test import Client
 

@@ -906,13 +906,7 @@ def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
             response = await original(self, *args, **kwargs)
         finally:
             _request.reset(token)
-        if getattr(response, "streaming", False):
-            try:
-                response.streaming_content = _in_scope(
-                    response.streaming_content, scope
-                )
-            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-                _fail(exc, "Django integration (streamed response)")
+        _scoped_body(response, scope)
         return response
 
     return method
@@ -922,25 +916,32 @@ def _body_in_request(original: Callable[..., Any]) -> Callable[..., Any]:
     """A streamed body of the sync test client, read in its request's scope.
 
     ``request_started`` set the scope during the call, and a streamed body's
-    ``request_finished`` comes only at its end; a test that reads several
-    bodies in turn reads each in its own request.
+    ``request_finished`` comes only at its end. The body takes the scope
+    along, and the caller leaves it: the test's own code after the call
+    (before, between or without reading bodies) is in no request.
     """
 
     @functools.wraps(original)
     def method(self: Any, *args: Any, **kwargs: Any) -> Any:
         response = original(self, *args, **kwargs)
-        if getattr(response, "streaming", False):
-            try:
-                scope = _request.get()
-                if scope is not None:
-                    response.streaming_content = _in_scope(
-                        response.streaming_content, scope
-                    )
-            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
-                _fail(exc, "Django integration (streamed response)")
+        scope = _request.get()
+        if scope is not None and _scoped_body(response, scope):
+            _request.set(None)
         return response
 
     return method
+
+
+def _scoped_body(response: Any, scope: int) -> bool:
+    """Read a streamed ``response``'s body in ``scope``; True when it is one."""
+    if not getattr(response, "streaming", False):
+        return False
+    try:
+        response.streaming_content = _in_scope(response.streaming_content, scope)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "Django integration (streamed response)")
+        return False
+    return True
 
 
 def _in_scope(content: Any, scope: int) -> Any:
@@ -965,16 +966,9 @@ def _in_scope_sync(parts: Iterator[Any], scope: int) -> Iterator[Any]:
                 return
             yield part
     finally:
-        try:
-            close = getattr(parts, "close", None)
-            if close is not None:
-                close()
-        finally:
-            # The request is over once its body is: the code that read it
-            # does not stay in its scope (its request_finished, sent inside
-            # a step above, was undone with the step).
-            if _request.get() is scope:
-                _request.set(None)
+        close = getattr(parts, "close", None)
+        if close is not None:
+            close()
 
 
 async def _in_scope_async(parts: Any, scope: int) -> Any:

@@ -33,10 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Django (experimental): a streamed body (`StreamingHttpResponse`,
   `FileResponse`) that a test reads from an `AsyncClient` response after the
   call returned counts in its request, on every Django version.
-- Django (experimental): streamed bodies of the sync test client read in turn
-  (every request first, then their bodies) each count in their own request;
-  before, they counted in the last request's, and the bodies read after the
-  first one ended counted per connection.
+- Django (experimental): a streamed body of the sync test client counts in
+  its own request also when the test reads the bodies of several requests in
+  turn (before, in the last request's, then per connection), and the test's
+  own statements after the call, before or without reading the body, no
+  longer count in that request.
 - `track()` on a generator function (sync or async) no longer counts the
   statements of the code that consumes the generator between items, and two
   such generators read in turn each end their own unit; before, the unit stayed
