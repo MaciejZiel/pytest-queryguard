@@ -778,14 +778,18 @@ def read_path() -> tuple[tuple[str, int], ...]:
     lines are kept: those near the test are the ones two calls differ in.
     """
     found: dict[tuple[str, int], None] = {}
-    stop = _hook_caller()
+    kinds = _kinds  # one lookup per frame, as _origin's walk
     frame: FrameType | None = sys._getframe(1)
     while frame is not None:
         filename = frame.f_code.co_filename
-        if stop and os.path.normcase(filename).startswith(stop):
-            break
-        if not _is_internal(filename):
+        try:
+            kind = kinds[filename]
+        except KeyError:
+            kind = _kind(filename)
+        if kind == _APP:
             found[(filename, frame.f_lineno)] = None
+        elif kind == _HOOK:
+            break
         frame = frame.f_back
     path = tuple(found)
     return path[-_MAX_READ_PATH:]

@@ -142,8 +142,10 @@ class _Load(_Frozen):
 
 
 # The load whose SELECT is about to run in this context: (its event, the
-# origin of the instances it loads). The first SELECT takes it.
-_Pending = tuple[RelationshipLoadEvent | ColumnLoadEvent, _Origin | None]
+# origin of the instances it loads, the call path of the load). The first
+# SELECT takes it, and its call path: the same lines of the application ran
+# it, so the stack is not walked again.
+_Pending = tuple[RelationshipLoadEvent | ColumnLoadEvent, _Origin | None, Origin]
 _pending: ContextVar[_Pending | None] = ContextVar(
     "queryguard_django_load", default=None
 )
@@ -551,9 +553,12 @@ def _record(
     # the call path, for the count rules of the collectors that want loads
     origin = NO_ORIGIN
     if full:
-        found, origin = _site_origin()
-        if site is None:
-            site = found
+        if pending is not None and site is not None:
+            origin = pending[2]
+        else:
+            found, origin = _site_origin()
+            if site is None:
+                site = found
     elif site is None:
         site = _site()
     stmt = StatementEvent(
@@ -1100,7 +1105,7 @@ def _scope(instance: Any) -> int | None:
 
 def _relationship_event(
     label: str, instance: Any, scalar: bool, scope: int | None, origin: _Origin | None
-) -> RelationshipLoadEvent:
+) -> tuple[RelationshipLoadEvent, Origin]:
     parent = _parent(origin)
     site, path = _site_origin()
     return RelationshipLoadEvent(
@@ -1115,7 +1120,7 @@ def _relationship_event(
         path.test_code,
         orm=ORM_DJANGO,
         read_path=_read_path(),
-    )
+    ), path
 
 
 def _read_path() -> tuple[tuple[str, int], ...]:
@@ -1164,8 +1169,10 @@ def _prepare(label: Callable[[], str], instance: Any, scalar: bool) -> _Pending 
     try:
         origin = _origin_of(instance)
         name = label()
-        event = _relationship_event(name, instance, scalar, _scope(instance), origin)
-        return event, _child_origin(origin, name, scalar)
+        event, path = _relationship_event(
+            name, instance, scalar, _scope(instance), origin
+        )
+        return event, _child_origin(origin, name, scalar), path
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "Django integration (lazy load)")
         return None
@@ -1300,7 +1307,7 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
                 test_code=path.test_code,
                 orm=ORM_DJANGO,
             )
-            pending: _Pending | None = (event, None)
+            pending: _Pending | None = (event, None, path)
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             _fail(exc, "Django integration (deferred field)")
             pending = None
@@ -1469,6 +1476,7 @@ def _execute_sql(
             pending: _Pending | None = (
                 event,
                 _child_origin(mark.origin, mark.label, False),
+                path,
             )
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             _fail(exc, "Django integration (related manager query)")
