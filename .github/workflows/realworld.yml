@@ -254,6 +254,9 @@ jobs:
             cat "$OUT/$name.meta.json"
           }
           if [ -n "$TEST_COMMAND" ]; then
+            if [ -n "$PLUGIN_ARGS" ]; then
+              echo "::warning::plugin-args are pytest arguments: not used for this manage.py test project"
+            fi
             run baseline --testrunner realworld_runner.Baseline
             run plugin --testrunner realworld_runner.Guarded --queryguard-mode warn
             exit 0
