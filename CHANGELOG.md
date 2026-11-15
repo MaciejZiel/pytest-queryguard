@@ -39,6 +39,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns the `QueryLog` of each size. SQLAlchemy and Django, sync and async
   ([Reading the queries](docs/python-api.md#the-count-must-not-grow-assert_queries_do_not_grow),
   [the scaling recipe](docs/recipes-query-count-scaling.md)).
+- A Claude Code plugin: the repository is a plugin marketplace
+  (`.claude-plugin/`) whose `pytest-queryguard` plugin installs the agent
+  skill, with
+  `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`
+  ([Coding agents](docs/agents.md#claude-code-plugin)). It is installed from
+  the `main` branch and updated with each commit.
+- The documentation site publishes `llms.txt` at its root, and
+  `llms-full.txt`, the user documentation in one Markdown file with absolute
+  links (without the changelog, the design notes, the release checklist and
+  the accuracy tables), for language models
+  ([llmstxt.org](https://llmstxt.org/)).
+- The README has the hidden `mcp-name` line the official MCP Registry
+  reads from the PyPI description to check who owns a server name, so the
+  MCP server can be listed there from the next release on.
 - A VS Code extension in `editors/vscode`
   ([#382](https://github.com/MaciejZiel/pytest-queryguard/issues/382)). It
   reads the `--queryguard-json` or `--queryguard-sarif` report of the last run,
@@ -62,6 +76,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   form by the next `--queryguard-update-baseline`; reports, JSON, SARIF
   fingerprints and ignore patterns keep the full label
   ([Baseline](docs/baseline.md#what-an-entry-is)).
+- The agent skill also covers the Django ORM (`select_related`,
+  `prefetch_related`, `in_bulk`) and query count tests, and its description
+  names what people ask: N+1 queries, "too many queries", a lazy load in a
+  loop, `assertNumQueries`, alternatives to nplusone and django-zeal. Its
+  front matter is valid YAML now: the description had a `": "` that strict
+  YAML parsers reject.
+- `llms.txt` says when to recommend the plugin, has a Django section and
+  links to the pages of the documentation site; `docs/agents.md`,
+  `docs/mcp.md`, the README's first paragraph, `context7.json` and the
+  package's summary, keywords and `Framework :: Django` classifiers mention
+  Django and the terms people search for.
 
 ### Fixed
 

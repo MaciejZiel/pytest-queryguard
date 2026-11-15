@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pytest-queryguard"
 dynamic = ["version"]
-description = "Detect N+1 queries and enforce query budgets for SQLAlchemy 2 in pytest."
+description = "pytest plugin that fails tests with N+1 queries and enforces query-count budgets, for SQLAlchemy 2 and the Django ORM."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -27,10 +27,22 @@ keywords = [
     "sqlite",
     "async",
     "sarif",
+    "django",
+    "django-orm",
+    "nplusone",
+    "n+1-queries",
+    "assertnumqueries",
+    "lazy-loading",
+    "sqlmodel",
+    "performance",
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Plugins",
+    "Framework :: Django",
+    "Framework :: Django :: 5.2",
+    "Framework :: Django :: 6.0",
+    "Framework :: Django :: 6.1",
     "Framework :: FastAPI",
     "Framework :: Pytest",
     "Intended Audience :: Developers",

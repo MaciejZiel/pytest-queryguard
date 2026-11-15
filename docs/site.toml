@@ -1,7 +1,7 @@
 # The pages of the documentation site and their order; read by
 # scripts/build_docs.py. Paths are relative to this directory.
 title = "pytest-queryguard"
-tagline = "N+1 detection and query budgets for SQLAlchemy 2 in pytest"
+tagline = "N+1 query detection and query budgets in pytest, for SQLAlchemy 2 and Django"
 base_url = "https://maciejziel.github.io/pytest-queryguard/"
 repo_url = "https://github.com/MaciejZiel/pytest-queryguard"
 branch = "main"
@@ -91,7 +91,7 @@ pages = [
   { title = "Unused columns (experimental)", file = "unused-columns.md", description = "The experimental check that reports wide rows a test loads and reads few columns of, and suggests load_only()." },
   { title = "Static check (experimental)", file = "static-check.md", description = "The experimental command that reads your code, without running it, and reports lazy relationships read in a loop over a query." },
   { title = "In your editor", file = "editor.md", description = "See pytest-queryguard's findings in VS Code and PyCharm: problem matchers for the test and static-check output, and its SARIF file in a SARIF viewer." },
-  { title = "Coding agents", file = "agents.md", description = "A skill and an AGENTS.md or Cursor rule that tell coding agents how to find and fix N+1 queries with pytest-queryguard and check the fix." },
+  { title = "Coding agents", file = "agents.md", description = "A Claude Code plugin, a skill, llms.txt and AGENTS.md or Cursor rules that tell coding agents how to find and fix N+1 queries with pytest-queryguard and check the fix." },
   { title = "MCP server (experimental)", file = "mcp.md", description = "The experimental MCP server that lets coding agents such as Claude Code and Cursor run tests with pytest-queryguard and read its findings and patches." },
   { title = "Stability and versioning", file = "stability.md", description = "What is public API in pytest-queryguard, how deprecations work and how versions are numbered." },
   { title = "Releasing", file = "releasing.md", description = "The release gate: every check that runs before a stable pytest-queryguard release is tagged, and how to run it." },
