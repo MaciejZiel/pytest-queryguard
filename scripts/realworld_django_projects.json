@@ -2,11 +2,15 @@
   "_comment": [
     "Django projects for .github/workflows/realworld.yml with suite=django,",
     "each pinned to a release tag; the fields are those of",
-    "scripts/realworld_projects.json. Big suites run a part of their tests,",
+    "scripts/realworld_projects.json, and two of their own: \"mysql\" starts",
+    "MySQL 8.4 for the project (its env names the database and the root",
+    "password), and \"test_command\" runs manage.py test instead of pytest",
+    "(scripts/realworld_runner.py). Big suites run a part of their tests,",
     "named in pytest_args. The tags and commands ran in GitHub Actions",
-    "(docs/django.md#real-projects): the first six on 2026-11-07, the last",
-    "five on 2026-11-14. A full list is eleven jobs; on shared runners, pass",
-    "a part of it in the 'projects' input."
+    "(docs/django.md#real-projects): the first six on 2026-11-07, the next",
+    "five on 2026-11-14, the last three on 2026-11-15. A full list is",
+    "fourteen jobs; on shared runners, pass a part of it in the 'projects'",
+    "input."
   ],
   "projects": [
     {
@@ -162,6 +166,51 @@
       "env": {
         "DJANGO_DB": "sqlite"
       }
+    },
+    {
+      "name": "django-oscar-mysql",
+      "repository": "django-oscar/django-oscar",
+      "ref": "4.2.1",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "sudo apt-get update -q && sudo apt-get install -y -q libmysqlclient-dev pkg-config && uv pip install -e '.[test]' 'django>=5.2,<5.3' mysqlclient",
+      "prepare": "",
+      "pytest_args": "tests/functional tests/integration",
+      "postgres": false,
+      "mysql": true,
+      "env": {
+        "DATABASE_ENGINE": "django.db.backends.mysql",
+        "DATABASE_NAME": "oscar",
+        "DATABASE_USER": "root",
+        "DATABASE_PASSWORD": "mysql",
+        "DATABASE_HOST": "127.0.0.1",
+        "DATABASE_PORT": "3306"
+      }
+    },
+    {
+      "name": "django-allauth-django-6.0",
+      "repository": "pennersr/django-allauth",
+      "ref": "65.22.1",
+      "python": "3.12",
+      "workdir": ".",
+      "install": "sudo apt-get update -q && sudo apt-get install -y -q gettext && uv pip install -e '.[headless,mfa,openid,socialaccount,steam]' 'django~=6.0.0' 'pytest>=8.3.5,<9' pytest-asyncio==1.3.0 'pytest-django>=4.11,<4.13' 'Pillow>=9.0' 'pyyaml>=6.0.2,<7' 'djangorestframework>=3.16,<4' 'django-ninja>=1.3.0,<2' 'psycopg2-binary>=2.9.10,<3' && (cd allauth && python ../manage.py compilemessages)",
+      "prepare": "",
+      "pytest_args": "--ds=tests.projects.regular.settings tests -p no:cacheprovider",
+      "postgres": false,
+      "env": {}
+    },
+    {
+      "name": "django-taggit",
+      "repository": "jazzband/django-taggit",
+      "ref": "7.0.0",
+      "python": "3.13",
+      "workdir": ".",
+      "install": "uv pip install -e . 'django>=6.0,<6.1' djangorestframework unidecode",
+      "prepare": "",
+      "pytest_args": "",
+      "postgres": false,
+      "test_command": "python -m django test --settings=tests.settings -v 2",
+      "env": {}
     }
   ]
 }
