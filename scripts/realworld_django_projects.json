@@ -173,7 +173,7 @@
       "ref": "4.2.1",
       "python": "3.12",
       "workdir": ".",
-      "install": "sudo apt-get update -q && sudo apt-get install -y -q libmysqlclient-dev pkg-config && uv pip install -e '.[test]' 'django>=5.2,<5.3' mysqlclient",
+      "install": "uv pip install -e '.[test]' 'django>=5.2,<5.3' mysqlclient",
       "prepare": "",
       "pytest_args": "tests/functional tests/integration",
       "postgres": false,
