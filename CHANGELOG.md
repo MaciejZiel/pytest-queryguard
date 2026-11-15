@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
   index check without pytest yet
   ([Django](docs/django.md#without-pytest-managepy-test)).
+- `assert_queries_do_not_grow(fn, sizes=(1, 10), *, setup=None)` and its
+  awaitable `assert_queries_do_not_grow_async()`: run the same code for each
+  size (a number of rows, seeded by `setup` outside the recording) and fail
+  with `QueryBudgetExceeded` when a statement runs more often at a larger
+  size than at the smallest one. The failure lists the count per size and
+  each statement that grew, with its line, its count per size and a fix; it
+  returns the `QueryLog` of each size. SQLAlchemy and Django, sync and async
+  ([Reading the queries](docs/python-api.md#the-count-must-not-grow-assert_queries_do_not_grow),
+  [the scaling recipe](docs/recipes-query-count-scaling.md)).
 
 ### Changed
 
@@ -54,6 +63,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same helper in a loop is still found. Seen on django-allauth, `UserSession.user` read by
   `create_from_request()` for the token's and the cookie's session (3 false
   `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
+- Django (experimental): a streamed body of the sync test client counts in
+  its own request also when the test reads the bodies of several requests in
+  turn (before, in the last request's, then per connection), and the test's
+  own statements after the call, before or without reading the body, no
+  longer count in that request.
+- `track()` on a generator function (sync or async) no longer counts the
+  statements of the code that consumes the generator between items, and two
+  such generators read in turn each end their own unit; before, the unit stayed
+  current between items, and the first generator to end finished the unit of
+  the other.
 
 ### Documentation
 
@@ -75,6 +94,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defaults, the labels of Django findings and the loader each fix names, and
   the Django versions and databases CI tests
   ([Stability](docs/stability.md#experimental)).
+- `tests/inapp/test_request_lifecycle.py`: one matrix of a request's lifecycle
+  phases (streamed sync and async bodies, close callbacks, files, background
+  tasks, errors half way through a body, `HEAD`, mounted applications,
+  middleware order, concurrent and interleaved requests) for the ASGI and WSGI
+  middleware, `track()` and the Django test clients
+  (`tests/django_project/test_request_lifecycle.py`), each request checked to keep exactly its own
+  statements; and a checklist in CONTRIBUTING.md, linked from the pull request
+  template, for code that scopes something to a request.
 - The overhead baseline has entries for two more CPU models of
   `ubuntu-latest`, which fell back to the highest entry: Intel Xeon 6973P-C
   (dropped when the baseline was recorded again) and Xeon Platinum 8370C

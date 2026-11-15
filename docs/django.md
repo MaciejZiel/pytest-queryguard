@@ -269,7 +269,9 @@ and that is no loop of the application. The rest of the test counts as a
 whole. With `queryguard_scope = session`, statements outside a request also
 count per database connection, as a Session does for SQLAlchemy. Requests of
 the `AsyncClient` (and of an ASGI handler) count on their own too, on every
-supported Django version. See
+supported Django version. A streamed body (`StreamingHttpResponse`,
+`FileResponse`) counts in its request when the test reads it, also after
+other requests. See
 [Several sessions or requests](several-sessions.md).
 
 The N+1s of test code are left out by default, as for SQLAlchemy

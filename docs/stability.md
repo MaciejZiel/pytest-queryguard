@@ -27,6 +27,9 @@ changes by accident.
   Each of these reports `pytest_queryguard` as its `__module__`, so tracebacks,
   reprs, pickles and `filterwarnings` entries use the documented import path
   (`pytest_queryguard.NPlusOneDetected`, not the submodule it lives in).
+  Since 1.1.0 the names include `assert_queries_do_not_grow()` and
+  `assert_queries_do_not_grow_async()`; the text of their failure is a
+  message, not public, like the others.
 - The pytest integration: the ini options (`queryguard_*`), the command-line
   flags (`--queryguard-*`, `--no-queryguard-*`), their defaults and accepted
   values, the markers (`max_queries`, `max_db_time`, `queryguard_max_queries`,
