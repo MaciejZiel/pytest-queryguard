@@ -122,16 +122,30 @@ An entry is the identity of a finding: kind, label, file and function.
   file by one entry with the partitioned table's name in the label.
 - Findings that the `queryguard_ignore` option or marker leaves out are not
   written to the baseline.
-- Two parts of an entry depend on the environment. The label of a
-  `repeated-statement` finding is the normalized SQL as SQLAlchemy renders it,
-  and SQLAlchemy 2.0 renders column aliases (`customer.id AS customer_id`)
-  where 2.1 does not, so a baseline recorded with one series may not match the
-  other. The function name of a finding in a list comprehension is
-  `<listcomp>` on Python 3.10 and 3.11 and the enclosing function from 3.12 on.
-  Record the baseline with the versions your CI uses, or write code under
-  baseline with plain loops. (Both were seen when the examples in
-  `examples/baseline-sarif` ran in CI on several Python and SQLAlchemy
-  versions.)
+- Labels that carry SQL or a table name do not depend on the database
+  (since 1.1.0). The label of a `repeated-statement` or `write-loop` entry is
+  the normalized SQL without schema qualifiers (`scheduler.job_execution` is
+  `job_execution`), identifier quotes (`"user"`, `` `user` ``), the driver's
+  placeholder style (`%(id_1)s`, `%s`, `:id_1` and `$1` are all `?`, also
+  with a PostgreSQL cast such as `::INTEGER`) and SQLAlchemy 2.0's column
+  aliases (`customer.id AS customer_id` is `customer.id`, as 2.1 renders it).
+  A `missing-index` label is the table without its schema. So one baseline
+  matches on SQLite and PostgreSQL, with any driver, and on SQLAlchemy 2.0
+  and 2.1. Other differences between databases, such as a function one of
+  them renders differently, still make another label.
+- A file written before 1.1.0, with the label as the finding shows it, still
+  matches: it is read into the same form. The next
+  `--queryguard-update-baseline` writes the new form; entries that still
+  match count as kept, not as removed and added. pytest-queryguard 1.0
+  matches the new form only where it is the same text, so record and use a
+  baseline with 1.1.0 or later.
+- The report, `--queryguard-json`, SARIF and the `queryguard_ignore` option
+  and marker keep the label as the finding has it; only the baseline uses the
+  form above.
+- The function name of a finding in a list comprehension is `<listcomp>` on
+  Python 3.10 and 3.11 and the enclosing function from 3.12 on, so that part
+  of an entry still depends on the Python version: record the baseline with
+  the Python your CI uses, or write code under baseline with plain loops.
 - The entries are sorted and the file ends with a newline, so running the
   update twice gives the same bytes and a diff shows only real changes.
 - Other keys in an entry, or at the top of the file, are ignored when the

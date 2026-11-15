@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   index check without pytest yet
   ([Django](docs/django.md#without-pytest-managepy-test)).
 
+### Changed
+
+- Baseline labels no longer depend on the database: a `repeated-statement`
+  or `write-loop` entry is written and compared without schema qualifiers,
+  identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,
+  `:id_1`, `$1`, with a PostgreSQL cast) and SQLAlchemy 2.0's column aliases,
+  and a `missing-index` entry without the table's schema. One baseline now
+  matches on SQLite and PostgreSQL and on SQLAlchemy 2.0 and 2.1. A file
+  written by an earlier release still matches and is rewritten in the new
+  form by the next `--queryguard-update-baseline`; reports, JSON, SARIF
+  fingerprints and ignore patterns keep the full label
+  ([Baseline](docs/baseline.md#what-an-entry-is)).
+
 ### Fixed
 
 - Django (experimental): each request of the `AsyncClient` counts on its own

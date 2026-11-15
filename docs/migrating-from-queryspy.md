@@ -176,10 +176,12 @@ The two baseline files have different formats, and an entry is not the same
 identity: pytest-queryguard keys on kind, label, file and function, with paths
 relative to pytest's rootdir. Record a new one with
 `pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseline`
-on a full run ([Baseline](baseline.md)). One difference to know: queryspy
-removes `AS` column aliases from labels, so one baseline works on SQLAlchemy
-2.0 and 2.1; a pytest-queryguard `repeated-statement` label keeps them, so
-record the baseline with the SQLAlchemy version your CI uses.
+on a full run ([Baseline](baseline.md)). Like queryspy, pytest-queryguard
+(since 1.1.0) leaves `AS` column aliases out of baseline labels, so one
+baseline works on SQLAlchemy 2.0 and 2.1; it also leaves out schema
+qualifiers, identifier quotes and the placeholder style, so the same file
+matches on SQLite and PostgreSQL
+([Baseline](baseline.md#what-an-entry-is)).
 
 ## Steps
 

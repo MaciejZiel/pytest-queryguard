@@ -5,6 +5,12 @@ function) of findings that existed when it was written. A finding on the list
 does not fail or warn; anything else is reported as usual. The file holds no
 line numbers and no counts, so editing code above a finding or loading a few
 more rows does not invalidate an entry.
+
+Labels that carry SQL or a table name are kept and compared in a portable form
+(``portable``): without schema qualifiers, identifier quotes, the placeholder
+style of the driver and SQLAlchemy 2.0's column aliases, so one file matches
+on SQLite and PostgreSQL, and on SQLAlchemy 2.0 and 2.1. A file written before
+that, with the label as the finding has it, reads into the same form.
 """
 
 from __future__ import annotations
@@ -17,11 +23,109 @@ from pathlib import Path
 from typing import Any
 
 from .fileio import atomic_write_text
-from .findings import Finding
+from .findings import KIND_MISSING_INDEX, KIND_REPEAT, KIND_WRITE_LOOP, Finding
 
 SCHEMA_VERSION = 1
 
 Identity = tuple[str, str, str | None, str | None]
+
+
+# What a driver writes for a bound parameter: pyformat, format, named and
+# numeric (qmark, ?, is the form kept), and a PostgreSQL cast right after one.
+_PARAMETER = re.compile(
+    r"(?:%\(\w+\)s|%s|(?<![:\w]):[A-Za-z_]\w*|\$\d+|\?)(?:::\w+(?:\[\])*)?"
+)
+# A quoted identifier: "name" (standard) or `name` (MySQL). String literals
+# are already "?" in a normalized statement.
+_QUOTED = re.compile(r'"((?:[^"]|"")*)"|`((?:[^`]|``)*)`')
+# A dotted name: table.column, schema.table or schema.table.column.
+_DOTTED = re.compile(r"(?<![\w.$])[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?![\w$])")
+# The words before a table name: the name after them is a table, so the first
+# part of a dotted one there is a schema.
+_TABLE_BEFORE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+$", re.IGNORECASE)
+_TABLE_NAME = re.compile(
+    r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+([A-Za-z_]\w*)(?![\w.$])", re.IGNORECASE
+)
+# SQLAlchemy 2.0 labels each ORM column, ``customer.id AS customer_id``; 2.1
+# writes ``customer.id``.
+_COLUMN_ALIAS = re.compile(r"(?<![\w.$])([A-Za-z_]\w*\.[A-Za-z_]\w*) AS \w+")
+_TABLE_PART = re.compile(r'"(?:[^"]|"")*"|`(?:[^`]|``)*`|[^."`]+')
+
+
+def _unquote(match: re.Match[str]) -> str:
+    double: str | None = match.group(1)
+    if double is not None:
+        return double.replace('""', '"')
+    back: str = match.group(2)
+    return back.replace("``", "`")
+
+
+def portable_sql(sql: str) -> str:
+    """A normalized statement as a label that does not depend on the database.
+
+    The schema of a table, identifier quotes, the driver's placeholder style
+    (with a PostgreSQL cast on a parameter) and SQLAlchemy 2.0's column
+    aliases are left out. Applying it again changes nothing.
+    """
+    text = _PARAMETER.sub("?", sql)
+    text = _QUOTED.sub(_unquote, text)
+    chains = list(_DOTTED.finditer(text))
+    schemas: set[str] = set()
+    tables = {m.group(1) for m in _TABLE_NAME.finditer(text)}
+    # the word before a name is near: whitespace is collapsed in a label
+    at_table = [
+        _TABLE_BEFORE.search(text, max(0, m.start() - 32), m.start()) is not None
+        for m in chains
+    ]
+    for match, table in zip(chains, at_table, strict=True):
+        parts = match.group().split(".")
+        if table:
+            schemas.update(parts[:-1])
+            tables.add(parts[-1])
+        else:
+            schemas.update(parts[:-2])
+    out = []
+    end = 0
+    for match, table in zip(chains, at_table, strict=True):
+        parts = match.group().split(".")
+        if table:
+            parts = parts[-1:]
+        elif len(parts) > 2:
+            parts = parts[-2:]
+        elif parts[0] in schemas and parts[0] not in tables:
+            parts = parts[1:]
+        out.append(text[end : match.start()])
+        out.append(".".join(parts))
+        end = match.end()
+    out.append(text[end:])
+    return _COLUMN_ALIAS.sub(r"\1", "".join(out))
+
+
+def portable_table(label: str) -> str:
+    """A table label (``"scheduler"."job"``, ``scheduler.job``) without its schema."""
+    parts: list[str] = _TABLE_PART.findall(label)
+    if not parts:
+        return label
+    last = parts[-1]
+    if len(last) >= 2 and last[0] == last[-1] and last[0] in '"`':
+        quote = last[0]
+        return last[1:-1].replace(quote * 2, quote)
+    return last
+
+
+def portable(identity: Identity) -> Identity:
+    """The identity as the baseline keeps and compares it (see the module doc)."""
+    kind, label, file, function = identity
+    if kind in (KIND_REPEAT, KIND_WRITE_LOOP):
+        label = portable_sql(label)
+    elif kind == KIND_MISSING_INDEX:
+        label = portable_table(label)
+    return (kind, label, file, function)
+
+
+def key(finding: Finding) -> Identity:
+    """The identity of a finding as a baseline entry."""
+    return portable(finding.identity)
 
 
 class BaselineError(ValueError):
@@ -39,10 +143,15 @@ def sorted_identities(identities: Iterable[Identity]) -> list[Identity]:
 
 
 def dumps(identities: Iterable[Identity]) -> str:
-    """The file text for these identities: sorted, indented, ends with a newline."""
+    """The file text for these identities: sorted, indented, ends with a newline.
+
+    Labels are written in their portable form.
+    """
     entries = [
         {"kind": kind, "label": label, "file": file, "function": function}
-        for kind, label, file, function in sorted_identities(identities)
+        for kind, label, file, function in sorted_identities(
+            portable(identity) for identity in identities
+        )
     ]
     document = {"version": SCHEMA_VERSION, "findings": entries}
     text = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
@@ -95,7 +204,9 @@ def _entry_identity(entry: Any, index: int, path: Path) -> Identity:
         value = entry.get(key)
         if value is not None and not isinstance(value, str):
             raise BaselineError(f"{where}: {key!r} must be a string or null")
-    return (entry["kind"], entry["label"], entry.get("file"), entry.get("function"))
+    return portable(
+        (entry["kind"], entry["label"], entry.get("file"), entry.get("function"))
+    )
 
 
 # A baseline is four levels deep; the limit only has to stay far from the
@@ -172,5 +283,5 @@ def split(
     new: list[Finding] = []
     known: list[Finding] = []
     for finding in findings:
-        (known if finding.identity in baseline else new).append(finding)
+        (known if key(finding) in baseline else new).append(finding)
     return new, known
