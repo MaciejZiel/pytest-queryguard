@@ -408,6 +408,12 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   databases it supports. Options, files and APIs shared with SQLAlchemy keep
   their guarantees; only what they contain for Django is experimental. See
   [Django](django.md).
+- The Django test runner for `manage.py test` (since 1.1.0),
+  `pytest_queryguard.django`: `QueryGuardRunner`, `QueryGuardTestCase`, the
+  `QUERYGUARD` setting and its keys, `--queryguard-mode`, and the failures
+  and warnings it reports. It is used only when you set it as `TEST_RUNNER`
+  or mix it into a test case, so it changes nothing for a project that does
+  not. See [Django](django.md#without-pytest-managepy-test).
 
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in

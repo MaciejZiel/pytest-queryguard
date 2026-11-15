@@ -33,7 +33,7 @@ queryguard: N+1 detected
        select(Order).options(joinedload(Order.customer))
 ```
 
-Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html).
+Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html). Django projects that run `manage.py test` instead of pytest can use its test runner: [Without pytest](https://maciejziel.github.io/pytest-queryguard/django.html#without-pytest-managepy-test).
 
 ## What it catches
 
