@@ -90,6 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- [Django](docs/django.md#out-of-scope-for-django): what is out of scope for
+  Django, with the reason for each: `unused-eager-load`, `unused-columns`,
+  `cartesian-load`, fix patches, the static check and the in-application
+  mode. A decision about scope, not a gap before the Django support leaves
+  experimental.
 - [Django](docs/django.md#five-more-projects-2026-11-14): the test suites of
   five more open-source Django projects (paperless-ngx, Tandoor,
   django-allauth, strawberry-django, Label Studio; 5,478 tests). The plugin
