@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Django (experimental), performance: the stacks already classified for a
+  statement's call path are kept across tests instead of being classified
+  again in every test, the SELECT of a lazy load reuses the load's call path
+  when it comes from the same frame, and the read path of a lazy load is
+  found with one dictionary lookup per frame. On django-cms the plugin's own
+  time fell by about a quarter under the profiler; the wall-time overhead
+  went from about 15 % to about 14 %.
+
 - Django (experimental): each request of the `AsyncClient` counts on its own
   on Django 5.2 and 6.0 too, as it did on 6.1 and as requests of the sync
   test client always did. Before 6.1, `Signal.asend` runs the receivers of
@@ -107,6 +115,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
 
 ### Internal
+
+- `realworld.yml` has a `profile` input: the pytest runs without and with the
+  plugin run under cProfile, and the profiles go into the artifact.
 
 - `tests/django_project/test_public_api.py` snapshots the Django surface, as
   `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,
