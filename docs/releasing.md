@@ -138,3 +138,10 @@ CPU models not in the logs are dropped (they measured the old cost; such a
 model falls back to the highest entry until it is recorded again).
 `--update` measures on the current machine and writes its entry, which is
 only right on the runner.
+
+Some CPU models come up rarely (a few in a hundred jobs), so the gate runs
+alone may never land on them. To record one, run the `overhead` job by itself
+many times on a temporary branch (a workflow with the same steps in a matrix,
+deleted afterwards), keep the logs of the models without an entry and record
+those only: `--record` replaces the entry of every model in the logs it is
+given.
