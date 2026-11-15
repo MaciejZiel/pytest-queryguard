@@ -72,37 +72,6 @@
       "truncated": false,
       "findings": [],
       "max_queries_marker": true
-    },
-    "tests/test_orders_fixed.py::test_fetch_customers": {
-      "statements": 1,
-      "by_verb": {
-        "select": 1
-      },
-      "db_time": 0.0014984809968154877,
-      "truncated": false,
-      "findings": [],
-      "max_queries_marker": false
-    },
-    "tests/test_orders_fixed.py::test_list_orders": {
-      "statements": 1,
-      "by_verb": {
-        "select": 1
-      },
-      "db_time": 0.0012128300149925053,
-      "truncated": false,
-      "findings": [],
-      "max_queries_marker": false
-    },
-    "tests/test_orders_fixed.py::test_rename_customers": {
-      "statements": 2,
-      "by_verb": {
-        "select": 1,
-        "update": 1
-      },
-      "db_time": 5.372503073886037e-05,
-      "truncated": false,
-      "findings": [],
-      "max_queries_marker": true
     }
   }
 }
