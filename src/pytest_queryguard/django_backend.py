@@ -897,9 +897,20 @@ def _key(instance: Any) -> object:
 _request: ContextVar[int | None] = ContextVar("queryguard_django_request", default=None)
 
 
+# Set while an async handler runs a request in the scope it opened
+# (``_in_request``); request_started then keeps that scope.
+_async_request: ContextVar[bool] = ContextVar(
+    "queryguard_django_async_request", default=False
+)
+
+
 def _on_request_started(sender: Any, **kwargs: Any) -> None:
     # One scope per request (the test client's included), as a Session is
     # one for SQLAlchemy: queryguard_scope = session counts each on its own.
+    # From Django 6.1 an async handler sends it in the request's own context:
+    # the scope its handler opened (which a streamed body is read in) stays.
+    if _async_request.get():
+        return
     _request.set(collector.RequestScope(next(errors.scopes)))
 
 
@@ -922,9 +933,11 @@ def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
             _fail(exc, "Django integration (async request)")
             return await original(self, *args, **kwargs)
         token = _request.set(scope)
+        handled = _async_request.set(True)
         try:
             response = await original(self, *args, **kwargs)
         finally:
+            _async_request.reset(handled)
             _request.reset(token)
         _scoped_body(response, scope)
         return response
@@ -1082,9 +1095,27 @@ def _locate_view(callback: Any) -> tuple[str, int, str] | None:
 
 
 def _scope_of(connection: Any) -> int | None:
-    """The request being handled, else the connection the statement ran on."""
+    """The request being handled, else the connection the statement ran on.
+
+    The connection of a thread that test code started (each thread has a
+    connection of its own) is a unit of work of its own, as a request is:
+    django-oscar's concurrency test places one order in each of five
+    threads, and those are no loop. A thread that the application starts
+    (a fan-out per item) is counted with the rest of the test.
+    """
     scope = _request.get()
-    return scope if scope is not None else errors.scope_of(connection)
+    if scope is not None:
+        return scope
+    scope = errors.scope_of(connection)
+    if (
+        scope is not None
+        # a connection the threads share (the live server's in-memory
+        # SQLite) is one scope for all of them
+        and not getattr(connection, "allow_thread_sharing", False)
+        and callsite.thread_of_test_code()
+    ):
+        return collector.RequestScope(scope)
+    return scope
 
 
 def _scope(instance: Any) -> int | None:

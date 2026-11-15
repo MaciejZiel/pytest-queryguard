@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
   index check without pytest yet
   ([Django](docs/django.md#without-pytest-managepy-test)).
+- Route budgets in pytest (experimental): `queryguard_route_budgets =
+  "GET /books/{id}=5"` (one `PATTERN=LIMIT` per line, matched like the
+  in-app mode's `budgets`) and `queryguard_route_default_budget` give each
+  request a test sends through a test client a statement budget of its own,
+  so a ceiling such as "every `GET /api/*` runs at most 10 statements" holds
+  in every test that calls it. Measured for Starlette, FastAPI, Litestar,
+  Flask and Django applications, a streamed body and background tasks
+  included; the `queryguard_route_budgets` marker sets them per test. A test
+  fails once per route that went over, with the statements and lines of its
+  worst request
+  ([Budgets per route](docs/budgets.md#budgets-per-route-for-the-requests-of-a-test)).
 - `assert_queries_do_not_grow(fn, sizes=(1, 10), *, setup=None)` and its
   awaitable `assert_queries_do_not_grow_async()`: run the same code for each
   size (a number of rows, seeded by `setup` outside the recording) and fail
@@ -78,7 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `User.user_permissions`, 4 of `Project.milestones`).
 - Django (experimental): a streamed body (`StreamingHttpResponse`,
   `FileResponse`) that a test reads from an `AsyncClient` response after the
-  call returned counts in its request, on every Django version.
+  call returned counts in its request, on every Django version. On Django
+  6.1, where `request_started` reaches the request's own context, the
+  request no longer gets a second scope there: its view and its streamed
+  body count as one request.
 - Django (experimental): a helper that gets one object and reads its relation
   is no longer an N+1 when it runs once from each of two lines (one request
   that handles two sessions, say): the parents of one query line are grouped
@@ -110,6 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   middleware of the project name the line that awaited them, not the
   middleware's `get_response(request)` line, which asgiref's thread had on
   its stack.
+- Django (experimental): the statements of a thread that test code starts
+  (its target is test code, as `oscar.test.utils.run_concurrently` is) count
+  on their own, as a request does: each thread has a connection of its own,
+  and five threads that each place one order are no loop. Seen on
+  django-oscar's concurrency test (2 false findings). A thread that the
+  application starts, one per item, still counts with the rest of the test.
+  The requests of the live server count one by one, as before; now tested.
 
 ### Documentation
 
