@@ -46,6 +46,10 @@ on:
         description: "Extra pytest arguments of the run with the plugin, split on spaces (e.g. -o queryguard_scope=session)"
         required: false
         default: ""
+      profile:
+        description: "Run the pytest runs without and with the plugin under cProfile (baseline.prof, plugin.prof in the artifact; the timings are then not comparable with other runs)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -216,6 +220,7 @@ jobs:
           SUITE: ${{ inputs.suite }}
           PLUGIN_ARGS: ${{ inputs.plugin-args }}
           TEST_COMMAND: ${{ matrix.test_command }}
+          PROFILE: ${{ inputs.profile }}
         run: |
           read -r -a args <<< "$PYTEST_ARGS"
           read -r -a plugin_args <<< "$PLUGIN_ARGS"
@@ -231,7 +236,11 @@ jobs:
               PYTHONPATH="$RUNNER_TEMP/probe${PYTHONPATH:+:$PYTHONPATH}" \
               timeout -s INT -k 30 10m "${test_command[@]}" "$@" > "$OUT/$name.log" 2>&1
             else
-              timeout -s INT -k 30 10m python -m pytest "${args[@]}" "$@" \
+              local python=(python)
+              if [ "$PROFILE" = true ] && [ "$name" != zeal ] && [ "$name" != nplusone ]; then
+                python=(python -m cProfile -o "$OUT/$name.prof")
+              fi
+              timeout -s INT -k 30 10m "${python[@]}" -m pytest "${args[@]}" "$@" \
                 --junitxml="$OUT/$name.xml" > "$OUT/$name.log" 2>&1
             fi
             code=$?
