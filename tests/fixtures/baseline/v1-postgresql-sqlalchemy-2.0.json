@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "findings": [
+    {
+      "kind": "missing-index",
+      "label": "shop.customers",
+      "file": "test_a.py",
+      "function": "test_repeat"
+    },
+    {
+      "kind": "relationship-load",
+      "label": "Order.customer",
+      "file": "test_a.py",
+      "function": "test_loop"
+    },
+    {
+      "kind": "repeated-statement",
+      "label": "SELECT shop.customers.id AS shop_customers_id, shop.customers.name AS shop_customers_name FROM shop.customers WHERE shop.customers.id = %(id_1)s::INTEGER",
+      "file": "test_a.py",
+      "function": "test_repeat"
+    },
+    {
+      "kind": "write-loop",
+      "label": "INSERT INTO \"shop\".\"customers\" (id, name) VALUES ($1, $2)",
+      "file": "test_a.py",
+      "function": "test_writes"
+    }
+  ]
+}
