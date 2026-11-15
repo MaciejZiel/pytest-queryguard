@@ -34,7 +34,7 @@ queryguard: N+1 detected
        select(Order).options(joinedload(Order.customer))
 ```
 
-Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html). [Coding agents](https://maciejziel.github.io/pytest-queryguard/agents.html): a skill, an MCP server, [llms.txt](https://maciejziel.github.io/pytest-queryguard/llms.txt) and a Claude Code plugin, `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`.
+Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html). Django projects that run `manage.py test` instead of pytest can use its test runner: [Without pytest](https://maciejziel.github.io/pytest-queryguard/django.html#without-pytest-managepy-test). [Coding agents](https://maciejziel.github.io/pytest-queryguard/agents.html): a skill, an MCP server, [llms.txt](https://maciejziel.github.io/pytest-queryguard/llms.txt) and a Claude Code plugin, `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`.
 
 ## What it catches
 
@@ -200,8 +200,8 @@ which can verify a suggested index with hypopg.
 - Leave out single findings with `@pytest.mark.queryguard_ignore("Order.customer")`
   or the `queryguard_ignore` option; make kinds warn with `queryguard_fail_on`
   or `queryguard_mode = warn`. See [Ignoring findings](https://maciejziel.github.io/pytest-queryguard/ignoring.html).
-- Read the statements of a block in a test with `record_queries()`. See
-  [Reading the queries](https://maciejziel.github.io/pytest-queryguard/python-api.html).
+- `record_queries()` reads a block's statements; `assert_queries_do_not_grow()`
+  fails when the count grows with the rows. See [Reading the queries](https://maciejziel.github.io/pytest-queryguard/python-api.html).
 - The same rules run per request in a FastAPI, Starlette or Flask app during
   development: [in-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html).
 
@@ -281,8 +281,7 @@ uv run mypy src
 uv run --group docs python scripts/build_docs.py --strict   # the docs site, into site/
 ```
 
-The PostgreSQL tests run when `QUERYGUARD_PG_URL` points to a server, and are
-skipped otherwise:
+The PostgreSQL tests run when `QUERYGUARD_PG_URL` points to a server, and are skipped otherwise:
 
 ```bash
 docker run -d --rm --name qg-postgres -p 55432:5432 -e POSTGRES_PASSWORD=pg postgres:17
@@ -294,6 +293,8 @@ Coverage is measured with `coverage run` rather than `pytest --cov`, because
 `--cov` starts after pytest has imported the plugin and misses its import-time
 lines. Third-party licenses are listed in
 [3rdparty_licenses.md](https://github.com/MaciejZiel/pytest-queryguard/blob/main/3rdparty_licenses.md).
+
+Thanks to [@Muguett-DBY](https://github.com/Muguett-DBY) for fixes and tests: [#202](https://github.com/MaciejZiel/pytest-queryguard/pull/202), [#203](https://github.com/MaciejZiel/pytest-queryguard/pull/203), [#210](https://github.com/MaciejZiel/pytest-queryguard/pull/210), [#211](https://github.com/MaciejZiel/pytest-queryguard/pull/211), [#287](https://github.com/MaciejZiel/pytest-queryguard/pull/287), [#293](https://github.com/MaciejZiel/pytest-queryguard/pull/293).
 
 ## License
 

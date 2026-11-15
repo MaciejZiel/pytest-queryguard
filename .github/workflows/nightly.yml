@@ -36,12 +36,28 @@ jobs:
             python-version: "3.16"
             sqlalchemy: stable
             pytest: stable
+            # Temporary: pydantic-core 2.46.5 has no 3.16 wheel and its PyO3
+            # refuses to build for 3.16, so uv sync failed before any test ran.
+            # This entry installs the locked dev group without fastapi and
+            # pydantic, and leaves out the test modules that import fastapi at
+            # module level (tests/corpus, tests/test_examples.py and the
+            # fastapi_project fixture skip through importorskip). Revert to a
+            # plain uv sync once pydantic-core publishes cp316 wheels.
+            without-pydantic: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync
+        if: ${{ !matrix.without-pydantic }}
+      - name: Install the locked dev group without fastapi and pydantic
+        if: ${{ matrix.without-pydantic }}
+        run: |
+          uv venv
+          uv export --locked --group dev --no-hashes --no-annotate --no-header --no-emit-project \
+            | grep -v -E '^(fastapi|pydantic|pydantic-core)==' > "$RUNNER_TEMP/requirements.txt"
+          uv pip install -r "$RUNNER_TEMP/requirements.txt" -e .
       # The project pins exclude-newer; the overrides below must see releases
       # newer than that date, so they pass an explicit cutoff.
       - name: Install SQLAlchemy from the development branch
@@ -53,3 +69,15 @@ jobs:
       - name: Show resolved versions
         run: uv run --no-sync python -c "import sys, sqlalchemy, pytest; print(sys.version); print('sqlalchemy', sqlalchemy.__version__); print('pytest', pytest.__version__)"
       - run: uv run --no-sync pytest -rs
+        if: ${{ !matrix.without-pydantic }}
+      - name: Run the tests, without the modules that import fastapi
+        if: ${{ matrix.without-pydantic }}
+        run: >-
+          uv run --no-sync pytest -rs
+          --ignore=tests/inapp/test_asgi.py
+          --ignore=tests/inapp/test_hardening.py
+          --ignore=tests/inapp/test_page_report.py
+          --ignore=tests/inapp/test_panel.py
+          --ignore=tests/inapp/test_panel_mounts.py
+          --ignore=tests/inapp/test_panel_token.py
+          --ignore=tests/inapp/test_sampling.py
