@@ -548,7 +548,17 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    reason for each.
 7. **Overhead on statement-heavy suites**: django-cms ran 8.6 % to 15.9 %
    slower with the plugin. The other ten projects were within the noise of a
-   single run.
+   single run. Profiled in Actions on 2026-11-15 (the `profile` input of
+   `realworld.yml`): nearly all of the plugin's time is the walk of the
+   stack for each statement's call site and call path, and 57 % of the
+   statements classified their stack again, because the cache of classified
+   stacks was emptied for every test. 1.1.0 keeps it across tests, reuses a
+   lazy load's call path for its own SELECT, and makes the read path's walk
+   cheaper: the plugin's own time under the profiler fell by 26 %, and the
+   wall-time overhead from 14.6 % and 15.0 % (two runs of `main`) to 13.2 %
+   and 14.2 %. No cheap win is left that would bring it near the noise:
+   the walk itself is the cost, and only a sampled or lazily computed call
+   path would remove it, which is a redesign.
 
 ## Sources
 

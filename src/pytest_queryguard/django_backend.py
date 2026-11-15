@@ -61,7 +61,13 @@ from types import FrameType
 from typing import Any
 
 from . import blocks, callsite, collector, errors, sqltext
-from .callsite import NO_ORIGIN, Origin, find_callsite, find_site_origin
+from .callsite import (
+    NO_ORIGIN,
+    Origin,
+    find_callsite,
+    find_site_origin,
+    outer_frame_id,
+)
 from .events import (
     CAUSE_DEFERRED,
     ORM_DJANGO,
@@ -142,8 +148,12 @@ class _Load(_Frozen):
 
 
 # The load whose SELECT is about to run in this context: (its event, the
-# origin of the instances it loads). The first SELECT takes it.
-_Pending = tuple[RelationshipLoadEvent | ColumnLoadEvent, _Origin | None]
+# origin of the instances it loads, the call path of the load and the id of
+# its first frame outside Django, see callsite.outer_frame_id). The first
+# SELECT takes it; when that SELECT comes from the same frame (alive while
+# the load runs, so its id is not reused), it takes the call path too: the
+# stack from there outwards is the same, and is not walked again.
+_Pending = tuple[RelationshipLoadEvent | ColumnLoadEvent, _Origin | None, Origin, int]
 _pending: ContextVar[_Pending | None] = ContextVar(
     "queryguard_django_load", default=None
 )
@@ -551,9 +561,16 @@ def _record(
     # the call path, for the count rules of the collectors that want loads
     origin = NO_ORIGIN
     if full:
-        found, origin = _site_origin()
-        if site is None:
-            site = found
+        if (
+            pending is not None
+            and site is not None
+            and pending[3] == callsite.outer_frame_id()
+        ):
+            origin = pending[2]
+        else:
+            found, origin = _site_origin()
+            if site is None:
+                site = found
     elif site is None:
         site = _site()
     stmt = StatementEvent(
@@ -1132,7 +1149,7 @@ def _scope(instance: Any) -> int | None:
 
 def _relationship_event(
     label: str, instance: Any, scalar: bool, scope: int | None, origin: _Origin | None
-) -> RelationshipLoadEvent:
+) -> tuple[RelationshipLoadEvent, Origin]:
     parent = _parent(origin)
     site, path = _site_origin()
     return RelationshipLoadEvent(
@@ -1148,7 +1165,7 @@ def _relationship_event(
         orm=ORM_DJANGO,
         call=path.call,
         read_path=_read_path(),
-    )
+    ), path
 
 
 def _read_path() -> tuple[tuple[str, int], ...]:
@@ -1197,8 +1214,10 @@ def _prepare(label: Callable[[], str], instance: Any, scalar: bool) -> _Pending 
     try:
         origin = _origin_of(instance)
         name = label()
-        event = _relationship_event(name, instance, scalar, _scope(instance), origin)
-        return event, _child_origin(origin, name, scalar)
+        event, path = _relationship_event(
+            name, instance, scalar, _scope(instance), origin
+        )
+        return event, _child_origin(origin, name, scalar), path, outer_frame_id()
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "Django integration (lazy load)")
         return None
@@ -1334,7 +1353,7 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
                 orm=ORM_DJANGO,
                 call=path.call,
             )
-            pending: _Pending | None = (event, None)
+            pending: _Pending | None = (event, None, path, outer_frame_id())
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             _fail(exc, "Django integration (deferred field)")
             pending = None
@@ -1504,6 +1523,8 @@ def _execute_sql(
             pending: _Pending | None = (
                 event,
                 _child_origin(mark.origin, mark.label, False),
+                path,
+                outer_frame_id(),
             )
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             _fail(exc, "Django integration (related manager query)")

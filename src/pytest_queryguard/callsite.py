@@ -95,6 +95,7 @@ def _is_internal(filename: str) -> bool:
 # nested functions included, which is slow for a module's code. The code
 # object is kept with the answer, so its id is not reused while it is there.
 _session_methods: dict[int, tuple[CodeType, bool]] = {}
+_SESSION_MODULE = "sqlalchemy.orm.session"
 _MAX_SESSION_METHODS = 4096
 
 
@@ -113,6 +114,8 @@ def _session_classes() -> tuple[type, ...]:
 
 def _is_session_method(frame: FrameType) -> bool:
     """Whether ``frame`` runs a method of a ``Session`` or ``AsyncSession`` subclass."""
+    if _SESSION_MODULE not in sys.modules:
+        return False  # no Session class exists yet (a Django project)
     if frame.f_code.co_name in _INLINED:
         frame = _outer(frame)  # a comprehension in the method, before 3.12
     code = frame.f_code
@@ -197,7 +200,8 @@ def new_measurement() -> None:
     _last_view = None
     _calls.clear()
     _paths.clear()
-    _origins.clear()
+    # _origins stays: an origin depends only on the frames' code and
+    # instructions and on the test code, which empties it when it changes
 
 
 def end_measurement() -> None:
@@ -591,10 +595,13 @@ def _installed_top(filename: str) -> str | None:
 
 # (library, id(code), f_lasti, ...) of the frames from the first application
 # frame up to the test -> (their code objects, the Origin, the index of the
-# call's frame), see _origin. Emptied with the call paths (new_measurement)
-# and when the test code changes.
+# call's frame), see _origin. Kept across measurements; emptied when the test
+# code changes, and all at once when full.
 _origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin, int | None]] = {}
-_MAX_ORIGINS = 1024
+# A suite runs a few thousand distinct stacks; kept across tests, so the
+# stacks of each test are classified once (django-cms: 57 % misses at 1024
+# when it was emptied for every test).
+_MAX_ORIGINS = 4096
 
 
 # filename -> _APP, _INTERNAL, _HOOK for pluggy's, where the walk for the
@@ -858,6 +865,25 @@ def _in_test_code(filename: str, frame: FrameType) -> bool:
 _MAX_READ_PATH = 32
 
 
+def outer_frame_id() -> int:
+    """The id() of the first frame outwards from the caller that is not of an
+    internal library: the application's line (or the library's, or the
+    hook's) that the statement or load came from. While that frame runs, two
+    calls that give the same id have the same stack from there outwards."""
+    kinds = _kinds
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        try:
+            kind = kinds[filename]
+        except KeyError:
+            kind = _kind(filename)
+        if kind & ~_SPECIAL != _INTERNAL:
+            return id(frame)
+        frame = frame.f_back
+    return 0
+
+
 def thread_of_test_code() -> bool:
     """Whether the running thread runs a function of test code: the outermost
     frame of its stack that is not a library's (the thread's target, or the
@@ -890,14 +916,18 @@ def read_path() -> tuple[tuple[str, int], ...]:
     lines are kept: those near the test are the ones two calls differ in.
     """
     found: dict[tuple[str, int], None] = {}
-    stop = _hook_caller()
+    kinds = _kinds  # one lookup per frame, as _origin's walk
     frame: FrameType | None = sys._getframe(1)
     while frame is not None:
         filename = frame.f_code.co_filename
-        if stop and os.path.normcase(filename).startswith(stop):
-            break
-        if not _is_internal(filename):
+        try:
+            kind = kinds[filename]
+        except KeyError:
+            kind = _kind(filename)
+        if kind == _APP:
             found[(filename, frame.f_lineno)] = None
+        elif kind & ~_SPECIAL == _HOOK:
+            break
         frame = frame.f_back
     path = tuple(found)
     return path[-_MAX_READ_PATH:]

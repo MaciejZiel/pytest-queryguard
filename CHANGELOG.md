@@ -107,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Django (experimental), performance: the stacks already classified for a
+  statement's call path are kept across tests instead of being classified
+  again in every test, the SELECT of a lazy load reuses the load's call path
+  when it comes from the same frame, and the read path of a lazy load is
+  found with one dictionary lookup per frame. On django-cms the plugin's own
+  time fell by about a quarter under the profiler; the wall-time overhead
+  went from about 15 % to about 14 %.
+
 - Django (experimental): each request of the `AsyncClient` counts on its own
   on Django 5.2 and 6.0 too, as it did on 6.1 and as requests of the sync
   test client always did. Before 6.1, `Signal.asend` runs the receivers of
@@ -181,6 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- `realworld.yml` has a `profile` input: the pytest runs without and with the
+  plugin run under cProfile, and the profiles go into the artifact.
 - The real-world harness (`.github/workflows/realworld.yml`) runs MySQL for a
   project that asks for it, and `manage.py test` projects under
   `QueryGuardRunner` (`scripts/realworld_runner.py` writes the JUnit XML and
