@@ -29,7 +29,9 @@ pip install pytest-queryguard
 ```
 
 It is on by default: there is nothing to import or configure. These pages
-describe 1.0.0, see [Getting started](getting-started.md#install). If pytest
+describe 1.1.0rc1, a release candidate: `pip install --pre pytest-queryguard`
+installs it, a plain `pip install` gives 1.0.0, without the parts marked
+"since 1.1.0". See [Getting started](getting-started.md#install). If pytest
 does not know an option, check the [changelog](../CHANGELOG.md) for the
 release that added it.
 
@@ -51,7 +53,7 @@ release that added it.
 - **Adoption on a large suite:** a [baseline](baseline.md) so only new
   findings fail, and [SARIF](sarif.md) for GitHub code scanning.
 
-What it does not do (ORMs other than SQLAlchemy and, experimentally, [Django](django.md)) and where other tools are ahead:
+What it does not do (ORMs other than SQLAlchemy and [Django](django.md)) and where other tools are ahead:
 [Comparison with other tools](comparison.md) and [Limitations](limitations.md).
 How often it is right, on a corpus of 283 scenarios: [Accuracy](accuracy.md).
 Coming from another tool: [nplusone](migrating-from-nplusone.md),

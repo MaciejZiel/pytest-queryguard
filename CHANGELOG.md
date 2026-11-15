@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0rc1] - 2026-11-15
+
+Release candidate for 1.1.0. New: route budgets in pytest, `assert_queries_do_not_grow()`, baseline labels that match across databases and SQLAlchemy versions, a VS Code extension, `llms.txt` and a Claude Code plugin for coding agents, and the GitHub Action in its own Marketplace repository. The Django ORM support is no longer experimental; its `manage.py test` runner and route budgets are new and start experimental. Two changes to watch when upgrading: a loop of the test that calls the application once per pass is now the test code's repetition, not an N+1 (see Changed), and a baseline written by 1.1 does not match on 1.0.x where a label changes form. Install with `pip install --pre pytest-queryguard`.
+
 ### Added
 
 - N+1 detection without pytest, for Django projects that run
@@ -74,7 +78,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- A loop of the test that calls the application once per pass, where each
+- The Django ORM support is no longer experimental
+  ([#246](https://github.com/MaciejZiel/pytest-queryguard/issues/246)): the
+  `[django]` extra, what it records and reports for Django code (finding
+  kinds and labels, how they are grouped and scoped, the loader each fix
+  names) and the Django versions and databases it supports follow the
+  deprecation policy like the rest of the plugin; the wording around a fix
+  stays outside it, as for SQLAlchemy. `tests/django_project/test_public_api.py`
+  snapshots that surface. The test runner for `manage.py test`
+  (`pytest_queryguard.django`) and route budgets, both new, stay
+  experimental. The [design note](docs/design-django.md#5-out-of-experimental)
+  lists what was done for it: fourteen real-world projects (19,024 tests)
+  with no changed outcome and no internal error, on SQLite, PostgreSQL and
+  MySQL and Django 5.2, 6.0 and 6.1
+  ([Stability](docs/stability.md#experimental)).
+- Behavior change, by default
+  ([#400](https://github.com/MaciejZiel/pytest-queryguard/pull/400)): a loop
+  of the test that calls the application once per pass, where each
   call runs a statement or reads a relationship once (a case per pass, a page
   per request, objects created one by one whose `post_save` receiver or event
   listener reads a row), is the test code's repetition, not an N+1 of the
@@ -90,7 +110,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [Loops of the test](docs/how-detection-works.md#loops-of-the-test); corpus
   scenarios `clean_142`, `clean_143` and `bug_137`. Seen also on a Django
   project's suite, where five tests needed a `queryguard_ignore` marker for
-  an arrange step that calls a service in a loop.
+  an arrange step that calls a service in a loop. In the fourteen Django
+  projects of the real-world runs this moved about 470 findings of three
+  projects (django-cms, Label Studio, paperless-ngx) from failures to the
+  test-code section. A test that relied on such a loop failing fails again
+  with `queryguard_test_code = fail`.
 - Baseline labels no longer depend on the database: a `repeated-statement`
   or `write-loop` entry is written and compared without schema qualifiers,
   identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,
@@ -100,7 +124,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written by an earlier release still matches and is rewritten in the new
   form by the next `--queryguard-update-baseline`; reports, JSON, SARIF
   fingerprints and ignore patterns keep the full label
-  ([Baseline](docs/baseline.md#what-an-entry-is)).
+  ([Baseline](docs/baseline.md#what-an-entry-is)). The other way round does
+  not hold: 1.0.x compares labels as they are, so an entry that 1.1 wrote in
+  the new form no longer matches on 1.0.x where the label changed (a schema,
+  quotes, placeholders or column aliases in the SQL). Record and use a
+  baseline with one of the two, not both.
 - The agent skill also covers the Django ORM (`select_related`,
   `prefetch_related`, `in_bulk`) and query count tests, and its description
   names what people ask: N+1 queries, "too many queries", a lazy load in a
@@ -120,7 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Django (experimental), performance: the stacks already classified for a
+- Django, performance: the stacks already classified for a
   statement's call path are kept across tests instead of being classified
   again in every test, the SELECT of a lazy load reuses the load's call path
   when it comes from the same frame, and the read path of a lazy load is
@@ -128,7 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   time fell by about a quarter under the profiler; the wall-time overhead
   went from about 15 % to about 14 %.
 
-- Django (experimental): each request of the `AsyncClient` counts on its own
+- Django: each request of the `AsyncClient` counts on its own
   on Django 5.2 and 6.0 too, as it did on 6.1 and as requests of the sync
   test client always did. Before 6.1, `Signal.asend` runs the receivers of
   `request_started` in a task of their own, so the requests of a test were
@@ -137,20 +165,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   strawberry-django, whose GraphQL test client sends each query through
   `AsyncClient`: 34 false `relationship-load` findings (30 of
   `User.user_permissions`, 4 of `Project.milestones`).
-- Django (experimental): a streamed body (`StreamingHttpResponse`,
+- Django: a streamed body (`StreamingHttpResponse`,
   `FileResponse`) that a test reads from an `AsyncClient` response after the
   call returned counts in its request, on every Django version. On Django
   6.1, where `request_started` reaches the request's own context, the
   request no longer gets a second scope there: its view and its streamed
   body count as one request.
-- Django (experimental): a helper that gets one object and reads its relation
+- Django: a helper that gets one object and reads its relation
   is no longer an N+1 when it runs once from each of two lines (one request
   that handles two sessions, say): the parents of one query line are grouped
   by the call path of the read too, which every pass of a loop shares, so the
   same helper in a loop is still found. Seen on django-allauth, `UserSession.user` read by
   `create_from_request()` for the token's and the cookie's session (3 false
   `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
-- Django (experimental): a streamed body of the sync test client counts in
+- Django: a streamed body of the sync test client counts in
   its own request also when the test reads the bodies of several requests in
   turn (before, in the last request's, then per connection), and the test's
   own statements after the call, before or without reading the body, no
@@ -161,7 +189,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   current between items, and the first generator to end finished the unit of
   the other.
 
-- Django (experimental): a finding of a view that runs no line of the project
+- Django: a finding of a view that runs no line of the project
   between Django and the query (a DRF generic view with a class-level
   `queryset` and its `ModelSerializer`, a `TemplateResponse` rendered after
   the view returned) names the view class or function, with the test line
@@ -170,11 +198,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get_response(request)` line: seen on paperless-ngx, Tandoor and Label
   Studio. A view of Django's own (`ListView` in the URLconf) points at the
   test line, as it did without a project middleware.
-- Django (experimental): the async ORM calls of an async view under a sync
+- Django: the async ORM calls of an async view under a sync
   middleware of the project name the line that awaited them, not the
   middleware's `get_response(request)` line, which asgiref's thread had on
   its stack.
-- Django (experimental): the statements of a thread that test code starts
+- Django: the statements of a thread that test code starts
   (its target is test code, as `oscar.test.utils.run_concurrently` is) count
   on their own, as a request does: each thread has a connection of its own,
   and five threads that each place one order are no loop. Seen on
@@ -3418,7 +3446,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.1.0rc1...HEAD
+[1.1.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0...v1.1.0rc1
 [1.0.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0rc1...v1.0.0
 [1.0.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...v1.0.0rc1
 [0.10.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.9.0...v0.10.0

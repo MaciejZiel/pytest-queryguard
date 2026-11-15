@@ -26,8 +26,8 @@ the seeding findings with `queryguard_ignore`. It was run with Factory Boy
 3.3.3, SQLAlchemy 2.1.1, pytest 9.1 and Python 3.13; pytest-queryguard
 0.5.0rc3, and again with the `queryguard_test_code` default of 0.10.0.
 
-What follows applies to SQLAlchemy suites. For pytest-django suites (the
-Django support is experimental, see [Django](django.md)) the same rule
+What follows applies to SQLAlchemy suites. For pytest-django suites (see
+[Django](django.md)) the same rule
 holds: a factory module is test code, and its N+1s are left out by default.
 
 ## The project

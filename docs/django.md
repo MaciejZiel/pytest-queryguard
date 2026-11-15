@@ -1,11 +1,13 @@
-# Django (experimental)
+# Django
 
 pytest-queryguard checks Django ORM code as it checks SQLAlchemy code: it
 fails a test that runs an N+1, enforces query budgets, and writes the same
-baseline, JSON and SARIF files. The Django support is **experimental** in this
-release, outside the stability guarantees like the static check: its
-findings and options may still change in a minor release (see
-[Stability](stability.md#experimental)).
+baseline, JSON and SARIF files. Since 1.1.0 the Django support is no longer
+experimental: its finding kinds, labels and supported versions follow the
+[stability policy](stability.md#what-is-public) like the rest of the plugin
+(it was experimental from 0.10.0 to 1.0.x). The test runner for
+`manage.py test` is new in 1.1.0 and still
+[experimental](stability.md#experimental).
 
 It is not related to the `django-query-guard` and `django-queryguard-n1`
 packages on PyPI.
@@ -216,10 +218,9 @@ measure nothing.
 **Not available without pytest** (yet): the `max_queries` marker and the
 budget file (the `max_queries()` context manager works), the
 baseline, `--queryguard-json`, SARIF, the end-of-run summary, strict mode and
-the index check. They need pytest-django and the plugin. Like the rest of the
-Django support, the runner (new in 1.1.0) is
-[experimental](stability.md#experimental): its settings and reports may change
-in a minor release. See the [design note](design-django-runner.md).
+the index check. They need pytest-django and the plugin. The runner (new in
+1.1.0) is [experimental](stability.md#experimental), unlike the rest of the
+Django support: its settings and reports may change in a minor release. See the [design note](design-django-runner.md).
 
 ## What is checked
 
@@ -395,7 +396,7 @@ The other ways:
 
 These features of the plugin are not offered for Django code, and are not
 planned. Each is a decision about scope, not a gap that the Django support
-leaving experimental depends on. They find nothing in Django code; with
+leaving experimental (in 1.1.0) depended on. They find nothing in Django code; with
 SQLAlchemy in the same project they work for its code as usual.
 
 | Feature | Why not for Django |

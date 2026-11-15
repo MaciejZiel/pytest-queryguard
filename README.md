@@ -33,7 +33,7 @@ queryguard: N+1 detected
        select(Order).options(joinedload(Order.customer))
 ```
 
-Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support is experimental: [Django](https://maciejziel.github.io/pytest-queryguard/django.html). Django projects that run `manage.py test` instead of pytest can use its test runner: [Without pytest](https://maciejziel.github.io/pytest-queryguard/django.html#without-pytest-managepy-test). [Coding agents](https://maciejziel.github.io/pytest-queryguard/agents.html): a skill, an MCP server, [llms.txt](https://maciejziel.github.io/pytest-queryguard/llms.txt) and a Claude Code plugin, `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`.
+Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8. Django ORM support (no longer experimental since 1.1.0): [Django](https://maciejziel.github.io/pytest-queryguard/django.html). Django projects that run `manage.py test` instead of pytest can use its test runner (experimental): [Without pytest](https://maciejziel.github.io/pytest-queryguard/django.html#without-pytest-managepy-test). [Coding agents](https://maciejziel.github.io/pytest-queryguard/agents.html): a skill, an MCP server, [llms.txt](https://maciejziel.github.io/pytest-queryguard/llms.txt) and a Claude Code plugin, `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`.
 
 ## What it catches
 
@@ -228,7 +228,7 @@ and the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#does-it-sl
 
 ## Limitations
 
-- SQLAlchemy, and Django experimentally; raw DB-API connections (`sqlite3`
+- SQLAlchemy and Django; raw DB-API connections (`sqlite3`
   and the like) and other ORMs (Peewee) are not seen, and nothing says so.
 - Only the test function body is measured, not fixtures. One measurement is
   active per process; under pytest-xdist each worker measures its own tests.
@@ -244,8 +244,8 @@ The full list is on the [Limitations](https://maciejziel.github.io/pytest-queryg
 ## Stability
 
 1.0 is stable: the public API (options, markers, finding kinds, files, the action) breaks only in a
-major release, deprecations last two minor releases, and fixes go into the latest 1.x. Experimental
-features (static check, MCP server, Django) are exempt. See [Stability](https://maciejziel.github.io/pytest-queryguard/stability.html).
+major release, deprecations last two minor releases, and fixes go into the latest 1.x; from 1.1.0 on,
+Django support too. Experimental features (static check, MCP server, route budgets, the `manage.py test` runner) are exempt. See [Stability](https://maciejziel.github.io/pytest-queryguard/stability.html).
 
 ## Documentation
 

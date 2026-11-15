@@ -599,6 +599,13 @@ the release candidate, and decide whether the test-code classification of
 loops of the test (item 2) should stay the default, since it moves about
 470 findings of three projects out of the failures.
 
+**Decided for 1.1.0rc1:** the label is dropped (see
+[Stability](stability.md#what-is-public)); the runner for `manage.py test`
+and route budgets, both new in 1.1.0, stay experimental. The test-code
+classification of loops of the test stays the default, and the changelog
+lists it under "Changed" as a change of behavior. The full harness on the
+release candidate is still to run.
+
 ## Sources
 
 Downloads: [pypistats.org](https://pypistats.org/) API (`/api/packages/<name>/recent`

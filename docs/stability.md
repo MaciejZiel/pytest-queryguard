@@ -49,9 +49,18 @@ changes by accident.
 - The files the plugin writes and reads, and the command-line tools and the
   GitHub Action that work with them, as listed under
   [Files, tools and the action](#files-tools-and-the-action).
+- The Django ORM support (since 1.1.0; experimental from 0.10.0 to 1.0.x):
+  the `[django]` extra, what the plugin records and reports for Django code
+  under pytest-django (the finding kinds and the labels it produces, such as
+  `Book.author` and `Author.books`, how it groups and scopes them, and the
+  loader each fix names: `select_related()`, `prefetch_related()`,
+  `only()`), and the Django versions and databases it supports. The wording
+  around a fix is a message, as for SQLAlchemy. Its test runner for
+  `manage.py test` is still [experimental](#experimental). See
+  [Django](django.md).
 - Supported versions: the Python and pytest releases, and the releases of
-  each supported ORM (today SQLAlchemy), listed in `pyproject.toml` and the
-  CI matrix. Dropping a Python or pytest series, or a series of a supported
+  each supported ORM (SQLAlchemy and Django), listed in `pyproject.toml` and
+  the CI matrix. Dropping a Python or pytest series, or a series of a supported
   ORM, is announced in the changelog and happens in a minor release at the
   earliest after the series is end of life upstream.
 - How to install it: `pip install pytest-queryguard` installs SQLAlchemy
@@ -409,12 +418,6 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   `explain_finding`, `compare`, and `lint` since 0.10.0), their
   arguments and the fields of their results. See
   [MCP server](mcp.md).
-- The Django ORM support: the `[django]` extra, what it records and reports
-  for Django code (the finding kinds and labels it produces, how it groups
-  and scopes them, the wording of its fixes) and the Django versions and
-  databases it supports. Options, files and APIs shared with SQLAlchemy keep
-  their guarantees; only what they contain for Django is experimental. See
-  [Django](django.md).
 - The Django test runner for `manage.py test` (since 1.1.0),
   `pytest_queryguard.django`: `QueryGuardRunner`, `QueryGuardTestCase`, the
   `QUERYGUARD` setting and its keys, `--queryguard-mode`, and the failures
@@ -428,14 +431,15 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   [Budgets per route](budgets.md#budgets-per-route-for-the-requests-of-a-test).
 
 `tests/django_project/test_public_api.py` snapshots the Django surface the
-same way, so that a change is deliberate while it is experimental and can
-follow the deprecation policy once it is not: `pytest_queryguard.django.__all__`,
-`QueryGuardRunner`'s `--queryguard-mode` and its keyword argument, the keys
-and defaults of `QUERYGUARD` (the ini options' names without the prefix), the
-labels of the findings Django code produces (`Book.author`, `Author.books`,
-`Book.body`, ...), the loader each fix names (`select_related()`,
-`prefetch_related()`, `only()`), and the Django versions and databases CI
-tests. The wording around a fix is not public, as for SQLAlchemy.
+same way, so that a change is deliberate: the labels of the findings Django
+code produces (`Book.author`, `Author.books`, `Book.body`, ...), the loader
+each fix names (`select_related()`, `prefetch_related()`, `only()`) and the
+Django versions and databases CI tests, which follow the deprecation policy
+since 1.1.0; and, for the experimental runner,
+`pytest_queryguard.django.__all__`, `QueryGuardRunner`'s `--queryguard-mode`
+and its keyword argument, and the keys and defaults of `QUERYGUARD` (the ini
+options' names without the prefix). The wording around a fix is not public,
+as for SQLAlchemy.
 
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
@@ -508,7 +512,7 @@ checks the outcome of every test of a small suite.
   SQLAlchemy 2.0 and the latest release, the oldest and the latest pytest,
   PostgreSQL 14 to 18, MySQL 8.4 and MariaDB 11.8 (the whole suite, with the
   tests' databases on the server), Windows and macOS, and under pytest-xdist.
-  The experimental Django support runs its own tests (the `django` job) on
+  The Django support runs its own tests (the `django` job) on
   Django 5.2, 6.0 and 6.1 with SQLite, Django 6.1 with PostgreSQL and
   Django 5.2 with MySQL. A nightly
   job tries the SQLAlchemy development branch, pytest pre-releases and Python

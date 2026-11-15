@@ -1,6 +1,6 @@
 # pytest-queryguard
 
-> A pytest plugin that fails tests with N+1 queries (a lazy load in a loop, one query per row) and enforces query-count budgets, for SQLAlchemy 2 in sync, async and FastAPI code, and for the Django ORM with pytest-django (experimental). On PostgreSQL 16 and newer, SQLite, MySQL and MariaDB it can also fail tests whose queries have no index to use. MIT license. This file sums up the documentation of the release named below; `CHANGELOG.md` says what is in which release (the latest release is on PyPI).
+> A pytest plugin that fails tests with N+1 queries (a lazy load in a loop, one query per row) and enforces query-count budgets, for SQLAlchemy 2 in sync, async and FastAPI code, and for the Django ORM with pytest-django. On PostgreSQL 16 and newer, SQLite, MySQL and MariaDB it can also fail tests whose queries have no index to use. MIT license. This file sums up the documentation of the release named below; `CHANGELOG.md` says what is in which release (the latest release is on PyPI).
 
 It watches the SQL each test function body sends (fixture setup and teardown are not measured) and points to the application line that caused a finding, even when the test database has only a few rows.
 
@@ -22,7 +22,7 @@ It needs no marker and no code change: installed, it checks every test.
 pip install pytest-queryguard
 ```
 
-This file describes 1.0.0. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. `pytest-queryguard[sqlalchemy]` installs the same today, and keeps SQLAlchemy installed if a later minor release moves it out of the core dependencies (docs/stability.md). For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
+This file describes 1.1.0rc1, a release candidate installed with `pip install --pre pytest-queryguard`; a plain `pip install pytest-queryguard` gives 1.0.0, without the parts marked "since 1.1.0". Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. `pytest-queryguard[sqlalchemy]` installs the same today, and keeps SQLAlchemy installed if a later minor release moves it out of the core dependencies (docs/stability.md). For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
 
 ## Quick start
 
@@ -67,13 +67,13 @@ Since 0.10.0, N+1 findings of test code are left out by default (`queryguard_tes
 
 Runnable projects are in `examples/`. Documentation pages are in `docs/` (build them with `uv run --group docs python scripts/build_docs.py --strict`).
 
-## Django (experimental)
+## Django
 
 ```bash
 pip install "pytest-queryguard[django]" pytest-django
 ```
 
-Django 5.2, 6.0 and 6.1, next to pytest-django; nothing goes into `INSTALLED_APPS` or settings. A test that calls `[f"{book.title} by {book.author.name}" for book in Book.objects.all()]` in application code fails with `Book.author was lazy-loaded 3 times` and the fix `Book.objects.select_related("author")` (or `prefetch_related()` for a reverse or many-to-many relation; on Django 6.1+, `.fetch_mode(models.FETCH_PEERS)`). Also reported: `.only()`/`.defer()` fields read per object (`column-load`), `get()` or `exists()` per item (`repeated-statement`, fix `in_bulk()` or `filter(pk__in=...)`), and opt-in `write-loop` (`save()` per row, fix `bulk_create()`/`bulk_update()`) and `missing-index`. Budgets, `record_queries()`, baselines, JSON, SARIF and the GitHub Action work the same. Each test-client request counts on its own. Excluded from the stability guarantees. See https://maciejziel.github.io/pytest-queryguard/django.html.
+Django 5.2, 6.0 and 6.1, next to pytest-django; nothing goes into `INSTALLED_APPS` or settings. A test that calls `[f"{book.title} by {book.author.name}" for book in Book.objects.all()]` in application code fails with `Book.author was lazy-loaded 3 times` and the fix `Book.objects.select_related("author")` (or `prefetch_related()` for a reverse or many-to-many relation; on Django 6.1+, `.fetch_mode(models.FETCH_PEERS)`). Also reported: `.only()`/`.defer()` fields read per object (`column-load`), `get()` or `exists()` per item (`repeated-statement`, fix `in_bulk()` or `filter(pk__in=...)`), and opt-in `write-loop` (`save()` per row, fix `bulk_create()`/`bulk_update()`) and `missing-index`. Budgets, `record_queries()`, baselines, JSON, SARIF and the GitHub Action work the same. Each test-client request counts on its own. No longer experimental since 1.1.0: the finding kinds, labels and supported versions follow the stability policy; the `manage.py test` runner (`pytest_queryguard.django.QueryGuardRunner`, since 1.1.0) is experimental. See https://maciejziel.github.io/pytest-queryguard/django.html.
 
 ## Markers and context manager
 
@@ -246,7 +246,7 @@ Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_
 
 ## Limitations
 
-- SQLAlchemy 2, and the Django ORM experimentally (docs/django.md: Django 5.2+ next to pytest-django, `pip install "pytest-queryguard[django]"`; excluded from the stability guarantees). Raw DB-API connections and other ORMs are not seen.
+- SQLAlchemy 2 and the Django ORM (docs/django.md: Django 5.2+ next to pytest-django, `pip install "pytest-queryguard[django]"`; experimental until 1.1.0). Raw DB-API connections and other ORMs are not seen.
 - Test code is told from the application by file: application code kept in a test module or under `tests/` is taken for test code and left out by default (`queryguard_test_code = fail` reports it).
 - Code in `site-packages` counts as library code; a non-editable install of your app makes call sites point to the test file.
 - One measurement per process at a time. Under pytest-xdist detection, budgets, baselines and SARIF work (workers send what they saw to the controller), but the report and the index-check summary are not shown.
@@ -254,7 +254,7 @@ Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_
 - The index check needs PostgreSQL 16 or newer and a sync engine or an async engine on asyncpg; other async drivers (such as psycopg async) are skipped with a notice. It reads index and column definitions from the catalog once per session and drops that cache on DDL it sees through SQLAlchemy; DDL run another way is not seen. It checks only `SELECT` and `WITH` statements and judges plans, not data. Join conditions alone are never reported.
 - Partitioned tables are reported under the partition's name.
 - The SQLite index check reads the plan SQLite chose, so it is less precise than the PostgreSQL one (see docs/index-check-sqlite.md).
-- Unused eager loads are detected only by the experimental, off-by-default check, and not for Django. Since 1.1.0 baseline labels of `repeated-statement`, `write-loop` and `missing-index` entries leave out schema qualifiers, identifier quotes, the placeholder style and SQLAlchemy 2.0 column aliases, so one baseline matches on SQLite and PostgreSQL and on SQLAlchemy 2.0 and 2.1; files written before still match.
+- Unused eager loads are detected only by the experimental, off-by-default check, and not for Django. Since 1.1.0 baseline labels of `repeated-statement`, `write-loop` and `missing-index` entries leave out schema qualifiers, identifier quotes, the placeholder style and SQLAlchemy 2.0 column aliases, so one baseline matches on SQLite and PostgreSQL and on SQLAlchemy 2.0 and 2.1; files written before still match, but 1.0.x compares labels as they are, so a baseline written by 1.1 does not match on 1.0.x where a label changed form: record and use it with one of the two.
 
 ## Docs
 
@@ -267,7 +267,7 @@ Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_
 - [How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html): the rules and thresholds of each finding kind
 - [Configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html): every ini option, flag and marker
 - [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html): `max_queries` and `max_db_time`
-- [Django (experimental)](https://maciejziel.github.io/pytest-queryguard/django.html)
+- [Django](https://maciejziel.github.io/pytest-queryguard/django.html)
 - [Coding agents](https://maciejziel.github.io/pytest-queryguard/agents.html) and [MCP server](https://maciejziel.github.io/pytest-queryguard/mcp.html)
 - [Comparison with other tools](https://maciejziel.github.io/pytest-queryguard/comparison.html): nplusone, django-zeal, queryspy, pytest-querycount and others
 - [Migrating from nplusone](https://maciejziel.github.io/pytest-queryguard/migrating-from-nplusone.html)

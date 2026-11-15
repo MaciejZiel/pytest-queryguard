@@ -1,7 +1,7 @@
 # Limitations
 
 
-- SQLAlchemy, and the Django ORM experimentally ([Django](django.md)). The
+- SQLAlchemy and the Django ORM ([Django](django.md)). The
   plugin listens to SQLAlchemy's events and Django's execute wrapper, so a
   statement that goes through neither is not counted, not budgeted and not
   checked for indexes, and nothing says so. That covers a raw `sqlite3`,

@@ -256,8 +256,7 @@ The sizes matter:
 ## Django
 
 The same with pytest-django, on the `Author` and `Book` models of
-[Django: getting started](django.md#getting-started). Django support is
-experimental. `book_lines` is application code; seeding uses `bulk_create`
+[Django: getting started](django.md#getting-started). `book_lines` is application code; seeding uses `bulk_create`
 so that the test body stays short:
 
 ```python

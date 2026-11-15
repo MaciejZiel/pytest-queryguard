@@ -4,8 +4,8 @@
 SQLAlchemy and Peewee. Its last release, 1.0.0, is from 2018-05-21. This page
 is for projects that used it with SQLAlchemy and now move to SQLAlchemy 2 and
 pytest-queryguard. If you use nplusone with Django, see
-[Django](django.md): pytest-queryguard's Django support is experimental, and
-[Comparison](comparison.md) lists other tools that cover Django.
+[Django](django.md): pytest-queryguard supports Django (no longer
+experimental since 1.1.0), and [Comparison](comparison.md) lists other tools that cover Django.
 
 ## If you only want nplusone to keep working
 
@@ -94,7 +94,7 @@ mapping](#concept-mapping) below explains the differences.
 | `signals.ignore(signals.lazy_load)` block | `with pytest_queryguard.ignore("relationship-load"):` ([the `ignore()` block](ignoring.md#the-ignore-block)), a marker, `@pytest.mark.queryguard_ignore("Order.customer")` (or its alias `allow_nplusone`), or an ini pattern |
 | Whitelist patterns with `fnmatch` | The same: `fnmatch` patterns in markers and `queryguard_ignore` |
 | A profiler around one block | `record_queries()` and `log.assert_no_nplusone()` |
-| Flask, Django, WSGI middleware | Flask and any WSGI or ASGI app: the [in-application mode](in-app.md) (`QueryGuardWSGI`, `QueryGuardASGI`). Django: as a test-suite check only, experimental ([Django](django.md)); no in-application mode |
+| Flask, Django, WSGI middleware | Flask and any WSGI or ASGI app: the [in-application mode](in-app.md) (`QueryGuardWSGI`, `QueryGuardASGI`). Django: as a test-suite check only ([Django](django.md)); no in-application mode |
 
 ## Before and after
 
