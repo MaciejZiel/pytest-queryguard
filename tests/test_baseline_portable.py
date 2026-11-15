@@ -281,4 +281,5 @@ def test_the_json_report_marks_an_old_entry_as_baselined(
     assert findings
     assert all(f["baselined"] for f in findings)
     # the report keeps the label as the finding has it
-    assert any(f["label"] == SQLITE_21 for f in findings)
+    labels = [f["label"] for f in findings]
+    assert any(portable_sql(label) == SQLITE_21 for label in labels)
