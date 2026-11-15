@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/realworld_django_projects.json`. The
   [Django design note](docs/design-django.md#5-out-of-experimental) lists
   what is still missing before the Django support stops being experimental.
+- [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
 
 ### Internal
 
