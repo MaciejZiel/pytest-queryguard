@@ -132,11 +132,13 @@ An entry is the identity of a finding: kind, label, file and function.
   A `missing-index` label is the table without its schema. So one baseline
   matches on SQLite and PostgreSQL, with any driver, and on SQLAlchemy 2.0
   and 2.1. Other differences between databases, such as a function one of
-  them renders differently, still make another label.
+  them renders differently, still make another label. Tables of the same
+  name in different schemas share an entry in one function.
 - A file written before 1.1.0, with the label as the finding shows it, still
   matches: it is read into the same form. The next
   `--queryguard-update-baseline` writes the new form; entries that still
-  match count as kept, not as removed and added. pytest-queryguard 1.0
+  match count as kept, not as removed and added. Until then the stale-entry
+  list shows an old entry's label in the new form. pytest-queryguard 1.0
   matches the new form only where it is the same text, so record and use a
   baseline with 1.1.0 or later.
 - The report, `--queryguard-json`, SARIF and the `queryguard_ignore` option

@@ -16,6 +16,7 @@ that, with the label as the finding has it, reads into the same form.
 from __future__ import annotations
 
 import difflib
+import functools
 import json
 import re
 from collections.abc import Iterable
@@ -30,58 +31,119 @@ SCHEMA_VERSION = 1
 Identity = tuple[str, str, str | None, str | None]
 
 
+# A PostgreSQL cast: ::INTEGER, ::DOUBLE PRECISION, ::NUMERIC(10, 2),
+# ::TIMESTAMP WITHOUT TIME ZONE, ::VARCHAR[], ::shop.mood. Numbers are
+# already "?" in a normalized statement.
+_CAST_NAME = r'(?:"(?:[^"]|"")+"|[A-Za-z_]\w*)'
+_ZONE = r"\s+(?:WITH|WITHOUT)\s+TIME\s+ZONE"
+_CAST = (
+    rf"\s*::\s*{_CAST_NAME}(?:\.{_CAST_NAME})*"
+    r"(?:\s+(?:PRECISION|VARYING))?"
+    r"(?:\s*\(\s*[\d?]+(?:\s*,\s*[\d?]+)*\s*\))?"
+    rf"(?:{_ZONE})?"
+    r"(?:\s*\[\s*\d*\s*\])*"
+)
 # What a driver writes for a bound parameter: pyformat, format, named and
-# numeric (qmark, ?, is the form kept), and a PostgreSQL cast right after one.
+# numeric (qmark, ?, is the form kept), with a PostgreSQL cast right after it.
 _PARAMETER = re.compile(
-    r"(?:%\(\w+\)s|%s|(?<![:\w]):[A-Za-z_]\w*|\$\d+|\?)(?:::\w+(?:\[\])*)?"
+    rf"(?:%\(\w+\)s|%s|(?<![:\w]):[A-Za-z_]\w*|\$\d+|\?)(?:{_CAST})?", re.IGNORECASE
 )
 # A quoted identifier: "name" (standard) or `name` (MySQL). String literals
 # are already "?" in a normalized statement.
 _QUOTED = re.compile(r'"((?:[^"]|"")*)"|`((?:[^`]|``)*)`')
+_PLAIN = re.compile(r"[A-Za-z_]\w*")
 # A dotted name: table.column, schema.table or schema.table.column.
-_DOTTED = re.compile(r"(?<![\w.$])[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?![\w$])")
+_DOTTED = re.compile(r"(?<![\w.$\"])[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?![\w$\"])")
 # The words before a table name: the name after them is a table, so the first
-# part of a dotted one there is a schema.
-_TABLE_BEFORE = re.compile(r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+$", re.IGNORECASE)
+# part of a dotted one there is a schema. Not IS DISTINCT FROM.
+_TABLE_BEFORE = re.compile(
+    r"(?<!DISTINCT )\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+$", re.IGNORECASE
+)
 _TABLE_NAME = re.compile(
     r"\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+([A-Za-z_]\w*)(?![\w.$])", re.IGNORECASE
 )
-# SQLAlchemy 2.0 labels each ORM column, ``customer.id AS customer_id``; 2.1
-# writes ``customer.id``.
-_COLUMN_ALIAS = re.compile(r"(?<![\w.$])([A-Za-z_]\w*\.[A-Za-z_]\w*) AS \w+")
 _TABLE_PART = re.compile(r'"(?:[^"]|"")*"|`(?:[^`]|``)*`|[^."`]+')
+_ALIAS_NAME = re.compile(r"\bAS\s+([A-Za-z_]\w*)", re.IGNORECASE)
+# SQLAlchemy 2.0 labels each ORM column with its table: ``customer.id AS
+# customer_id`` (``shop_customer_id`` in a schema, ``_1`` on a clash), and a
+# subquery's columns are read by that label (``anon_1.customer_id``); 2.1
+# writes ``customer.id`` and ``anon_1.id``.
+_COLUMN_ALIAS = re.compile(r"(?<![\w.$])([A-Za-z_]\w*)\.([A-Za-z_]\w*) AS (\w+)")
 
 
 def _unquote(match: re.Match[str]) -> str:
+    """A quoted name without its quotes, when it is a plain name.
+
+    Any other name (with a quote, a dot or a space in it) keeps standard
+    double quotes, so that applying ``portable_sql`` again changes nothing.
+    """
     double: str | None = match.group(1)
-    if double is not None:
-        return double.replace('""', '"')
-    back: str = match.group(2)
-    return back.replace("``", "`")
+    name: str = (
+        double.replace('""', '"')
+        if double is not None
+        else (match.group(2).replace("``", "`"))
+    )
+    if _PLAIN.fullmatch(name):
+        return name
+    return '"' + name.replace('"', '""') + '"'
 
 
+def _enclosing_select(text: str, at: int) -> bool:
+    """Whether the keyword at ``at`` is at the top level or in a subquery.
+
+    False inside a function call, as the FROM of ``EXTRACT(YEAR FROM t.c)``,
+    ``TRIM(... FROM t.c)`` or ``SUBSTRING(t.c FROM ?)``, which a column follows.
+    """
+    depth = 0
+    for i in range(at - 1, -1, -1):
+        char = text[i]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            if depth == 0:
+                return text[i + 1 : i + 8].lstrip().upper().startswith("SELECT")
+            depth -= 1
+    return True
+
+
+def _at_table(text: str, start: int) -> bool:
+    # the word before a name is near: whitespace is collapsed in a label
+    found = _TABLE_BEFORE.search(text, max(0, start - 32), start)
+    return found is not None and _enclosing_select(text, found.start())
+
+
+def _drop_column_alias(match: re.Match[str], renamed: dict[str, str]) -> str:
+    table, column, alias = match.groups()
+    label = f"{table}_{column}"
+    if re.fullmatch(rf"(?:\w+_)?{re.escape(label)}(?:_\d+)?", alias):
+        renamed[alias] = column
+        return f"{table}.{column}"
+    return match.group()  # an alias the code wrote, or a CAST(t.c AS type)
+
+
+@functools.lru_cache(maxsize=2048)
 def portable_sql(sql: str) -> str:
     """A normalized statement as a label that does not depend on the database.
 
     The schema of a table, identifier quotes, the driver's placeholder style
     (with a PostgreSQL cast on a parameter) and SQLAlchemy 2.0's column
-    aliases are left out. Applying it again changes nothing.
+    labels are left out. Applying it again changes nothing. Pure, and the
+    same labels come back for every test, so the last 2048 are remembered.
     """
     text = _PARAMETER.sub("?", sql)
     text = _QUOTED.sub(_unquote, text)
     chains = list(_DOTTED.finditer(text))
     schemas: set[str] = set()
-    tables = {m.group(1) for m in _TABLE_NAME.finditer(text)}
-    # the word before a name is near: whitespace is collapsed in a label
-    at_table = [
-        _TABLE_BEFORE.search(text, max(0, m.start() - 32), m.start()) is not None
-        for m in chains
-    ]
+    # names that are tables or aliases in this statement: a dotted name that
+    # starts with one is a column, not schema.table
+    names = {m.group(1) for m in _TABLE_NAME.finditer(text)}
+    names.update(m.group(1) for m in _ALIAS_NAME.finditer(text))
+    at_table = [_at_table(text, m.start()) for m in chains]
     for match, table in zip(chains, at_table, strict=True):
         parts = match.group().split(".")
         if table:
             schemas.update(parts[:-1])
-            tables.add(parts[-1])
+            names.add(parts[-1])
         else:
             schemas.update(parts[:-2])
     out = []
@@ -92,13 +154,21 @@ def portable_sql(sql: str) -> str:
             parts = parts[-1:]
         elif len(parts) > 2:
             parts = parts[-2:]
-        elif parts[0] in schemas and parts[0] not in tables:
+        elif parts[0] in schemas and parts[0] not in names:
             parts = parts[1:]
         out.append(text[end : match.start()])
         out.append(".".join(parts))
         end = match.end()
     out.append(text[end:])
-    return _COLUMN_ALIAS.sub(r"\1", "".join(out))
+    renamed: dict[str, str] = {}
+    text = _COLUMN_ALIAS.sub(lambda m: _drop_column_alias(m, renamed), "".join(out))
+    if renamed:
+        text = re.sub(
+            r"\b(anon_\d+)\.(" + "|".join(map(re.escape, renamed)) + r")\b",
+            lambda m: f"{m.group(1)}.{renamed[m.group(2)]}",
+            text,
+        )
+    return text
 
 
 def portable_table(label: str) -> str:

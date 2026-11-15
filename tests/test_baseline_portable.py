@@ -107,6 +107,45 @@ def test_one_statement_has_one_label_everywhere(sql: str) -> None:
                 "ON customers_1.id = orders.customer_id LIMIT ? OFFSET ?"
             ),
         ),
+        # FROM in IS DISTINCT FROM and in a function is not before a table
+        (
+            "SELECT o.x FROM orders AS o WHERE o.a IS DISTINCT FROM o.b",
+            "SELECT o.x FROM orders AS o WHERE o.a IS DISTINCT FROM o.b",
+        ),
+        (
+            "SELECT EXTRACT(year FROM orders.created) FROM shop.orders",
+            "SELECT EXTRACT(year FROM orders.created) FROM orders",
+        ),
+        # but a subquery's FROM is
+        (
+            "SELECT anon_1.id FROM (SELECT c.id FROM shop.c) AS anon_1",
+            "SELECT anon_1.id FROM (SELECT c.id FROM c) AS anon_1",
+        ),
+        # an alias named like the schema keeps its columns
+        ("SELECT s.x FROM s.t AS s", "SELECT s.x FROM t AS s"),
+        # 2.0 reads a subquery's columns by their labels, 2.1 by their names
+        (
+            (
+                "SELECT anon_1.customers_id FROM (SELECT customers.id AS customers_id "
+                "FROM customers) AS anon_1"
+            ),
+            "SELECT anon_1.id FROM (SELECT customers.id FROM customers) AS anon_1",
+        ),
+        # only SQLAlchemy's labels go, not CAST(... AS type) or the code's own
+        (
+            "SELECT CAST(orders.total AS NUMERIC), orders.total AS revenue FROM orders",
+            "SELECT CAST(orders.total AS NUMERIC), orders.total AS revenue FROM orders",
+        ),
+        # casts of more than one word
+        (
+            (
+                "SELECT a.ts FROM a WHERE a.ts = $1::TIMESTAMP WITHOUT TIME ZONE "
+                "AND a.n = %(n)s::NUMERIC(?, ?) AND a.d = %(d)s::DOUBLE PRECISION"
+            ),
+            "SELECT a.ts FROM a WHERE a.ts = ? AND a.n = ? AND a.d = ?",
+        ),
+        # a quoted name that is not a plain name keeps its quotes
+        ('SELECT "a""b".x, "c d".y FROM t', 'SELECT "a""b".x, "c d".y FROM t'),
         # a function in a schema is not a table
         (
             "SELECT pg_catalog.lower(name) FROM t",
