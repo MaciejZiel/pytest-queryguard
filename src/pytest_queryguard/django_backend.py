@@ -897,9 +897,20 @@ def _key(instance: Any) -> object:
 _request: ContextVar[int | None] = ContextVar("queryguard_django_request", default=None)
 
 
+# Set while an async handler runs a request in the scope it opened
+# (``_in_request``); request_started then keeps that scope.
+_async_request: ContextVar[bool] = ContextVar(
+    "queryguard_django_async_request", default=False
+)
+
+
 def _on_request_started(sender: Any, **kwargs: Any) -> None:
     # One scope per request (the test client's included), as a Session is
     # one for SQLAlchemy: queryguard_scope = session counts each on its own.
+    # From Django 6.1 an async handler sends it in the request's own context:
+    # the scope its handler opened (which a streamed body is read in) stays.
+    if _async_request.get():
+        return
     _request.set(collector.RequestScope(next(errors.scopes)))
 
 
@@ -922,9 +933,11 @@ def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
             _fail(exc, "Django integration (async request)")
             return await original(self, *args, **kwargs)
         token = _request.set(scope)
+        handled = _async_request.set(True)
         try:
             response = await original(self, *args, **kwargs)
         finally:
+            _async_request.reset(handled)
             _request.reset(token)
         _scoped_body(response, scope)
         return response

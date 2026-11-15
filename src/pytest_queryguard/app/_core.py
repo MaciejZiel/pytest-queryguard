@@ -15,7 +15,6 @@ import logging
 import math
 import os
 import random
-import re
 import sys
 import threading
 import time
@@ -24,7 +23,6 @@ import warnings
 from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
-from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
 
@@ -35,6 +33,7 @@ from ..collector import QueryCollector
 from ..detectors import SCOPE_SESSION, SCOPE_TEST, detect
 from ..findings import Finding
 from ..messages import display_root, format_budget, format_findings, make_findings
+from ..routes import matching_key
 from ..warnings import QueryGuardAppWarning, default, renamed
 
 logger = logging.getLogger("pytest_queryguard.app")
@@ -47,7 +46,6 @@ ReportTarget = str | Reporter
 _TARGETS = ("log", "warn")
 PAGE_REPORTS = ("off", "footer", "console")
 _BAD_REPORT = "report must be 'log', 'warn', a callable or a sequence of them, got {!r}"
-_METHOD = re.compile(r"[A-Za-z][A-Za-z-]*")  # GET, M-SEARCH, VERSION-CONTROL
 
 
 def _check_threshold(name: str, value: object, minimum: int = 2) -> None:
@@ -60,19 +58,6 @@ def _is_number(value: object) -> bool:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
     return math.isfinite(value)
-
-
-def _split_budget_key(key: str) -> tuple[str, str]:
-    """``"GET /a b"`` -> ``("GET", "/a b")``; ``"/a b"`` -> ``("", "/a b")``.
-
-    The first word is a method only when it looks like one (letters and
-    hyphens), so a path with spaces keeps them; any whitespace separates the
-    method.
-    """
-    head, *rest = key.strip().split(None, 1)
-    if rest and _METHOD.fullmatch(head):
-        return head.upper(), rest[0].strip()
-    return "", key.strip()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -206,14 +191,8 @@ class Settings:
         self, method: str | None, route: str | None, path: str | None
     ) -> int | None:
         """The statement budget of a request; ``default_budget`` without a match."""
-        names = [name for name in (route, path) if name]
-        for key, limit in self.budgets.items():
-            want_method, pattern = _split_budget_key(key)
-            if want_method and (method or "").upper() != want_method:
-                continue
-            if any(fnmatchcase(name, pattern) for name in names):
-                return limit
-        return self.default_budget
+        key = matching_key(self.budgets, method, route, path)
+        return self.budgets[key] if key is not None else self.default_budget
 
 
 @dataclass(eq=False, kw_only=True)

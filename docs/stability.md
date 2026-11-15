@@ -417,6 +417,11 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   and warnings it reports. It is used only when you set it as `TEST_RUNNER`
   or mix it into a test case, so it changes nothing for a project that does
   not. See [Django](django.md#without-pytest-managepy-test).
+- Route budgets in pytest (since 1.1.0): `queryguard_route_budgets`,
+  `queryguard_route_default_budget`, the `queryguard_route_budgets` marker,
+  which frameworks and requests they measure, how a route is named and the
+  failure text. See
+  [Budgets per route](budgets.md#budgets-per-route-for-the-requests-of-a-test).
 
 `tests/django_project/test_public_api.py` snapshots the Django surface the
 same way, so that a change is deliberate while it is experimental and can
