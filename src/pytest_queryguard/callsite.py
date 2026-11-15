@@ -93,6 +93,7 @@ def _is_internal(filename: str) -> bool:
 # nested functions included, which is slow for a module's code. The code
 # object is kept with the answer, so its id is not reused while it is there.
 _session_methods: dict[int, tuple[CodeType, bool]] = {}
+_SESSION_MODULE = "sqlalchemy.orm.session"
 _MAX_SESSION_METHODS = 4096
 
 
@@ -111,6 +112,8 @@ def _session_classes() -> tuple[type, ...]:
 
 def _is_session_method(frame: FrameType) -> bool:
     """Whether ``frame`` runs a method of a ``Session`` or ``AsyncSession`` subclass."""
+    if _SESSION_MODULE not in sys.modules:
+        return False  # no Session class exists yet (a Django project)
     if frame.f_code.co_name in _INLINED:
         frame = _outer(frame)  # a comprehension in the method, before 3.12
     code = frame.f_code
@@ -194,7 +197,8 @@ def new_measurement() -> None:
     _view_sites.clear()
     _last_view = None
     _paths.clear()
-    _origins.clear()
+    # _origins stays: an origin depends only on the frames' code and
+    # instructions and on the test code, which empties it when it changes
 
 
 def end_measurement() -> None:
@@ -503,7 +507,10 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
 # frame up to the test -> (their code objects, the Origin), see _origin.
 # Emptied with the call paths (new_measurement) and when the test code changes.
 _origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin]] = {}
-_MAX_ORIGINS = 1024
+# A suite runs a few thousand distinct stacks; kept across tests, so the
+# stacks of each test are classified once (django-cms: 57 % misses at 1024
+# when it was emptied for every test).
+_MAX_ORIGINS = 4096
 
 
 # filename -> _APP, _INTERNAL, _HOOK for pluggy's, where the walk for the
