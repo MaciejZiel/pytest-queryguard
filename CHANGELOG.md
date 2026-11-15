@@ -184,6 +184,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- [Django](docs/django.md#all-fourteen-with-the-110-changes-2026-11-15): the
+  fourteen real-world projects with the 1.1.0 Django changes (19,024 tests, no
+  changed outcome, no internal error), and the
+  [design note](docs/design-django.md#5-out-of-experimental) says what is left
+  before the Django support stops being experimental.
+
 - [Django](docs/django.md#out-of-scope-for-django): what is out of scope for
   Django, with the reason for each: `unused-eager-load`, `unused-columns`,
   `cartesian-load`, fix patches, the static check and the in-application

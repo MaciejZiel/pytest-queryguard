@@ -624,6 +624,44 @@ and the admin's merge view reading each item's content type.
 Not covered yet: a large `manage.py test` suite (Wagtail, Zulip) and Django
 6.0 or MySQL on a project with a bigger ORM surface than these.
 
+### All fourteen with the 1.1.0 changes (2026-11-15)
+
+All fourteen projects of `scripts/realworld_django_projects.json` with
+`main` after the 1.1.0 Django changes (the view named instead of the
+middleware, loops of the test as test code, threads of the test on their
+own, the overhead work), run
+[43747770042](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43747770042):
+
+| Project | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings | Overhead, one run |
+|---|---|---|---|---|---|
+| Django REST framework | 1655 / 0 / 9 | none | 0 / 0 | 1 | −4.6 % |
+| django-oscar (PostgreSQL) | 1697 / 0 / 0 | none | 0 / 0 | 380 | +8.3 % |
+| saleor (PostgreSQL) | 1487 / 0 / 0 | none | 0 / 0 | 166 | −0.9 % |
+| pretix | 1654 / 1 / 0 | none | 0 / 0 | 303 | +2.7 % |
+| Read the Docs | 585 / 0 / 5 | none | 0 / 0 | 12 | −0.6 % |
+| django-cms | 1781 / 1 / 70 | none | 0 / 0 | 384 | +16.1 % |
+| paperless-ngx | 713 / 0 / 0 | none | 0 / 0 | 137 | +6.8 % |
+| Tandoor | 677 / 7 / 0 | none | 0 / 0 | 235 | +4.5 % |
+| django-allauth | 2500 / 0 / 1 | none | 0 / 0 | 51 | +8.1 % |
+| strawberry-django | 1278 / 0 / 69 | none | 0 / 0 | 97 | −0.9 % |
+| Label Studio | 222 / 0 / 11 | none | 0 / 0 | 104 | −7.4 % |
+| django-oscar (MySQL 8.4) | 1415 / 281 / 1 | none | 0 / 0 | 164 | +6.5 % |
+| django-allauth (Django 6.0) | 2500 / 0 / 1 | none | 0 / 0 | 51 | +6.5 % |
+| django-taggit (`manage.py test`) | 396 / 0 / 7 | none | 0 / 0 | 53 | +5.6 % |
+
+Against `main` before these changes (the same harness with `plugin-ref`
+set to it, run
+[43749719108](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43749719108)
+and [43749400420](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43749400420)):
+django-cms 683 → 384, Label Studio 243 → 104 and paperless-ngx 167 → 137
+findings, Django REST framework 1 → 1. The findings that fell away moved to
+the test-code section, which grew by the same number (django-cms 148 → 447,
+Label Studio 8 → 147, paperless-ngx 44 → 74): loops of the test that call the
+application once per pass, such as django-cms's `create_page_content()` per
+page and language in `test_get_page_choices_with_multiple_translations`,
+and Label Studio's annotations created one by one. paperless-ngx's
+`WorkflowAction` findings now name `views.py` instead of the middleware.
+
 ## Comparison
 
 The Django corpus under each tool, in GitHub Actions on 2026-11-07
