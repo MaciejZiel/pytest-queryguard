@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Django (experimental): a streamed body (`StreamingHttpResponse`,
   `FileResponse`) that a test reads from an `AsyncClient` response after the
   call returned counts in its request, on every Django version.
+- Django (experimental): a helper that gets one object and reads its relation
+  is no longer an N+1 when it runs once from each of two lines (one request
+  that handles two sessions, say): the parents of one query line are grouped
+  by the call path of the read too, which every pass of a loop shares, so the
+  same helper in a loop is still found. Seen on django-allauth, `UserSession.user` read by
+  `create_from_request()` for the token's and the cookie's session (3 false
+  `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
 
 ### Documentation
 
