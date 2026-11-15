@@ -50,12 +50,14 @@ from __future__ import annotations
 
 import functools
 import importlib
+import inspect
 import itertools
 import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextvars import ContextVar
+from types import FrameType
 from typing import Any
 
 from . import blocks, callsite, collector, errors, sqltext
@@ -312,11 +314,29 @@ def _install() -> None:
     sync = sys.modules.get("asgiref.sync")
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
+    # A statement of a view that runs no line of the project (a generic view
+    # and its serializer) is the view's, not the middleware's on the stack;
+    # one that asgiref's thread runs, the awaiting line's, not that of what
+    # the thread ran before (a sync middleware of an async request)
+    handler = _module("django.core.handlers.base").BaseHandler
+    callsite.register_frames(
+        _codes(handler, "_get_response", "_get_response_async"),
+        _codes(handler, "get_response", "get_response_async"),
+        _view_of,
+        _codes(getattr(sync, "SyncToAsync", None), "thread_handler"),
+        _async_site.get,
+    )
     # Frames of Django, asgiref and DRF are never the application's, also
     # when installed outside site-packages; classify the files again.
     callsite.reset_internal()
     _connections = _module("django.db").connections
     _installed_for = query
+
+
+def _codes(owner: Any, *names: str) -> list[Any]:
+    """The code objects of the functions ``names`` of ``owner`` that it has."""
+    functions = (getattr(owner, name, None) for name in names)
+    return [code for code in (getattr(f, "__code__", None) for f in functions) if code]
 
 
 def _patch_testcases() -> None:
@@ -1004,6 +1024,61 @@ def _site_origin() -> tuple[Any, Origin]:
     if site is None:
         site = _async_site.get()
     return site, origin
+
+
+# id(view callback) -> (the callback, its location or None), see _view_of
+_views: dict[int, tuple[Any, tuple[str, int, str] | None]] = {}
+_MAX_VIEWS = 1024
+
+
+def _view_of(frame: FrameType) -> tuple[str, int, str] | None:
+    """(file, first line, name) of the view that ``frame``, Django's
+    ``BaseHandler._get_response``, called: the class of a class-based view
+    (a DRF view or viewset included), else the function."""
+    callback = frame.f_locals.get("callback")
+    if callback is None:
+        return None
+    known = _views.get(id(callback))
+    if known is not None and known[0] is callback:
+        return known[1]
+    try:
+        found = _locate_view(callback)
+    except Exception:  # noqa: BLE001  # an odd callable: the view is not known
+        found = None
+    if len(_views) >= _MAX_VIEWS:
+        _views.clear()
+    _views[id(callback)] = (callback, found)
+    return found
+
+
+def _locate_view(callback: Any) -> tuple[str, int, str] | None:
+    # as_view() of Django and DRF sets view_class; a DRF viewset's sets cls
+    target = getattr(callback, "view_class", None) or getattr(callback, "cls", None)
+    if not isinstance(target, type):
+        function = inspect.unwrap(callback)
+        code = getattr(function, "__code__", None)
+        if code is None:
+            return None
+        return code.co_filename, code.co_firstlineno, function.__name__
+    # the file as its code names it, as the other call sites do: that of a
+    # method of its own, else its module's
+    own = vars(target)
+    prefix = f"{target.__qualname__}."
+    filename = next(
+        (
+            value.__code__.co_filename
+            for value in own.values()
+            if hasattr(value, "__code__")
+            and str(getattr(value, "__qualname__", "")).startswith(prefix)
+        ),
+        None,
+    ) or getattr(sys.modules.get(target.__module__), "__file__", None)
+    if not filename:
+        return None
+    line = own.get("__firstlineno__")  # Python 3.13; not a base class's
+    if not isinstance(line, int):
+        line = inspect.findsource(target)[1] + 1
+    return filename, line, target.__name__
 
 
 def _scope_of(connection: Any) -> int | None:

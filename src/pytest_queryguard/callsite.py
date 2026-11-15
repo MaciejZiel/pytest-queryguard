@@ -4,7 +4,7 @@ import itertools
 import os
 import sys
 import sysconfig
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import CodeType, FrameType
 from typing import Any, NamedTuple
@@ -189,9 +189,20 @@ def new_measurement() -> None:
     The CallSite objects already handed out keep their callers: an outer
     measurement's events are not changed by an inner one starting.
     """
+    global _last_view
     _sites.clear()
+    _view_sites.clear()
+    _last_view = None
     _paths.clear()
     _origins.clear()
+
+
+def end_measurement() -> None:
+    """Let go of the frames kept for the measurement that ended (_last_view):
+    a frame keeps its locals alive, and the test may check that they are
+    collected."""
+    global _last_view
+    _last_view = None
 
 
 def swap_stack_depth(depth: int) -> int:
@@ -333,6 +344,8 @@ def _site_origin(
     skipped: FrameType | None = None  # the first method of a Session subclass
     walking = True  # before the hook call that ran the test
     library = False  # a _LIBRARY frame since the statement
+    dispatched: FrameType | None = None  # a _DISPATCH frame, see _site_at
+    handed = False  # a _HANDOVER frame
     kinds = _kinds
     internal = _INTERNAL
     frame: FrameType | None = first
@@ -355,6 +368,13 @@ def _site_origin(
             frame = frame.f_back
             continue
         if kind:
+            if kind & _SPECIAL:
+                special = _special_kind(frame)
+                if special == _HANDOVER:
+                    handed = True
+                elif special == _DISPATCH and dispatched is None:
+                    dispatched = frame
+                kind ^= _SPECIAL
             if kind == _HOOK and walking:
                 walking = False
                 if not want_site:
@@ -370,7 +390,12 @@ def _site_origin(
                 skipped = frame
             frame = frame.f_back
             continue
-        site = None if sites is None else _site(frame, sites)
+        if sites is None:
+            site = None
+        elif walking:
+            site = _site_at(frame, dispatched, handed, sites)
+        else:
+            site = _site(frame, sites)
         if not walking:
             return site, NO_ORIGIN  # found above the test: no call path
         return site, _origin(frame, library, parents)
@@ -443,7 +468,7 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
             kind = _kind(filename)
         if kind:
             gap = True
-            if kind == _LIBRARY and not _is_session_method(frame):
+            if kind & ~_SPECIAL == _LIBRARY and not _is_session_method(frame):
                 library = True
             continue
         if _is_session_method(frame):
@@ -491,6 +516,9 @@ _MAX_ORIGINS = 1024
 _kinds: dict[str, int] = {}
 _MAX_KINDS = 4096
 _APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
+# A flag on the kind of an internal file that holds a function of _special:
+# its frames are looked up there, the others' need not be.
+_SPECIAL = 8
 _TEST_LIBRARIES = frozenset(
     {
         "factory",
@@ -569,6 +597,8 @@ def _kind(filename: str) -> int:
             kind = _INTERNAL if _known_library(filename) else _LIBRARY
             if kind == _INTERNAL and _runs_the_application(filename):
                 kind = _LIBRARY
+        if filename in _special_files:
+            kind |= _SPECIAL
     if len(_kinds) >= _MAX_KINDS:
         _kinds.clear()
     _kinds[filename] = kind
@@ -778,6 +808,154 @@ def _site(frame: FrameType, sites: Sites) -> CallSite:
     return site
 
 
+# A request that reaches the database with no line of the project between
+# the framework's call of the view and the statement (a DRF generic view and
+# its ModelSerializer, a TemplateResponse rendered after the view returned):
+# the first application frame on the stack is then a middleware's
+# ``get_response(request)`` line, or the line of the test that made the
+# request. The call site is the view instead (see register_frames).
+# id(code) -> what the walks for the call site do at a frame of that code:
+# _DISPATCH, a function that calls the view (Django's
+# BaseHandler._get_response); _ENTRY, one that takes a request in
+# (BaseHandler.get_response; the middlewares run between the two); _HANDOVER,
+# one that runs a call handed over from other code in a thread of its own
+# (asgiref's SyncToAsync.thread_handler). The frames beyond a _HANDOVER frame
+# did not make the call (they are whatever that thread ran before: a sync
+# middleware of an async request), so the call site is the line that awaited
+# it (_handover_site), when it is known. _special_files are the files of
+# those functions, see _SPECIAL.
+_DISPATCH, _ENTRY, _HANDOVER = 1, 2, 3
+_special: dict[int, tuple[CodeType, int]] = {}
+_special_files: frozenset[str] = frozenset()
+# The frame of a _DISPATCH function -> (file, first line, name) of the view
+# it called, or None when that is not known.
+_view_of: Callable[[FrameType], tuple[str, int, str] | None] | None = None
+_handover_site: Callable[[], CallSite | None] | None = None
+# (view, the line that made the request) -> CallSite, as _sites
+_view_sites: dict[object, CallSite] = {}
+# The last view call site found: (the _DISPATCH frame, the sites cache, the
+# site), so the statements of one request do not look for it again. The
+# frame is kept until the next request's or the end of the measurement
+# (end_measurement), so its id is not reused while it is here.
+_last_view: tuple[FrameType, Sites, CallSite] | None = None
+
+
+def register_frames(
+    dispatch: Iterable[CodeType],
+    entries: Iterable[CodeType],
+    view_of: Callable[[FrameType], tuple[str, int, str] | None],
+    handovers: Iterable[CodeType],
+    handover_site: Callable[[], CallSite | None],
+) -> None:
+    """Frames of a web framework that the walks for the call site treat apart.
+
+    ``dispatch`` are the code objects of the functions that call a view,
+    ``entries`` those of the functions that take a request in, and
+    ``view_of`` gives the view a ``dispatch`` frame called: the view, not
+    the middleware, is the call site of a statement no line of the project
+    runs. Past a frame of ``handovers`` the call site is ``handover_site()``
+    when it gives one (see _special).
+    """
+    global _view_of, _handover_site, _special_files
+    _special.clear()
+    for kind, codes in (
+        (_DISPATCH, dispatch),
+        (_ENTRY, entries),
+        (_HANDOVER, handovers),
+    ):
+        _special.update((id(code), (code, kind)) for code in codes)
+    _special_files = frozenset(code.co_filename for code, _ in _special.values())
+    _view_of = view_of
+    _handover_site = handover_site
+    _kinds.clear()
+
+
+def _special_kind(frame: FrameType) -> int:
+    """_DISPATCH, _ENTRY, _HANDOVER for a frame of such a function, else 0."""
+    found = _special.get(id(frame.f_code))
+    return found[1] if found is not None else 0
+
+
+def _site_at(
+    frame: FrameType, dispatched: FrameType | None, handed: bool, sites: Sites
+) -> CallSite:
+    """The call site of the first application frame ``frame``: the line that
+    awaited the call when the walk passed a _HANDOVER frame, the view when
+    it passed a _DISPATCH frame, else the frame's own line."""
+    if handed and _handover_site is not None:
+        site = _handover_site()
+        if site is not None:
+            return site
+    if dispatched is not None:
+        return _view_site(dispatched, frame, sites)
+    return _site(frame, sites)
+
+
+def _outside_request(frame: FrameType | None) -> FrameType | None:
+    """The first application frame outside the request ``frame`` is in.
+
+    The application frames inside are middlewares; the first one outside is
+    the line that made the request (a test's ``client.get()``). None when
+    there is none before the hook call that ran the test (a live server's
+    thread).
+    """
+    stop = _hook_caller()
+    outside = False
+    while frame is not None:
+        code = frame.f_code
+        if stop and os.path.normcase(code.co_filename).startswith(stop):
+            return None
+        if _special_kind(frame) == _ENTRY:
+            outside = True
+        elif (
+            outside
+            and not _is_internal(code.co_filename)
+            and not _is_session_method(frame)
+        ):
+            return _outer(frame) if code.co_name in _INLINED else frame
+        frame = frame.f_back
+    return None
+
+
+def _view_site(dispatched: FrameType, first: FrameType, sites: Sites) -> CallSite:
+    """The call site of a statement that the view ``dispatched`` called ran
+    with no line of the project between them: ``first`` is the first
+    application frame outwards (a middleware, or the test).
+
+    The view's own first line when the view is the project's code, with the
+    line that made the request and its callers as its callers; else the
+    line that made the request, else ``first``.
+    """
+    global _last_view
+    last = _last_view
+    if last is not None and last[0] is dispatched and last[1] is sites:
+        return last[2]
+    view = _view_of(dispatched) if _view_of is not None else None
+    outside = _outside_request(dispatched)
+    kind = None if view is None else _kinds.get(view[0])
+    if view is not None and kind is None:
+        kind = _kind(view[0])
+    site: CallSite | None
+    if view is None or kind != _APP:
+        site = _site(outside if outside is not None else first, sites)
+    else:
+        # the line that made the request is part of the key: two requests
+        # to one view from two lines of a test name each its own line
+        key = (view, None if outside is None else (outside.f_code, outside.f_lineno))
+        site = _view_sites.get(key)
+        if site is None:
+            if len(_view_sites) >= _MAX_SITES:
+                _view_sites.clear()
+            site = _view_sites[key] = CallSite(
+                filename=view[0],
+                lineno=view[1],
+                function=view[2],
+                callers=_callers(outside, _stack_depth) if outside is not None else (),
+            )
+    _last_view = (dispatched, sites, site)
+    return site
+
+
 def _first_external(
     frame: FrameType | None, sites: Sites, skipped: list[FrameType] | None = None
 ) -> CallSite | None:
@@ -785,9 +963,13 @@ def _first_external(
 
     A method of a Session subclass is passed over (see _is_session_method);
     the first one is appended to ``skipped``, the call site to use when no
-    other application frame is found.
+    other application frame is found. The frames of a web framework that
+    the walk passes on the way may give another call site (see _site_at).
     """
     internal = _internal
+    special = _special
+    dispatched: FrameType | None = None
+    handed = False
     while frame is not None:
         filename = frame.f_code.co_filename
         try:
@@ -796,9 +978,15 @@ def _first_external(
             skip = internal[filename] = _classify(filename)
         if not skip:
             if not _is_session_method(frame):
-                return _site(frame, sites)
+                return _site_at(frame, dispatched, handed, sites)
             if skipped is not None and not skipped:
                 skipped.append(frame)
+        elif special:
+            kind = _special_kind(frame)
+            if kind == _DISPATCH and dispatched is None:
+                dispatched = frame
+            elif kind == _HANDOVER:
+                handed = True
         frame = frame.f_back
     return None
 

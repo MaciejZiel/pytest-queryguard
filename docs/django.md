@@ -360,9 +360,13 @@ The other ways:
   (`select_related("author__publisher")`).
 - **Call sites** skip the frames of Django, asgiref and Django REST framework,
   as they skip SQLAlchemy's: a finding points at your view, serializer or test.
-  A DRF view whose queryset is a class attribute has no line of its own: the
-  finding points at the test line that called the view, and the fix belongs in
-  the view's `queryset` or `get_queryset()`. A call of the async ORM
+  A view that runs no line of your project between Django and the query (a
+  DRF generic view with a class-level `queryset` and a `ModelSerializer`, a
+  `TemplateResponse` rendered after the view returned) is named by its class
+  or function, with the test line that made the request as its caller: the
+  fix belongs in the view's `queryset` or `get_queryset()`. A middleware of
+  your project on the stack is passed over. A view of Django's own (a
+  `ListView` set up in the URLconf) points at the test line. A call of the async ORM
   (`await Book.objects.aget(...)`, `async for`), which Django runs in a
   thread of asgiref, has the line that awaited it as its call site.
 
@@ -536,11 +540,14 @@ Both false positives are fixed, each reproduced first:
   `Task.project` findings the same way: a test that creates its annotations
   one by one at four lines, each save of which reads the task's project.
 
-Not fixed: a finding whose rows a DRF view reads with no line of the project
-in the call (a `ModelSerializer`, a generic view) points at the first project
-frame on the stack. In paperless-ngx, Tandoor and Label Studio that frame is
-a middleware's `get_response(request)` line, so the location names the
-middleware, not the view.
+Fixed since: a finding whose rows a DRF view reads with no line of the
+project in the call (a `ModelSerializer`, a generic view) pointed at the first
+project frame on the stack. In paperless-ngx, Tandoor and Label Studio that
+frame was a middleware's `get_response(request)` line. It now names the view
+class, with the test line as its caller (see
+[How it sees Django](#how-it-sees-django)). The same middleware, when it is
+sync and the request async, was named for the async ORM calls of the view;
+they now name the line that awaited them.
 
 ## Comparison
 
