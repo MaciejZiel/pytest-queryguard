@@ -506,6 +506,44 @@ Later: `unused-eager-load`, `unused-columns`, fix patches, the
 multiple-aggregation join check, Celery and the in-app mode for Django, and
 the static check.
 
+## 5. Out of experimental
+
+Status on 2026-11-15, after 1.0.0 and 11 real projects (14,423 tests, see
+[Real projects](django.md#real-projects)). The Django support is
+experimental since 0.10.0. This is what still blocks dropping that label in
+1.1.0:
+
+1. **Locations behind a project's middleware.** When the rows are read
+   with no line of the project in the call (a DRF `ModelSerializer` under a
+   generic view), the finding points at the first project frame on the
+   stack. In paperless-ngx, Tandoor and Label Studio that frame is a
+   middleware's `get_response(request)` line. Such a frame needs to be
+   passed over, so the finding names the view or the test line instead.
+2. **Repetition that test code drives.** 11 of the 51 sites read in the
+   second run, and most of the 28 debatable ones of the first, are app code
+   that runs once per pass of a loop in the test, or once per fixture made
+   one by one. Decide whether a pass of a test loop is a unit of its own,
+   as a request is, and write the rule down before the finding kinds are
+   frozen.
+3. **Work spread over threads** (django-oscar's concurrency test) still
+   counts together with `queryguard_scope = test`.
+4. **Freeze the Django surface**: the labels and fix wording of Django
+   findings, the `QUERYGUARD` settings and `QueryGuardRunner` of
+   `manage.py test`, and the supported Django versions and databases.
+   `tests/test_public_api.py` has to snapshot it, as the 1.0 freeze did for
+   SQLAlchemy ([1.0 freeze](design-1.0-freeze.md)).
+5. **Coverage the real-project runs lack**: no project ran on MySQL or on
+   Django 6.0, only DRF ran on 6.1, and `QueryGuardRunner` has not run on a
+   `manage.py test` project yet. Most Django projects found for outreach use
+   `manage.py test`.
+6. **Say what is out of scope for Django**: `unused-eager-load`,
+   `unused-columns`, `cartesian-load`, fix patches, the static check and
+   the in-app mode. Leaving them out is fine, but the docs have to say so
+   as a scope decision rather than as a gap.
+7. **Overhead on statement-heavy suites**: django-cms ran 8.6 % to 15.9 %
+   slower with the plugin. The other ten projects were within the noise of a
+   single run.
+
 ## Sources
 
 Downloads: [pypistats.org](https://pypistats.org/) API (`/api/packages/<name>/recent`

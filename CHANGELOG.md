@@ -42,7 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counted together per connection, and lookups each request makes once (the
   user, its permissions, the session) were reported as an N+1. Seen on
   strawberry-django, whose GraphQL test client sends each query through
-  `AsyncClient`: 30 false `relationship-load` findings.
+  `AsyncClient`: 34 false `relationship-load` findings (30 of
+  `User.user_permissions`, 4 of `Project.milestones`).
 - Django (experimental): a streamed body (`StreamingHttpResponse`,
   `FileResponse`) that a test reads from an `AsyncClient` response after the
   call returned counts in its request, on every Django version.
@@ -53,6 +54,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same helper in a loop is still found. Seen on django-allauth, `UserSession.user` read by
   `create_from_request()` for the token's and the cookie's session (3 false
   `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
+
+### Documentation
+
+- [Django](docs/django.md#five-more-projects-2026-11-14): the test suites of
+  five more open-source Django projects (paperless-ngx, Tandoor,
+  django-allauth, strawberry-django, Label Studio; 5,478 tests). The plugin
+  changed no test's outcome and reported no internal error. Of 51 finding
+  sites read, 37 were true, 12 debatable and 2 false; both false ones are
+  fixed above. The five projects are in
+  `scripts/realworld_django_projects.json`. The
+  [Django design note](docs/design-django.md#5-out-of-experimental) lists
+  what is still missing before the Django support stops being experimental.
 
 ### Internal
 

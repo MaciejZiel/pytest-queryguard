@@ -474,6 +474,72 @@ Not fixed: work spread over threads (the two false findings above) still
 counts together with `queryguard_scope = test`; `queryguard_scope = session`
 counts each connection on its own.
 
+### Five more projects (2026-11-14)
+
+A second run took five more projects, chosen for having pytest-django suites
+that the first run did not cover: a document manager with a DRF API
+(paperless-ngx), a recipe manager with a DRF API (Tandoor), an authentication
+library (django-allauth), a GraphQL library with sync and async test clients
+(strawberry-django) and a labelling tool (Label Studio). All ran on Django
+5.2 and SQLite. Same workflow and settings as above. The final run, with the
+two fixes below:
+[43599524757](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43599524757).
+The first runs, before them:
+[43587676195](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43587676195)
+and [43588110966](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43588110966).
+
+| Project | Tests run | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings (first run → final) | Overhead, two runs |
+|---|---|---|---|---|---|---|
+| paperless-ngx 3.4.2 | the API and workflow tests of `src/documents` | 713 / 0 / 0 | none | 0 / 0 | 167 → 167: 138 relationship-load, 29 repeated-statement | +0.6 %, −1.7 % |
+| Tandoor 2.7.2 | `cookbook/tests/api` | 677 / 7 / 0 | none in the final run (see below) | 0 / 0 | 243 → 243: 216 relationship-load, 27 repeated-statement | 0.0 %, −0.9 % |
+| django-allauth 65.22.1 | all | 2500 / 0 / 1 | none | 0 / 0 | 54 → 51: 2 relationship-load, 49 repeated-statement | +2.2 %, +6.9 % |
+| strawberry-django 0.96.3 | all | 1278 / 0 / 69 | none | 0 / 0 | 131 → 97: 96 relationship-load, 1 repeated-statement | −0.6 %, −3.3 % |
+| Label Studio 1.23.2 | `data_manager`, `projects`, `tasks`, `organizations`, `users` and `tests/data_manager` | 222 / 0 / 11 | none | 0 / 0 | 297 → 243: 163 relationship-load, 80 repeated-statement | −6.9 %, −6.0 % |
+
+In all 5,478 tests, in both runs, the plugin changed no test's outcome and
+reported no internal warning or error. The exception is one test of Tandoor
+in the first run: `test_inherit[...-supermarket_category-False-cat_1]`
+failed with the plugin only. That test makes its categories with
+`get_or_create` on a random `faker.word()` name, so two of them can come out
+as one. It passed in every later run and in the runs under django-zeal and
+nplusone. Tandoor's seven failures without the plugin depend on the date and
+on the order of the tests; they fail the same way with it.
+
+**Triage.** 51 distinct finding sites of the first runs were read in the
+projects' code: all 3 of django-allauth's, and 12 drawn at random from each
+other project.
+
+| Verdict | Count | What they are |
+|---|---|---|
+| true | 37 | DRF serializers and GraphQL resolvers reading a relation per row (most of paperless-ngx, Tandoor and strawberry-django), per-row work in signal handlers and delete actions, a migration that reads the filters of each group |
+| debatable | 12 | 11 where test code drives the repetition: a test that loops over cases or calls one function ten times, fixtures and factories that create objects one by one, assertions per object. And one query that runs six times in one request (django-allauth's `is_mfa_enabled`), which could be cached but is not a loop |
+| false | 2 | strawberry-django: `User.user_permissions` of the user of each async request, counted together; django-allauth: `UserSession.user` read once for each of the two sessions of one request |
+
+Both false positives are fixed, each reproduced first:
+
+- **Requests of the `AsyncClient` on Django 5.2 and 6.0**: before Django 6.1,
+  `Signal.asend` runs the receivers of `request_started` in a task of their
+  own, so the scope of each request was lost and a test's requests counted
+  together. Async handlers now open the request scope themselves, and that
+  includes a streamed body that the test reads after the call has returned.
+  strawberry-django went from 131 to 97 findings: 30 of the
+  `User.user_permissions` findings above and 4 `Project.milestones` findings
+  of tests that query one project per request. Tests in
+  `tests/django_project/test_statements.py`; this is not a corpus scenario,
+  because an async view cannot share the corpus's transaction on SQLite.
+- **One lookup helper called from two lines** (django-allauth): parents that
+  one query line loaded are now also grouped by the call path of the read, so
+  a helper that gets one object and reads its relation is a loop only when it
+  runs in one (`clean_37`, `bug_38`). Label Studio lost 54
+  `Task.project` findings the same way: a test that creates its annotations
+  one by one at four lines, each save of which reads the task's project.
+
+Not fixed: a finding whose rows a DRF view reads with no line of the project
+in the call (a `ModelSerializer`, a generic view) points at the first project
+frame on the stack. In paperless-ngx, Tandoor and Label Studio that frame is
+a middleware's `get_response(request)` line, so the location names the
+middleware, not the view.
+
 ## Comparison
 
 The Django corpus under each tool, in GitHub Actions on 2026-11-07
@@ -506,8 +572,8 @@ call (it raises at the first N+1); nplusone 1.0.0 in `INSTALLED_APPS` with its
   this plugin's rules. The kinds a tool does not claim are left out of its
   per-kind columns, but its overall recall counts every BUG scenario.
 
-What each tool reports on the real projects (final run above; reports counted
-once per test and message):
+What each tool reports on the real projects (the final run of each set
+above; reports counted once per test and message):
 
 | Project | pytest-queryguard findings | django-zeal reports (tests) | nplusone reports (tests) |
 |---|---|---|---|
@@ -517,6 +583,14 @@ once per test and message):
 | pretix | 378 | 1479 (515) | 2756 (771) |
 | saleor | 258 | 461 (292) | 1615 (1195) |
 | django-oscar | 641 | 2875 (863) | 986 (495) |
+| paperless-ngx | 167 | 509 (179) | 4876 (443) |
+| Tandoor | 243 | 1013 (536) | 59 (31), and 403 tests it broke |
+| django-allauth | 51 | 1168 (639) | 16 (16) |
+| strawberry-django | 97 | 515 (307), and 1 test it broke | 257 (189), and 1 test it broke |
+| Label Studio | 243 | 459 (101) | 482 (63) |
+
+In Tandoor, nplusone broke 403 tests: Django's local-memory cache cannot
+pickle a queryset once nplusone has patched `QuerySet._clone`.
 
 django-zeal's largest groups are the patterns fixed above:
 `sessions.Session.get()` once per request (DRF, Read the Docs) and
