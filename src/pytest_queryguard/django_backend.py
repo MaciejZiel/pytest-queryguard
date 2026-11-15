@@ -312,15 +312,16 @@ def _install() -> None:
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
     # A statement of a view that runs no line of the project (a generic view
-    # and its serializer) is the view's, not the middleware's on the stack
-    # (and a statement run in asgiref's thread was not called by what that
-    # thread ran before: a sync middleware of an async request)
+    # and its serializer) is the view's, not the middleware's on the stack;
+    # one that asgiref's thread runs, the awaiting line's, not that of what
+    # the thread ran before (a sync middleware of an async request)
     handler = _module("django.core.handlers.base").BaseHandler
     callsite.register_frames(
         _codes(handler, "_get_response", "_get_response_async"),
         _codes(handler, "get_response", "get_response_async"),
         _view_of,
         _codes(getattr(sync, "SyncToAsync", None), "thread_handler"),
+        _async_site.get,
     )
     # Frames of Django, asgiref and DRF are never the application's, also
     # when installed outside site-packages; classify the files again.
@@ -1030,13 +1031,25 @@ def _locate_view(callback: Any) -> tuple[str, int, str] | None:
         if code is None:
             return None
         return code.co_filename, code.co_firstlineno, function.__name__
-    filename = getattr(sys.modules.get(target.__module__), "__file__", None)
+    # the file as its code names it, as the other call sites do: that of a
+    # method of its own, else its module's
+    own = vars(target)
+    prefix = f"{target.__qualname__}."
+    filename = next(
+        (
+            value.__code__.co_filename
+            for value in own.values()
+            if hasattr(value, "__code__")
+            and str(getattr(value, "__qualname__", "")).startswith(prefix)
+        ),
+        None,
+    ) or getattr(sys.modules.get(target.__module__), "__file__", None)
     if not filename:
         return None
-    line = getattr(target, "__firstlineno__", None)  # Python 3.13
-    if line is None:
+    line = own.get("__firstlineno__")  # Python 3.13; not a base class's
+    if not isinstance(line, int):
         line = inspect.findsource(target)[1] + 1
-    return filename, int(line), target.__name__
+    return filename, line, target.__name__
 
 
 def _scope_of(connection: Any) -> int | None:

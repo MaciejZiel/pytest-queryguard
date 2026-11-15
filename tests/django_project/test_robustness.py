@@ -182,3 +182,18 @@ def test_closing_the_rows_early_closes_djangos_generator() -> None:
         next(noted)
         noted.close()  # type: ignore[attr-defined]
     assert closed == [True]
+
+
+def test_the_names_of_django_and_asgiref_the_call_sites_rely_on() -> None:
+    # The view a generic view's statements are attributed to is the local
+    # "callback" of BaseHandler._get_response (and of its async twin), and the
+    # thread of an async ORM call starts at SyncToAsync.thread_handler. A
+    # release that renames them turns that off silently: this test says so.
+    from asgiref.sync import SyncToAsync
+    from django.core.handlers.base import BaseHandler
+
+    for name in ("_get_response", "_get_response_async", "get_response"):
+        assert hasattr(getattr(BaseHandler, name), "__code__"), name
+    for name in ("_get_response", "_get_response_async"):
+        assert "callback" in getattr(BaseHandler, name).__code__.co_varnames, name
+    assert hasattr(SyncToAsync.thread_handler, "__code__")
