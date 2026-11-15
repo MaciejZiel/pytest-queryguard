@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
   index check without pytest yet
   ([Django](docs/django.md#without-pytest-managepy-test)).
+- Route budgets in pytest (experimental): `queryguard_route_budgets =
+  "GET /books/{id}=5"` (one `PATTERN=LIMIT` per line, matched like the
+  in-app mode's `budgets`) and `queryguard_route_default_budget` give each
+  request a test sends through a test client a statement budget of its own,
+  so a ceiling such as "every `GET /api/*` runs at most 10 statements" holds
+  in every test that calls it. Measured for Starlette, FastAPI, Litestar,
+  Flask and Django applications, a streamed body and background tasks
+  included; the `queryguard_route_budgets` marker sets them per test. A test
+  fails once per route that went over, with the statements and lines of its
+  worst request
+  ([Budgets per route](docs/budgets.md#budgets-per-route-for-the-requests-of-a-test)).
 - `assert_queries_do_not_grow(fn, sizes=(1, 10), *, setup=None)` and its
   awaitable `assert_queries_do_not_grow_async()`: run the same code for each
   size (a number of rows, seeded by `setup` outside the recording) and fail
@@ -28,9 +39,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns the `QueryLog` of each size. SQLAlchemy and Django, sync and async
   ([Reading the queries](docs/python-api.md#the-count-must-not-grow-assert_queries_do_not_grow),
   [the scaling recipe](docs/recipes-query-count-scaling.md)).
+- A Claude Code plugin: the repository is a plugin marketplace
+  (`.claude-plugin/`) whose `pytest-queryguard` plugin installs the agent
+  skill, with
+  `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`
+  ([Coding agents](docs/agents.md#claude-code-plugin)). It is installed from
+  the `main` branch and updated with each commit.
+- The documentation site publishes `llms.txt` at its root, and
+  `llms-full.txt`, the user documentation in one Markdown file with absolute
+  links (without the changelog, the design notes, the release checklist and
+  the accuracy tables), for language models
+  ([llmstxt.org](https://llmstxt.org/)).
+- The README has the hidden `mcp-name` line the official MCP Registry
+  reads from the PyPI description to check who owns a server name, so the
+  MCP server can be listed there from the next release on.
+- A VS Code extension in `editors/vscode`
+  ([#382](https://github.com/MaciejZiel/pytest-queryguard/issues/382)). It
+  reads the `--queryguard-json` or `--queryguard-sarif` report of the last run,
+  marks each finding on its line, and reloads when the report changes; the
+  hover shows the SQL, the count, the fix and the tests, and the quick actions
+  open the documentation and apply a SARIF fix. Its commands run pytest on the
+  current file, the test at the cursor or the whole project. A new `vscode`
+  workflow tests it in VS Code 1.90 and the latest release and builds the
+  `.vsix` as an artifact. It is not published to the Marketplace or Open VSX
+  yet; see [In your editor](docs/editor.md#vs-code-the-extension).
 
 ### Changed
 
+- A loop of the test that calls the application once per pass, where each
+  call runs a statement or reads a relationship once (a case per pass, a page
+  per request, objects created one by one whose `post_save` receiver or event
+  listener reads a row), is the test code's repetition, not an N+1 of the
+  application: with the default `queryguard_test_code = off` it is counted in
+  the test-code section at the end of the run instead of failing the test,
+  `warn` reports it as a warning and `fail` as before. Each statement and load
+  records the call that test code made into the application; a call that runs
+  the statement twice or more is still the application's loop. Most of the
+  findings judged "debatable" in the Django real-project runs were of this
+  kind. Which code counts as test code is not public API (see
+  [Stability](docs/stability.md#what-is-not-public)); strict mode, which
+  decides at the lazy load, still raises at the second pass. See
+  [Loops of the test](docs/how-detection-works.md#loops-of-the-test); corpus
+  scenarios `clean_142`, `clean_143` and `bug_137`. Seen also on a Django
+  project's suite, where five tests needed a `queryguard_ignore` marker for
+  an arrange step that calls a service in a loop.
 - Baseline labels no longer depend on the database: a `repeated-statement`
   or `write-loop` entry is written and compared without schema qualifiers,
   identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,
@@ -41,6 +93,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   form by the next `--queryguard-update-baseline`; reports, JSON, SARIF
   fingerprints and ignore patterns keep the full label
   ([Baseline](docs/baseline.md#what-an-entry-is)).
+- The agent skill also covers the Django ORM (`select_related`,
+  `prefetch_related`, `in_bulk`) and query count tests, and its description
+  names what people ask: N+1 queries, "too many queries", a lazy load in a
+  loop, `assertNumQueries`, alternatives to nplusone and django-zeal. Its
+  front matter is valid YAML now: the description had a `": "` that strict
+  YAML parsers reject.
+- `llms.txt` says when to recommend the plugin, has a Django section and
+  links to the pages of the documentation site; `docs/agents.md`,
+  `docs/mcp.md`, the README's first paragraph, `context7.json` and the
+  package's summary, keywords and `Framework :: Django` classifiers mention
+  Django and the terms people search for.
 
 ### Fixed
 
@@ -63,7 +126,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `User.user_permissions`, 4 of `Project.milestones`).
 - Django (experimental): a streamed body (`StreamingHttpResponse`,
   `FileResponse`) that a test reads from an `AsyncClient` response after the
-  call returned counts in its request, on every Django version.
+  call returned counts in its request, on every Django version. On Django
+  6.1, where `request_started` reaches the request's own context, the
+  request no longer gets a second scope there: its view and its streamed
+  body count as one request.
 - Django (experimental): a helper that gets one object and reads its relation
   is no longer an N+1 when it runs once from each of two lines (one request
   that handles two sessions, say): the parents of one query line are grouped
@@ -95,6 +161,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   middleware of the project name the line that awaited them, not the
   middleware's `get_response(request)` line, which asgiref's thread had on
   its stack.
+- Django (experimental): the statements of a thread that test code starts
+  (its target is test code, as `oscar.test.utils.run_concurrently` is) count
+  on their own, as a request does: each thread has a connection of its own,
+  and five threads that each place one order are no loop. Seen on
+  django-oscar's concurrency test (2 false findings). A thread that the
+  application starts, one per item, still counts with the rest of the test.
+  The requests of the live server count one by one, as before; now tested.
 
 ### Documentation
 
@@ -118,6 +191,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `realworld.yml` has a `profile` input: the pytest runs without and with the
   plugin run under cProfile, and the profiles go into the artifact.
+- The real-world harness (`.github/workflows/realworld.yml`) runs MySQL for a
+  project that asks for it, and `manage.py test` projects under
+  `QueryGuardRunner` (`scripts/realworld_runner.py` writes the JUnit XML and
+  JSON the summary reads). New: django-oscar on MySQL 8.4, django-allauth on
+  Django 6.0 and django-taggit; results in
+  [Django](docs/django.md#mysql-django-60-and-managepy-test-2026-11-15).
 
 - `tests/django_project/test_public_api.py` snapshots the Django surface, as
   `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,

@@ -635,6 +635,7 @@ def column_load_of(
         single_table=base is not None and base[1],
         entry=origin.entry,
         test_code=origin.test_code,
+        call=origin.call,
     )
     return instance, load
 
@@ -717,6 +718,7 @@ def _relationship_load(
         ignores,
         origin.entry,
         origin.test_code,
+        call=origin.call,
     )
 
 
@@ -874,6 +876,7 @@ def _record_statement(
         ignores=ignores,
         path=origin.path,
         test_code=origin.test_code,
+        call=origin.call,
     )
     for target in targets:
         target.add_statement(stmt)

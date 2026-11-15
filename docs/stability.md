@@ -417,6 +417,11 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   and warnings it reports. It is used only when you set it as `TEST_RUNNER`
   or mix it into a test case, so it changes nothing for a project that does
   not. See [Django](django.md#without-pytest-managepy-test).
+- Route budgets in pytest (since 1.1.0): `queryguard_route_budgets`,
+  `queryguard_route_default_budget`, the `queryguard_route_budgets` marker,
+  which frameworks and requests they measure, how a route is named and the
+  failure text. See
+  [Budgets per route](budgets.md#budgets-per-route-for-the-requests-of-a-test).
 
 `tests/django_project/test_public_api.py` snapshots the Django surface the
 same way, so that a change is deliberate while it is experimental and can
@@ -432,6 +437,11 @@ The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
 [In your editor](editor.md) are documentation, not API: they follow the
 output they read and may change in any release.
+The VS Code extension in `editors/vscode` (see
+[In your editor](editor.md#vs-code-the-extension)) has its own version
+number. It reads the public keys of the JSON and SARIF reports and, for the
+SQL and the fix in its hover, the text of a finding's message; when that
+text changes, the hover shows the whole message.
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini options and

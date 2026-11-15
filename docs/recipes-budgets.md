@@ -4,7 +4,9 @@ N+1 detection finds a pattern. A budget protects a number: this endpoint
 sends at most N statements. Put budgets on the few endpoints where a
 regression costs most, such as the page every user loads, and let the
 detection cover the rest. See [Budgets and timing](budgets.md) for the full
-reference.
+reference. To hold every request of a route to a budget in every test that
+calls it, rather than one test, use
+[route budgets](budgets.md#budgets-per-route-for-the-requests-of-a-test).
 
 The endpoint below (`/orders/{order_id}` in
 [examples/fastapi-dependency-override](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples/fastapi-dependency-override))

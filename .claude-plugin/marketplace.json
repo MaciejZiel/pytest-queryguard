@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "pytest-queryguard",
+  "description": "The pytest-queryguard skill for Claude Code: find and fix N+1 queries in SQLAlchemy and Django code by running the tests.",
+  "owner": {
+    "name": "Maciej Zieliński",
+    "url": "https://github.com/MaciejZiel"
+  },
+  "plugins": [
+    {
+      "name": "pytest-queryguard",
+      "source": "./",
+      "description": "Find and fix N+1 queries, too many queries and lazy loads in loops in SQLAlchemy 2 and Django ORM code with pytest-queryguard, then prove the fix by re-running the tests.",
+      "category": "testing",
+      "tags": ["pytest", "sqlalchemy", "django", "n+1", "query-count", "orm", "performance"]
+    }
+  ]
+}

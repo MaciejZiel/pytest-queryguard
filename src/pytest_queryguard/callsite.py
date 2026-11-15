@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import itertools
 import os
 import sys
 import sysconfig
+import threading
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import CodeType, FrameType
@@ -196,6 +198,7 @@ def new_measurement() -> None:
     _sites.clear()
     _view_sites.clear()
     _last_view = None
+    _calls.clear()
     _paths.clear()
     # _origins stays: an origin depends only on the frames' code and
     # instructions and on the test code, which empties it when it changes
@@ -207,6 +210,7 @@ def end_measurement() -> None:
     collected."""
     global _last_view
     _last_view = None
+    _calls.clear()
 
 
 def swap_stack_depth(depth: int) -> int:
@@ -312,12 +316,16 @@ class Origin(NamedTuple):
     when the test code called no application code (``test_code``) or none of
     the path is test code (a thread of the application). ``test_code`` is True when every
     application frame is test code (see TestCode): a statement or load of
-    the test itself, not of the application.
+    the test itself, not of the application. ``call`` numbers the call that
+    test code made into the application (see _call_number): two statements
+    with the same number ran in one call, two with different numbers in two
+    calls, a pass of a loop in the test each; None when ``entry`` is None.
     """
 
     path: Entry | None = None
     entry: Entry | None = None
     test_code: bool = False
+    call: int | None = None
 
 
 NO_ORIGIN = Origin()
@@ -448,23 +456,74 @@ def _origin(
     signature = tuple(key)
     known = _origins.get(signature)
     if known is not None:
-        return known[1]
-    origin = _classify_frames(frames, library)
-    if len(_origins) >= _MAX_ORIGINS:
-        _origins.clear()
-    _origins[signature] = (tuple(f.f_code for f in frames), origin)
-    return origin
+        _, origin, call = known
+    else:
+        origin, call = _classify_frames(frames, library)
+        if len(_origins) >= _MAX_ORIGINS:
+            _origins.clear()
+        _origins[signature] = (tuple(f.f_code for f in frames), origin, call)
+    if call is None or not _track_calls:
+        return origin
+    return origin._replace(call=_call_number(frames[call]))
 
 
-def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
-    """The origin of ``frames`` (see ``_origin``), innermost first."""
+# Whether statements record the call that test code made into the
+# application (Origin.call): only the test-code split reads it
+# (queryguard_test_code "off" or "warn"; set_track_calls).
+_track_calls = False
+# The frame of the last call that test code made into the application, per
+# thread, with its number (see _call_number). Kept until the next call or the
+# end of the measurement (end_measurement): while it is here its id is not
+# reused by the frame of the next call. It keeps that frame's locals alive
+# that long, which a test that checks an object is collected right after the
+# call could notice; no other reference to a frame is kept.
+_calls: dict[int, tuple[FrameType, int]] = {}
+_call_numbers = itertools.count(1)
+
+
+def set_track_calls(on: bool) -> bool:
+    """Record Origin.call or not; return the previous setting."""
+    global _track_calls
+    old, _track_calls = _track_calls, on
+    _calls.clear()
+    return old
+
+
+def _call_number(frame: FrameType) -> int:
+    """The number of the call whose frame is ``frame``: the same for every
+    statement of one call, a new one for the next call (the next pass of a
+    loop in the test).
+
+    Calls of plain functions nest, so the calls of one thread never
+    interleave: keeping the last one is enough. A generator or coroutine,
+    whose frame is suspended and resumed, is never a call here
+    (_classify_frames).
+    """
+    thread = threading.get_ident()
+    last = _calls.get(thread)
+    if last is not None and last[0] is frame:
+        return last[1]
+    number = next(_call_numbers)
+    _calls[thread] = (frame, number)
+    return number
+
+
+def _classify_frames(
+    frames: list[FrameType], library: bool
+) -> tuple[Origin, int | None]:
+    """The origin of ``frames`` (see ``_origin``), innermost first, and the
+    index in ``frames`` of the frame of the call that test code made into the
+    application: the frame the innermost line of ``entry`` called, past the
+    frames of test tools (factory_boy's ``create_batch()`` makes a call per
+    object). None when there is no ``entry``."""
     lines: list[tuple[str, int, int, bool]] = []
     entry: list[tuple[str, int, int, bool]] = []  # the test lines since the last other
+    first_entry = 0  # the index of the innermost frame of ``entry``
     seen: set[int] = set()  # id() of the code objects: they are on the stack
     test = True
     gap = True  # a frame not of the application since the last line
     kinds = _kinds
-    for frame in frames:
+    for index, frame in enumerate(frames):
         code = frame.f_code
         filename = code.co_filename
         kind = kinds.get(filename)
@@ -495,19 +554,50 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
             if len(lines) < _MAX_ENTRY_LINES:
                 lines.append(line)
             if ours and len(entry) < _MAX_ENTRY_LINES:
+                if not entry:
+                    first_entry = index
                 entry.append(line)
     if not lines:
-        return NO_ORIGIN
+        return NO_ORIGIN, None
     if test or not entry:
-        return Origin(_intern(tuple(lines)), None, test)
-    return Origin(_intern(tuple(lines)), _intern(tuple(entry)), False)
+        return Origin(_intern(tuple(lines)), None, test), None
+    call = next(
+        (
+            i
+            for i in range(first_entry - 1, -1, -1)
+            if _installed_top(frames[i].f_code.co_filename) not in _TEST_LIBRARIES
+        ),
+        None,
+    )
+    # a generator or coroutine is resumed by each pass of the loop that reads
+    # it: one call of the application, whatever the test's loop does
+    if call is not None and frames[call].f_code.co_flags & _SUSPENDABLE:
+        call = None
+    return Origin(_intern(tuple(lines)), _intern(tuple(entry)), False), call
+
+
+_SUSPENDABLE = (
+    inspect.CO_GENERATOR
+    | inspect.CO_COROUTINE
+    | inspect.CO_ASYNC_GENERATOR
+    | inspect.CO_ITERABLE_COROUTINE
+)
+
+
+def _installed_top(filename: str) -> str | None:
+    """The top-level package (or module) of an installed file, else None."""
+    parts = Path(filename).parts
+    for i, part in enumerate(parts[:-1]):
+        if part in _INSTALLED:
+            return parts[i + 1].removesuffix(".py")
+    return None
 
 
 # (library, id(code), f_lasti, ...) of the frames from the first application
-# frame up to the test -> (their code objects, the Origin), see _origin.
-# Kept across measurements; emptied when the test code changes, and all at
-# once when full.
-_origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin]] = {}
+# frame up to the test -> (their code objects, the Origin, the index of the
+# call's frame), see _origin. Kept across measurements; emptied when the test
+# code changes, and all at once when full.
+_origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin, int | None]] = {}
 # A suite runs a few thousand distinct stacks; kept across tests, so the
 # stacks of each test are classified once (django-cms: 57 % misses at 1024
 # when it was emptied for every test).
@@ -621,17 +711,15 @@ def _known_library(filename: str) -> bool:
     # site-packages first: in a virtual environment the standard library's
     # "platstdlib" prefix can be the venv's lib/pythonX.Y, which holds
     # site-packages, so every installed package would match it
-    parts = Path(filename).parts
-    for i, part in enumerate(parts[:-1]):
-        if part in _INSTALLED:
-            top = parts[i + 1].removesuffix(".py")
-            # the ORMs and their libraries also when imported after the
-            # prefixes were computed (DRF, first imported by a URLconf)
-            return (
-                top in _TEST_LIBRARIES
-                or top in _INTERNAL_PACKAGES
-                or top.startswith(("pytest", "_pytest"))
-            )
+    top = _installed_top(filename)
+    if top is not None:
+        # the ORMs and their libraries also when imported after the
+        # prefixes were computed (DRF, first imported by a URLconf)
+        return (
+            top in _TEST_LIBRARIES
+            or top in _INTERNAL_PACKAGES
+            or top.startswith(("pytest", "_pytest"))
+        )
     return True
 
 
@@ -794,6 +882,29 @@ def outer_frame_id() -> int:
             return id(frame)
         frame = frame.f_back
     return 0
+
+
+def thread_of_test_code() -> bool:
+    """Whether the running thread runs a function of test code: the outermost
+    frame of its stack that is not a library's (the thread's target, or the
+    task a pool thread runs) is test code. False in the main thread.
+
+    Looked up at each call, not once per thread: a pool thread runs the
+    test's tasks and the application's in turn. A thread whose target is a
+    function of the application, though test code started it
+    (``Thread(target=place_order)``), is the application's.
+    """
+    if threading.get_ident() == threading.main_thread().ident:
+        return False
+    outermost: FrameType | None = None
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None:
+        if not _is_internal(frame.f_code.co_filename):
+            outermost = frame
+        frame = frame.f_back
+    return outermost is not None and _in_test_code(
+        outermost.f_code.co_filename, outermost
+    )
 
 
 def read_path() -> tuple[tuple[str, int], ...]:

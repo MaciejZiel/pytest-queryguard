@@ -86,6 +86,9 @@ class StatementEvent:
     # The ORM integration that recorded it: ORM_SQLALCHEMY or ORM_DJANGO. It
     # picks the wording of a finding's fix; the rules do not read it.
     orm: str = "sqlalchemy"
+    # The call that test code made into the application it ran in
+    # (callsite.Origin.call); None when unknown. See detectors._driven.
+    call: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +122,7 @@ class RelationshipLoadEvent:
     entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
     orm: str = "sqlalchemy"  # see StatementEvent.orm
+    call: int | None = field(default=None, compare=False)  # as StatementEvent.call
     # The application lines from the read outwards to the test, as (file,
     # line). Loads of parents whose query is unknown are grouped by it, so
     # one helper that two lines of the test call is not a loop; loads of
@@ -175,6 +179,7 @@ class ColumnLoadEvent:
     entry: tuple[tuple[str, int, int, bool], ...] | None = None
     test_code: bool = False  # as StatementEvent.test_code
     orm: str = "sqlalchemy"  # see StatementEvent.orm
+    call: int | None = field(default=None, compare=False)  # as StatementEvent.call
 
 
 @dataclass(frozen=True, slots=True)

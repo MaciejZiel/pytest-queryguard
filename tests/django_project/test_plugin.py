@@ -383,3 +383,145 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
         "AuthorList",
         [second],
     )
+
+
+TEST_LOOPS = """
+import pytest
+
+from tests.django_project.library.seed import seed
+from tests.django_project.library.services import (
+    add_publisher,
+    tag_counts,
+    title_and_author,
+)
+
+
+def test_one_call_per_case(db):
+    seed()
+    for pk in range(1, 7):
+        assert title_and_author(pk)
+
+
+def test_arrange_with_a_service_in_a_loop(db):
+    # as a Django project's tests: a service ten times to reach a limit
+    for i in range(10):
+        add_publisher(f"p{i}")
+    with pytest.raises(ValueError):
+        add_publisher("one too many")
+
+
+def test_a_loop_of_the_application_in_each_pass(db):
+    seed()
+    for author_id in range(1, 4):
+        assert len(tag_counts(author_id)) == 3
+"""
+
+
+def test_a_loop_of_the_test_that_calls_the_application_once_per_pass(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each pass of the first test's loop calls the application, which gets one
+    # book and reads its author once: the repetition is the test code's, left
+    # out by default. In the second, the application loops over the books of
+    # each call: its own N+1, whatever the test's loop does.
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
+    project.makepyfile(test_loops=TEST_LOOPS)
+    result = _run(project, "test_loops.py", "--queryguard-json=out.json")
+    result.assert_outcomes(passed=2, failed=1)
+    tests = json.loads((project.path / "out.json").read_text())["tests"]
+    labels = {
+        key.split("::")[-1]: [f["label"] for f in value["findings"]]
+        for key, value in tests.items()
+    }
+    assert labels == {
+        "test_one_call_per_case": [],
+        "test_arrange_with_a_service_in_a_loop": [],
+        "test_a_loop_of_the_application_in_each_pass": ["Book.tags"],
+    }
+    result.stdout.fnmatch_lines(["*N+1 findings in test code left out (2 tests)*"])
+    # as warnings with "warn", and as before 1.1.0 with "fail"
+    warned = _run(project, "test_loops.py", "-o", "queryguard_test_code=warn")
+    warned.assert_outcomes(passed=2, failed=1)
+    warned.stdout.fnmatch_lines(
+        ["*QueryGuardWarning*", "*Book.author was lazy-loaded 6 times*"]
+    )
+    _run(project, "test_loops.py", "-o", "queryguard_test_code=fail").assert_outcomes(
+        failed=3
+    )
+
+
+THREADS = """
+import threading
+
+import pytest
+from django.db import connection
+
+from tests.django_project.library.seed import seed
+from tests.django_project.library.services import place_order, titles_in_threads
+
+
+def run_concurrently(fn, threads=5):
+    # as django-oscar's oscar.test.utils.run_concurrently
+    def worker():
+        try:
+            fn()
+        finally:
+            connection.close()
+
+    started = [threading.Thread(target=worker) for _ in range(threads)]
+    for thread in started:
+        thread.start()
+    for thread in started:
+        thread.join()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_threads_of_the_test():
+    seed()
+    run_concurrently(lambda: place_order(1))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_threads_of_the_application():
+    seed()
+    assert len(titles_in_threads([1, 2, 3, 4, 5, 6])) == 6
+
+
+def test_requests_to_the_live_server(live_server, transactional_db):
+    # each request runs in a thread of the server: three gets per request
+    from urllib.request import urlopen
+
+    from pytest_queryguard import record_queries
+
+    seed()
+    with record_queries() as log:
+        for _ in range(3):
+            with urlopen(live_server.url + "/books/three/") as response:
+                assert response.status == 200
+    # the server's statements are seen: nine gets, three per request
+    assert len([q for q in log if "library_book" in q.sql]) >= 9
+"""
+
+
+def test_threads_that_the_test_starts_count_each_on_its_own(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # django-oscar's concurrency test: five threads of the test, each placing
+    # an order on its connection, are five units of work, as five requests
+    # are. A fan-out of the application, a thread per item, is still a loop.
+    # The requests of the live server, each in a thread of its own, count
+    # one by one as the test client's do.
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
+    project.makepyfile(test_threads=THREADS)
+    result = _run(project, "test_threads.py", "--queryguard-json=out.json")
+    tests = json.loads((project.path / "out.json").read_text())["tests"]
+    kinds = {
+        key.split("::")[-1]: [f["kind"] for f in value["findings"]]
+        for key, value in tests.items()
+    }
+    assert kinds == {
+        "test_threads_of_the_test": [],
+        "test_threads_of_the_application": ["repeated-statement"],
+        "test_requests_to_the_live_server": [],
+    }
+    result.assert_outcomes(passed=2, failed=1)

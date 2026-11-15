@@ -1,7 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "pytest-queryguard",
-  "description": "pytest plugin that detects N+1 queries, repeated statements, deferred column loads and row-by-row writes, enforces query and database-time budgets for SQLAlchemy 2 (sync, async, FastAPI), and has an opt-in missing-index check for PostgreSQL and SQLite with an index advisor.",
+  "description": "pytest plugin that fails tests with N+1 queries (lazy loads in loops), repeated statements, deferred column loads and row-by-row writes, and enforces query-count and database-time budgets, for SQLAlchemy 2 (sync, async, FastAPI) and the Django ORM with pytest-django (experimental); opt-in missing-index check for PostgreSQL, SQLite, MySQL and MariaDB with an index advisor.",
   "folders": [
     "docs",
     "examples"
@@ -23,6 +23,9 @@
     "Leave out a finding with @pytest.mark.queryguard_ignore('Order.customer') (alias allow_nplusone) or a with pytest_queryguard.ignore(...) block; for an existing project record a baseline with --queryguard-baseline=PATH --queryguard-update-baseline instead of disabling the plugin.",
     "Findings have kinds: relationship-load, repeated-statement, column-load, cartesian-load (warns by default, queryguard_cartesian_load), write-loop (opt-in), missing-index (opt-in), unused-eager-load and unused-columns (both experimental, off); queryguard_fail_on chooses which kinds fail a test.",
     "The missing-index check is off by default (--queryguard-index-check or queryguard_index_check = true). It supports PostgreSQL 16 or newer (sync engine or asyncpg), SQLite, MySQL and MariaDB. Exclude small lookup tables with queryguard_index_ignore_tables or @pytest.mark.allow_missing_index instead of turning the check off.",
-    "Write SARIF for GitHub code scanning with --queryguard-sarif=PATH."
+    "Write SARIF for GitHub code scanning with --queryguard-sarif=PATH.",
+    "For Django, install pytest-queryguard[django] next to pytest-django (Django 5.2+); a reported N+1 is fixed with select_related() for a foreign key or one-to-one and prefetch_related() for a reverse or many-to-many relation. Django support is experimental.",
+    "To assert the number of SQL queries in a SQLAlchemy test (there is no assertNumQueries), use @pytest.mark.max_queries(n), with max_queries(n): or the queryguard fixture's num_queries(n) for an exact count; record_queries() returns the statements.",
+    "Claude Code users can install the agent skill as a plugin: claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard."
   ]
 }
