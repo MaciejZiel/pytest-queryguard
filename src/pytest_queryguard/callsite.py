@@ -197,6 +197,14 @@ def new_measurement() -> None:
     _origins.clear()
 
 
+def end_measurement() -> None:
+    """Let go of the frames kept for the measurement that ended (_last_view):
+    a frame keeps its locals alive, and the test may check that they are
+    collected."""
+    global _last_view
+    _last_view = None
+
+
 def swap_stack_depth(depth: int) -> int:
     """Set how many callers are recorded per call site; return the previous value."""
     global _stack_depth
@@ -826,7 +834,9 @@ _handover_site: Callable[[], CallSite | None] | None = None
 # (view, the line that made the request) -> CallSite, as _sites
 _view_sites: dict[object, CallSite] = {}
 # The last view call site found: (the _DISPATCH frame, the sites cache, the
-# site), so the statements of one request do not look for it again.
+# site), so the statements of one request do not look for it again. The
+# frame is kept until the next request's or the end of the measurement
+# (end_measurement), so its id is not reused while it is here.
 _last_view: tuple[FrameType, Sites, CallSite] | None = None
 
 

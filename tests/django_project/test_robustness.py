@@ -219,3 +219,12 @@ def test_the_view_of_a_request_is_found_or_left_unknown() -> None:
     assert django_backend._view_of(frame) is None  # type: ignore[arg-type]
     assert django_backend._view_of(frame) is None  # type: ignore[arg-type]
     assert django_backend._view_of(SimpleNamespace(f_locals={})) is None  # type: ignore[arg-type]
+
+
+def test_the_frame_of_a_request_is_let_go_when_the_measurement_ends(client) -> None:  # type: ignore[no-untyped-def]
+    from pytest_queryguard import callsite
+
+    with measure():
+        assert client.get("/api/authors/").status_code == 200
+        assert callsite._last_view is not None  # kept for the request's statements
+    assert callsite._last_view is None
