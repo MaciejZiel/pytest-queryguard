@@ -1,0 +1,108 @@
+{
+  "format": 1,
+  "tool": {
+    "name": "pytest-queryguard",
+    "version": "1.0.0"
+  },
+  "complete": true,
+  "tests": {
+    "tests/test_orders.py::test_fetch_customers": {
+      "statements": 50,
+      "by_verb": {
+        "select": 50
+      },
+      "db_time": 0.0003259271616116166,
+      "truncated": false,
+      "findings": [
+        {
+          "kind": "repeated-statement",
+          "label": "SELECT customer.id, customer.name FROM customer WHERE customer.id = ?",
+          "count": 50,
+          "file": "app/customers.py",
+          "function": "fetch_customers",
+          "line": 9,
+          "stack": [
+            {
+              "file": "tests/test_orders.py",
+              "function": "test_fetch_customers",
+              "line": 11
+            }
+          ],
+          "baselined": false,
+          "message": "the same statement ran 50 times\nfirst at app/customers.py:9 in fetch_customers\n  called from tests/test_orders.py:11 in test_fetch_customers\nkind: repeated-statement  label: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?\ndocs: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#repeated-statement\nfix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop"
+        }
+      ],
+      "max_queries_marker": false
+    },
+    "tests/test_orders.py::test_list_orders": {
+      "statements": 51,
+      "by_verb": {
+        "select": 51
+      },
+      "db_time": 0.0002690049586817622,
+      "truncated": false,
+      "findings": [
+        {
+          "kind": "relationship-load",
+          "label": "Order.customer",
+          "count": 50,
+          "file": "app/orders.py",
+          "function": "list_orders",
+          "line": 10,
+          "stack": [
+            {
+              "file": "tests/test_orders.py",
+              "function": "test_list_orders",
+              "line": 7
+            }
+          ],
+          "baselined": false,
+          "message": "Order.customer was lazy-loaded 50 times\nfirst at app/orders.py:10 in list_orders\n  called from tests/test_orders.py:7 in test_list_orders\nparents loaded at app/orders.py:9 in list_orders\nkind: relationship-load  label: Order.customer\ndocs: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#relationship-load\nsql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?\nfix: load it with the parent query, e.g.\n     select(Order).options(joinedload(Order.customer))"
+        }
+      ],
+      "max_queries_marker": false
+    },
+    "tests/test_orders.py::test_rename_customers": {
+      "statements": 4,
+      "by_verb": {
+        "select": 2,
+        "update": 2
+      },
+      "db_time": 6.099703023210168e-05,
+      "truncated": false,
+      "findings": [],
+      "max_queries_marker": true
+    },
+    "tests/test_orders_fixed.py::test_fetch_customers": {
+      "statements": 1,
+      "by_verb": {
+        "select": 1
+      },
+      "db_time": 0.0014984809968154877,
+      "truncated": false,
+      "findings": [],
+      "max_queries_marker": false
+    },
+    "tests/test_orders_fixed.py::test_list_orders": {
+      "statements": 1,
+      "by_verb": {
+        "select": 1
+      },
+      "db_time": 0.0012128300149925053,
+      "truncated": false,
+      "findings": [],
+      "max_queries_marker": false
+    },
+    "tests/test_orders_fixed.py::test_rename_customers": {
+      "statements": 2,
+      "by_verb": {
+        "select": 1,
+        "update": 1
+      },
+      "db_time": 5.372503073886037e-05,
+      "truncated": false,
+      "findings": [],
+      "max_queries_marker": true
+    }
+  }
+}

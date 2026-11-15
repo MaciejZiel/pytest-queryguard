@@ -1,0 +1,430 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "pytest-queryguard",
+          "version": "1.0.0",
+          "informationUri": "https://github.com/MaciejZiel/pytest-queryguard",
+          "rules": [
+            {
+              "id": "queryguard/relationship-load",
+              "name": "RelationshipLoad",
+              "shortDescription": {
+                "text": "A relationship is lazy-loaded once per row (N+1)"
+              },
+              "fullDescription": {
+                "text": "A relationship was lazy-loaded for many parent rows, one query each. The queries grow with the number of rows."
+              },
+              "help": {
+                "text": "A relationship was lazy-loaded for many parent rows, one query each. The queries grow with the number of rows.\n\nFix: Load the relationship with the parent query: joinedload() for a many-to-one or one-to-one relationship, selectinload() for a collection.",
+                "markdown": "A relationship was lazy-loaded for many parent rows, one query each. The queries grow with the number of rows.\n\n**Fix:** Load the relationship with the parent query: joinedload() for a many-to-one or one-to-one relationship, selectinload() for a collection."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#relationship-load",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "relationship-load"
+              }
+            },
+            {
+              "id": "queryguard/repeated-statement",
+              "name": "RepeatedStatement",
+              "shortDescription": {
+                "text": "The same statement runs many times with different parameters"
+              },
+              "fullDescription": {
+                "text": "One statement ran many times from one source line, usually in a loop that fetches one row per iteration."
+              },
+              "help": {
+                "text": "One statement ran many times from one source line, usually in a loop that fetches one row per iteration.\n\nFix: Fetch all rows in one query, for example WHERE id IN (...), instead of querying in a loop.",
+                "markdown": "One statement ran many times from one source line, usually in a loop that fetches one row per iteration.\n\n**Fix:** Fetch all rows in one query, for example WHERE id IN (...), instead of querying in a loop."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#repeated-statement",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "repeated-statement"
+              }
+            },
+            {
+              "id": "queryguard/column-load",
+              "name": "ColumnLoad",
+              "shortDescription": {
+                "text": "Deferred or expired columns are loaded instance by instance"
+              },
+              "fullDescription": {
+                "text": "Instances loaded their deferred columns, columns expired by commit(), expire() or refresh(), or the columns of their subclass that a query of the base class left out, one query each."
+              },
+              "help": {
+                "text": "Instances loaded their deferred columns, columns expired by commit(), expire() or refresh(), or the columns of their subclass that a query of the base class left out, one query each.\n\nFix: Use undefer(Model.column) in the query (or drop defer(), load_only() or deferred()); for expired attributes create the Session with expire_on_commit=False or reload the instances with one query; for subclass columns use with_polymorphic() or selectin_polymorphic().",
+                "markdown": "Instances loaded their deferred columns, columns expired by commit(), expire() or refresh(), or the columns of their subclass that a query of the base class left out, one query each.\n\n**Fix:** Use undefer(Model.column) in the query (or drop defer(), load_only() or deferred()); for expired attributes create the Session with expire_on_commit=False or reload the instances with one query; for subclass columns use with_polymorphic() or selectin_polymorphic()."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#column-load",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "column-load"
+              }
+            },
+            {
+              "id": "queryguard/write-loop",
+              "name": "WriteLoop",
+              "shortDescription": {
+                "text": "Rows are written one statement at a time"
+              },
+              "fullDescription": {
+                "text": "The same INSERT, UPDATE or DELETE ran row by row from one source line where one statement could write many rows."
+              },
+              "help": {
+                "text": "The same INSERT, UPDATE or DELETE ran row by row from one source line where one statement could write many rows.\n\nFix: Write the rows together: session.add_all() and one flush, a bulk insert() or update() with a list of parameter sets, or one DELETE ... WHERE id IN (...).",
+                "markdown": "The same INSERT, UPDATE or DELETE ran row by row from one source line where one statement could write many rows.\n\n**Fix:** Write the rows together: session.add_all() and one flush, a bulk insert() or update() with a list of parameter sets, or one DELETE ... WHERE id IN (...)."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#write-loop",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "write-loop"
+              }
+            },
+            {
+              "id": "queryguard/unused-eager-load",
+              "name": "UnusedEagerLoad",
+              "shortDescription": {
+                "text": "A relationship is eager-loaded and never read (experimental)"
+              },
+              "fullDescription": {
+                "text": "A query loaded a relationship with selectinload(), joinedload(), subqueryload() or immediateload() and the test never read it."
+              },
+              "help": {
+                "text": "A query loaded a relationship with selectinload(), joinedload(), subqueryload() or immediateload() and the test never read it.\n\nFix: Remove the eager option from the query, or load the relationship only in the queries whose result uses it.",
+                "markdown": "A query loaded a relationship with selectinload(), joinedload(), subqueryload() or immediateload() and the test never read it.\n\n**Fix:** Remove the eager option from the query, or load the relationship only in the queries whose result uses it."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/unused-eager-load.html",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "unused-eager-load"
+              }
+            },
+            {
+              "id": "queryguard/unused-columns",
+              "name": "UnusedColumns",
+              "shortDescription": {
+                "text": "A wide row is loaded and few of its columns are read (experimental)"
+              },
+              "fullDescription": {
+                "text": "Queries of one function loaded many columns of a class and the test read at most half of them, counting the keys the ORM needs."
+              },
+              "help": {
+                "text": "Queries of one function loaded many columns of a class and the test read at most half of them, counting the keys the ORM needs.\n\nFix: Load only the columns that are used with .options(load_only(...)), or defer() the large columns that are never read.",
+                "markdown": "Queries of one function loaded many columns of a class and the test read at most half of them, counting the keys the ORM needs.\n\n**Fix:** Load only the columns that are used with .options(load_only(...)), or defer() the large columns that are never read."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/unused-columns.html",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "unused-columns"
+              }
+            },
+            {
+              "id": "queryguard/cartesian-load",
+              "name": "CartesianLoad",
+              "shortDescription": {
+                "text": "One query joins two collections side by side"
+              },
+              "fullDescription": {
+                "text": "A SELECT loads two collections with joinedload() where neither is on the path of the other, so each parent row repeats per combination of their items and the rows grow as their product."
+              },
+              "help": {
+                "text": "A SELECT loads two collections with joinedload() where neither is on the path of the other, so each parent row repeats per combination of their items and the rows grow as their product.\n\nFix: Load all but one of the collections with selectinload(): one more query each, and no repeated rows.",
+                "markdown": "A SELECT loads two collections with joinedload() where neither is on the path of the other, so each parent row repeats per combination of their items and the rows grow as their product.\n\n**Fix:** Load all but one of the collections with selectinload(): one more query each, and no repeated rows."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#cartesian-load",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "cartesian-load"
+              }
+            },
+            {
+              "id": "queryguard/missing-index",
+              "name": "MissingIndex",
+              "shortDescription": {
+                "text": "A query reads a table in full where an index could be used"
+              },
+              "fullDescription": {
+                "text": "EXPLAIN shows a sequential scan that filters or joins on columns without a usable index."
+              },
+              "help": {
+                "text": "EXPLAIN shows a sequential scan that filters or joins on columns without a usable index.\n\nFix: Add an index on the filtered or joined columns (see the finding for the columns), or ignore the table if it is small.",
+                "markdown": "EXPLAIN shows a sequential scan that filters or joins on columns without a usable index.\n\n**Fix:** Add an index on the filtered or joined columns (see the finding for the columns), or ignore the table if it is small."
+              },
+              "helpUri": "https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#missing-index",
+              "defaultConfiguration": {
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "performance",
+                  "database"
+                ],
+                "kind": "missing-index"
+              }
+            }
+          ]
+        }
+      },
+      "columnKind": "utf16CodeUnits",
+      "results": [
+        {
+          "ruleId": "queryguard/relationship-load",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "Order.customer was lazy-loaded 50 times\nfirst at app/orders.py:10 in list_orders\n  called from tests/test_orders.py:7 in test_list_orders\nparents loaded at app/orders.py:9 in list_orders\nkind: relationship-load  label: Order.customer\ndocs: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#relationship-load\nsql: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?\nfix: load it with the parent query, e.g.\n     select(Order).options(joinedload(Order.customer))"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "region": {
+                  "startLine": 10
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "list_orders",
+                  "kind": "function"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "a318aaa9df6e8b71f8fccf9fda916d79:1",
+            "queryguardIdentity/v1": "a318aaa9df6e8b71f8fccf9fda916d7992fa43fcb6230fc38d6f0f6b5e2c9af2"
+          },
+          "properties": {
+            "count": 50,
+            "label": "Order.customer"
+          },
+          "codeFlows": [
+            {
+              "threadFlows": [
+                {
+                  "locations": [
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "tests/test_orders.py"
+                          },
+                          "region": {
+                            "startLine": 7
+                          }
+                        },
+                        "logicalLocations": [
+                          {
+                            "name": "test_list_orders",
+                            "kind": "function"
+                          }
+                        ],
+                        "message": {
+                          "text": "test_list_orders"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "app/orders.py"
+                          },
+                          "region": {
+                            "startLine": 10
+                          }
+                        },
+                        "logicalLocations": [
+                          {
+                            "name": "list_orders",
+                            "kind": "function"
+                          }
+                        ],
+                        "message": {
+                          "text": "list_orders"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "fixes": [
+            {
+              "description": {
+                "text": "Load Order.customer with the parent query: joinedload(Order.customer)"
+              },
+              "artifactChanges": [
+                {
+                  "artifactLocation": {
+                    "uri": "app/orders.py"
+                  },
+                  "replacements": [
+                    {
+                      "deletedRegion": {
+                        "startLine": 2,
+                        "startColumn": 35,
+                        "endLine": 2,
+                        "endColumn": 35
+                      },
+                      "insertedContent": {
+                        "text": ", joinedload"
+                      }
+                    },
+                    {
+                      "deletedRegion": {
+                        "startLine": 9,
+                        "startColumn": 47,
+                        "endLine": 9,
+                        "endColumn": 47
+                      },
+                      "insertedContent": {
+                        "text": ".options(joinedload(Order.customer))"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "queryguard/repeated-statement",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "the same statement ran 50 times\nfirst at app/customers.py:9 in fetch_customers\n  called from tests/test_orders.py:11 in test_fetch_customers\nkind: repeated-statement  label: SELECT customer.id, customer.name FROM customer WHERE customer.id = ?\ndocs: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#repeated-statement\nfix: fetch all rows in one query (WHERE id IN (...)) instead of in a loop"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "app/customers.py"
+                },
+                "region": {
+                  "startLine": 9
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "fetch_customers",
+                  "kind": "function"
+                }
+              ]
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "9bdb793efea51172741e29148b1ac2aa:1",
+            "queryguardIdentity/v1": "9bdb793efea51172741e29148b1ac2aa239ab7a33a36f428fd166e321acbc36b"
+          },
+          "properties": {
+            "count": 50,
+            "label": "SELECT customer.id, customer.name FROM customer WHERE customer.id = ?"
+          },
+          "codeFlows": [
+            {
+              "threadFlows": [
+                {
+                  "locations": [
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "tests/test_orders.py"
+                          },
+                          "region": {
+                            "startLine": 11
+                          }
+                        },
+                        "logicalLocations": [
+                          {
+                            "name": "test_fetch_customers",
+                            "kind": "function"
+                          }
+                        ],
+                        "message": {
+                          "text": "test_fetch_customers"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "app/customers.py"
+                          },
+                          "region": {
+                            "startLine": 9
+                          }
+                        },
+                        "logicalLocations": [
+                          {
+                            "name": "fetch_customers",
+                            "kind": "function"
+                          }
+                        ],
+                        "message": {
+                          "text": "fetch_customers"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

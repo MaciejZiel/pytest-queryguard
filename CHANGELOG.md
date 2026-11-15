@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A VS Code extension in `editors/vscode`
+  ([#382](https://github.com/MaciejZiel/pytest-queryguard/issues/382)). It
+  reads the `--queryguard-json` or `--queryguard-sarif` report of the last run,
+  marks each finding on its line, and reloads when the report changes; the
+  hover shows the SQL, the count, the fix and the tests, and the quick actions
+  open the documentation and apply a SARIF fix. Its commands run pytest on the
+  current file, the test at the cursor or the whole project. A new `vscode`
+  workflow tests it in VS Code 1.90 and the latest release and builds the
+  `.vsix` as an artifact. It is not published to the Marketplace or Open VSX
+  yet; see [In your editor](docs/editor.md#vs-code-the-extension).
+
+### Added
+
 - N+1 detection without pytest, for Django projects that run
   `manage.py test` (experimental): `pytest_queryguard.django.QueryGuardRunner`,
   a `DiscoverRunner` set with `TEST_RUNNER`, measures `setUp()`, the test
