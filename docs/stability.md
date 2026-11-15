@@ -415,6 +415,12 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   or mix it into a test case, so it changes nothing for a project that does
   not. See [Django](django.md#without-pytest-managepy-test).
 
+- Route budgets in pytest (since 1.1.0): `queryguard_route_budgets`,
+  `queryguard_route_default_budget`, the `queryguard_route_budgets` marker,
+  which frameworks and requests they measure, how a route is named and the
+  failure text. See
+  [Budgets per route](budgets.md#budgets-per-route-for-the-requests-of-a-test).
+
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
 [In your editor](editor.md) are documentation, not API: they follow the

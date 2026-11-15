@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import threading
 from collections.abc import Callable, Sequence
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, replace
 
 from . import callsite
@@ -703,6 +703,37 @@ def pop_local(collector: QueryCollector) -> None:
             _local.set(stack[:i] + stack[i + 1 :])
             break
     _maybe_idle()
+
+
+def open_local(collector: QueryCollector) -> None:
+    """Open a context-local collector that no context holds yet.
+
+    ``enter_local`` adds it to a context, ``exit_local`` takes it out again,
+    and ``pop_local`` closes it: for a unit that its own code leaves and
+    re-enters, such as an HTTP request whose body is read after the call.
+    """
+    global _live_local
+    for hook in _local_push_hooks:
+        hook()
+    with _local_lock:
+        _live_local += 1
+
+
+def enter_local(collector: QueryCollector) -> Token[tuple[QueryCollector, ...]]:
+    """Add an open context-local collector to this context; see ``open_local``."""
+    return _local.set((*_local.get(), collector))
+
+
+def exit_local(
+    collector: QueryCollector, token: Token[tuple[QueryCollector, ...]]
+) -> None:
+    """Undo ``enter_local``; from another context, only take ``collector`` off."""
+    try:
+        _local.reset(token)
+    except ValueError:
+        stack = _local.get()
+        if collector in stack:
+            _local.set(tuple(c for c in stack if c is not collector))
 
 
 def targets() -> tuple[QueryCollector, ...]:

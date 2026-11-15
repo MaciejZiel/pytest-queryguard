@@ -48,6 +48,89 @@ budget report and the line
 `(the limit is the queryguard_max_queries ini option, the default budget of tests without a marker)`.
 Empty, the default, means no default budget.
 
+## Budgets per route, for the requests of a test
+
+Since 1.1.0, experimental (exempt from the
+[deprecation policy](stability.md#experimental)). A test budget counts all a
+test runs; a route budget counts each request on its own. Give route patterns
+the most statements one request may run, and every test that sends a request
+to that route is held to it, whatever else the test does:
+
+```toml
+[tool.pytest.ini_options]
+queryguard_route_budgets = [
+    "GET /books/{book_id}=5",
+    "GET /api/*=10",
+]
+queryguard_route_default_budget = 20
+```
+
+In an ini file, one `PATTERN=LIMIT` per line:
+
+```ini
+[pytest]
+queryguard_route_budgets =
+    GET /books/{book_id}=5
+    GET /api/*=10
+queryguard_route_default_budget = 20
+```
+
+A pattern is `METHOD path` or `path`, the same as the
+[in-app mode's `budgets`](in-app.md#fastapi-and-starlette): the path is an
+`fnmatch` pattern matched against the route template and the request path,
+and the first matching line wins. `queryguard_route_default_budget` is the
+budget of every request no pattern matches; without it, such a request has
+none.
+
+A request over its budget fails the test, once per route, with the
+statements and lines of the request that ran the most:
+
+```text
+queryguard: route budget: GET /books/{book_id} may run at most 2 statements per request, GET /books/1 ran 3
+  (the limit is "GET /books/{book_id}" in queryguard_route_budgets)
+
+  1. SELECT books.id, books.title, books.author_id FROM books WHERE books.id = ?  (app/main.py:31 in get_book)
+  2. SELECT authors.id, authors.name FROM authors WHERE authors.id = ?  (app/main.py:32 in get_book)
+  3. SELECT count(*) AS count_1 FROM reviews WHERE reviews.book_id = ?  (app/main.py:33 in get_book)
+```
+
+The statements of the test itself (its fixtures' data, a check after the
+request) do not count for any request. Route budgets fail the test whatever
+`queryguard_mode` is, as other budgets do, and are not judged in a test that
+fails on its own.
+
+The `queryguard_route_budgets` marker sets route budgets for one test (or a
+class or module). Its patterns are matched before those of the ini file, and
+`default=` replaces the default budget (`None` for none):
+
+```python
+@pytest.mark.queryguard_route_budgets({"GET /books/*": 3}, default=None)
+def test_book_page(client):
+    ...
+```
+
+What counts as a request, and its route:
+
+| Application | Request | Route template |
+|---|---|---|
+| Starlette, FastAPI | the call of the application, so a streamed body and background tasks count | the matched route's path (`/books/{book_id}`); for a mounted sub-application with the mount prefix (`/v1/books/{book_id}`) |
+| Litestar | the call of the application, streamed body and background tasks included | `path_template`, without parameter types (`/books/{book_id}` for `{book_id:int}`) |
+| Flask | from the call of the application until the body has been read to its end or closed; cleanup callbacks (`call_on_close`) included | the Flask rule (`/books/<int:book_id>`) |
+| Django | `request_started` to `request_finished`, as the [Django support](django.md) counts a request; `AsyncClient` requests too | `/` and `resolver_match.route` (`/books/<int:pk>/`) |
+
+Any test client works, as each request is counted where the application
+handles it: Starlette's and FastAPI's `TestClient`, httpx's `ASGITransport`,
+Litestar's `TestClient`, Flask's `test_client()`, Django's `Client`. A
+request without a route template (a 404, a Django request no URL pattern
+resolved) matches by its path. The Flask test client reads a body only when
+the test does (`response.data`); a body never read counts up to the end of
+the test.
+
+Statements stored per request follow `queryguard_max_events`, as a test's do;
+past it they are counted but not listed. A Django request is counted from the
+statements its test stored, so in a test that ran more than
+`queryguard_max_events` statements its count stops there.
+
 ## Lock today's counts: the budget file
 
 A suite that already exists rarely has a sensible number per test. Record

@@ -125,6 +125,8 @@ EXPECTED_INI = {
     "queryguard_baseline": "",
     "queryguard_budgets": "",
     "queryguard_max_queries": "",
+    "queryguard_route_budgets": "[]",
+    "queryguard_route_default_budget": "",
     "queryguard_index_check": "False",
     "queryguard_index_ignore_tables": "[]",
     "queryguard_index_advisor": "True",
@@ -157,6 +159,7 @@ EXPECTED_MARKERS = [
     "queryguard_ignore",
     "queryguard_max_db_time",
     "queryguard_max_queries",
+    "queryguard_route_budgets",
 ]
 
 

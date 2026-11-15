@@ -27,6 +27,7 @@ from . import (
     fixpatch,
     hypopg,
     indexes,
+    routes,
     sarif,
     testjson,
 )
@@ -204,6 +205,9 @@ class _Settings:
         self.strict = False  # queryguard_strict
         # budgets: queryguard_max_queries, the budget file and its update
         self.default_budget: int | None = None
+        # queryguard_route_budgets and queryguard_route_default_budget
+        self.route_budgets: dict[str, int] = {}
+        self.route_default: int | None = None
         self.budgets_path: Path | None = None
         self.budgets: dict[str, int] = {}
         self.update_budgets = False
@@ -567,6 +571,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "queryguard_max_queries",
         "Default query budget of every test that has no max_queries marker and no "
         "entry in the budget file (integer >= 0; empty: none)",
+        default="",
+    )
+    parser.addini(
+        routes.INI_BUDGETS,
+        "EXPERIMENTAL: the most SQL statements one request of a route may run, "
+        'one "PATTERN=LIMIT" per line ("GET /books/{id}=5"); for requests a test '
+        "sends to a Starlette, FastAPI, Litestar, Flask or Django application",
+        type="linelist",
+        default=[],
+    )
+    parser.addini(
+        routes.INI_DEFAULT,
+        "EXPERIMENTAL: the statement budget of every request no "
+        "queryguard_route_budgets pattern matches (integer >= 0; empty: none)",
         default="",
     )
     parser.addini(
@@ -967,6 +985,39 @@ def _default_budget(config: pytest.Config) -> int | None:
     return value
 
 
+def _route_budgets(config: pytest.Config) -> tuple[dict[str, int], int | None]:
+    """(patterns, default) of the ini file's route budgets."""
+    try:
+        lines: Any = config.getini(routes.INI_BUDGETS)
+        raw: Any = config.getini(routes.INI_DEFAULT)
+    except _INI_ERRORS as exc:
+        raise pytest.UsageError(f"queryguard route budgets: {exc}") from None
+    if isinstance(lines, str):
+        lines = lines.splitlines()
+    try:
+        return routes.parse_lines(lines), routes.parse_default(raw)
+    except (TypeError, ValueError) as exc:
+        raise pytest.UsageError(f"{routes.INI_BUDGETS}: {exc}") from None
+
+
+def _route_config(item: pytest.Item, settings: _Settings) -> routes.RouteBudgets | None:
+    """The route budgets of the test, None without any; a bad marker fails it."""
+    marker = item.get_closest_marker(routes.MARKER)
+    if marker is None:
+        if not settings.route_budgets and settings.route_default is None:
+            return None
+        return routes.RouteBudgets(dict(settings.route_budgets), settings.route_default)
+    try:
+        found = routes.from_marker(
+            marker, item.nodeid, settings.route_budgets, settings.route_default
+        )
+    except ValueError as exc:
+        pytest.fail(str(exc), pytrace=False)
+    if not found.budgets and found.default is None:
+        return None
+    return found
+
+
 def _output_path(config: pytest.Config, dest: str, flag: str) -> Path | None:
     """The path of an output file option, relative to the invocation directory."""
     raw: str | None = config.getoption(dest)
@@ -1065,6 +1116,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
     settings.unused_columns = _unused_columns(config)
     settings.strict = _strict(config)
     settings.default_budget = _default_budget(config)
+    settings.route_budgets, settings.route_default = _route_budgets(config)
     settings.budgets_path = _budgets_path(config)
     settings.update_budgets = bool(config.getoption("queryguard_update_budgets"))
     if settings.update_budgets and mode == "off":
@@ -1125,6 +1177,13 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "allow_nplusone(*labels, kind=..., file=..., function=..., stack=...): "
         "the same as queryguard_ignore.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "queryguard_route_budgets(budgets, default=...): EXPERIMENTAL: the most "
+        "SQL statements one request of a route may run in this test, as a "
+        'mapping {"GET /books/{id}": 5}; checked before queryguard_route_budgets '
+        "of the ini file; default= replaces queryguard_route_default_budget.",
     )
     config.addinivalue_line(
         "markers",
@@ -2960,12 +3019,18 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         if limit is None:
             limit, source = _other_budget(item, settings)
         time_limit = _time_budget(item)
+        route_budgets = _route_config(item, settings)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "start of the measurement")
         _report_internal_error(item.config)
         return (yield)
     _warn_deprecated_markers(item)
-    if settings.mode == "off" and limit is None and time_limit is None:
+    if (
+        settings.mode == "off"
+        and limit is None
+        and time_limit is None
+        and route_budgets is None
+    ):
         return (yield)
     index_check = settings.mode != "off" and settings.index_check
     try:
@@ -2982,13 +3047,21 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
             strict_hook = _strict_hook(item, settings)
         collector, trackers = _start_measuring(
             settings,
-            budgets=limit is not None or time_limit is not None,
+            budgets=limit is not None
+            or time_limit is not None
+            or route_budgets is not None,
             index_check=index_check and not exempt_all,
         )
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "start of the measurement")
         _report_internal_error(item.config)
         return (yield)
+    if route_budgets is not None:
+        try:
+            routes.begin(route_budgets, settings.max_events)
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            record_error(exc, "route budgets")
+            route_budgets = None
     if strict_hook is not None:
         collector.strict = strict_hook
         collector.strict_threshold = settings.relationship
@@ -3023,6 +3096,12 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
     finally:
         with contextlib.suppress(Exception):
             blocks.stop_recording(recording)
+        route_texts: list[str] = []
+        if route_budgets is not None:
+            try:
+                route_texts = routes.end(collector, item.config.rootpath)
+            except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+                record_error(exc, "route budgets")
         try:
             _stop_measuring(item, collector, settings, trackers)
             entry = settings.tests.get(item.nodeid) if settings.counting else None
@@ -3050,6 +3129,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
             # a test that fails with its own error has its budgets unjudged,
             # as any failing test
             budget_texts = _budget_texts(item, collector, limit, time_limit, source)
+            budget_texts.extend(route_texts)
         parts, warn_texts = _results(
             item,
             collector,

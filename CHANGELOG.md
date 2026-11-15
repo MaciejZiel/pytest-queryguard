@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
   index check without pytest yet
   ([Django](docs/django.md#without-pytest-managepy-test)).
+- Route budgets in pytest (experimental): `queryguard_route_budgets =
+  "GET /books/{id}=5"` (one `PATTERN=LIMIT` per line, matched like the
+  in-app mode's `budgets`) and `queryguard_route_default_budget` give each
+  request a test sends through a test client a statement budget of its own,
+  so a ceiling such as "every `GET /api/*` runs at most 10 statements" holds
+  in every test that calls it. Measured for Starlette, FastAPI, Litestar,
+  Flask and Django applications, a streamed body and background tasks
+  included; the `queryguard_route_budgets` marker sets them per test. A test
+  fails once per route that went over, with the statements and lines of its
+  worst request
+  ([Budgets per route](docs/budgets.md#budgets-per-route-for-the-requests-of-a-test)).
 
 ### Fixed
 
