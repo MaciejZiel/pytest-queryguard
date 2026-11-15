@@ -549,7 +549,8 @@ _generation = 0
 
 
 class RequestScope(int):
-    """The scope number of a request of Django's test client.
+    """The scope number of a request of Django's test client, or of the
+    connection of a thread that test code started (django_backend._scope_of).
 
     Always counted on its own, whatever queryguard_scope says: a loop of the
     test over requests is not a loop of the application. With

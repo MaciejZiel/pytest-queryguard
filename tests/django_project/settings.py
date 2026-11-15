@@ -32,6 +32,8 @@ MIDDLEWARE = [
     "tests.django_project.library.middleware.PassThrough",
 ]
 ROOT_URLCONF = "tests.django_project.urls"
+# the live server serves the files below it, the rest goes to the URLconf
+STATIC_URL = "/static/"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",

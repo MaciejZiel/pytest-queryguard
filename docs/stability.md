@@ -432,6 +432,11 @@ The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
 [In your editor](editor.md) are documentation, not API: they follow the
 output they read and may change in any release.
+The VS Code extension in `editors/vscode` (see
+[In your editor](editor.md#vs-code-the-extension)) has its own version
+number. It reads the public keys of the JSON and SARIF reports and, for the
+SQL and the fix in its hover, the text of a finding's message; when that
+text changes, the hover shows the whole message.
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini options and

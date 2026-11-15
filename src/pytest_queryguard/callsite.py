@@ -858,6 +858,29 @@ def _in_test_code(filename: str, frame: FrameType) -> bool:
 _MAX_READ_PATH = 32
 
 
+def thread_of_test_code() -> bool:
+    """Whether the running thread runs a function of test code: the outermost
+    frame of its stack that is not a library's (the thread's target, or the
+    task a pool thread runs) is test code. False in the main thread.
+
+    Looked up at each call, not once per thread: a pool thread runs the
+    test's tasks and the application's in turn. A thread whose target is a
+    function of the application, though test code started it
+    (``Thread(target=place_order)``), is the application's.
+    """
+    if threading.get_ident() == threading.main_thread().ident:
+        return False
+    outermost: FrameType | None = None
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None:
+        if not _is_internal(frame.f_code.co_filename):
+            outermost = frame
+        frame = frame.f_back
+    return outermost is not None and _in_test_code(
+        outermost.f_code.co_filename, outermost
+    )
+
+
 def read_path() -> tuple[tuple[str, int], ...]:
     """The application lines from the caller outwards, as (file, line).
 

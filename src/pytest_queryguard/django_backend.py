@@ -1083,9 +1083,27 @@ def _locate_view(callback: Any) -> tuple[str, int, str] | None:
 
 
 def _scope_of(connection: Any) -> int | None:
-    """The request being handled, else the connection the statement ran on."""
+    """The request being handled, else the connection the statement ran on.
+
+    The connection of a thread that test code started (each thread has a
+    connection of its own) is a unit of work of its own, as a request is:
+    django-oscar's concurrency test places one order in each of five
+    threads, and those are no loop. A thread that the application starts
+    (a fan-out per item) is counted with the rest of the test.
+    """
     scope = _request.get()
-    return scope if scope is not None else errors.scope_of(connection)
+    if scope is not None:
+        return scope
+    scope = errors.scope_of(connection)
+    if (
+        scope is not None
+        # a connection the threads share (the live server's in-memory
+        # SQLite) is one scope for all of them
+        and not getattr(connection, "allow_thread_sharing", False)
+        and callsite.thread_of_test_code()
+    ):
+        return collector.RequestScope(scope)
+    return scope
 
 
 def _scope(instance: Any) -> int | None:

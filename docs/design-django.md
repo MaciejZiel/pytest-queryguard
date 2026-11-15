@@ -528,8 +528,10 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    lines were already calls on separate lines. Corpus `clean_143` is the
    arrange-loop case seen on another Django project (a service called per
    row by the test, five tests marked).
-3. **Work spread over threads** (django-oscar's concurrency test) still
-   counts together with `queryguard_scope = test`.
+3. ~~**Work spread over threads**~~ Done in 1.1.0: the connection of a
+   thread that test code started counts on its own, as a request does
+   (django-oscar's concurrency test); the live server's requests already
+   did. A fan-out of the application still counts together.
 4. ~~**Freeze the Django surface**~~ Done in 1.1.0:
    `tests/django_project/test_public_api.py` snapshots `__all__` of
    `pytest_queryguard.django`, the runner's option, the `QUERYGUARD` keys

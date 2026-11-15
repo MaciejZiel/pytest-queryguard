@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns the `QueryLog` of each size. SQLAlchemy and Django, sync and async
   ([Reading the queries](docs/python-api.md#the-count-must-not-grow-assert_queries_do_not_grow),
   [the scaling recipe](docs/recipes-query-count-scaling.md)).
+- A VS Code extension in `editors/vscode`
+  ([#382](https://github.com/MaciejZiel/pytest-queryguard/issues/382)). It
+  reads the `--queryguard-json` or `--queryguard-sarif` report of the last run,
+  marks each finding on its line, and reloads when the report changes; the
+  hover shows the SQL, the count, the fix and the tests, and the quick actions
+  open the documentation and apply a SARIF fix. Its commands run pytest on the
+  current file, the test at the cursor or the whole project. A new `vscode`
+  workflow tests it in VS Code 1.90 and the latest release and builds the
+  `.vsix` as an artifact. It is not published to the Marketplace or Open VSX
+  yet; see [In your editor](docs/editor.md#vs-code-the-extension).
 
 ### Changed
 
@@ -104,6 +114,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   middleware of the project name the line that awaited them, not the
   middleware's `get_response(request)` line, which asgiref's thread had on
   its stack.
+- Django (experimental): the statements of a thread that test code starts
+  (its target is test code, as `oscar.test.utils.run_concurrently` is) count
+  on their own, as a request does: each thread has a connection of its own,
+  and five threads that each place one order are no loop. Seen on
+  django-oscar's concurrency test (2 false findings). A thread that the
+  application starts, one per item, still counts with the rest of the test.
+  The requests of the live server count one by one, as before; now tested.
 
 ### Documentation
 
