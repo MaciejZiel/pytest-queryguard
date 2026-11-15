@@ -123,7 +123,7 @@ measurements: `clean_142_requests_in_a_test_loop` (a loop of the test
 that calls a handler once per pass; the test code's repetition, see
 [Loops of the test](how-detection-works.md#loops-of-the-test)),
 `clean_143_service_called_per_case_in_a_test_loop` (an arrange step that
-calls a service with a limit check per row, as in the Undercut project's
+calls a service with a limit check per row, as in a Django project's
 suite, where five tests needed a marker for it) and
 `bug_137_application_loop_in_each_pass_of_a_test_loop` (a handler that
 reads a relationship per row in each pass). In every configuration

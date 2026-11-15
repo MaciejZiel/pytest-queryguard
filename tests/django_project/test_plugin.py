@@ -403,7 +403,7 @@ def test_one_call_per_case(db):
 
 
 def test_arrange_with_a_service_in_a_loop(db):
-    # as Undercut's tests: services.create_league() ten times to reach a limit
+    # as a Django project's tests: a service ten times to reach a limit
     for i in range(10):
         add_publisher(f"p{i}")
     with pytest.raises(ValueError):

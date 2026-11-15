@@ -1,6 +1,6 @@
 """CLEAN: the test arranges its rows with a loop that calls a service each time.
 
-From Undercut's suite (a Django project; ``services.create_league(user, ...)``
+From a Django project's suite (``services.create_league(user, ...)``
 ten times in a ``for`` loop to reach the per-user limit, users joining a
 league one by one): the service counts the customer's orders to enforce a
 limit, then adds one. Each call runs the count once, as each request does in
