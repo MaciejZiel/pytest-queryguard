@@ -14,6 +14,9 @@ before any test exists. [Coding agents](agents.md) has a skill and rules that
 tell an agent how to use it. It is part of the package and needs no extra dependency: the server
 speaks JSON-RPC 2.0, one message per line, with the standard library only.
 
+`run_tests` works for any project whose tests pytest-queryguard checks:
+SQLAlchemy, and Django with pytest-django. `lint` reads SQLAlchemy code only.
+
 It is experimental (see [Stability](stability.md#experimental)): the tools,
 their arguments and the shape of their results may change in a minor release.
 
@@ -30,6 +33,10 @@ claude mcp add queryguard -- python -m pytest_queryguard.mcp
 ```
 
 With uv, `claude mcp add queryguard -- uv run python -m pytest_queryguard.mcp`.
+`--scope project` (before the name) writes it to the project's `.mcp.json`,
+for everyone who works on the project. The
+[Claude Code plugin](agents.md#claude-code-plugin) installs the skill only,
+not this server, because the server must run with the project's interpreter.
 
 Cursor, in `.cursor/mcp.json` of the project:
 

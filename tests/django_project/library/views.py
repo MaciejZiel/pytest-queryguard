@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from django.http import HttpRequest, JsonResponse
-from rest_framework import generics, serializers
+import io
+from collections.abc import AsyncIterator, Iterator
+
+from django.http import FileResponse, HttpRequest, JsonResponse, StreamingHttpResponse
+from django.template.response import TemplateResponse
+from rest_framework import generics, serializers, viewsets
 
 from .models import Author, Book
 
@@ -43,6 +47,18 @@ class AuthorList(generics.ListAPIView):
     serializer_class = AuthorSerializer
 
 
+class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Author.objects.all()
+    serializer_class = AuthorSerializer
+
+
+def book_list_later(request: HttpRequest) -> TemplateResponse:
+    # rendered by Django after the view returned: no line of it on the stack
+    return TemplateResponse(
+        request, "library/book_list.html", {"object_list": Book.objects.all()}
+    )
+
+
 def book_titles(request: HttpRequest) -> JsonResponse:
     books = Book.objects.all()
     return JsonResponse({"books": [f"{b.title} by {b.author.name}" for b in books]})
@@ -56,3 +72,56 @@ def three_books(request: HttpRequest) -> JsonResponse:
 def one_book(request: HttpRequest, pk: int) -> JsonResponse:
     book = Book.objects.get(pk=pk)
     return JsonResponse({"title": book.title, "author": book.author.name})
+
+
+async def one_book_async(request: HttpRequest, pk: int) -> JsonResponse:
+    book = await Book.objects.select_related("author").aget(pk=pk)
+    return JsonResponse({"title": book.title, "author": book.author.name})
+
+
+async def six_books_async(request: HttpRequest) -> JsonResponse:
+    titles = [(await Book.objects.aget(pk=pk)).title for pk in range(1, 7)]
+    return JsonResponse({"titles": titles})
+
+
+async def stream_book_async(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    async def title() -> AsyncIterator[str]:
+        yield (await Book.objects.aget(pk=pk)).title
+
+    return StreamingHttpResponse(title())
+
+
+def stream_book(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    def title() -> Iterator[str]:
+        yield Book.objects.get(pk=pk).title
+
+    return StreamingHttpResponse(title())
+
+
+class _BookFile(io.RawIOBase):
+    """A file whose content is a book's title, read from the database."""
+
+    def __init__(self, pk: int) -> None:
+        self.pk = pk
+        self.done = False
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        if self.done:
+            return b""
+        self.done = True
+        return Book.objects.get(pk=self.pk).title.encode()
+
+
+def book_file(request: HttpRequest, pk: int) -> FileResponse:
+    return FileResponse(_BookFile(pk))
+
+
+def stream_book_broken(request: HttpRequest, pk: int) -> StreamingHttpResponse:
+    def title() -> Iterator[str]:
+        yield Book.objects.get(pk=pk).title
+        raise RuntimeError("body bug")
+
+    return StreamingHttpResponse(title())

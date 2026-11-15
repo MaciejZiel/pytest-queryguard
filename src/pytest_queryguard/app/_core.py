@@ -15,7 +15,6 @@ import logging
 import math
 import os
 import random
-import re
 import sys
 import threading
 import time
@@ -24,7 +23,6 @@ import warnings
 from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
-from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
 
@@ -35,6 +33,7 @@ from ..collector import QueryCollector
 from ..detectors import SCOPE_SESSION, SCOPE_TEST, detect
 from ..findings import Finding
 from ..messages import display_root, format_budget, format_findings, make_findings
+from ..routes import matching_key
 from ..warnings import QueryGuardAppWarning, default, renamed
 
 logger = logging.getLogger("pytest_queryguard.app")
@@ -47,7 +46,6 @@ ReportTarget = str | Reporter
 _TARGETS = ("log", "warn")
 PAGE_REPORTS = ("off", "footer", "console")
 _BAD_REPORT = "report must be 'log', 'warn', a callable or a sequence of them, got {!r}"
-_METHOD = re.compile(r"[A-Za-z][A-Za-z-]*")  # GET, M-SEARCH, VERSION-CONTROL
 
 
 def _check_threshold(name: str, value: object, minimum: int = 2) -> None:
@@ -60,19 +58,6 @@ def _is_number(value: object) -> bool:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
     return math.isfinite(value)
-
-
-def _split_budget_key(key: str) -> tuple[str, str]:
-    """``"GET /a b"`` -> ``("GET", "/a b")``; ``"/a b"`` -> ``("", "/a b")``.
-
-    The first word is a method only when it looks like one (letters and
-    hyphens), so a path with spaces keeps them; any whitespace separates the
-    method.
-    """
-    head, *rest = key.strip().split(None, 1)
-    if rest and _METHOD.fullmatch(head):
-        return head.upper(), rest[0].strip()
-    return "", key.strip()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -206,14 +191,8 @@ class Settings:
         self, method: str | None, route: str | None, path: str | None
     ) -> int | None:
         """The statement budget of a request; ``default_budget`` without a match."""
-        names = [name for name in (route, path) if name]
-        for key, limit in self.budgets.items():
-            want_method, pattern = _split_budget_key(key)
-            if want_method and (method or "").upper() != want_method:
-                continue
-            if any(fnmatchcase(name, pattern) for name in names):
-                return limit
-        return self.default_budget
+        key = matching_key(self.budgets, method, route, path)
+        return self.budgets[key] if key is not None else self.default_budget
 
 
 @dataclass(eq=False, kw_only=True)
@@ -744,7 +723,9 @@ class track:  # a function to its callers, as in 0.5.0
         """Measure each call of ``function`` as a unit of its own.
 
         For a generator function the unit spans the iteration, from the first
-        item to the last; a coroutine function is measured across its awaits.
+        item to the last, and counts the generator's own statements only, not
+        those of the code that consumes it between items; a coroutine function
+        is measured across its awaits.
         """
         if self._tracker is not None:
             raise RuntimeError("a started track() unit cannot decorate a function")
@@ -756,15 +737,58 @@ class track:  # a function to its callers, as in 0.5.0
         if inspect.isasyncgenfunction(function):
 
             async def wrapper(*args: Any, **kwargs: Any) -> Any:
-                async with unit:
-                    async for item in call(*args, **kwargs):
-                        yield item
+                own = _Own(unit._begin())
+                steps = call(*args, **kwargs)
+                ended = False
+                try:
+                    action, value = steps.asend, None
+                    while True:
+                        with own:
+                            try:
+                                item = await action(value)
+                            except StopAsyncIteration:
+                                ended = True
+                                break
+                        try:
+                            value = yield item
+                            action = steps.asend
+                        except GeneratorExit:
+                            raise
+                        except BaseException as exc:  # noqa: BLE001  # thrown in: pass it on
+                            action, value = steps.athrow, exc
+                finally:
+                    with own:
+                        await steps.aclose()
+                    own.finish(ended)
 
         elif inspect.isgeneratorfunction(function):
 
             def wrapper(*args: Any, **kwargs: Any) -> Any:
-                with unit:
-                    return (yield from call(*args, **kwargs))
+                own = _Own(unit._begin())
+                steps = call(*args, **kwargs)
+                ended = False
+                try:
+                    action, value = steps.send, None
+                    while True:
+                        with own:
+                            try:
+                                item = action(value)
+                            except StopIteration as stop:
+                                ended = True
+                                result = stop.value
+                                break
+                        try:
+                            value = yield item
+                            action = steps.send
+                        except GeneratorExit:
+                            raise
+                        except BaseException as exc:  # noqa: BLE001  # thrown in: pass it on
+                            action, value = steps.throw, exc
+                finally:
+                    with own:
+                        steps.close()
+                    own.finish(ended)
+                return result
 
         elif _is_async(function):
 
@@ -780,6 +804,44 @@ class track:  # a function to its callers, as in 0.5.0
 
         result: Callable[_P, _R] = functools.wraps(function)(wrapper)
         return result
+
+
+class _Own:
+    """The current unit of a generator decorated with ``track()``.
+
+    A generator runs in its consumer's context, so a unit set inside it would
+    stay current between items: the consumer's statements would count for
+    it, and its exit would end whatever unit is current then (another
+    generator's). Each step instead sets the generator's own value of
+    ``current`` (its unit, or a unit the generator entered and has not left)
+    and puts the consumer's back afterwards. Only this unit's ``current``
+    moves; other context variables behave as in any generator.
+    """
+
+    __slots__ = ("_state", "_token", "tracker")
+
+    def __init__(self, tracker: Tracker) -> None:
+        tracker.detach()  # the consumer's context is not the unit's
+        self.tracker = tracker
+        self._state: Active | None = tracker.active
+        self._token: contextvars.Token[Active | None] | None = None
+
+    def __enter__(self) -> None:
+        self._token = current.set(self._state)
+
+    def __exit__(self, *exc: object) -> None:
+        self._state = current.get()
+        token, self._token = self._token, None
+        if token is not None:
+            current.reset(token)
+
+    def finish(self, ended: bool) -> None:
+        """End the unit; ``ended``: the generator ran to its end, so raise
+        a warning a filter turned into an error (not over an exception, nor
+        when the consumer closed it early, as ``with`` does on GeneratorExit)."""
+        self.tracker.finish()
+        if ended and self.tracker.warning is not None:
+            raise self.tracker.warning
 
 
 # What inspect.signature() shows: calling track(...) gives a unit.

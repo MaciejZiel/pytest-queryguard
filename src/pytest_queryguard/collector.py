@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import threading
 from collections.abc import Callable, Sequence
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, replace
 
 from . import callsite
@@ -17,6 +17,7 @@ from .events import (
     RelationshipLoadEvent,
     ScanEvent,
     StatementEvent,
+    query_line,
     read_key,
 )
 from .findings import KIND_RELATIONSHIP
@@ -366,7 +367,7 @@ class QueryCollector:
         Computed once per group, when it reaches the threshold, or, with
         ``unit``, from the loads of that unit only (see ``_strict_decide``).
         """
-        here = load.parent.callsite if load.parent is not None else None
+        here = query_line(load)
         first: CallSite | None = None
         other_lines = False
         loads = [
@@ -382,19 +383,18 @@ class QueryCollector:
             and (unit is _ALL or self.unit_of(earlier.scope) == unit)
         ]
         # with a unit, its parents per query line, as the report counts them
-        per_line: dict[CallSite, set[object]] = {}
+        per_line: dict[object, set[object]] = {}
         if unit is not _ALL:
             for earlier in loads:
-                if earlier.parent is not None and earlier.parent.callsite is not None:
-                    per_line.setdefault(earlier.parent.callsite, set()).add(
-                        earlier.parent_key
-                    )
+                line = query_line(earlier)
+                if line is not None:
+                    per_line.setdefault(line, set()).add(earlier.parent_key)
         # the lines that read this group's relationship: a parent of unknown
         # origin joins the group when read at one of them (or at no known line)
         reads = {
             earlier.callsite
             for earlier in loads
-            if earlier.parent is not None and earlier.parent.callsite == here
+            if earlier.parent is not None and query_line(earlier) == here
         }
         reads.add(load.callsite)
         # the parents of unknown origin per reading line, as the report groups
@@ -405,8 +405,7 @@ class QueryCollector:
                 unknown.setdefault(read_key(earlier), set()).add(earlier.parent_key)
         anywhere = unknown.get(None, set())
         for earlier in loads:
-            parent = earlier.parent
-            line = None if parent is None else parent.callsite
+            line = query_line(earlier)
             if line is None and earlier.callsite is not None:
                 if earlier.callsite not in reads and (
                     len(unknown[read_key(earlier)] | anywhere) < self.strict_threshold
@@ -422,18 +421,18 @@ class QueryCollector:
                     continue  # a line with too few parents is no N+1
             if first is None and earlier.callsite is not None:
                 first = earlier.callsite
-            if line != here:
-                other_lines = True
+            if _site_of(line) != _site_of(here):
+                other_lines = True  # as the report: query lines, not call paths
         return first, other_lines
 
     def _strict_key(self, load: RelationshipLoadEvent) -> tuple[object, ...] | None:
-        """(relationship, query site of the parents, scope), or None when the
-        parent's query line is unknown (such loads never count here)."""
-        parent = load.parent
-        if parent is None or parent.callsite is None:
+        """(relationship, query line of the parents (``query_line``), scope),
+        or None when it is unknown (such loads never count here)."""
+        line = query_line(load)
+        if line is None:
             return None
         scope = load.scope if self.strict_by_scope else boundary(load.scope)
-        return (load.relationship, parent.callsite, scope)
+        return (load.relationship, line, scope)
 
     def _strict_group(
         self, key: tuple[object, ...], load: RelationshipLoadEvent
@@ -550,7 +549,8 @@ _generation = 0
 
 
 class RequestScope(int):
-    """The scope number of a request of Django's test client.
+    """The scope number of a request of Django's test client, or of the
+    connection of a thread that test code started (django_backend._scope_of).
 
     Always counted on its own, whatever queryguard_scope says: a loop of the
     test over requests is not a loop of the application. With
@@ -558,6 +558,11 @@ class RequestScope(int):
     """
 
     __slots__ = ()
+
+
+def _site_of(line: object) -> object:
+    """The query's call site of a ``query_line()`` key, without its path."""
+    return line[0] if isinstance(line, tuple) else line
 
 
 def boundary(scope: object) -> object:
@@ -645,6 +650,7 @@ def pop(collector: QueryCollector) -> None:
             del _stack[i]
             break
     _rebuild()
+    callsite.end_measurement()
     _maybe_idle()
 
 
@@ -703,6 +709,37 @@ def pop_local(collector: QueryCollector) -> None:
             _local.set(stack[:i] + stack[i + 1 :])
             break
     _maybe_idle()
+
+
+def open_local(collector: QueryCollector) -> None:
+    """Open a context-local collector that no context holds yet.
+
+    ``enter_local`` adds it to a context, ``exit_local`` takes it out again,
+    and ``pop_local`` closes it: for a unit that its own code leaves and
+    re-enters, such as an HTTP request whose body is read after the call.
+    """
+    global _live_local
+    for hook in _local_push_hooks:
+        hook()
+    with _local_lock:
+        _live_local += 1
+
+
+def enter_local(collector: QueryCollector) -> Token[tuple[QueryCollector, ...]]:
+    """Add an open context-local collector to this context; see ``open_local``."""
+    return _local.set((*_local.get(), collector))
+
+
+def exit_local(
+    collector: QueryCollector, token: Token[tuple[QueryCollector, ...]]
+) -> None:
+    """Undo ``enter_local``; from another context, only take ``collector`` off."""
+    try:
+        _local.reset(token)
+    except ValueError:
+        stack = _local.get()
+        if collector in stack:
+            _local.set(tuple(c for c in stack if c is not collector))
 
 
 def targets() -> tuple[QueryCollector, ...]:

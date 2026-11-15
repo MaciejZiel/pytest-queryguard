@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import pickle
 from collections.abc import Iterator
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -182,3 +183,48 @@ def test_closing_the_rows_early_closes_djangos_generator() -> None:
         next(noted)
         noted.close()  # type: ignore[attr-defined]
     assert closed == [True]
+
+
+def test_the_names_of_django_and_asgiref_the_call_sites_rely_on() -> None:
+    # The view a generic view's statements are attributed to is the local
+    # "callback" of BaseHandler._get_response (and of its async twin), and the
+    # thread of an async ORM call starts at SyncToAsync.thread_handler. A
+    # release that renames them turns that off silently: this test says so.
+    from asgiref.sync import SyncToAsync
+    from django.core.handlers.base import BaseHandler
+
+    for name in ("_get_response", "_get_response_async", "get_response"):
+        assert hasattr(getattr(BaseHandler, name), "__code__"), name
+    for name in ("_get_response", "_get_response_async"):
+        assert "callback" in getattr(BaseHandler, name).__code__.co_varnames, name
+    assert hasattr(SyncToAsync.thread_handler, "__code__")
+
+
+def test_the_view_of_a_request_is_found_or_left_unknown() -> None:
+    from django.views import View
+
+    from .library.views import AuthorList, book_list_later
+
+    locate = django_backend._locate_view
+    assert locate(book_list_later)[1:] == (
+        book_list_later.__code__.co_firstlineno,
+        "book_list_later",
+    )
+    file, line, name = locate(AuthorList.as_view())
+    assert (Path(file).name, name, line > 0) == ("views.py", "AuthorList", True)
+    assert locate(object()) is None  # a callable with no code of its own
+    # a class made at run time has no source to find: unknown, no error
+    made = type("Made", (View,), {"__module__": __name__})
+    frame = SimpleNamespace(f_locals={"callback": made.as_view()})
+    assert django_backend._view_of(frame) is None  # type: ignore[arg-type]
+    assert django_backend._view_of(frame) is None  # type: ignore[arg-type]
+    assert django_backend._view_of(SimpleNamespace(f_locals={})) is None  # type: ignore[arg-type]
+
+
+def test_the_frame_of_a_request_is_let_go_when_the_measurement_ends(client) -> None:  # type: ignore[no-untyped-def]
+    from pytest_queryguard import callsite
+
+    with measure():
+        assert client.get("/api/authors/").status_code == 200
+        assert callsite._last_view is not None  # kept for the request's statements
+    assert callsite._last_view is None

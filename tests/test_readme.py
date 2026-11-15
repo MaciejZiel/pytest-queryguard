@@ -43,6 +43,8 @@ def _local_path(url: str) -> str | None:
     path = url.split("#", 1)[0]
     if path.startswith(SITE):
         page = path.removeprefix(SITE)
+        if page == "llms.txt":  # copied from the repository by build_docs.py
+            return page
         return "docs/index.md" if not page else f"docs/{page.removesuffix('.html')}.md"
     for prefix in (f"{REPO}blob/main/", f"{REPO}tree/main/"):
         if path.startswith(prefix):

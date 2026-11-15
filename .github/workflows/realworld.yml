@@ -46,6 +46,10 @@ on:
         description: "Extra pytest arguments of the run with the plugin, split on spaces (e.g. -o queryguard_scope=session)"
         required: false
         default: ""
+      profile:
+        description: "Run the pytest runs without and with the plugin under cProfile (baseline.prof, plugin.prof in the artifact; the timings are then not comparable with other runs; the other tools and manage.py test projects are not run or profiled)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -148,6 +152,21 @@ jobs:
             sleep 1
           done
           docker exec realworld-postgres pg_isready -h localhost -U "$POSTGRES_USER"
+      # MySQL for a project with "mysql": true; its env names the root password
+      # (DATABASE_PASSWORD) and the database (DATABASE_NAME) the tests use
+      - name: Start MySQL
+        if: matrix.mysql
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ matrix.env.DATABASE_PASSWORD }}
+          MYSQL_DATABASE: ${{ matrix.env.DATABASE_NAME }}
+        run: |
+          docker run -d --name realworld-mysql -p 127.0.0.1:3306:3306 \
+            -e MYSQL_ROOT_PASSWORD -e MYSQL_DATABASE mysql:8.4
+          for _ in $(seq 1 90); do
+            docker exec realworld-mysql mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD" --silent && break
+            sleep 2
+          done
+          docker exec realworld-mysql mysqladmin ping -h 127.0.0.1 -uroot -p"$MYSQL_ROOT_PASSWORD"
       - name: Create the virtual environment
         env:
           PROJECT_ENV: ${{ toJSON(matrix.env) }}
@@ -174,6 +193,7 @@ jobs:
           uv pip install "$GITHUB_WORKSPACE/plugin"
           mkdir -p "$RUNNER_TEMP/probe"
           cp "$GITHUB_WORKSPACE/harness/scripts/realworld_probe.py" "$RUNNER_TEMP/probe/"
+          cp "$GITHUB_WORKSPACE/harness/scripts/realworld_runner.py" "$RUNNER_TEMP/probe/"
           uv pip freeze > "$OUT/freeze.txt"
           python -c "import sys, importlib.metadata as m, pytest_queryguard as q; print(sys.version); [print(d, m.version(d)) for d in ('sqlalchemy', 'django', 'pytest', 'pytest-django') if any(x.name.lower() == d for x in m.distributions(name=d))]; print('pytest-queryguard', q.__version__)" | tee "$OUT/versions.txt"
       # One function for both runs, so they differ only in the plugin's
@@ -185,6 +205,12 @@ jobs:
       # QueryGuardInternalWarning is always recorded, also where the project
       # ignores UserWarning (the command-line -W comes after the project's
       # filterwarnings). The two experimental kinds are on, as warnings.
+      #
+      # A project with a test_command runs manage.py test instead of pytest:
+      # once with Django's runner and once with QueryGuardRunner in warn
+      # mode, each through scripts/realworld_runner.py, which leaves the same
+      # files as the pytest runs (JUnit XML, the JSON of findings, the probe).
+      # The other tools are pytest plugins and do not run there.
       - name: Run the tests without and with the plugin
         id: runs
         working-directory: project/${{ matrix.workdir }}
@@ -193,17 +219,31 @@ jobs:
           PREPARE: ${{ matrix.prepare }}
           SUITE: ${{ inputs.suite }}
           PLUGIN_ARGS: ${{ inputs.plugin-args }}
+          TEST_COMMAND: ${{ matrix.test_command }}
+          PROFILE: ${{ inputs.profile }}
         run: |
           read -r -a args <<< "$PYTEST_ARGS"
           read -r -a plugin_args <<< "$PLUGIN_ARGS"
+          read -r -a test_command <<< "$TEST_COMMAND"
           run() {
             local name=$1 start end code
             shift
             if [ -n "$PREPARE" ]; then bash -euo pipefail -c "$PREPARE"; fi
             start=$(date +%s.%N)
             set +e
-            timeout -s INT -k 30 10m python -m pytest "${args[@]}" "$@" \
-              --junitxml="$OUT/$name.xml" > "$OUT/$name.log" 2>&1
+            if [ -n "$TEST_COMMAND" ]; then
+              REALWORLD_OUT="$OUT" REALWORLD_RUN="$name" \
+              PYTHONPATH="$RUNNER_TEMP/probe${PYTHONPATH:+:$PYTHONPATH}" \
+              timeout -s INT -k 30 10m "${test_command[@]}" "$@" > "$OUT/$name.log" 2>&1
+            else
+              local python=(python -m pytest)
+              if [ "$PROFILE" = true ]; then
+                # python -m cProfile would exit 0 whatever pytest returned
+                python=(python -c 'import cProfile, sys, pytest; p = cProfile.Profile(); code = p.runcall(pytest.main, sys.argv[2:]); p.dump_stats(sys.argv[1]); sys.exit(int(code))' "$OUT/$name.prof")
+              fi
+              timeout -s INT -k 30 10m "${python[@]}" "${args[@]}" "$@" \
+                --junitxml="$OUT/$name.xml" > "$OUT/$name.log" 2>&1
+            fi
             code=$?
             set -e
             end=$(date +%s.%N)
@@ -214,6 +254,14 @@ jobs:
             echo "::endgroup::"
             cat "$OUT/$name.meta.json"
           }
+          if [ -n "$TEST_COMMAND" ]; then
+            if [ -n "$PLUGIN_ARGS" ]; then
+              echo "::warning::plugin-args are pytest arguments: not used for this manage.py test project"
+            fi
+            run baseline --testrunner realworld_runner.Baseline
+            run plugin --testrunner realworld_runner.Guarded --queryguard-mode warn
+            exit 0
+          fi
           run baseline -p no:queryguard
           PYTHONPATH="$RUNNER_TEMP/probe${PYTHONPATH:+:$PYTHONPATH}" \
           QUERYGUARD_PROBE_OUT="$OUT/probe.jsonl" \
@@ -225,7 +273,7 @@ jobs:
             --queryguard-json="$OUT/queryguard.json" \
             --queryguard-sarif="$OUT/queryguard.sarif" \
             ${plugin_args[0]:+"${plugin_args[@]}"}
-          if [ "$SUITE" = django ]; then
+          if [ "$SUITE" = django ] && [ "$PROFILE" != true ]; then
             # The other N+1 tools for Django, each installed only now, so the
             # two runs above did not have it. zeal's own warning is ignored by
             # its text: some projects turn warnings into errors.

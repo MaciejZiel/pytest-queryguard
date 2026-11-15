@@ -43,7 +43,13 @@ from django.test.runner import (
 
 from . import blocks
 from .backends import install
-from .callsite import DEFAULT_STACK_DEPTH, TestCode, swap_stack_depth, swap_test_code
+from .callsite import (
+    DEFAULT_STACK_DEPTH,
+    TestCode,
+    set_track_calls,
+    swap_stack_depth,
+    swap_test_code,
+)
 from .collector import QueryCollector, pop, push
 from .detectors import (
     DEFAULT_COLUMN_LOAD_THRESHOLD,
@@ -250,6 +256,7 @@ def _get_state() -> _State:
             swap_root(root)
             swap_test_code(test_code)
             swap_stack_depth(config.stack_depth)
+            set_track_calls(config.test_code != "fail")
         _state = _State(config, root, test_code)
     return _state
 
@@ -399,6 +406,10 @@ def _analyse(
         findings = make_findings(
             _detect(collector, config, sieve, False if split else None), cwd=root
         )
+        if config.test_code == "off":
+            # a repetition that test code drives (detectors._driven) is the
+            # test code's, left out as under pytest
+            findings = [finding for finding in findings if not finding.test_code]
         if config.test_code == "warn" and _has_test_code(collector):
             findings.extend(
                 replace(finding, test_code=True)

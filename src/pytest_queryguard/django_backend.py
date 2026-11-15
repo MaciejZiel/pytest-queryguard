@@ -50,16 +50,24 @@ from __future__ import annotations
 
 import functools
 import importlib
+import inspect
 import itertools
 import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping
 from contextvars import ContextVar
+from types import FrameType
 from typing import Any
 
 from . import blocks, callsite, collector, errors, sqltext
-from .callsite import NO_ORIGIN, Origin, find_callsite, find_site_origin
+from .callsite import (
+    NO_ORIGIN,
+    Origin,
+    find_callsite,
+    find_site_origin,
+    outer_frame_id,
+)
 from .events import (
     CAUSE_DEFERRED,
     ORM_DJANGO,
@@ -140,8 +148,12 @@ class _Load(_Frozen):
 
 
 # The load whose SELECT is about to run in this context: (its event, the
-# origin of the instances it loads). The first SELECT takes it.
-_Pending = tuple[RelationshipLoadEvent | ColumnLoadEvent, _Origin | None]
+# origin of the instances it loads, the call path of the load and the id of
+# its first frame outside Django, see callsite.outer_frame_id). The first
+# SELECT takes it; when that SELECT comes from the same frame (alive while
+# the load runs, so its id is not reused), it takes the call path too: the
+# stack from there outwards is the same, and is not walked again.
+_Pending = tuple[RelationshipLoadEvent | ColumnLoadEvent, _Origin | None, Origin, int]
 _pending: ContextVar[_Pending | None] = ContextVar(
     "queryguard_django_load", default=None
 )
@@ -300,14 +312,41 @@ def _install() -> None:
     requests.request_finished.connect(
         _on_request_finished, weak=False, dispatch_uid=_DISPATCH_UID
     )
+    # An async handler (AsyncClient, ASGI) sends request_started with
+    # Signal.asend, which before Django 6.1 runs sync receivers in a task of
+    # their own: the scope set there never reaches the request. The handler
+    # opens one itself, around the whole request (a streamed body included).
+    _patch(_module("django.core.handlers.asgi").ASGIHandler, "handle", _in_request)
+    _patch(_module("django.test.client").AsyncClientHandler, "__call__", _in_request)
+    # The sync test client: request_started sets the scope, but a streamed
+    # body read after another request started would be read in that one's.
+    _patch(_module("django.test.client").ClientHandler, "__call__", _body_in_request)
     sync = sys.modules.get("asgiref.sync")
     if sync is not None and hasattr(sync, "SyncToAsync"):
         _patch(sync.SyncToAsync, "__call__", _sync_to_async_call)
+    # A statement of a view that runs no line of the project (a generic view
+    # and its serializer) is the view's, not the middleware's on the stack;
+    # one that asgiref's thread runs, the awaiting line's, not that of what
+    # the thread ran before (a sync middleware of an async request)
+    handler = _module("django.core.handlers.base").BaseHandler
+    callsite.register_frames(
+        _codes(handler, "_get_response", "_get_response_async"),
+        _codes(handler, "get_response", "get_response_async"),
+        _view_of,
+        _codes(getattr(sync, "SyncToAsync", None), "thread_handler"),
+        _async_site.get,
+    )
     # Frames of Django, asgiref and DRF are never the application's, also
     # when installed outside site-packages; classify the files again.
     callsite.reset_internal()
     _connections = _module("django.db").connections
     _installed_for = query
+
+
+def _codes(owner: Any, *names: str) -> list[Any]:
+    """The code objects of the functions ``names`` of ``owner`` that it has."""
+    functions = (getattr(owner, name, None) for name in names)
+    return [code for code in (getattr(f, "__code__", None) for f in functions) if code]
 
 
 def _patch_testcases() -> None:
@@ -522,9 +561,16 @@ def _record(
     # the call path, for the count rules of the collectors that want loads
     origin = NO_ORIGIN
     if full:
-        found, origin = _site_origin()
-        if site is None:
-            site = found
+        if (
+            pending is not None
+            and site is not None
+            and pending[3] == callsite.outer_frame_id()
+        ):
+            origin = pending[2]
+        else:
+            found, origin = _site_origin()
+            if site is None:
+                site = found
     elif site is None:
         site = _site()
     stmt = StatementEvent(
@@ -541,6 +587,7 @@ def _record(
         path=origin.path,
         test_code=origin.test_code,
         orm=ORM_DJANGO,
+        call=origin.call,
     )
     for target in targets:
         target.add_statement(stmt)
@@ -868,14 +915,128 @@ def _key(instance: Any) -> object:
 _request: ContextVar[int | None] = ContextVar("queryguard_django_request", default=None)
 
 
+# Set while an async handler runs a request in the scope it opened
+# (``_in_request``); request_started then keeps that scope.
+_async_request: ContextVar[bool] = ContextVar(
+    "queryguard_django_async_request", default=False
+)
+
+
 def _on_request_started(sender: Any, **kwargs: Any) -> None:
     # One scope per request (the test client's included), as a Session is
     # one for SQLAlchemy: queryguard_scope = session counts each on its own.
+    # From Django 6.1 an async handler sends it in the request's own context:
+    # the scope its handler opened (which a streamed body is read in) stays.
+    if _async_request.get():
+        return
     _request.set(collector.RequestScope(next(errors.scopes)))
 
 
 def _on_request_finished(sender: Any, **kwargs: Any) -> None:
     _request.set(None)
+
+
+def _in_request(original: Callable[..., Any]) -> Callable[..., Any]:
+    """One scope per request of an async handler, as ``_on_request_started``.
+
+    A streamed body that the caller reads after the call returned (the
+    ``AsyncClient``'s response) is read in that scope too.
+    """
+
+    @functools.wraps(original)
+    async def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            scope = collector.RequestScope(next(errors.scopes))
+        except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+            _fail(exc, "Django integration (async request)")
+            return await original(self, *args, **kwargs)
+        token = _request.set(scope)
+        handled = _async_request.set(True)
+        try:
+            response = await original(self, *args, **kwargs)
+        finally:
+            _async_request.reset(handled)
+            _request.reset(token)
+        _scoped_body(response, scope)
+        return response
+
+    return method
+
+
+def _body_in_request(original: Callable[..., Any]) -> Callable[..., Any]:
+    """A streamed body of the sync test client, read in its request's scope.
+
+    ``request_started`` set the scope during the call, and a streamed body's
+    ``request_finished`` comes only at its end. The body takes the scope
+    along, and the caller leaves it: the test's own code after the call
+    (before, between or without reading bodies) is in no request.
+    """
+
+    @functools.wraps(original)
+    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        response = original(self, *args, **kwargs)
+        scope = _request.get()
+        if scope is not None and _scoped_body(response, scope):
+            _request.set(None)
+        return response
+
+    return method
+
+
+def _scoped_body(response: Any, scope: int) -> bool:
+    """Read a streamed ``response``'s body in ``scope``; True when it is one."""
+    if not getattr(response, "streaming", False):
+        return False
+    try:
+        response.streaming_content = _in_scope(response.streaming_content, scope)
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        _fail(exc, "Django integration (streamed response)")
+        return False
+    return True
+
+
+def _in_scope(content: Any, scope: int) -> Any:
+    """``content`` (a streamed body), each part made in the request ``scope``."""
+    if hasattr(content, "__aiter__"):
+        return _in_scope_async(content.__aiter__(), scope)
+    return _in_scope_sync(iter(content), scope)
+
+
+_END = object()
+
+
+def _in_scope_sync(parts: Iterator[Any], scope: int) -> Iterator[Any]:
+    try:
+        while True:
+            token = _request.set(scope)
+            try:
+                part = next(parts, _END)
+            finally:
+                _request.reset(token)
+            if part is _END:
+                return
+            yield part
+    finally:
+        close = getattr(parts, "close", None)
+        if close is not None:
+            close()
+
+
+async def _in_scope_async(parts: Any, scope: int) -> Any:
+    try:
+        while True:
+            token = _request.set(scope)
+            try:
+                part = await parts.__anext__()
+            except StopAsyncIteration:
+                return
+            finally:
+                _request.reset(token)
+            yield part
+    finally:
+        close = getattr(parts, "aclose", None)
+        if close is not None:
+            await close()
 
 
 def _site() -> Any:
@@ -896,10 +1057,83 @@ def _site_origin() -> tuple[Any, Origin]:
     return site, origin
 
 
+# id(view callback) -> (the callback, its location or None), see _view_of
+_views: dict[int, tuple[Any, tuple[str, int, str] | None]] = {}
+_MAX_VIEWS = 1024
+
+
+def _view_of(frame: FrameType) -> tuple[str, int, str] | None:
+    """(file, first line, name) of the view that ``frame``, Django's
+    ``BaseHandler._get_response``, called: the class of a class-based view
+    (a DRF view or viewset included), else the function."""
+    callback = frame.f_locals.get("callback")
+    if callback is None:
+        return None
+    known = _views.get(id(callback))
+    if known is not None and known[0] is callback:
+        return known[1]
+    try:
+        found = _locate_view(callback)
+    except Exception:  # noqa: BLE001  # an odd callable: the view is not known
+        found = None
+    if len(_views) >= _MAX_VIEWS:
+        _views.clear()
+    _views[id(callback)] = (callback, found)
+    return found
+
+
+def _locate_view(callback: Any) -> tuple[str, int, str] | None:
+    # as_view() of Django and DRF sets view_class; a DRF viewset's sets cls
+    target = getattr(callback, "view_class", None) or getattr(callback, "cls", None)
+    if not isinstance(target, type):
+        function = inspect.unwrap(callback)
+        code = getattr(function, "__code__", None)
+        if code is None:
+            return None
+        return code.co_filename, code.co_firstlineno, function.__name__
+    # the file as its code names it, as the other call sites do: that of a
+    # method of its own, else its module's
+    own = vars(target)
+    prefix = f"{target.__qualname__}."
+    filename = next(
+        (
+            value.__code__.co_filename
+            for value in own.values()
+            if hasattr(value, "__code__")
+            and str(getattr(value, "__qualname__", "")).startswith(prefix)
+        ),
+        None,
+    ) or getattr(sys.modules.get(target.__module__), "__file__", None)
+    if not filename:
+        return None
+    line = own.get("__firstlineno__")  # Python 3.13; not a base class's
+    if not isinstance(line, int):
+        line = inspect.findsource(target)[1] + 1
+    return filename, line, target.__name__
+
+
 def _scope_of(connection: Any) -> int | None:
-    """The request being handled, else the connection the statement ran on."""
+    """The request being handled, else the connection the statement ran on.
+
+    The connection of a thread that test code started (each thread has a
+    connection of its own) is a unit of work of its own, as a request is:
+    django-oscar's concurrency test places one order in each of five
+    threads, and those are no loop. A thread that the application starts
+    (a fan-out per item) is counted with the rest of the test.
+    """
     scope = _request.get()
-    return scope if scope is not None else errors.scope_of(connection)
+    if scope is not None:
+        return scope
+    scope = errors.scope_of(connection)
+    if (
+        scope is not None
+        # a connection the threads share (the live server's in-memory
+        # SQLite) is one scope for all of them
+        and not getattr(connection, "allow_thread_sharing", False)
+        and callsite.thread_of_test_code()
+    ):
+        return collector.RequestScope(scope)
+    return scope
 
 
 def _scope(instance: Any) -> int | None:
@@ -915,7 +1149,7 @@ def _scope(instance: Any) -> int | None:
 
 def _relationship_event(
     label: str, instance: Any, scalar: bool, scope: int | None, origin: _Origin | None
-) -> RelationshipLoadEvent:
+) -> tuple[RelationshipLoadEvent, Origin]:
     parent = _parent(origin)
     site, path = _site_origin()
     return RelationshipLoadEvent(
@@ -929,17 +1163,17 @@ def _relationship_event(
         path.entry,
         path.test_code,
         orm=ORM_DJANGO,
-        read_path=_read_path(parent),
-    )
+        call=path.call,
+        read_path=_read_path(),
+    ), path
 
 
-def _read_path(parent: ParentLoad | None) -> tuple[tuple[str, int], ...] | None:
-    """The call path of a read whose parent's query is unknown (see
-    ``RelationshipLoadEvent.read_path``): objects the test created and read
-    through one helper at two lines of the test are two reads, not a loop.
-    In an asgiref thread (the async ORM) the path is the awaiting line's."""
-    if parent is not None and parent.callsite is not None:
-        return None
+def _read_path() -> tuple[tuple[str, int], ...]:
+    """The call path of a read (see ``RelationshipLoadEvent.read_path``):
+    objects the test created and read through one helper at two lines of the
+    test are two reads, not a loop, and so are two objects that one lookup
+    helper gets and reads, called from two lines. In an asgiref thread (the
+    async ORM) the path is the awaiting line's."""
     path = callsite.read_path()
     if not path:
         site = _async_site.get()
@@ -980,8 +1214,10 @@ def _prepare(label: Callable[[], str], instance: Any, scalar: bool) -> _Pending 
     try:
         origin = _origin_of(instance)
         name = label()
-        event = _relationship_event(name, instance, scalar, _scope(instance), origin)
-        return event, _child_origin(origin, name, scalar)
+        event, path = _relationship_event(
+            name, instance, scalar, _scope(instance), origin
+        )
+        return event, _child_origin(origin, name, scalar), path, outer_frame_id()
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         _fail(exc, "Django integration (lazy load)")
         return None
@@ -1115,8 +1351,9 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
                 entry=path.entry,
                 test_code=path.test_code,
                 orm=ORM_DJANGO,
+                call=path.call,
             )
-            pending: _Pending | None = (event, None)
+            pending: _Pending | None = (event, None, path, outer_frame_id())
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             _fail(exc, "Django integration (deferred field)")
             pending = None
@@ -1280,11 +1517,14 @@ def _execute_sql(
                 path.entry,
                 path.test_code,
                 orm=ORM_DJANGO,
-                read_path=_read_path(parent),
+                call=path.call,
+                read_path=_read_path(),
             )
             pending: _Pending | None = (
                 event,
                 _child_origin(mark.origin, mark.label, False),
+                path,
+                outer_frame_id(),
             )
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
             _fail(exc, "Django integration (related manager query)")

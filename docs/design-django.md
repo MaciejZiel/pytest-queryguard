@@ -506,6 +506,60 @@ Later: `unused-eager-load`, `unused-columns`, fix patches, the
 multiple-aggregation join check, Celery and the in-app mode for Django, and
 the static check.
 
+## 5. Out of experimental
+
+Status on 2026-11-15, after 1.0.0 and 11 real projects (14,423 tests, see
+[Real projects](django.md#real-projects)). The Django support is
+experimental since 0.10.0. This is what still blocks dropping that label in
+1.1.0:
+
+1. ~~**Locations behind a project's middleware.**~~ Done in 1.1.0: when no
+   line of the project runs between Django's call of the view and the
+   statement, the finding names the view class or function, with the test
+   line as its caller; project middlewares are passed over.
+2. ~~**Repetition that test code drives.**~~ Done in 1.1.0, as a test-code
+   classification rather than a new rule: each statement and load records
+   the call that test code made into the application, and a finding whose
+   every call ran the statement once (or read the relationship of one
+   object) is the test code's repetition, which `queryguard_test_code`
+   governs ([Loops of the test](how-detection-works.md#loops-of-the-test)).
+   A pass of a test loop is a unit, as a request is, only when the
+   application did the work once in it. Fixtures and assertions on separate
+   lines were already calls on separate lines. Corpus `clean_143` is the
+   arrange-loop case seen on another Django project (a service called per
+   row by the test, five tests marked).
+3. ~~**Work spread over threads**~~ Done in 1.1.0: the connection of a
+   thread that test code started counts on its own, as a request does
+   (django-oscar's concurrency test); the live server's requests already
+   did. A fan-out of the application still counts together.
+4. ~~**Freeze the Django surface**~~ Done in 1.1.0:
+   `tests/django_project/test_public_api.py` snapshots `__all__` of
+   `pytest_queryguard.django`, the runner's option, the `QUERYGUARD` keys
+   and defaults, the labels and the loader each fix names, and the Django
+   versions and databases of CI ([Stability](stability.md#experimental)).
+5. ~~**Coverage the real-project runs lack**~~ Done in 1.1.0: django-oscar
+   on MySQL 8.4, django-allauth on Django 6.0 and django-taggit under
+   `QueryGuardRunner` (`manage.py test`) ran in the harness with no test
+   changed and no internal error
+   ([MySQL, Django 6.0 and manage.py test](django.md#mysql-django-60-and-managepy-test-2026-11-15)).
+   Still thin: one small `manage.py test` suite.
+6. ~~**Say what is out of scope for Django**~~ Done in 1.1.0:
+   [Out of scope for Django](django.md#out-of-scope-for-django) gives the
+   reason for each.
+7. **Overhead on statement-heavy suites**: django-cms ran 8.6 % to 15.9 %
+   slower with the plugin. The other ten projects were within the noise of a
+   single run. Profiled in Actions on 2026-11-15 (the `profile` input of
+   `realworld.yml`): nearly all of the plugin's time is the walk of the
+   stack for each statement's call site and call path, and 57 % of the
+   statements classified their stack again, because the cache of classified
+   stacks was emptied for every test. 1.1.0 keeps it across tests, reuses a
+   lazy load's call path for its own SELECT, and makes the read path's walk
+   cheaper: the plugin's own time under the profiler fell by 26 %, and the
+   wall-time overhead from 14.6 % and 15.0 % (two runs of `main`) to 13.2 %
+   and 14.2 %. No cheap win is left that would bring it near the noise:
+   the walk itself is the cost, and only a sampled or lazily computed call
+   path would remove it, which is a redesign.
+
 ## Sources
 
 Downloads: [pypistats.org](https://pypistats.org/) API (`/api/packages/<name>/recent`

@@ -27,8 +27,13 @@ MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # a middleware of the project, as most projects have one; sync, so the
+    # async views run behind it in asgiref's threads too
+    "tests.django_project.library.middleware.PassThrough",
 ]
 ROOT_URLCONF = "tests.django_project.urls"
+# the live server serves the files below it, the rest goes to the URLconf
+STATIC_URL = "/static/"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",

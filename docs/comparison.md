@@ -47,7 +47,7 @@ and [choosing](#choosing) have the details.
 
 | Tool | Version (release date) | First release on PyPI | Targets | License |
 |---|---|---|---|---|
-| pytest-queryguard | 1.0.0rc1 (2026-11-10); 0.10.0 (2026-11-08) is the latest final release | 2026-10-10 | SQLAlchemy 2; Django (experimental) | MIT |
+| pytest-queryguard | 1.0.0 (2026-11-14) | 2026-10-10 | SQLAlchemy 2; Django (experimental) | MIT |
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.6.0 (2026-10-22) | 2026-08-04 | SQLAlchemy 2.0+, Python 3.11+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |
@@ -58,14 +58,17 @@ and [choosing](#choosing) have the details.
 | [django-nplus1](https://github.com/oliverhaas/django-nplus1) | 0.6.2 (2026-10-04) | 2026-04-05 | Django | MIT |
 | [django-query-doctor](https://github.com/hassanzaibhay/django-query-doctor) | 2.3.0 (2026-08-01) | 2026-03-14 | Django | MIT |
 | [n-plus-one-sniffer](https://github.com/async-workflows/n-plus-one-sniffer) | not on PyPI (repository created 2026-07-18) | not on PyPI | SQLAlchemy 2.0+ | MIT (repository) |
-| [orm-lens](https://github.com/FROWNINGdev/orm-lens) | 1.17.1 (2026-11-05) | 2026-07-12 as django-orm-lens, 2026-10-31 as orm-lens | Django; SQLAlchemy models in preview since 2026-10-31 | MIT |
+| [orm-lens](https://github.com/FROWNINGdev/orm-lens) | 1.18.0 (2026-11-11) | 2026-07-12 as django-orm-lens, 2026-10-31 as orm-lens | Django; SQLAlchemy models in preview since 2026-10-31 | MIT |
 
 Release dates come from the PyPI JSON API on 2026-10-12, re-checked on 2026-10-13 and 2026-11-05;
 the rows of pytest-queryguard, django-nplus1, django-query-doctor and
 n-plus-one-sniffer were read on 2026-11-07 (PyPI and GitHub), the row of
 nplus1 on 2026-11-08. Every row was checked again on 2026-11-10 (PyPI, and
 GitHub for n-plus-one-sniffer, whose latest commit is still `d4790f8`): only
-pytest-queryguard had a new release. Most of these
+pytest-queryguard had a new release. On 2026-11-14 (PyPI, and GitHub for
+n-plus-one-sniffer, still at `d4790f8`) only orm-lens (1.18.0, fixes to its
+Django model parser, its index suggestions and its factory generator) and
+pytest-queryguard (1.0.0) had. Most of these
 projects are young: pytest-queryguard, queryspy and pytest-querycount shipped
 their first release in the second half of 2026, so expect all of them to change. This
 table will be out of date; check the projects' own pages.
@@ -76,16 +79,18 @@ syntax tree, with no database and without starting the application), and has
 a command line and an MCP server for AI coding agents. Its `nplusone` command
 looks for N+1 patterns in the code; it does not run tests or watch the
 statements a test sends, so it is not in the matrix below. Read from its PyPI
-description on 2026-11-05, not run. pytest-queryguard has an experimental
+description on 2026-11-05, and again on 2026-11-14 for 1.18.0 (its SQLAlchemy
+support is still marked preview), not run. pytest-queryguard has an experimental
 [static check](static-check.md) of its own (since 0.8.0), which reads the
 mappers by importing your model modules and reports only lazy relationships
 read in a loop over a query inside one function, and an experimental
 [MCP server](mcp.md), whose tools run the test suite and return the findings
 the tests produce. The two static checks were not compared.
 
-Four tools are not in the matrix below. nplus1 was read and run on
-2026-11-08. For the other three, found on 2026-11-07, what follows was read
-in their READMEs on that date, and none of them was run:
+Five tools are not in the matrix below. nplus1 was read and run on
+2026-11-08. For three others, found on 2026-11-07, what follows was read
+in their READMEs on that date, and for redline in its README and
+documentation on 2026-11-14; none of them was run:
 
 - **nplus1**: a rewrite of nplusone, published on PyPI as `nplus1` but
   installed under nplusone's import name, `nplusone` (v: the files of the
@@ -120,6 +125,18 @@ in their READMEs on that date, and none of them was run:
   threshold (3 by default) and suggest `selectinload`, `joinedload` or
   `subqueryload`. Its README does not mention relationship names, budgets or
   a baseline.
+- **redline**: a request profiler with a browser UI for Django, FastAPI,
+  Flask and Litestar (packages `django-redline`, `fastapi-redline`,
+  `flask-redline`, `litestar-redline` and `redline-core`, first on PyPI
+  2026-10-27, 0.5.0b1 on 2026-11-13, pre-release). It records requests to
+  its own store and reports N+1 (the same read from the same line, 5 times
+  by default) with a suggested fix, duplicate and slow queries, EXPLAIN,
+  flamegraphs and load tests. Its pytest plugin checks the requests a test
+  client sends: a `redline` marker (`max_queries`, `no_n_plus_one`,
+  `max_external_calls`) or `--redline-all`, and `--redline-ratchet`, a file
+  of per-test query counts that may only go down. Its documentation says
+  the marker needs an instrumented in-process test client and checks each
+  captured request; a test that sends no request fails the assertion.
 
 pytest-capquery's PyPI metadata has no license field. Its README badge and the
 `LICENSE` file in its GitHub repository are Creative Commons
@@ -258,7 +275,9 @@ Actions tab; it also runs once a month. Every tool that runs inside pytest
 and supports SQLAlchemy 2 is in it: queryspy 0.6.0, pytest-querycount
 0.4.0, n-plus-one-sniffer (not on PyPI, installed from git at `d4790f8`,
 reported as 0.1.0) and nplusone 1.0.0. orm-lens is not: it reads source code
-and has no pytest mode. pytest-queryguard is 1.0.0rc1, run from its tag `v1.0.0rc1`.
+and has no pytest mode. redline (found on 2026-11-14) is not either: its
+pytest marker checks requests sent through an instrumented test client, and
+all but six of the corpus scenarios send none. pytest-queryguard is 1.0.0rc1, run from its tag `v1.0.0rc1`; 1.0.0 has the same code.
 Python 3.13.18, SQLAlchemy 2.1.1, pytest 9.1.1 on `ubuntu-latest` (x86_64,
 4 CPUs).
 

@@ -202,8 +202,9 @@ test errors (the message starts with `queryguard:`; `-W` cannot name
 **Test code** is the modules of the test cases the runner loaded, the files
 below a `tests` or `test` folder of the current directory, and factories, as
 under pytest: with the default `test_code = off` a loop in the test method or
-`setUp()` is not reported, a loop in a view, serializer or model method it
-calls is. `ignore()` blocks work as under pytest.
+`setUp()` is not reported, nor is a query that a loop of the test makes the
+application run once per pass ([Loops of the test](how-detection-works.md#loops-of-the-test));
+a loop in a view, serializer or model method it calls is. `ignore()` blocks work as under pytest.
 
 **`--parallel`** works, with `fork`, `spawn` and `forkserver` workers: each
 worker measures its tests and the failures come back as any test failure;
@@ -268,13 +269,25 @@ object makes separate requests, each looking up its session and user once,
 and that is no loop of the application. The rest of the test counts as a
 whole. With `queryguard_scope = session`, statements outside a request also
 count per database connection, as a Session does for SQLAlchemy. Requests of
-the `AsyncClient` count per connection before Django 6.1. See
+the `AsyncClient` (and of an ASGI handler) count on their own too, on every
+supported Django version, and so do the requests of the live server
+(`live_server`, `LiveServerTestCase`), each in a thread of the server. A
+thread that runs test code (its target is a function of the test: a helper
+that runs a function in five threads to test a race) is a unit of its own as
+well, on its connection; a thread whose target is a function of the
+application is not, also when the test started it
+(`Thread(target=place_order)`). A streamed body (`StreamingHttpResponse`,
+`FileResponse`) counts in its request when the test reads it, also after
+other requests. See
 [Several sessions or requests](several-sessions.md).
 
 The N+1s of test code are left out by default, as for SQLAlchemy
 (`queryguard_test_code`, see [Test code](how-detection-works.md#test-code)):
-a loop in the test function, a fixture or a factory is not reported, a loop
-in a view, serializer or model method the test calls is. So is a loop in a
+a loop in the test function, a fixture or a factory is not reported, nor is
+a query that a loop of the test makes the application run once per pass
+(objects created one by one whose `post_save` receiver reads a relation, a
+helper called per case; see [Loops of the test](how-detection-works.md#loops-of-the-test)).
+A loop in a view, serializer or model method the test calls is. So is a loop in a
 view that runs no line of your project, through the test client or called
 directly: a generic view with a class-level `queryset`, its nested serializer
 or its template, the admin. A serializer or template the test uses itself
@@ -357,9 +370,13 @@ The other ways:
   (`select_related("author__publisher")`).
 - **Call sites** skip the frames of Django, asgiref and Django REST framework,
   as they skip SQLAlchemy's: a finding points at your view, serializer or test.
-  A DRF view whose queryset is a class attribute has no line of its own: the
-  finding points at the test line that called the view, and the fix belongs in
-  the view's `queryset` or `get_queryset()`. A call of the async ORM
+  A view that runs no line of your project between Django and the query (a
+  DRF generic view with a class-level `queryset` and a `ModelSerializer`, a
+  `TemplateResponse` rendered after the view returned) is named by its class
+  or function, with the test line that made the request as its caller: the
+  fix belongs in the view's `queryset` or `get_queryset()`. A middleware of
+  your project on the stack is passed over. A view of Django's own (a
+  `ListView` set up in the URLconf) points at the test line. A call of the async ORM
   (`await Book.objects.aget(...)`, `async for`), which Django runs in a
   thread of asgiref, has the line that awaited it as its call site.
 
@@ -371,14 +388,34 @@ The other ways:
   fix names `.only()`. Generated fields are left out.
 - **Durations** include the time of other `execute_wrapper`s, since the
   plugin's wrapper is the outermost.
-- Not for Django yet: `unused-eager-load`, `unused-columns`, `cartesian-load`,
-  `--queryguard-write-patch` and `--queryguard-show-patch` (Django findings
-  have no patch), the static check and the in-application mode.
+- Some features are SQLAlchemy only by decision: see
+  [Out of scope for Django](#out-of-scope-for-django).
+
+## Out of scope for Django
+
+These features of the plugin are not offered for Django code, and are not
+planned. Each is a decision about scope, not a gap that the Django support
+leaving experimental depends on. They find nothing in Django code; with
+SQLAlchemy in the same project they work for its code as usual.
+
+| Feature | Why not for Django |
+|---|---|
+| `unused-eager-load` (`queryguard_unused_eager_load`) | A `prefetch_related()` or `select_related()` whose objects the test never reads. Telling that apart needs a hook on every read of Django's prefetch caches and of each `select_related()` object, and it is wrong where a template or serializer reads them only for some rows: nplusone reports it and flags three of the CLEAN scenarios of the Django corpus. Its cost is one extra query, not one per row. |
+| `unused-columns` (`queryguard_unused_columns`) | Columns loaded and never read. For Django it would mean watching every field read of every instance; the gain is a narrower `SELECT`, which `.only()` gives where it matters. `column-load` covers the harmful direction: a field left out and then read per row. |
+| `cartesian-load` (`queryguard_cartesian_load`) | The rows multiplied by eager-loading two collections in one `JOIN`. `select_related()` follows only foreign keys and one-to-one relations, and `prefetch_related()` runs a query per relation, so the Django ORM does not build such a query from loader options. |
+| Fix patches (`--queryguard-write-patch`, `--queryguard-show-patch`) | A patch adds a loader option at the line of the parents' query. In Django that query is often a class attribute (`queryset = Book.objects.all()` of a generic view), a manager method or a chain built over several lines, so a patch would be wrong as often as right. Each message names the code to add (`select_related("author")`). |
+| The static check (`python -m pytest_queryguard.lint`) | It reads SQLAlchemy relationships from the source. For Django it would have to resolve models, managers and querysets across files, which a test run sees directly. |
+| The in-application mode (`pytest_queryguard.app`) | It watches a SQLAlchemy engine in a running application. Django has django-debug-toolbar and django-silk for that; the plugin checks Django code in its tests. |
+
+`QueryGuardRunner` (`manage.py test`) has no baseline, JSON, SARIF, budget
+files, strict mode or index check yet: that is a gap of the runner, not of
+the Django support, see
+[Without pytest](#without-pytest-managepy-test).
 
 ## Accuracy
 
-The Django corpus in `tests/django_project/corpus` has 73 scenarios, 37 with
-an N+1 or another finding and 36 without, run in five configurations:
+The Django corpus in `tests/django_project/corpus` has 75 scenarios, 38 with
+an N+1 or another finding and 37 without, run in five configurations:
 foreign keys, reverse relations, many-to-many relations, one-to-one relations,
 generic relations,
 multi-table inheritance, `select_related()`, `prefetch_related()` and
@@ -386,26 +423,26 @@ multi-table inheritance, `select_related()`, `prefetch_related()` and
 serializers, admin list, change and delete pages, templates, `get()` and
 `exists()` per item, `save()` and `delete()` in a loop against bulk writes and
 cascades, signals, `iterator()`, pagination, helpers called for objects the
-test created, and requests of the test client. On SQLite, with Django 5.2 and
+test created, lookup helpers called from two lines, and requests of the test client. On SQLite, with Django 5.2 and
 6.1, in the default configuration:
 
 | Kind | Precision | Recall |
 |---|---|---|
-| `relationship-load` | 100 % (22 of 22) | 100 % |
+| `relationship-load` | 100 % (23 of 23) | 100 % |
 | `column-load` | 100 % (5 of 5) | 100 % |
-| `repeated-statement` | 100 % (7 of 7) | 100 % |
+| `repeated-statement` | 100 % (8 of 8) | 100 % |
 | `write-loop` (threshold 2) | 100 % (7 of 7) | 100 % |
 
 The same holds in the other four configurations (small repeats, a column-load
 threshold of 2, write loops, strict mode) and on PostgreSQL 17 and MySQL 8.4,
-except for one scenario with two N+1s in strict mode: the test stops at the
+except for two scenarios with two findings each in strict mode: the test stops at the
 first, before the second is complete. `scripts/django_accuracy_report.py`
 prints them.
 
 **These numbers are biased.** We wrote the corpus, together with the
 integration: it says that the cases it names work, not how often the rules
-are right on other code. Five of its scenarios (`clean_35`, `clean_36`,
-`bug_35` to `bug_37`) were added after the runs on real projects below found
+are right on other code. Seven of its scenarios (`clean_35` to `clean_37`,
+`bug_35` to `bug_38`) were added after the runs on real projects below found
 false positives, each before its fix. For an estimate on code we did not
 write, see [Real projects](#real-projects).
 
@@ -469,9 +506,123 @@ positives it showed, each fixed with a scenario added first:
   `_pre_setup` and `_post_teardown` now (a test in `tests/django_project`;
   the corpus cannot hold a `TransactionTestCase`).
 
-Not fixed: work spread over threads (the two false findings above) still
-counts together with `queryguard_scope = test`; `queryguard_scope = session`
-counts each connection on its own.
+Fixed since: work spread over threads (the two false findings above) counted
+together with `queryguard_scope = test`. A thread that test code starts (its
+target is test code, as `oscar.test.utils.run_concurrently` is) has a
+connection of its own, and its statements now count on their own, as a
+request does. A thread that the application starts, one per item, is still
+counted with the rest of the test.
+
+### Five more projects (2026-11-14)
+
+A second run took five more projects, chosen for having pytest-django suites
+that the first run did not cover: a document manager with a DRF API
+(paperless-ngx), a recipe manager with a DRF API (Tandoor), an authentication
+library (django-allauth), a GraphQL library with sync and async test clients
+(strawberry-django) and a labelling tool (Label Studio). All ran on Django
+5.2 and SQLite. Same workflow and settings as above. The final run, with the
+two fixes below:
+[43599524757](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43599524757).
+The first runs, before them:
+[43587676195](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43587676195)
+and [43588110966](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43588110966).
+
+| Project | Tests run | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings (first run → final) | Overhead, two runs |
+|---|---|---|---|---|---|---|
+| paperless-ngx 3.4.2 | the API and workflow tests of `src/documents` | 713 / 0 / 0 | none | 0 / 0 | 167 → 167: 138 relationship-load, 29 repeated-statement | +0.6 %, −1.7 % |
+| Tandoor 2.7.2 | `cookbook/tests/api` | 677 / 7 / 0 | none in the final run (see below) | 0 / 0 | 243 → 243: 216 relationship-load, 27 repeated-statement | 0.0 %, −0.9 % |
+| django-allauth 65.22.1 | all | 2500 / 0 / 1 | none | 0 / 0 | 54 → 51: 2 relationship-load, 49 repeated-statement | +2.2 %, +6.9 % |
+| strawberry-django 0.96.3 | all | 1278 / 0 / 69 | none | 0 / 0 | 131 → 97: 96 relationship-load, 1 repeated-statement | −0.6 %, −3.3 % |
+| Label Studio 1.23.2 | `data_manager`, `projects`, `tasks`, `organizations`, `users` and `tests/data_manager` | 222 / 0 / 11 | none | 0 / 0 | 297 → 243: 163 relationship-load, 80 repeated-statement | −6.9 %, −6.0 % |
+
+In all 5,478 tests, in both runs, the plugin changed no test's outcome and
+reported no internal warning or error. The exception is one test of Tandoor
+in the first run: `test_inherit[...-supermarket_category-False-cat_1]`
+failed with the plugin only. That test makes its categories with
+`get_or_create` on a random `faker.word()` name, so two of them can come out
+as one. It passed in every later run and in the runs under django-zeal and
+nplusone. Tandoor's seven failures without the plugin depend on the date and
+on the order of the tests; they fail the same way with it.
+
+**Triage.** 51 distinct finding sites of the first runs were read in the
+projects' code: all 3 of django-allauth's, and 12 drawn at random from each
+other project.
+
+| Verdict | Count | What they are |
+|---|---|---|
+| true | 37 | DRF serializers and GraphQL resolvers reading a relation per row (most of paperless-ngx, Tandoor and strawberry-django), per-row work in signal handlers and delete actions, a migration that reads the filters of each group |
+| debatable | 12 | 11 where test code drives the repetition: a test that loops over cases or calls one function ten times, fixtures and factories that create objects one by one, assertions per object. And one query that runs six times in one request (django-allauth's `is_mfa_enabled`), which could be cached but is not a loop |
+| false | 2 | strawberry-django: `User.user_permissions` of the user of each async request, counted together; django-allauth: `UserSession.user` read once for each of the two sessions of one request |
+
+Both false positives are fixed, each reproduced first:
+
+- **Requests of the `AsyncClient` on Django 5.2 and 6.0**: before Django 6.1,
+  `Signal.asend` runs the receivers of `request_started` in a task of their
+  own, so the scope of each request was lost and a test's requests counted
+  together. Async handlers now open the request scope themselves, and that
+  includes a streamed body that the test reads after the call has returned.
+  strawberry-django went from 131 to 97 findings: 30 of the
+  `User.user_permissions` findings above and 4 `Project.milestones` findings
+  of tests that query one project per request. Tests in
+  `tests/django_project/test_statements.py`; this is not a corpus scenario,
+  because an async view cannot share the corpus's transaction on SQLite.
+- **One lookup helper called from two lines** (django-allauth): parents that
+  one query line loaded are now also grouped by the call path of the read, so
+  a helper that gets one object and reads its relation is a loop only when it
+  runs in one (`clean_37`, `bug_38`). Label Studio lost 54
+  `Task.project` findings the same way: a test that creates its annotations
+  one by one at four lines, each save of which reads the task's project.
+
+Fixed since: a finding whose rows a DRF view reads with no line of the
+project in the call (a `ModelSerializer`, a generic view) pointed at the first
+project frame on the stack. In paperless-ngx, Tandoor and Label Studio that
+frame was a middleware's `get_response(request)` line. It now names the view
+class, with the test line as its caller (see
+[How it sees Django](#how-it-sees-django)). The same middleware, when it is
+sync and the request async, was named for the async ORM calls of the view;
+they now name the line that awaited them.
+
+### MySQL, Django 6.0 and `manage.py test` (2026-11-15)
+
+Three more jobs cover what the runs above lacked: a project on MySQL, one on
+Django 6.0, and one whose suite runs with `manage.py test` under
+`QueryGuardRunner` instead of pytest. Same workflow; a project with a
+`test_command` runs it twice, with `--testrunner` set to Django's runner and
+to `QueryGuardRunner` with `--queryguard-mode warn`, through
+`scripts/realworld_runner.py`, which writes the same JUnit XML and JSON of
+findings as the pytest runs. Run
+[43741288589](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43741288589),
+plugin at `main` (1.0.0 and the Django changes merged after it, not those of
+the open pull requests).
+
+| Project | Tests run | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings | Overhead, one run |
+|---|---|---|---|---|---|---|
+| django-oscar 4.2.1, MySQL 8.4, Django 5.2 (pytest) | functional and integration | 1415 / 281 / 1 | none | 0 / 0 | 244: 180 relationship-load, 64 repeated-statement | +7.0 % |
+| django-allauth 65.22.1, Django 6.0 (pytest) | all | 2500 / 0 / 1 | none | 0 / 0 | 51: 2 relationship-load, 49 repeated-statement | +11.3 % |
+| django-taggit 7.0.0, Django 6.0 (`manage.py test`, `QueryGuardRunner`) | all | 396 / 0 / 7 | none | 0 / 0 | 54: 3 relationship-load, 51 repeated-statement | +2.8 % |
+
+django-oscar's suite is not written for MySQL: the 281 failures are MySQL
+errors (241 of them "You can't specify target table ... for update in FROM
+clause", from the category tree), the same with and without the plugin. On
+the tests that pass, the plugin's findings are those of the PostgreSQL run:
+the 45 distinct sites start with the product list's per-product reads
+(`Product.stockrecords`, `Product.product_class`, `Product.categories` of
+the search index), all true. Labels carry MySQL's backquotes; the
+[baseline](baseline.md#what-an-entry-is) writes them without.
+
+django-allauth on Django 6.0 reports the same two sites as on 5.2 (the
+`is_mfa_enabled` lookup repeated in one request, and `SocialAccount.user`).
+
+django-taggit, under `QueryGuardRunner`: every test passed and failed as with
+Django's runner, and no internal warning or error. 50 of the 54 findings are
+one site, `_TaggableManager.add()`, which runs `get_or_create()` per tag
+(`managers.py:198`), in the `setUp` of the admin and model tests that add
+several tags at once: a loop of the library's own, true. The others: the
+tag lookup per natural key, `TaggedItem.__str__` reading its object and tag,
+and the admin's merge view reading each item's content type.
+
+Not covered yet: a large `manage.py test` suite (Wagtail, Zulip) and Django
+6.0 or MySQL on a project with a bigger ORM surface than these.
 
 ## Comparison
 
@@ -505,8 +656,8 @@ call (it raises at the first N+1); nplusone 1.0.0 in `INSTALLED_APPS` with its
   this plugin's rules. The kinds a tool does not claim are left out of its
   per-kind columns, but its overall recall counts every BUG scenario.
 
-What each tool reports on the real projects (final run above; reports counted
-once per test and message):
+What each tool reports on the real projects (the final run of each set
+above; reports counted once per test and message):
 
 | Project | pytest-queryguard findings | django-zeal reports (tests) | nplusone reports (tests) |
 |---|---|---|---|
@@ -516,6 +667,14 @@ once per test and message):
 | pretix | 378 | 1479 (515) | 2756 (771) |
 | saleor | 258 | 461 (292) | 1615 (1195) |
 | django-oscar | 641 | 2875 (863) | 986 (495) |
+| paperless-ngx | 167 | 509 (179) | 4876 (443) |
+| Tandoor | 243 | 1013 (536) | 59 (31), and 403 tests it broke |
+| django-allauth | 51 | 1168 (639) | 16 (16) |
+| strawberry-django | 97 | 515 (307), and 1 test it broke | 257 (189), and 1 test it broke |
+| Label Studio | 243 | 459 (101) | 482 (63) |
+
+In Tandoor, nplusone broke 403 tests: Django's local-memory cache cannot
+pickle a queryset once nplusone has patched `QuerySet._clone`.
 
 django-zeal's largest groups are the patterns fixed above:
 `sessions.Session.get()` once per request (DRF, Read the Docs) and

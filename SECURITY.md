@@ -33,8 +33,9 @@ pytest-queryguard runs inside a test process and reads the SQL that process
 sends. Examples that are in scope: reading or writing files outside the paths
 a user configured (baseline and SARIF output), code execution from a crafted
 baseline or configuration file, and the GitHub Action: `action/` in this
-repository and, once it exists, its copy for the GitHub Marketplace in
-`MaciejZiel/pytest-queryguard-action`, which is generated from `action/`. This is a
+repository and its copy for the GitHub Marketplace in
+[`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action),
+which is generated from `action/` (report a problem in either here). This is a
 single-maintainer project, so replies are best effort.
 
 A finding that the plugin misses or reports wrongly is a normal bug: use the

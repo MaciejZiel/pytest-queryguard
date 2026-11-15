@@ -262,6 +262,29 @@ def test_nested_serializer_of_a_generic_view(client, db):
     assert client.get("/api/authors/").status_code == 200
 
 
+def test_nested_serializer_of_a_viewset(client, db):
+    seed()
+    assert client.get("/api/author-set/").status_code == 200
+
+
+def test_template_response_of_a_function_view(client, db):
+    seed()
+    assert client.get("/books/later/").status_code == 200
+
+
+def test_no_middleware_of_the_project(settings, client, db):
+    settings.MIDDLEWARE = [m for m in settings.MIDDLEWARE if "PassThrough" not in m]
+    seed()
+    assert client.get("/api/authors/").status_code == 200
+
+
+def test_two_requests_from_two_lines(client, db):
+    seed()
+    assert client.get("/api/authors/").status_code == 200
+    Author.objects.create(name="one more")
+    assert client.get("/api/authors/").status_code == 200
+
+
 def test_template_of_a_generic_view(client, db):
     seed()
     assert client.get("/books/list/").status_code == 200
@@ -297,7 +320,7 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
     monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     project.makepyfile(test_declarative=DECLARATIVE)
     result = _run(project, "test_declarative.py", "--queryguard-json=out.json")
-    result.assert_outcomes(passed=2, failed=3)
+    result.assert_outcomes(passed=2, failed=7)
     tests = json.loads((project.path / "out.json").read_text())["tests"]
     labels = {
         key.split("::")[-1]: [f["label"] for f in value["findings"]]
@@ -305,8 +328,200 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
     }
     assert labels == {
         "test_nested_serializer_of_a_generic_view": ["Author.books"],
+        "test_nested_serializer_of_a_viewset": ["Author.books"],
+        "test_template_response_of_a_function_view": ["Book.author"],
+        "test_no_middleware_of_the_project": ["Author.books"],
+        "test_two_requests_from_two_lines": ["Author.books"],
         "test_template_of_a_generic_view": ["Book.author"],
         "test_generic_view_called_directly": ["Author.books"],
         "test_loop_in_the_test": [],
         "test_serializer_used_by_the_test": [],
     }
+    # No line of the project runs between the view and the statements: the
+    # location is the view, not the project's middleware on the stack, with
+    # the test's line as its caller; for a view of Django's (ListView), the
+    # test's line
+    locations = {
+        key.split("::")[-1]: [
+            (Path(f["file"]).name, f["function"], [s["function"] for s in f["stack"]])
+            for f in value["findings"]
+        ]
+        for key, value in tests.items()
+        if value["findings"] and "two_lines" not in key
+    }
+    assert locations == {
+        "test_nested_serializer_of_a_generic_view": [
+            ("views.py", "AuthorList", ["test_nested_serializer_of_a_generic_view"])
+        ],
+        "test_nested_serializer_of_a_viewset": [
+            ("views.py", "AuthorViewSet", ["test_nested_serializer_of_a_viewset"])
+        ],
+        "test_template_response_of_a_function_view": [
+            (
+                "views.py",
+                "book_list_later",
+                ["test_template_response_of_a_function_view"],
+            )
+        ],
+        "test_no_middleware_of_the_project": [
+            ("views.py", "AuthorList", ["test_no_middleware_of_the_project"])
+        ],
+        "test_template_of_a_generic_view": [
+            ("test_declarative.py", "test_template_of_a_generic_view", [])
+        ],
+        "test_generic_view_called_directly": [
+            ("test_declarative.py", "test_generic_view_called_directly", [])
+        ],
+    }
+    # the second request, with one author more, is the finding: its line
+    (two,) = next(v for k, v in tests.items() if "two_lines" in k)["findings"]
+    lines = DECLARATIVE.lstrip("\n").splitlines()
+    second = max(
+        i for i, t in enumerate(lines, 1) if 'client.get("/api/authors/")' in t
+    )
+    assert (two["function"], [s["line"] for s in two["stack"]]) == (
+        "AuthorList",
+        [second],
+    )
+
+
+TEST_LOOPS = """
+import pytest
+
+from tests.django_project.library.seed import seed
+from tests.django_project.library.services import (
+    add_publisher,
+    tag_counts,
+    title_and_author,
+)
+
+
+def test_one_call_per_case(db):
+    seed()
+    for pk in range(1, 7):
+        assert title_and_author(pk)
+
+
+def test_arrange_with_a_service_in_a_loop(db):
+    # as a Django project's tests: a service ten times to reach a limit
+    for i in range(10):
+        add_publisher(f"p{i}")
+    with pytest.raises(ValueError):
+        add_publisher("one too many")
+
+
+def test_a_loop_of_the_application_in_each_pass(db):
+    seed()
+    for author_id in range(1, 4):
+        assert len(tag_counts(author_id)) == 3
+"""
+
+
+def test_a_loop_of_the_test_that_calls_the_application_once_per_pass(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each pass of the first test's loop calls the application, which gets one
+    # book and reads its author once: the repetition is the test code's, left
+    # out by default. In the second, the application loops over the books of
+    # each call: its own N+1, whatever the test's loop does.
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
+    project.makepyfile(test_loops=TEST_LOOPS)
+    result = _run(project, "test_loops.py", "--queryguard-json=out.json")
+    result.assert_outcomes(passed=2, failed=1)
+    tests = json.loads((project.path / "out.json").read_text())["tests"]
+    labels = {
+        key.split("::")[-1]: [f["label"] for f in value["findings"]]
+        for key, value in tests.items()
+    }
+    assert labels == {
+        "test_one_call_per_case": [],
+        "test_arrange_with_a_service_in_a_loop": [],
+        "test_a_loop_of_the_application_in_each_pass": ["Book.tags"],
+    }
+    result.stdout.fnmatch_lines(["*N+1 findings in test code left out (2 tests)*"])
+    # as warnings with "warn", and as before 1.1.0 with "fail"
+    warned = _run(project, "test_loops.py", "-o", "queryguard_test_code=warn")
+    warned.assert_outcomes(passed=2, failed=1)
+    warned.stdout.fnmatch_lines(
+        ["*QueryGuardWarning*", "*Book.author was lazy-loaded 6 times*"]
+    )
+    _run(project, "test_loops.py", "-o", "queryguard_test_code=fail").assert_outcomes(
+        failed=3
+    )
+
+
+THREADS = """
+import threading
+
+import pytest
+from django.db import connection
+
+from tests.django_project.library.seed import seed
+from tests.django_project.library.services import place_order, titles_in_threads
+
+
+def run_concurrently(fn, threads=5):
+    # as django-oscar's oscar.test.utils.run_concurrently
+    def worker():
+        try:
+            fn()
+        finally:
+            connection.close()
+
+    started = [threading.Thread(target=worker) for _ in range(threads)]
+    for thread in started:
+        thread.start()
+    for thread in started:
+        thread.join()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_threads_of_the_test():
+    seed()
+    run_concurrently(lambda: place_order(1))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_threads_of_the_application():
+    seed()
+    assert len(titles_in_threads([1, 2, 3, 4, 5, 6])) == 6
+
+
+def test_requests_to_the_live_server(live_server, transactional_db):
+    # each request runs in a thread of the server: three gets per request
+    from urllib.request import urlopen
+
+    from pytest_queryguard import record_queries
+
+    seed()
+    with record_queries() as log:
+        for _ in range(3):
+            with urlopen(live_server.url + "/books/three/") as response:
+                assert response.status == 200
+    # the server's statements are seen: nine gets, three per request
+    assert len([q for q in log if "library_book" in q.sql]) >= 9
+"""
+
+
+def test_threads_that_the_test_starts_count_each_on_its_own(
+    project: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # django-oscar's concurrency test: five threads of the test, each placing
+    # an order on its connection, are five units of work, as five requests
+    # are. A fan-out of the application, a thread per item, is still a loop.
+    # The requests of the live server, each in a thread of its own, count
+    # one by one as the test client's do.
+    monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
+    project.makepyfile(test_threads=THREADS)
+    result = _run(project, "test_threads.py", "--queryguard-json=out.json")
+    tests = json.loads((project.path / "out.json").read_text())["tests"]
+    kinds = {
+        key.split("::")[-1]: [f["kind"] for f in value["findings"]]
+        for key, value in tests.items()
+    }
+    assert kinds == {
+        "test_threads_of_the_test": [],
+        "test_threads_of_the_application": ["repeated-statement"],
+        "test_requests_to_the_live_server": [],
+    }
+    result.assert_outcomes(passed=2, failed=1)

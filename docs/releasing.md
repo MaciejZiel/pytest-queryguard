@@ -55,13 +55,24 @@ projects (only Litestar, pytest-asyncio and SQLModel may be missing).
    sentence there that says the "since X" parts are not on PyPI yet; for a
    pre-release (`X.Y.Zrc1`) both may stay as they are, since pip still
    installs the last final release. For a final release it also bumps the
-   `MaciejZiel/pytest-queryguard/action@vX.Y.Z` pin in `docs/ci.md` to the new
+   `MaciejZiel/pytest-queryguard-action@vX.Y.Z` pin in `docs/ci.md` to the new
    version (a pre-release keeps the last final one). The gate runs on it.
 2. After it is merged, run the gate on `main` and wait for it to be green.
 3. Tag that commit `vX.Y.Z` and push the tag; `release.yml` checks that a
    gate run on `main` at that commit succeeded, then builds and publishes.
    Without one its `gate` job fails and nothing is published; run the gate
    on that commit, then re-run the release workflow.
+4. Once the package is on PyPI, update
+   [`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action)
+   (until `release.yml` does it, see the
+   [design](design-1.0-release.md#how-a-release-reaches-the-action-repository)):
+   replace `action.yml` with `action/action.yml` of the tag and the wheel in
+   `dist/` with the one published to PyPI (check its sha256), bump the
+   `@vX.Y.Z` pin in its README for a final release, commit as
+   "pytest-queryguard X.Y.Z" and push to `main`. When its "Test the action"
+   workflow passes on that commit, tag it `vX.Y.Z`, and for a final release
+   only, move `v1` to it (`git tag -f v1`, `git push -f origin v1`). Then
+   create the GitHub release of the tag (a final release is the latest).
 
 ## How the overhead is measured
 

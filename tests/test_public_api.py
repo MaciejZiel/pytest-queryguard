@@ -36,6 +36,8 @@ EXPECTED_ALL = [
     "QueryGuardWarning",
     "QueryLog",
     "__version__",
+    "assert_queries_do_not_grow",
+    "assert_queries_do_not_grow_async",
     "ignore",
     "max_db_time",
     "max_queries",
@@ -43,6 +45,14 @@ EXPECTED_ALL = [
 ]
 
 EXPECTED_FUNCTIONS = {
+    "assert_queries_do_not_grow": (
+        "(fn: 'Callable[[Any], object]', sizes: 'Iterable[int]' = (1, 10), *, "
+        "setup: 'Callable[[int], object] | None' = None) -> 'dict[int, QueryLog]'"
+    ),
+    "assert_queries_do_not_grow_async": (
+        "(fn: 'Callable[[Any], object]', sizes: 'Iterable[int]' = (1, 10), *, "
+        "setup: 'Callable[[int], object] | None' = None) -> 'dict[int, QueryLog]'"
+    ),
     "ignore": "(*kinds: 'str', reason: 'str | None' = None) -> 'IgnoreBlock'",
     "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
     "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryLog]'",
@@ -125,6 +135,8 @@ EXPECTED_INI = {
     "queryguard_baseline": "",
     "queryguard_budgets": "",
     "queryguard_max_queries": "",
+    "queryguard_route_budgets": "[]",
+    "queryguard_route_default_budget": "",
     "queryguard_index_check": "False",
     "queryguard_index_ignore_tables": "[]",
     "queryguard_index_advisor": "True",
@@ -157,6 +169,7 @@ EXPECTED_MARKERS = [
     "queryguard_ignore",
     "queryguard_max_db_time",
     "queryguard_max_queries",
+    "queryguard_route_budgets",
 ]
 
 

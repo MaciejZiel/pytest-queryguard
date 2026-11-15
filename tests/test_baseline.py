@@ -62,7 +62,7 @@ def test_dumps_is_sorted_and_stable() -> None:
 
 
 def test_round_trip_keeps_missing_file_and_function() -> None:
-    identities = {("missing-index", "public.orders", None, None), LAZY_ID}
+    identities = {("missing-index", "orders", None, None), LAZY_ID}
     text = baseline.dumps(identities)
     assert baseline.parse(text, Path("b.json")) == identities
 
@@ -662,7 +662,7 @@ def test_missing_index_findings_can_be_baselined(
     assert entries == [  # type: ignore[comparison-overlap]
         {
             "kind": "missing-index",
-            "label": "public.orders",
+            "label": "orders",  # without the schema since 1.1.0
             "file": None,
             "function": None,
         }

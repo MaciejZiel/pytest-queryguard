@@ -27,6 +27,9 @@ changes by accident.
   Each of these reports `pytest_queryguard` as its `__module__`, so tracebacks,
   reprs, pickles and `filterwarnings` entries use the documented import path
   (`pytest_queryguard.NPlusOneDetected`, not the submodule it lives in).
+  Since 1.1.0 the names include `assert_queries_do_not_grow()` and
+  `assert_queries_do_not_grow_async()`; the text of their failure is a
+  message, not public, like the others.
 - The pytest integration: the ini options (`queryguard_*`), the command-line
   flags (`--queryguard-*`, `--no-queryguard-*`), their defaults and accepted
   values, the markers (`max_queries`, `max_db_time`, `queryguard_max_queries`,
@@ -78,7 +81,7 @@ release.
 
 | What | Format key | Public | Not public |
 |---|---|---|---|
-| Baseline file (`--queryguard-baseline`, see [Baseline](baseline.md)) | `"version": 1` | `findings`, each with `kind`, `label`, `file`, `function` (the identity of a finding) | the order of the entries |
+| Baseline file (`--queryguard-baseline`, see [Baseline](baseline.md)) | `"version": 1` | `findings`, each with `kind`, `label`, `file`, `function` (the identity of a finding; since 1.1.0 the label of a `repeated-statement`, `write-loop` or `missing-index` entry is written and compared without what depends on the database, and a label in the full form still matches, see [Baseline](baseline.md#what-an-entry-is)) | the order of the entries |
 | Budget file (`--queryguard-budgets`, see [Budgets](budgets.md#lock-todays-counts-the-budget-file)) | `"format": 1` | `budgets`: test node id to a number of queries | the order of the entries |
 | Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the text of a finding's `message`, the order of tests and findings |
 | SARIF file (`--queryguard-sarif`, see [SARIF](sarif.md)) | SARIF 2.1.0 | the rule ids `queryguard/<kind>`, one per finding kind; the fingerprint key `queryguardIdentity/v1` in `partialFingerprints` and the identity it hashes, so code scanning alerts stay the same alerts after an upgrade; the result `properties` `count`, `label`, `tests` and `peakCount` | rule names, descriptions and help, message text, `primaryLocationLineHash`, `codeFlows`, `fixes` (experimental, see below) |
@@ -107,7 +110,11 @@ inputs with their defaults and accepted values, its outputs (`exit-code`,
 the category turned into `-`), which later runs of older and newer versions of
 the action download, and the pull-request comment it updates in place (found
 by the compare marker above). The action is versioned with the package: pin it to a
-release tag or a commit. The `trend` input and the `trend-report` output are
+release tag or a commit. This holds in both places it lives: the `vX.Y.Z` of
+[`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action)
+is the same action as `action/` at this repository's `vX.Y.Z`. Its major tag
+(`v1`) moves only to final releases of that major version, and `action/`
+here keeps working for every 1.x release. The `trend` input and the `trend-report` output are
 experimental, and so are the `lint`, `lint-models` and `lint-paths` inputs
 and the `lint-exit-code` output (since 0.10.0). What the job summary and the pull-request comment say is not
 public.
@@ -414,11 +421,31 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   and warnings it reports. It is used only when you set it as `TEST_RUNNER`
   or mix it into a test case, so it changes nothing for a project that does
   not. See [Django](django.md#without-pytest-managepy-test).
+- Route budgets in pytest (since 1.1.0): `queryguard_route_budgets`,
+  `queryguard_route_default_budget`, the `queryguard_route_budgets` marker,
+  which frameworks and requests they measure, how a route is named and the
+  failure text. See
+  [Budgets per route](budgets.md#budgets-per-route-for-the-requests-of-a-test).
+
+`tests/django_project/test_public_api.py` snapshots the Django surface the
+same way, so that a change is deliberate while it is experimental and can
+follow the deprecation policy once it is not: `pytest_queryguard.django.__all__`,
+`QueryGuardRunner`'s `--queryguard-mode` and its keyword argument, the keys
+and defaults of `QUERYGUARD` (the ini options' names without the prefix), the
+labels of the findings Django code produces (`Book.author`, `Author.books`,
+`Book.body`, ...), the loader each fix names (`select_related()`,
+`prefetch_related()`, `only()`), and the Django versions and databases CI
+tests. The wording around a fix is not public, as for SQLAlchemy.
 
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
 [In your editor](editor.md) are documentation, not API: they follow the
 output they read and may change in any release.
+The VS Code extension in `editors/vscode` (see
+[In your editor](editor.md#vs-code-the-extension)) has its own version
+number. It reads the public keys of the JSON and SARIF reports and, for the
+SQL and the fix in its hover, the text of a finding's message; when that
+text changes, the hover shows the whole message.
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini options and

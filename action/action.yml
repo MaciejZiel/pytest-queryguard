@@ -3,6 +3,9 @@ description: >-
   Run pytest with pytest-queryguard and upload its findings (N+1 queries,
   repeated statements, missing indexes) to GitHub code scanning as SARIF.
 author: MaciejZiel
+branding:
+  icon: database
+  color: purple
 
 inputs:
   pytest-args:
@@ -250,11 +253,28 @@ runs:
         QG_PACKAGE: ${{ inputs.package }}
         QG_ACTION_PATH: ${{ github.action_path }}
       run: |
-        # No package given: install the plugin from this action's own checkout
-        # (the repository root, one level above action/), so the plugin always
-        # matches the ref the workflow pinned and understands --queryguard-sarif.
+        # No package given: install the plugin that this action's own ref
+        # ships, so it always matches the ref the workflow pinned and
+        # understands --queryguard-sarif. In the Marketplace copy,
+        # MaciejZiel/pytest-queryguard-action, that is the release's wheel in
+        # dist/ next to action.yml (the file that was published to PyPI); in
+        # MaciejZiel/pytest-queryguard, which has no dist/ in action/, the
+        # checkout one level above action/. The wheel is looked for first, so
+        # a copy of the action inside a project with its own pyproject.toml
+        # still installs the plugin. A commit SHA of either repository fixes
+        # the plugin code too.
         if [ -z "$QG_PACKAGE" ]; then
-          QG_PACKAGE="$QG_ACTION_PATH/.."
+          shopt -s nullglob
+          wheels=("$QG_ACTION_PATH"/dist/pytest_queryguard-*-py3-none-any.whl)
+          shopt -u nullglob
+          if [ "${#wheels[@]}" -eq 1 ]; then
+            QG_PACKAGE="${wheels[0]}"
+          elif [ "${#wheels[@]}" -eq 0 ] && [ -f "$QG_ACTION_PATH/../pyproject.toml" ]; then
+            QG_PACKAGE="$QG_ACTION_PATH/.."
+          else
+            echo "::error::found ${#wheels[@]} pytest-queryguard wheels in $QG_ACTION_PATH/dist and no pyproject.toml above the action; set the package input"
+            exit 1
+          fi
         fi
         python -m pip install --disable-pip-version-check "$QG_PACKAGE"
 

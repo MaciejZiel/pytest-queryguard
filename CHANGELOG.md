@@ -19,9 +19,218 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
   index check without pytest yet
   ([Django](docs/django.md#without-pytest-managepy-test)).
+- Route budgets in pytest (experimental): `queryguard_route_budgets =
+  "GET /books/{id}=5"` (one `PATTERN=LIMIT` per line, matched like the
+  in-app mode's `budgets`) and `queryguard_route_default_budget` give each
+  request a test sends through a test client a statement budget of its own,
+  so a ceiling such as "every `GET /api/*` runs at most 10 statements" holds
+  in every test that calls it. Measured for Starlette, FastAPI, Litestar,
+  Flask and Django applications, a streamed body and background tasks
+  included; the `queryguard_route_budgets` marker sets them per test. A test
+  fails once per route that went over, with the statements and lines of its
+  worst request
+  ([Budgets per route](docs/budgets.md#budgets-per-route-for-the-requests-of-a-test)).
+- `assert_queries_do_not_grow(fn, sizes=(1, 10), *, setup=None)` and its
+  awaitable `assert_queries_do_not_grow_async()`: run the same code for each
+  size (a number of rows, seeded by `setup` outside the recording) and fail
+  with `QueryBudgetExceeded` when a statement runs more often at a larger
+  size than at the smallest one. The failure lists the count per size and
+  each statement that grew, with its line, its count per size and a fix; it
+  returns the `QueryLog` of each size. SQLAlchemy and Django, sync and async
+  ([Reading the queries](docs/python-api.md#the-count-must-not-grow-assert_queries_do_not_grow),
+  [the scaling recipe](docs/recipes-query-count-scaling.md)).
+- A Claude Code plugin: the repository is a plugin marketplace
+  (`.claude-plugin/`) whose `pytest-queryguard` plugin installs the agent
+  skill, with
+  `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`
+  ([Coding agents](docs/agents.md#claude-code-plugin)). It is installed from
+  the `main` branch and updated with each commit.
+- The documentation site publishes `llms.txt` at its root, and
+  `llms-full.txt`, the user documentation in one Markdown file with absolute
+  links (without the changelog, the design notes, the release checklist and
+  the accuracy tables), for language models
+  ([llmstxt.org](https://llmstxt.org/)).
+- The README has the hidden `mcp-name` line the official MCP Registry
+  reads from the PyPI description to check who owns a server name, so the
+  MCP server can be listed there from the next release on.
+- The GitHub Action is listed for the GitHub Marketplace from its own
+  repository, [`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action):
+  `uses: MaciejZiel/pytest-queryguard-action@v1.0.0`, or `@v1` for the newest
+  1.x final release. It is a copy of `action/action.yml` with the plugin
+  wheel of the release in `dist/`; `action/` here stays the source and keeps
+  working, and switching is a change of the `uses:` line only (same inputs,
+  outputs, artifact name and comment marker). The action has a `branding`
+  for the listing.
+- A VS Code extension in `editors/vscode`
+  ([#382](https://github.com/MaciejZiel/pytest-queryguard/issues/382)). It
+  reads the `--queryguard-json` or `--queryguard-sarif` report of the last run,
+  marks each finding on its line, and reloads when the report changes; the
+  hover shows the SQL, the count, the fix and the tests, and the quick actions
+  open the documentation and apply a SARIF fix. Its commands run pytest on the
+  current file, the test at the cursor or the whole project. A new `vscode`
+  workflow tests it in VS Code 1.90 and the latest release and builds the
+  `.vsix` as an artifact. It is not published to the Marketplace or Open VSX
+  yet; see [In your editor](docs/editor.md#vs-code-the-extension).
+
+### Changed
+
+- A loop of the test that calls the application once per pass, where each
+  call runs a statement or reads a relationship once (a case per pass, a page
+  per request, objects created one by one whose `post_save` receiver or event
+  listener reads a row), is the test code's repetition, not an N+1 of the
+  application: with the default `queryguard_test_code = off` it is counted in
+  the test-code section at the end of the run instead of failing the test,
+  `warn` reports it as a warning and `fail` as before. Each statement and load
+  records the call that test code made into the application; a call that runs
+  the statement twice or more is still the application's loop. Most of the
+  findings judged "debatable" in the Django real-project runs were of this
+  kind. Which code counts as test code is not public API (see
+  [Stability](docs/stability.md#what-is-not-public)); strict mode, which
+  decides at the lazy load, still raises at the second pass. See
+  [Loops of the test](docs/how-detection-works.md#loops-of-the-test); corpus
+  scenarios `clean_142`, `clean_143` and `bug_137`. Seen also on a Django
+  project's suite, where five tests needed a `queryguard_ignore` marker for
+  an arrange step that calls a service in a loop.
+- Baseline labels no longer depend on the database: a `repeated-statement`
+  or `write-loop` entry is written and compared without schema qualifiers,
+  identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,
+  `:id_1`, `$1`, with a PostgreSQL cast) and SQLAlchemy 2.0's column aliases,
+  and a `missing-index` entry without the table's schema. One baseline now
+  matches on SQLite and PostgreSQL and on SQLAlchemy 2.0 and 2.1. A file
+  written by an earlier release still matches and is rewritten in the new
+  form by the next `--queryguard-update-baseline`; reports, JSON, SARIF
+  fingerprints and ignore patterns keep the full label
+  ([Baseline](docs/baseline.md#what-an-entry-is)).
+- The agent skill also covers the Django ORM (`select_related`,
+  `prefetch_related`, `in_bulk`) and query count tests, and its description
+  names what people ask: N+1 queries, "too many queries", a lazy load in a
+  loop, `assertNumQueries`, alternatives to nplusone and django-zeal. Its
+  front matter is valid YAML now: the description had a `": "` that strict
+  YAML parsers reject.
+- `llms.txt` says when to recommend the plugin, has a Django section and
+  links to the pages of the documentation site; `docs/agents.md`,
+  `docs/mcp.md`, the README's first paragraph, `context7.json` and the
+  package's summary, keywords and `Framework :: Django` classifiers mention
+  Django and the terms people search for.
+- With an empty `package` input the action installs the one plugin wheel in
+  `dist/` next to `action.yml` (the action repository), and without one the
+  checkout above `action/` when it has a `pyproject.toml` (this repository,
+  as before); otherwise the step stops with an error naming the `package`
+  input.
+
+### Fixed
+
+- Django (experimental), performance: the stacks already classified for a
+  statement's call path are kept across tests instead of being classified
+  again in every test, the SELECT of a lazy load reuses the load's call path
+  when it comes from the same frame, and the read path of a lazy load is
+  found with one dictionary lookup per frame. On django-cms the plugin's own
+  time fell by about a quarter under the profiler; the wall-time overhead
+  went from about 15 % to about 14 %.
+
+- Django (experimental): each request of the `AsyncClient` counts on its own
+  on Django 5.2 and 6.0 too, as it did on 6.1 and as requests of the sync
+  test client always did. Before 6.1, `Signal.asend` runs the receivers of
+  `request_started` in a task of their own, so the requests of a test were
+  counted together per connection, and lookups each request makes once (the
+  user, its permissions, the session) were reported as an N+1. Seen on
+  strawberry-django, whose GraphQL test client sends each query through
+  `AsyncClient`: 34 false `relationship-load` findings (30 of
+  `User.user_permissions`, 4 of `Project.milestones`).
+- Django (experimental): a streamed body (`StreamingHttpResponse`,
+  `FileResponse`) that a test reads from an `AsyncClient` response after the
+  call returned counts in its request, on every Django version. On Django
+  6.1, where `request_started` reaches the request's own context, the
+  request no longer gets a second scope there: its view and its streamed
+  body count as one request.
+- Django (experimental): a helper that gets one object and reads its relation
+  is no longer an N+1 when it runs once from each of two lines (one request
+  that handles two sessions, say): the parents of one query line are grouped
+  by the call path of the read too, which every pass of a loop shares, so the
+  same helper in a loop is still found. Seen on django-allauth, `UserSession.user` read by
+  `create_from_request()` for the token's and the cookie's session (3 false
+  `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
+- Django (experimental): a streamed body of the sync test client counts in
+  its own request also when the test reads the bodies of several requests in
+  turn (before, in the last request's, then per connection), and the test's
+  own statements after the call, before or without reading the body, no
+  longer count in that request.
+- `track()` on a generator function (sync or async) no longer counts the
+  statements of the code that consumes the generator between items, and two
+  such generators read in turn each end their own unit; before, the unit stayed
+  current between items, and the first generator to end finished the unit of
+  the other.
+
+- Django (experimental): a finding of a view that runs no line of the project
+  between Django and the query (a DRF generic view with a class-level
+  `queryset` and its `ModelSerializer`, a `TemplateResponse` rendered after
+  the view returned) names the view class or function, with the test line
+  that made the request as its caller. It named the first project frame on
+  the stack, which in most projects is a middleware's
+  `get_response(request)` line: seen on paperless-ngx, Tandoor and Label
+  Studio. A view of Django's own (`ListView` in the URLconf) points at the
+  test line, as it did without a project middleware.
+- Django (experimental): the async ORM calls of an async view under a sync
+  middleware of the project name the line that awaited them, not the
+  middleware's `get_response(request)` line, which asgiref's thread had on
+  its stack.
+- Django (experimental): the statements of a thread that test code starts
+  (its target is test code, as `oscar.test.utils.run_concurrently` is) count
+  on their own, as a request does: each thread has a connection of its own,
+  and five threads that each place one order are no loop. Seen on
+  django-oscar's concurrency test (2 false findings). A thread that the
+  application starts, one per item, still counts with the rest of the test.
+  The requests of the live server count one by one, as before; now tested.
+
+### Documentation
+
+- [Django](docs/django.md#out-of-scope-for-django): what is out of scope for
+  Django, with the reason for each: `unused-eager-load`, `unused-columns`,
+  `cartesian-load`, fix patches, the static check and the in-application
+  mode. A decision about scope, not a gap before the Django support leaves
+  experimental.
+- [Django](docs/django.md#five-more-projects-2026-11-14): the test suites of
+  five more open-source Django projects (paperless-ngx, Tandoor,
+  django-allauth, strawberry-django, Label Studio; 5,478 tests). The plugin
+  changed no test's outcome and reported no internal error. Of 51 finding
+  sites read, 37 were true, 12 debatable and 2 false; both false ones are
+  fixed above. The five projects are in
+  `scripts/realworld_django_projects.json`. The
+  [Django design note](docs/design-django.md#5-out-of-experimental) lists
+  what is still missing before the Django support stops being experimental.
+- [CI](docs/ci.md#the-action), the README, `llms.txt` and `SECURITY.md`
+  point to the action repository; [Stability](docs/stability.md#files-tools-and-the-action)
+  says that its `vX.Y.Z` is the same action as `action/` at `vX.Y.Z` and
+  that `v1` moves only to final releases; [Releasing](docs/releasing.md)
+  has the step that updates it. The release gate checks the pin in
+  `docs/ci.md` in the action repository's spelling.
+- [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
 
 ### Internal
 
+- `realworld.yml` has a `profile` input: the pytest runs without and with the
+  plugin run under cProfile, and the profiles go into the artifact.
+- The real-world harness (`.github/workflows/realworld.yml`) runs MySQL for a
+  project that asks for it, and `manage.py test` projects under
+  `QueryGuardRunner` (`scripts/realworld_runner.py` writes the JUnit XML and
+  JSON the summary reads). New: django-oscar on MySQL 8.4, django-allauth on
+  Django 6.0 and django-taggit; results in
+  [Django](docs/django.md#mysql-django-60-and-managepy-test-2026-11-15).
+
+- `tests/django_project/test_public_api.py` snapshots the Django surface, as
+  `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,
+  `QueryGuardRunner`'s `--queryguard-mode`, the `QUERYGUARD` keys and
+  defaults, the labels of Django findings and the loader each fix names, and
+  the Django versions and databases CI tests
+  ([Stability](docs/stability.md#experimental)).
+- `tests/inapp/test_request_lifecycle.py`: one matrix of a request's lifecycle
+  phases (streamed sync and async bodies, close callbacks, files, background
+  tasks, errors half way through a body, `HEAD`, mounted applications,
+  middleware order, concurrent and interleaved requests) for the ASGI and WSGI
+  middleware, `track()` and the Django test clients
+  (`tests/django_project/test_request_lifecycle.py`), each request checked to keep exactly its own
+  statements; and a checklist in CONTRIBUTING.md, linked from the pull request
+  template, for code that scopes something to a request.
 - The overhead baseline has entries for two more CPU models of
   `ubuntu-latest`, which fell back to the highest entry: Intel Xeon 6973P-C
   (dropped when the baseline was recorded again) and Xeon Platinum 8370C

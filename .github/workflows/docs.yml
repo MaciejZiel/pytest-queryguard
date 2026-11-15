@@ -8,6 +8,7 @@ on:
     paths:
       - "docs/**"
       - "scripts/build_docs.py"
+      - "llms.txt"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 

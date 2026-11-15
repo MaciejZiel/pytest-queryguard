@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import itertools
 import os
 import sys
 import sysconfig
-from collections.abc import Iterable, Iterator
+import threading
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import CodeType, FrameType
 from typing import Any, NamedTuple
@@ -93,6 +95,7 @@ def _is_internal(filename: str) -> bool:
 # nested functions included, which is slow for a module's code. The code
 # object is kept with the answer, so its id is not reused while it is there.
 _session_methods: dict[int, tuple[CodeType, bool]] = {}
+_SESSION_MODULE = "sqlalchemy.orm.session"
 _MAX_SESSION_METHODS = 4096
 
 
@@ -111,6 +114,8 @@ def _session_classes() -> tuple[type, ...]:
 
 def _is_session_method(frame: FrameType) -> bool:
     """Whether ``frame`` runs a method of a ``Session`` or ``AsyncSession`` subclass."""
+    if _SESSION_MODULE not in sys.modules:
+        return False  # no Session class exists yet (a Django project)
     if frame.f_code.co_name in _INLINED:
         frame = _outer(frame)  # a comprehension in the method, before 3.12
     code = frame.f_code
@@ -189,9 +194,23 @@ def new_measurement() -> None:
     The CallSite objects already handed out keep their callers: an outer
     measurement's events are not changed by an inner one starting.
     """
+    global _last_view
     _sites.clear()
+    _view_sites.clear()
+    _last_view = None
+    _calls.clear()
     _paths.clear()
-    _origins.clear()
+    # _origins stays: an origin depends only on the frames' code and
+    # instructions and on the test code, which empties it when it changes
+
+
+def end_measurement() -> None:
+    """Let go of the frames kept for the measurement that ended (_last_view):
+    a frame keeps its locals alive, and the test may check that they are
+    collected."""
+    global _last_view
+    _last_view = None
+    _calls.clear()
 
 
 def swap_stack_depth(depth: int) -> int:
@@ -297,12 +316,16 @@ class Origin(NamedTuple):
     when the test code called no application code (``test_code``) or none of
     the path is test code (a thread of the application). ``test_code`` is True when every
     application frame is test code (see TestCode): a statement or load of
-    the test itself, not of the application.
+    the test itself, not of the application. ``call`` numbers the call that
+    test code made into the application (see _call_number): two statements
+    with the same number ran in one call, two with different numbers in two
+    calls, a pass of a loop in the test each; None when ``entry`` is None.
     """
 
     path: Entry | None = None
     entry: Entry | None = None
     test_code: bool = False
+    call: int | None = None
 
 
 NO_ORIGIN = Origin()
@@ -333,6 +356,8 @@ def _site_origin(
     skipped: FrameType | None = None  # the first method of a Session subclass
     walking = True  # before the hook call that ran the test
     library = False  # a _LIBRARY frame since the statement
+    dispatched: FrameType | None = None  # a _DISPATCH frame, see _site_at
+    handed = False  # a _HANDOVER frame
     kinds = _kinds
     internal = _INTERNAL
     frame: FrameType | None = first
@@ -355,6 +380,13 @@ def _site_origin(
             frame = frame.f_back
             continue
         if kind:
+            if kind & _SPECIAL:
+                special = _special_kind(frame)
+                if special == _HANDOVER:
+                    handed = True
+                elif special == _DISPATCH and dispatched is None:
+                    dispatched = frame
+                kind ^= _SPECIAL
             if kind == _HOOK and walking:
                 walking = False
                 if not want_site:
@@ -370,7 +402,12 @@ def _site_origin(
                 skipped = frame
             frame = frame.f_back
             continue
-        site = None if sites is None else _site(frame, sites)
+        if sites is None:
+            site = None
+        elif walking:
+            site = _site_at(frame, dispatched, handed, sites)
+        else:
+            site = _site(frame, sites)
         if not walking:
             return site, NO_ORIGIN  # found above the test: no call path
         return site, _origin(frame, library, parents)
@@ -419,23 +456,74 @@ def _origin(
     signature = tuple(key)
     known = _origins.get(signature)
     if known is not None:
-        return known[1]
-    origin = _classify_frames(frames, library)
-    if len(_origins) >= _MAX_ORIGINS:
-        _origins.clear()
-    _origins[signature] = (tuple(f.f_code for f in frames), origin)
-    return origin
+        _, origin, call = known
+    else:
+        origin, call = _classify_frames(frames, library)
+        if len(_origins) >= _MAX_ORIGINS:
+            _origins.clear()
+        _origins[signature] = (tuple(f.f_code for f in frames), origin, call)
+    if call is None or not _track_calls:
+        return origin
+    return origin._replace(call=_call_number(frames[call]))
 
 
-def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
-    """The origin of ``frames`` (see ``_origin``), innermost first."""
+# Whether statements record the call that test code made into the
+# application (Origin.call): only the test-code split reads it
+# (queryguard_test_code "off" or "warn"; set_track_calls).
+_track_calls = False
+# The frame of the last call that test code made into the application, per
+# thread, with its number (see _call_number). Kept until the next call or the
+# end of the measurement (end_measurement): while it is here its id is not
+# reused by the frame of the next call. It keeps that frame's locals alive
+# that long, which a test that checks an object is collected right after the
+# call could notice; no other reference to a frame is kept.
+_calls: dict[int, tuple[FrameType, int]] = {}
+_call_numbers = itertools.count(1)
+
+
+def set_track_calls(on: bool) -> bool:
+    """Record Origin.call or not; return the previous setting."""
+    global _track_calls
+    old, _track_calls = _track_calls, on
+    _calls.clear()
+    return old
+
+
+def _call_number(frame: FrameType) -> int:
+    """The number of the call whose frame is ``frame``: the same for every
+    statement of one call, a new one for the next call (the next pass of a
+    loop in the test).
+
+    Calls of plain functions nest, so the calls of one thread never
+    interleave: keeping the last one is enough. A generator or coroutine,
+    whose frame is suspended and resumed, is never a call here
+    (_classify_frames).
+    """
+    thread = threading.get_ident()
+    last = _calls.get(thread)
+    if last is not None and last[0] is frame:
+        return last[1]
+    number = next(_call_numbers)
+    _calls[thread] = (frame, number)
+    return number
+
+
+def _classify_frames(
+    frames: list[FrameType], library: bool
+) -> tuple[Origin, int | None]:
+    """The origin of ``frames`` (see ``_origin``), innermost first, and the
+    index in ``frames`` of the frame of the call that test code made into the
+    application: the frame the innermost line of ``entry`` called, past the
+    frames of test tools (factory_boy's ``create_batch()`` makes a call per
+    object). None when there is no ``entry``."""
     lines: list[tuple[str, int, int, bool]] = []
     entry: list[tuple[str, int, int, bool]] = []  # the test lines since the last other
+    first_entry = 0  # the index of the innermost frame of ``entry``
     seen: set[int] = set()  # id() of the code objects: they are on the stack
     test = True
     gap = True  # a frame not of the application since the last line
     kinds = _kinds
-    for frame in frames:
+    for index, frame in enumerate(frames):
         code = frame.f_code
         filename = code.co_filename
         kind = kinds.get(filename)
@@ -443,7 +531,7 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
             kind = _kind(filename)
         if kind:
             gap = True
-            if kind == _LIBRARY and not _is_session_method(frame):
+            if kind & ~_SPECIAL == _LIBRARY and not _is_session_method(frame):
                 library = True
             continue
         if _is_session_method(frame):
@@ -466,19 +554,54 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
             if len(lines) < _MAX_ENTRY_LINES:
                 lines.append(line)
             if ours and len(entry) < _MAX_ENTRY_LINES:
+                if not entry:
+                    first_entry = index
                 entry.append(line)
     if not lines:
-        return NO_ORIGIN
+        return NO_ORIGIN, None
     if test or not entry:
-        return Origin(_intern(tuple(lines)), None, test)
-    return Origin(_intern(tuple(lines)), _intern(tuple(entry)), False)
+        return Origin(_intern(tuple(lines)), None, test), None
+    call = next(
+        (
+            i
+            for i in range(first_entry - 1, -1, -1)
+            if _installed_top(frames[i].f_code.co_filename) not in _TEST_LIBRARIES
+        ),
+        None,
+    )
+    # a generator or coroutine is resumed by each pass of the loop that reads
+    # it: one call of the application, whatever the test's loop does
+    if call is not None and frames[call].f_code.co_flags & _SUSPENDABLE:
+        call = None
+    return Origin(_intern(tuple(lines)), _intern(tuple(entry)), False), call
+
+
+_SUSPENDABLE = (
+    inspect.CO_GENERATOR
+    | inspect.CO_COROUTINE
+    | inspect.CO_ASYNC_GENERATOR
+    | inspect.CO_ITERABLE_COROUTINE
+)
+
+
+def _installed_top(filename: str) -> str | None:
+    """The top-level package (or module) of an installed file, else None."""
+    parts = Path(filename).parts
+    for i, part in enumerate(parts[:-1]):
+        if part in _INSTALLED:
+            return parts[i + 1].removesuffix(".py")
+    return None
 
 
 # (library, id(code), f_lasti, ...) of the frames from the first application
-# frame up to the test -> (their code objects, the Origin), see _origin.
-# Emptied with the call paths (new_measurement) and when the test code changes.
-_origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin]] = {}
-_MAX_ORIGINS = 1024
+# frame up to the test -> (their code objects, the Origin, the index of the
+# call's frame), see _origin. Kept across measurements; emptied when the test
+# code changes, and all at once when full.
+_origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin, int | None]] = {}
+# A suite runs a few thousand distinct stacks; kept across tests, so the
+# stacks of each test are classified once (django-cms: 57 % misses at 1024
+# when it was emptied for every test).
+_MAX_ORIGINS = 4096
 
 
 # filename -> _APP, _INTERNAL, _HOOK for pluggy's, where the walk for the
@@ -491,6 +614,9 @@ _MAX_ORIGINS = 1024
 _kinds: dict[str, int] = {}
 _MAX_KINDS = 4096
 _APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
+# A flag on the kind of an internal file that holds a function of _special:
+# its frames are looked up there, the others' need not be.
+_SPECIAL = 8
 _TEST_LIBRARIES = frozenset(
     {
         "factory",
@@ -569,6 +695,8 @@ def _kind(filename: str) -> int:
             kind = _INTERNAL if _known_library(filename) else _LIBRARY
             if kind == _INTERNAL and _runs_the_application(filename):
                 kind = _LIBRARY
+        if filename in _special_files:
+            kind |= _SPECIAL
     if len(_kinds) >= _MAX_KINDS:
         _kinds.clear()
     _kinds[filename] = kind
@@ -583,17 +711,15 @@ def _known_library(filename: str) -> bool:
     # site-packages first: in a virtual environment the standard library's
     # "platstdlib" prefix can be the venv's lib/pythonX.Y, which holds
     # site-packages, so every installed package would match it
-    parts = Path(filename).parts
-    for i, part in enumerate(parts[:-1]):
-        if part in _INSTALLED:
-            top = parts[i + 1].removesuffix(".py")
-            # the ORMs and their libraries also when imported after the
-            # prefixes were computed (DRF, first imported by a URLconf)
-            return (
-                top in _TEST_LIBRARIES
-                or top in _INTERNAL_PACKAGES
-                or top.startswith(("pytest", "_pytest"))
-            )
+    top = _installed_top(filename)
+    if top is not None:
+        # the ORMs and their libraries also when imported after the
+        # prefixes were computed (DRF, first imported by a URLconf)
+        return (
+            top in _TEST_LIBRARIES
+            or top in _INTERNAL_PACKAGES
+            or top.startswith(("pytest", "_pytest"))
+        )
     return True
 
 
@@ -739,6 +865,48 @@ def _in_test_code(filename: str, frame: FrameType) -> bool:
 _MAX_READ_PATH = 32
 
 
+def outer_frame_id() -> int:
+    """The id() of the first frame outwards from the caller that is not of an
+    internal library: the application's line (or the library's, or the
+    hook's) that the statement or load came from. While that frame runs, two
+    calls that give the same id have the same stack from there outwards."""
+    kinds = _kinds
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        try:
+            kind = kinds[filename]
+        except KeyError:
+            kind = _kind(filename)
+        if kind & ~_SPECIAL != _INTERNAL:
+            return id(frame)
+        frame = frame.f_back
+    return 0
+
+
+def thread_of_test_code() -> bool:
+    """Whether the running thread runs a function of test code: the outermost
+    frame of its stack that is not a library's (the thread's target, or the
+    task a pool thread runs) is test code. False in the main thread.
+
+    Looked up at each call, not once per thread: a pool thread runs the
+    test's tasks and the application's in turn. A thread whose target is a
+    function of the application, though test code started it
+    (``Thread(target=place_order)``), is the application's.
+    """
+    if threading.get_ident() == threading.main_thread().ident:
+        return False
+    outermost: FrameType | None = None
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None:
+        if not _is_internal(frame.f_code.co_filename):
+            outermost = frame
+        frame = frame.f_back
+    return outermost is not None and _in_test_code(
+        outermost.f_code.co_filename, outermost
+    )
+
+
 def read_path() -> tuple[tuple[str, int], ...]:
     """The application lines from the caller outwards, as (file, line).
 
@@ -748,14 +916,18 @@ def read_path() -> tuple[tuple[str, int], ...]:
     lines are kept: those near the test are the ones two calls differ in.
     """
     found: dict[tuple[str, int], None] = {}
-    stop = _hook_caller()
+    kinds = _kinds  # one lookup per frame, as _origin's walk
     frame: FrameType | None = sys._getframe(1)
     while frame is not None:
         filename = frame.f_code.co_filename
-        if stop and os.path.normcase(filename).startswith(stop):
-            break
-        if not _is_internal(filename):
+        try:
+            kind = kinds[filename]
+        except KeyError:
+            kind = _kind(filename)
+        if kind == _APP:
             found[(filename, frame.f_lineno)] = None
+        elif kind & ~_SPECIAL == _HOOK:
+            break
         frame = frame.f_back
     path = tuple(found)
     return path[-_MAX_READ_PATH:]
@@ -778,6 +950,154 @@ def _site(frame: FrameType, sites: Sites) -> CallSite:
     return site
 
 
+# A request that reaches the database with no line of the project between
+# the framework's call of the view and the statement (a DRF generic view and
+# its ModelSerializer, a TemplateResponse rendered after the view returned):
+# the first application frame on the stack is then a middleware's
+# ``get_response(request)`` line, or the line of the test that made the
+# request. The call site is the view instead (see register_frames).
+# id(code) -> what the walks for the call site do at a frame of that code:
+# _DISPATCH, a function that calls the view (Django's
+# BaseHandler._get_response); _ENTRY, one that takes a request in
+# (BaseHandler.get_response; the middlewares run between the two); _HANDOVER,
+# one that runs a call handed over from other code in a thread of its own
+# (asgiref's SyncToAsync.thread_handler). The frames beyond a _HANDOVER frame
+# did not make the call (they are whatever that thread ran before: a sync
+# middleware of an async request), so the call site is the line that awaited
+# it (_handover_site), when it is known. _special_files are the files of
+# those functions, see _SPECIAL.
+_DISPATCH, _ENTRY, _HANDOVER = 1, 2, 3
+_special: dict[int, tuple[CodeType, int]] = {}
+_special_files: frozenset[str] = frozenset()
+# The frame of a _DISPATCH function -> (file, first line, name) of the view
+# it called, or None when that is not known.
+_view_of: Callable[[FrameType], tuple[str, int, str] | None] | None = None
+_handover_site: Callable[[], CallSite | None] | None = None
+# (view, the line that made the request) -> CallSite, as _sites
+_view_sites: dict[object, CallSite] = {}
+# The last view call site found: (the _DISPATCH frame, the sites cache, the
+# site), so the statements of one request do not look for it again. The
+# frame is kept until the next request's or the end of the measurement
+# (end_measurement), so its id is not reused while it is here.
+_last_view: tuple[FrameType, Sites, CallSite] | None = None
+
+
+def register_frames(
+    dispatch: Iterable[CodeType],
+    entries: Iterable[CodeType],
+    view_of: Callable[[FrameType], tuple[str, int, str] | None],
+    handovers: Iterable[CodeType],
+    handover_site: Callable[[], CallSite | None],
+) -> None:
+    """Frames of a web framework that the walks for the call site treat apart.
+
+    ``dispatch`` are the code objects of the functions that call a view,
+    ``entries`` those of the functions that take a request in, and
+    ``view_of`` gives the view a ``dispatch`` frame called: the view, not
+    the middleware, is the call site of a statement no line of the project
+    runs. Past a frame of ``handovers`` the call site is ``handover_site()``
+    when it gives one (see _special).
+    """
+    global _view_of, _handover_site, _special_files
+    _special.clear()
+    for kind, codes in (
+        (_DISPATCH, dispatch),
+        (_ENTRY, entries),
+        (_HANDOVER, handovers),
+    ):
+        _special.update((id(code), (code, kind)) for code in codes)
+    _special_files = frozenset(code.co_filename for code, _ in _special.values())
+    _view_of = view_of
+    _handover_site = handover_site
+    _kinds.clear()
+
+
+def _special_kind(frame: FrameType) -> int:
+    """_DISPATCH, _ENTRY, _HANDOVER for a frame of such a function, else 0."""
+    found = _special.get(id(frame.f_code))
+    return found[1] if found is not None else 0
+
+
+def _site_at(
+    frame: FrameType, dispatched: FrameType | None, handed: bool, sites: Sites
+) -> CallSite:
+    """The call site of the first application frame ``frame``: the line that
+    awaited the call when the walk passed a _HANDOVER frame, the view when
+    it passed a _DISPATCH frame, else the frame's own line."""
+    if handed and _handover_site is not None:
+        site = _handover_site()
+        if site is not None:
+            return site
+    if dispatched is not None:
+        return _view_site(dispatched, frame, sites)
+    return _site(frame, sites)
+
+
+def _outside_request(frame: FrameType | None) -> FrameType | None:
+    """The first application frame outside the request ``frame`` is in.
+
+    The application frames inside are middlewares; the first one outside is
+    the line that made the request (a test's ``client.get()``). None when
+    there is none before the hook call that ran the test (a live server's
+    thread).
+    """
+    stop = _hook_caller()
+    outside = False
+    while frame is not None:
+        code = frame.f_code
+        if stop and os.path.normcase(code.co_filename).startswith(stop):
+            return None
+        if _special_kind(frame) == _ENTRY:
+            outside = True
+        elif (
+            outside
+            and not _is_internal(code.co_filename)
+            and not _is_session_method(frame)
+        ):
+            return _outer(frame) if code.co_name in _INLINED else frame
+        frame = frame.f_back
+    return None
+
+
+def _view_site(dispatched: FrameType, first: FrameType, sites: Sites) -> CallSite:
+    """The call site of a statement that the view ``dispatched`` called ran
+    with no line of the project between them: ``first`` is the first
+    application frame outwards (a middleware, or the test).
+
+    The view's own first line when the view is the project's code, with the
+    line that made the request and its callers as its callers; else the
+    line that made the request, else ``first``.
+    """
+    global _last_view
+    last = _last_view
+    if last is not None and last[0] is dispatched and last[1] is sites:
+        return last[2]
+    view = _view_of(dispatched) if _view_of is not None else None
+    outside = _outside_request(dispatched)
+    kind = None if view is None else _kinds.get(view[0])
+    if view is not None and kind is None:
+        kind = _kind(view[0])
+    site: CallSite | None
+    if view is None or kind != _APP:
+        site = _site(outside if outside is not None else first, sites)
+    else:
+        # the line that made the request is part of the key: two requests
+        # to one view from two lines of a test name each its own line
+        key = (view, None if outside is None else (outside.f_code, outside.f_lineno))
+        site = _view_sites.get(key)
+        if site is None:
+            if len(_view_sites) >= _MAX_SITES:
+                _view_sites.clear()
+            site = _view_sites[key] = CallSite(
+                filename=view[0],
+                lineno=view[1],
+                function=view[2],
+                callers=_callers(outside, _stack_depth) if outside is not None else (),
+            )
+    _last_view = (dispatched, sites, site)
+    return site
+
+
 def _first_external(
     frame: FrameType | None, sites: Sites, skipped: list[FrameType] | None = None
 ) -> CallSite | None:
@@ -785,9 +1105,13 @@ def _first_external(
 
     A method of a Session subclass is passed over (see _is_session_method);
     the first one is appended to ``skipped``, the call site to use when no
-    other application frame is found.
+    other application frame is found. The frames of a web framework that
+    the walk passes on the way may give another call site (see _site_at).
     """
     internal = _internal
+    special = _special
+    dispatched: FrameType | None = None
+    handed = False
     while frame is not None:
         filename = frame.f_code.co_filename
         try:
@@ -796,9 +1120,15 @@ def _first_external(
             skip = internal[filename] = _classify(filename)
         if not skip:
             if not _is_session_method(frame):
-                return _site(frame, sites)
+                return _site_at(frame, dispatched, handed, sites)
             if skipped is not None and not skipped:
                 skipped.append(frame)
+        elif special:
+            kind = _special_kind(frame)
+            if kind == _DISPATCH and dispatched is None:
+                dispatched = frame
+            elif kind == _HANDOVER:
+                handed = True
         frame = frame.f_back
     return None
 

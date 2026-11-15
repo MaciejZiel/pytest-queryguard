@@ -70,7 +70,10 @@ mode groups them: a loop over the rows of one query is an N+1, two
 single-object lookups that each read the relationship
 (`session.get(Order, 1).customer`, then `session.get(Order, 2).customer`) are
 not. Lookups made one by one at the same line (`for id in ids:
-get_order(id).customer`) count together. The finding counts the lazy loads of
+get_order(id).customer`) count together. With Django, the parents of one query line
+are also told apart by the lines that called the read: a helper that gets one
+object and reads its relationship, called once from each of two lines, is two
+lookups, while the same helper called in a loop is an N+1. The finding counts the lazy loads of
 the groups that reach the threshold; when several do, it names the first
 query line and how many others. When the query of a parent is unknown
 (objects the test created that a query or `session.get()` handed back without
@@ -423,7 +426,7 @@ id order:
 
 ```
 ============================ queryguard: test code =============================
-422 N+1 findings in test code left out (299 tests): the statements ran only in test modules, conftest.py, factories or helpers under tests/, not in the application.
+422 N+1 findings in test code left out (299 tests): the statements ran only in test modules, conftest.py, factories or helpers under tests/, or once in each call that a loop of the test made into the application.
 To see them: pytest -o queryguard_test_code=warn, or set queryguard_test_code = warn (or fail) in the pytest configuration.
 Why: https://maciejziel.github.io/pytest-queryguard/how-detection-works.html#test-code
   tests/test_accounts.py::test_create_account
@@ -449,6 +452,35 @@ in the application, and fixing it does not change what production does. The
 same goes for a helper that builds the expected values with lazy loads. Where
 a factory or a helper is shared with production code, or the application
 lives below a `tests` directory, set `queryguard_test_code = fail`.
+
+#### Loops of the test
+
+A loop in the test that calls the application once per pass (a case per
+pass, a page per request, an object per `create()` or factory call) makes
+the application run its statements once per pass: in production each call
+is a request or a job of its own. Each statement and load records the call
+of the application that test code made (the frame the test's line called,
+past the frames of test tools such as factory_boy's `create_batch()`).
+When every call ran a statement once (a lazy load: read the relationship of
+one object), and more than one call took part, the repetition is the test
+code's: it follows `queryguard_test_code` as above, and is counted in the
+same section with `off`. A call that ran the statement twice or more is a
+loop (or a repetition) of the application, and the finding stays the
+application's, whatever the test around it does.
+
+```python
+def test_order_pages(session):
+    for order_id in ids:                # the test's loop
+        order_page(session, order_id)   # one order and its customer: test code's
+
+def test_order_lists(session):
+    for customer_id in ids:
+        order_list(session, customer_id)  # a lazy load per order inside: reported
+```
+
+`fail` counts them with the application's, as 1.0 did. Strict mode decides
+at the lazy load, before the later calls are known, and still raises at the
+second pass.
 
 What it cannot tell apart: an application function defined in a test module
 (the shortest example in a bug report) is test code; move it to a module of
