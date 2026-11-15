@@ -567,7 +567,7 @@ experimental since 0.10.0. This is what still blocks dropping that label in
 All fourteen projects of the harness ran on `main` with every change above
 ([run 43747770042](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43747770042),
 [All fourteen with the 1.1.0 changes](django.md#all-fourteen-with-the-110-changes-2026-11-15)):
-19,024 tests without a changed outcome and without an internal warning or
+19,024 tests (174 of them skipped) without a changed outcome and without an internal warning or
 error. The findings that fell away against `main` before this work are
 the test code's repetition, now counted in the test-code section (django-cms
 299, Label Studio 139, paperless-ngx 30), plus paperless-ngx's middleware
@@ -576,7 +576,7 @@ locations, which now name the views.
 What is left, none of it a blocker in my reading:
 
 - **Overhead on django-cms** (item 7): 13 % to 16 % in single runs; the
-  other thirteen projects between −7 % and +11 %, within the noise of one
+  other thirteen projects between −7.4 % and +8.3 %, within the noise of one
   run each.
 - **Known limits**, documented in [Limitations](limitations.md) and
   [Django](django.md): a thread whose target is a function of the
@@ -594,7 +594,7 @@ What is left, none of it a blocker in my reading:
 blockers are done or, for the overhead, measured and explained; the
 surface is snapshotted; the last full run changed no test and reported no
 internal error on fourteen projects, two databases besides SQLite and
-Django 5.2 to 6.1. Before the release: run the full harness once more on
+Django 5.2, 6.0 and 6.1 (Django REST framework runs on 6.1). Before the release: run the full harness once more on
 the release candidate, and decide whether the test-code classification of
 loops of the test (item 2) should stay the default, since it moves about
 470 findings of three projects out of the failures.
