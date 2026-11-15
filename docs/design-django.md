@@ -513,12 +513,10 @@ Status on 2026-11-15, after 1.0.0 and 11 real projects (14,423 tests, see
 experimental since 0.10.0. This is what still blocks dropping that label in
 1.1.0:
 
-1. **Locations behind a project's middleware.** When the rows are read
-   with no line of the project in the call (a DRF `ModelSerializer` under a
-   generic view), the finding points at the first project frame on the
-   stack. In paperless-ngx, Tandoor and Label Studio that frame is a
-   middleware's `get_response(request)` line. Such a frame needs to be
-   passed over, so the finding names the view or the test line instead.
+1. ~~**Locations behind a project's middleware.**~~ Done in 1.1.0: when no
+   line of the project runs between Django's call of the view and the
+   statement, the finding names the view class or function, with the test
+   line as its caller; project middlewares are passed over.
 2. **Repetition that test code drives.** 11 of the 51 sites read in the
    second run, and most of the 28 debatable ones of the first, are app code
    that runs once per pass of a loop in the test, or once per fixture made
@@ -527,19 +525,18 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    frozen.
 3. **Work spread over threads** (django-oscar's concurrency test) still
    counts together with `queryguard_scope = test`.
-4. **Freeze the Django surface**: the labels and fix wording of Django
-   findings, the `QUERYGUARD` settings and `QueryGuardRunner` of
-   `manage.py test`, and the supported Django versions and databases.
-   `tests/test_public_api.py` has to snapshot it, as the 1.0 freeze did for
-   SQLAlchemy ([1.0 freeze](design-1.0-freeze.md)).
+4. ~~**Freeze the Django surface**~~ Done in 1.1.0:
+   `tests/django_project/test_public_api.py` snapshots `__all__` of
+   `pytest_queryguard.django`, the runner's option, the `QUERYGUARD` keys
+   and defaults, the labels and the loader each fix names, and the Django
+   versions and databases of CI ([Stability](stability.md#experimental)).
 5. **Coverage the real-project runs lack**: no project ran on MySQL or on
    Django 6.0, only DRF ran on 6.1, and `QueryGuardRunner` has not run on a
    `manage.py test` project yet. Most Django projects found for outreach use
    `manage.py test`.
-6. **Say what is out of scope for Django**: `unused-eager-load`,
-   `unused-columns`, `cartesian-load`, fix patches, the static check and
-   the in-app mode. Leaving them out is fine, but the docs have to say so
-   as a scope decision rather than as a gap.
+6. ~~**Say what is out of scope for Django**~~ Done in 1.1.0:
+   [Out of scope for Django](django.md#out-of-scope-for-django) gives the
+   reason for each.
 7. **Overhead on statement-heavy suites**: django-cms ran 8.6 % to 15.9 %
    slower with the plugin. The other ten projects were within the noise of a
    single run.

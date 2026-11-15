@@ -1,0 +1,6 @@
+node_modules/
+out/
+.vscode-test/
+*.vsix
+test-fixtures/workspace/.vscode/
+test-fixtures/workspace/changed-report.json
