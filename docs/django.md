@@ -569,6 +569,48 @@ class, with the test line as its caller (see
 sync and the request async, was named for the async ORM calls of the view;
 they now name the line that awaited them.
 
+### MySQL, Django 6.0 and `manage.py test` (2026-11-15)
+
+Three more jobs cover what the runs above lacked: a project on MySQL, one on
+Django 6.0, and one whose suite runs with `manage.py test` under
+`QueryGuardRunner` instead of pytest. Same workflow; a project with a
+`test_command` runs it twice, with `--testrunner` set to Django's runner and
+to `QueryGuardRunner` with `--queryguard-mode warn`, through
+`scripts/realworld_runner.py`, which writes the same JUnit XML and JSON of
+findings as the pytest runs. Run
+[43741288589](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43741288589),
+plugin at `main` (1.0.0 and the Django changes merged after it, not those of
+the open pull requests).
+
+| Project | Tests run | Passed / failed / skipped without the plugin | Change with the plugin | Internal warnings / errors | Findings | Overhead, one run |
+|---|---|---|---|---|---|---|
+| django-oscar 4.2.1, MySQL 8.4, Django 5.2 (pytest) | functional and integration | 1415 / 281 / 1 | none | 0 / 0 | 244: 180 relationship-load, 64 repeated-statement | +7.0 % |
+| django-allauth 65.22.1, Django 6.0 (pytest) | all | 2500 / 0 / 1 | none | 0 / 0 | 51: 2 relationship-load, 49 repeated-statement | +11.3 % |
+| django-taggit 7.0.0, Django 6.0 (`manage.py test`, `QueryGuardRunner`) | all | 396 / 0 / 7 | none | 0 / 0 | 54: 3 relationship-load, 51 repeated-statement | +2.8 % |
+
+django-oscar's suite is not written for MySQL: the 281 failures are MySQL
+errors (241 of them "You can't specify target table ... for update in FROM
+clause", from the category tree), the same with and without the plugin. On
+the tests that pass, the plugin's findings are those of the PostgreSQL run:
+the 45 distinct sites start with the product list's per-product reads
+(`Product.stockrecords`, `Product.product_class`, `Product.categories` of
+the search index), all true. Labels carry MySQL's backquotes; the
+[baseline](baseline.md#what-an-entry-is) writes them without.
+
+django-allauth on Django 6.0 reports the same two sites as on 5.2 (the
+`is_mfa_enabled` lookup repeated in one request, and `SocialAccount.user`).
+
+django-taggit, under `QueryGuardRunner`: every test passed and failed as with
+Django's runner, and no internal warning or error. 50 of the 54 findings are
+one site, `_TaggableManager.add()`, which runs `get_or_create()` per tag
+(`managers.py:198`), in the `setUp` of the admin and model tests that add
+several tags at once: a loop of the library's own, true. The others: the
+tag lookup per natural key, `TaggedItem.__str__` reading its object and tag,
+and the admin's merge view reading each item's content type.
+
+Not covered yet: a large `manage.py test` suite (Wagtail, Zulip) and Django
+6.0 or MySQL on a project with a bigger ORM surface than these.
+
 ## Comparison
 
 The Django corpus under each tool, in GitHub Actions on 2026-11-07

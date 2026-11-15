@@ -530,10 +530,12 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    `pytest_queryguard.django`, the runner's option, the `QUERYGUARD` keys
    and defaults, the labels and the loader each fix names, and the Django
    versions and databases of CI ([Stability](stability.md#experimental)).
-5. **Coverage the real-project runs lack**: no project ran on MySQL or on
-   Django 6.0, only DRF ran on 6.1, and `QueryGuardRunner` has not run on a
-   `manage.py test` project yet. Most Django projects found for outreach use
-   `manage.py test`.
+5. ~~**Coverage the real-project runs lack**~~ Done in 1.1.0: django-oscar
+   on MySQL 8.4, django-allauth on Django 6.0 and django-taggit under
+   `QueryGuardRunner` (`manage.py test`) ran in the harness with no test
+   changed and no internal error
+   ([MySQL, Django 6.0 and manage.py test](django.md#mysql-django-60-and-managepy-test-2026-11-15)).
+   Still thin: one small `manage.py test` suite.
 6. ~~**Say what is out of scope for Django**~~ Done in 1.1.0:
    [Out of scope for Django](django.md#out-of-scope-for-django) gives the
    reason for each.
