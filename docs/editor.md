@@ -3,7 +3,7 @@
 Since 0.10.0.
 
 A VS Code extension marks the findings of the last test run on their lines
-(see below; not in the Marketplace yet). Without it, the output is regular
+(see below; [in the VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=maciejziel.pytest-queryguard)). Without it, the output is regular
 enough for the tools editors already have: a problem matcher turns the test
 run and the [static check](static-check.md) into entries of VS Code's Problems
 panel, and its [SARIF file](sarif.md) opens in a SARIF viewer. Nothing here is
@@ -31,7 +31,11 @@ python -m pytest --queryguard-json=queryguard.json
 is all it needs from the project: `queryguard.json` in the workspace folder
 is the file it reads by default.
 
-It is not published to the Marketplace or Open VSX yet. Until it is, install
+Install it from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=maciejziel.pytest-queryguard)
+(**Extensions** view, search for pytest-queryguard), or with
+`code --install-extension maciejziel.pytest-queryguard`. It is not on Open
+VSX yet, so in VSCodium, Cursor and other editors that use Open VSX, install
 the `.vsix` that the repository's `vscode` workflow builds (the
 `pytest-queryguard-vsix` artifact of a run on `main`) with
 `code --install-extension pytest-queryguard-<version>.vsix`, or build it

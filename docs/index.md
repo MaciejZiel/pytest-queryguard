@@ -81,3 +81,7 @@ Reference: [How detection works](how-detection-works.md),
 
 The source and the issue tracker are on
 [GitHub](https://github.com/MaciejZiel/pytest-queryguard).
+
+Further reading: [My N+1 test plugin failed 551 tests on someone else's project](https://dev.to/maciejziel/my-n1-test-plugin-failed-551-tests-on-someone-elses-project-nearly-all-of-them-were-noise-2pip),
+the launch article on dev.to: what a run on another project's suite found and
+why nearly all of it was noise.

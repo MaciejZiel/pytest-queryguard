@@ -222,8 +222,7 @@ Every option, flag and marker is in the
 On the 300-test suite of the comparison (about 5 ms a test), pytest-queryguard
 1.0.0rc1 added 13 to 15 % to the run time on a GitHub runner. Per statement, on in-memory SQLite, the current code
 adds about 16 us to a Core statement and 34 to 36 us to an ORM one, which is
-a large share of a statement that costs almost nothing; against a database
-on disk or over the network the share is smaller. Method and numbers: [Performance](https://maciejziel.github.io/pytest-queryguard/performance.html)
+a large share of a statement that costs almost nothing; against a database on disk or over the network the share is smaller. Method and numbers: [Performance](https://maciejziel.github.io/pytest-queryguard/performance.html)
 and the [FAQ](https://maciejziel.github.io/pytest-queryguard/faq.html#does-it-slow-my-tests-down).
 
 ## Limitations
@@ -265,6 +264,7 @@ Django support too. Experimental features (static check, MCP server, route budge
 | [Comparison](https://maciejziel.github.io/pytest-queryguard/comparison.html), [accuracy](https://maciejziel.github.io/pytest-queryguard/accuracy.html) | Other tools, precision and recall |
 | [Stability and versioning](https://maciejziel.github.io/pytest-queryguard/stability.html) | What is public API, deprecations |
 | [Changelog](https://github.com/MaciejZiel/pytest-queryguard/blob/main/CHANGELOG.md), [examples](https://github.com/MaciejZiel/pytest-queryguard/tree/main/examples) | |
+| [Further reading](https://dev.to/maciejziel/my-n1-test-plugin-failed-551-tests-on-someone-elses-project-nearly-all-of-them-were-noise-2pip) | The launch article: a run on someone else's 551 tests, and why nearly all of it was noise |
 
 ## Development
 
