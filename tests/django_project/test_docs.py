@@ -139,7 +139,7 @@ def test_the_scaling_recipe_fails_without_select_related(
         assert f"expected exactly 1 query, got {count}" in out
     assert "2 at size 1, 11 at size 10, 51 at size 50" in out
     assert "(loads Book.author)" in out
-    assert '.select_related("author")' in out
+    assert "select_related() for a foreign key or one-to-one," in out
 
 
 def test_the_runner_example(tmp_path: Path) -> None:

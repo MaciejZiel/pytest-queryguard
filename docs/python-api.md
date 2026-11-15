@@ -154,8 +154,9 @@ also works outside pytest.
 Since 1.1.0. A list should send the same number of statements for 1 row as
 for 10. `assert_queries_do_not_grow(fn, sizes=(1, 10), *, setup=None)` runs
 `fn` once per size, each run in its own `record_queries()` block, and raises
-`QueryBudgetExceeded` when a larger size sends more statements than the
-smallest one:
+`QueryBudgetExceeded` when a statement (its shape without literals and
+parameters, its line and the relationship it loaded) runs more often at a
+larger size than at the smallest one:
 
 ```python
 from pytest_queryguard import assert_queries_do_not_grow
@@ -167,19 +168,22 @@ def test_list_orders_does_not_grow(make_session):
     assert_queries_do_not_grow(list_orders, sizes=(1, 10, 50), setup=make_session)
 ```
 
-- `sizes`: at least two different integers of 0 or more, run in ascending
-  order (default `(1, 10)`). Use more than one row for the larger sizes: with
-  one row a query per row cannot be told from a constant one.
+- `sizes`: at least two different integers of 1 or more, run in ascending
+  order (default `(1, 10)`). Not 0: code often returns early for no rows.
+  Keep to 2 or 3 sizes: each runs the constant statements again in the same
+  test, and 5 runs reach the plugin's repeat threshold.
 - `setup`: called with the size before `fn`, and not recorded; create that
   many rows there. `fn` gets what it returned. Without `setup`, `fn` gets the
-  size.
+  size. A generator, iterator or Django `QuerySet` that `fn` returns is
+  iterated inside the block, so its queries count.
 - It returns the `QueryLog` of each size, keyed by size in ascending order.
 - The failure gives the count per size and each statement that grew (the
   same shape, without literals and parameters, from the same line): how often
   it ran at each size, the relationship it lazy-loaded, its line and the
-  lines that called it, and a fix, like the N+1 report. With SQLAlchemy the
-  fix names `selectinload()` or `joinedload()`, with Django
-  `select_related()` or `prefetch_related()`.
+  lines that called it, and a fix, like the N+1 report: for a lazy load,
+  `joinedload()` or `selectinload()` with SQLAlchemy, `select_related()` or
+  `prefetch_related()` with Django; for a query or a write in a loop, the
+  same fix as the N+1 report.
 - Statements from any thread count, as in `record_queries()`. The seeding in
   `setup` is left out of the comparison, but the plugin still sees it as
   part of the test, so a default budget counts it.

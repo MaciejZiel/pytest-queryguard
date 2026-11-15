@@ -206,7 +206,8 @@ direction to be a decision. `queryguard.max_queries(n)` accepts fewer.
 When the exact number is not the point (it depends on the database, or on
 what else the endpoint does), `assert_queries_do_not_grow()` runs the
 function once per size and fails when a larger size sends more statements
-than the smallest one. `setup=make_session` builds the database for each
+than the smallest one, or when one statement (its shape, line and
+relationship) runs more often. `setup=make_session` builds the database for each
 size before the function runs, and is not recorded; the function gets what
 `setup` returned. The last test above fails on `list_orders_lazy` with the
 count per size and the statement that grew, its line and a fix:
@@ -221,8 +222,9 @@ E     SELECT customer.id, customer.name FROM customer WHERE customer.id = ?
 E     ran 1 time at size 1, 10 times at size 10, 50 times at size 50 (loads Order.customer)
 E     first at app/orders.py:17 in list_orders_lazy
 E       called from tests/test_orders.py:27 in test_list_orders_lazy_count_does_not_grow
-E     fix: load Order.customer with the parent query, e.g.
-E          .options(selectinload(Order.customer)), or joinedload() for a many-to-one
+E     fix: load Order.customer with the query that loads the Order rows:
+E          .options(joinedload(Order.customer)) for a many-to-one,
+E          .options(selectinload(Order.customer)) for a collection
 E
 E     docs: https://maciejziel.github.io/pytest-queryguard/recipes-query-count-scaling.html
 ```
@@ -238,6 +240,10 @@ The sizes matter:
 
 - With 1 row a per-row query cannot be told from a constant one, and the N+1
   rules do not fire. Always test with more than one row.
+- `assert_queries_do_not_grow()` runs the function once per size in the same
+  test, so a constant statement runs once per size. With 5 or more sizes it
+  reaches the plugin's repeat threshold (`queryguard_repeat_threshold`, 5)
+  and the plugin reports it; 2 or 3 sizes stay below it.
 - 10 and 50 are above the default thresholds (2 parents for a relationship, 5
   runs of one `SELECT`), so the N+1 rules can also report what grows.
 - Seed the rows outside the measured block. In a fixture (`session` above)
@@ -300,6 +306,6 @@ def test_book_lines_count_does_not_grow(db):
 `django_assert_num_queries`. Without `select_related("author")` both tests
 fail: the first with 2, 11 and 51 statements, the second with
 `2 at size 1, 11 at size 10, 51 at size 50`, the lazy load of `Book.author`
-and the fix `.select_related("author")`. Without the blocks, the N+1 rule alone would fail
+and the fix, `select_related()`. Without the blocks, the N+1 rule alone would fail
 the cases with 10 and 50 books on `Book.author`. A test in this repository
 runs both versions with Django 5.2 to 6.1.

@@ -55,7 +55,22 @@ def test_a_lazy_foreign_key_fails_with_the_django_fix() -> None:
     assert "2 at size 1, 11 at size 10" in message
     assert "ran 1 time at size 1, 10 times at size 10 (loads Book.author)" in message
     assert "in book_lines_lazy" in message
-    assert '.select_related("author"), or .prefetch_related("author")' in message
+    assert "fix: load Book.author with the query that loads the Book rows:" in message
+    assert "select_related() for a foreign key or one-to-one," in message
+
+
+@pytest.mark.django_db
+def test_a_returned_queryset_is_evaluated_inside_the_recording() -> None:
+    with pytest.raises(QueryBudgetExceeded, match="2 at size 1, 11 at size 10"):
+        assert_queries_do_not_grow(
+            lambda _: (book.author for book in Book.objects.all()),
+            sizes=(1, 10),
+            setup=make_books,
+        )
+    logs = assert_queries_do_not_grow(
+        lambda _: Book.objects.select_related("author"), sizes=(1, 10), setup=make_books
+    )
+    assert [log.count for log in logs.values()] == [1, 1]
 
 
 @pytest.mark.django_db

@@ -8,9 +8,9 @@ import warnings
 from collections.abc import Callable, Iterator
 
 import pytest
-from sqlalchemy import Engine, create_engine, insert, select, text
+from sqlalchemy import Engine, create_engine, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Session, joinedload, sessionmaker
+from sqlalchemy.orm import Session, joinedload, selectinload, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from pytest_queryguard import (
@@ -25,11 +25,22 @@ from tests.models import Base, Customer, Order
 pytestmark = pytest.mark.allow_nplusone
 
 
+_ENGINES: list[Engine] = []
+
+
+@pytest.fixture(autouse=True)
+def _dispose_engines() -> Iterator[None]:
+    yield
+    while _ENGINES:
+        _ENGINES.pop().dispose()
+
+
 def _engine() -> Engine:
     engine = create_engine(
         "sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False}
     )
     Base.metadata.create_all(engine)
+    _ENGINES.append(engine)
     return engine
 
 
@@ -106,8 +117,10 @@ def test_a_lazy_load_per_row_fails_with_the_counts_and_the_fix(
     first = next(line for line in lines if line.startswith("  first at "))
     assert first.endswith(" in list_orders_lazy")
     assert "test_queries_do_not_grow.py:" in first
-    assert "  fix: load Order.customer with the parent query, e.g." in lines
-    assert "selectinload(Order.customer)" in message
+    assert (
+        "  fix: load Order.customer with the query that loads the Order rows:" in lines
+    )
+    assert "       .options(joinedload(Order.customer)) for a many-to-one," in lines
     # the order query does not grow, so it is not listed
     assert "FROM orders" not in message
     assert lines[-1].endswith("/recipes-query-count-scaling.html")
@@ -142,6 +155,77 @@ def test_a_write_per_row_gets_the_write_fix() -> None:
 
     with pytest.raises(QueryBudgetExceeded, match="write the rows together"):
         assert_queries_do_not_grow(add, sizes=(1, 3))
+
+
+def test_an_update_per_row_gets_the_update_fix() -> None:
+    engine = _engine()
+    with engine.begin() as conn:
+        conn.execute(insert(Customer), [{"id": i, "name": "x"} for i in range(1, 6)])
+
+    def rename(size: int) -> None:
+        with engine.begin() as conn:
+            for i in range(1, size + 1):
+                conn.execute(
+                    update(Customer).where(Customer.id == i).values(name=f"n{size}")
+                )
+
+    with pytest.raises(QueryBudgetExceeded, match="bulk UPDATE by primary key"):
+        assert_queries_do_not_grow(rename, sizes=(1, 3))
+
+
+def test_a_growing_eager_load_gets_the_batched_fix_not_the_loader_fix(
+    make_session: Callable[[int], Session],
+) -> None:
+    def per_order(session: Session) -> None:
+        # selectinload already, but the query runs once per row
+        for order_id in session.scalars(select(Order.id)).all():
+            query = (
+                select(Customer)
+                .where(Customer.id == order_id)
+                .options(selectinload(Customer.orders))
+            )
+            session.scalars(query).all()
+
+    with pytest.raises(QueryBudgetExceeded) as info:
+        assert_queries_do_not_grow(per_order, sizes=(1, 4), setup=make_session)
+    message = str(info.value)
+    assert "(loads Customer.orders)" in message
+    assert "selectinload(Customer.orders)) for a collection" not in message
+    assert "already fetches several rows with IN (...)" in message
+
+
+def test_a_statement_that_grows_fails_even_when_the_total_does_not() -> None:
+    engine = _engine()
+    warm: list[int] = []
+
+    def cached_then_per_row(size: int) -> None:
+        with engine.connect() as conn:
+            if not warm:  # the first run fills a cache with two queries
+                conn.execute(text("select 'config'"))
+                conn.execute(text("select 'config'"))
+                warm.append(1)
+            for i in range(size):
+                conn.execute(select(Customer).where(Customer.id == i))
+
+    with pytest.raises(QueryBudgetExceeded) as info:
+        assert_queries_do_not_grow(cached_then_per_row, sizes=(1, 3))
+    message = str(info.value)
+    assert message.splitlines()[0] == (
+        "queryguard: a statement runs more often at a larger size "
+        "(statements in total: 3 at size 1, 3 at size 3)"
+    )
+    assert "ran 1 time at size 1, 3 times at size 3" in message
+    assert "config" not in message
+
+
+def test_a_lazy_result_is_consumed_inside_the_recording(
+    make_session: Callable[[int], Session],
+) -> None:
+    def lazy(session: Session) -> Iterator[str]:
+        return (order.customer.name for order in session.scalars(select(Order)))
+
+    with pytest.raises(QueryBudgetExceeded, match="2 at size 1, 10 at size 9"):
+        assert_queries_do_not_grow(lazy, sizes=(1, 9), setup=make_session)
 
 
 def test_fewer_statements_at_a_larger_size_pass() -> None:
@@ -187,9 +271,10 @@ def test_an_exception_in_fn_propagates() -> None:
         ((1,), ValueError, "at least two sizes"),
         ((), ValueError, "at least two sizes"),
         ((1, 1), ValueError, "different"),
-        ((1, -1), ValueError, "non-negative integer"),
-        ((1, 2.5), ValueError, "non-negative integer"),
-        ((True, 2), ValueError, "non-negative integer"),
+        ((1, -1), ValueError, "1 or more"),
+        ((0, 10), ValueError, "1 or more"),
+        ((1, 2.5), TypeError, "must be an integer"),
+        ((True, 2), TypeError, "must be an integer"),
         (10, TypeError, "iterable of integers"),
         ("12", TypeError, "iterable of integers"),
     ],
@@ -236,11 +321,22 @@ def test_an_internal_error_is_not_a_verdict(monkeypatch: pytest.MonkeyPatch) -> 
         assert_queries_do_not_grow(fn)
 
 
+_ASYNC_SESSIONS: list[AsyncSession] = []
+
+
+async def _close_async_sessions() -> None:
+    while _ASYNC_SESSIONS:
+        session = _ASYNC_SESSIONS.pop()
+        await session.close()
+        await session.bind.dispose()
+
+
 async def _async_session(rows: int) -> AsyncSession:
     engine = create_async_engine("sqlite+aiosqlite://", poolclass=StaticPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     session = async_sessionmaker(engine, expire_on_commit=False)()
+    _ASYNC_SESSIONS.append(session)
     ids = range(1, rows + 1)
     session.add_all(Customer(id=i, name=f"customer {i}") for i in ids)
     session.add_all(Order(id=i, customer_id=i) for i in ids)
@@ -267,6 +363,12 @@ async def _names_joined(session: AsyncSession) -> list[str]:
 
 def test_async_passes_and_fails() -> None:
     async def main() -> None:
+        try:
+            await check()
+        finally:
+            await _close_async_sessions()
+
+    async def check() -> None:
         logs = await assert_queries_do_not_grow_async(
             _names_joined, sizes=(1, 6), setup=_async_session
         )

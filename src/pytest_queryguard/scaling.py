@@ -8,6 +8,7 @@ statements than the smallest one, and names the statements that grew.
 from __future__ import annotations
 
 import inspect
+import operator
 from collections.abc import Awaitable, Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -22,13 +23,24 @@ __all__ = ["assert_queries_do_not_grow", "assert_queries_do_not_grow_async"]
 
 
 def _sizes(sizes: Iterable[int]) -> list[int]:
-    """The sizes in ascending order, checked: at least two different integers >= 0."""
+    """The sizes in ascending order, checked: at least two different integers >= 1.
+
+    Not 0: code often returns early for no rows, and a constant query that it
+    then skips would read as growth.
+    """
     if isinstance(sizes, (str, bytes)) or not isinstance(sizes, Iterable):
         raise TypeError(f"sizes must be an iterable of integers, got {sizes!r}")
-    values = list(sizes)
-    for value in values:
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError(f"each size must be a non-negative integer, got {value!r}")
+    values = []
+    for value in sizes:
+        if isinstance(value, bool):
+            raise TypeError(f"each size must be an integer, got {value!r}")
+        try:
+            number = operator.index(value)  # int, or an integer type such as numpy's
+        except TypeError:
+            raise TypeError(f"each size must be an integer, got {value!r}") from None
+        if number < 1:
+            raise ValueError(f"each size must be 1 or more, got {value!r}")
+        values.append(number)
     if len(set(values)) != len(values):
         raise ValueError(f"sizes must be different from each other, got {values!r}")
     if len(values) < 2:
@@ -61,12 +73,14 @@ def _verdict(logs: dict[int, QueryLog]) -> None:
                 "compared: pytest-queryguard stopped recording after an "
                 f"internal error: {error!r}"
             )
-    sizes = list(logs)
-    smallest = logs[sizes[0]].count
-    if all(logs[size].count <= smallest for size in sizes[1:]):
+    # Each statement on its own, not only the total: a statement that runs
+    # once per row must fail even when another one runs less often at a
+    # larger size (a cache warmed by the first run).
+    grown = _grown(logs)
+    if not grown:
         return
-    counts = {size: logs[size].count for size in sizes}
-    raise QueryBudgetExceeded(format_growth(counts, _grown(logs), cwd=display_root()))
+    counts = {size: log.count for size, log in logs.items()}
+    raise QueryBudgetExceeded(format_growth(counts, grown, cwd=display_root()))
 
 
 def _grown(
@@ -74,15 +88,18 @@ def _grown(
 ) -> list[tuple[StatementEvent, dict[int, int], str]]:
     """The statements that ran more often at a larger size than at the smallest.
 
-    A statement is its shape (``normalize``: without literals and parameters)
-    and the line it ran from. Each comes with its count per size, and the kind
-    of fix: ``relationship``, ``write`` or ``repeat``. In the order they first
-    ran at the largest size where they ran.
+    A statement is its shape (``normalize``: without literals and parameters),
+    the line it ran from and the relationship it loaded. Each comes with its
+    count per size, and the kind of fix: ``relationship`` (a lazy load),
+    ``write`` or ``repeat``. In the order they first ran at the largest size
+    where they ran.
     """
     sizes = list(logs)
     groups: dict[tuple[object, ...], tuple[StatementEvent, dict[int, int]]] = {}
     for size in reversed(sizes):  # the largest size first: its order is shown
-        for event in logs[size]._collector.statements:
+        log = logs[size]
+        # the statements the frozen count covers, as the budget failure does
+        for event in log._collector.statements[: log.count]:
             site = event.callsite
             key = (
                 normalize(event.sql),
@@ -96,7 +113,7 @@ def _grown(
     grown = []
     for event, counts in groups.values():
         if any(counts[size] > counts[sizes[0]] for size in sizes[1:]):
-            if event.relationship is not None and not event.column_load:
+            if event.relationship is not None and event.lazy_load:
                 fix = "relationship"
             elif is_write(event.sql):
                 fix = "write"
@@ -117,12 +134,15 @@ def assert_queries_do_not_grow(
     For each size, in ascending order, ``setup(size)`` runs first, unrecorded
     (create that many rows there), and then ``fn`` with what ``setup``
     returned, inside a ``record_queries()`` block. Without ``setup``, ``fn``
-    gets the size. ``sizes`` needs at least two different integers >= 0.
+    gets the size. ``sizes`` needs at least two different integers >= 1. A
+    generator, iterator or Django ``QuerySet`` that ``fn`` returns is iterated
+    inside the block, so its queries count.
 
-    Raises ``QueryBudgetExceeded`` when a larger size ran more statements
-    than the smallest one, with the count per size and each statement that
-    grew: its line, its count per size and a fix. Returns the ``QueryLog``
-    of each size, keyed by size, in ascending order.
+    Raises ``QueryBudgetExceeded`` when a statement (its shape, line and
+    relationship) runs more often at a larger size than at the smallest one,
+    with the count per size and each statement that grew: its line, its count
+    per size and a fix. Returns the ``QueryLog`` of each size, keyed by size,
+    in ascending order.
 
     Statements from any thread count, as in ``record_queries()``. For a
     coroutine function, use ``assert_queries_do_not_grow_async()``.
@@ -140,11 +160,12 @@ def assert_queries_do_not_grow(
             )
         with _measured(logs, size):
             result = fn(arg)
-        if inspect.isawaitable(result):
-            _close(result)
-            raise TypeError(
-                "fn returned an awaitable: use assert_queries_do_not_grow_async()"
-            )
+            if inspect.isawaitable(result):
+                _close(result)
+                raise TypeError(
+                    "fn returned an awaitable: use assert_queries_do_not_grow_async()"
+                )
+            _consume(result)
     _verdict(logs)
     return logs
 
@@ -167,9 +188,20 @@ async def assert_queries_do_not_grow_async(
     for size in order:
         arg = size if setup is None else await _resolve(setup(size))
         with _measured(logs, size):
-            await _resolve(fn(arg))
+            _consume(await _resolve(fn(arg)))
     _verdict(logs)
     return logs
+
+
+def _consume(result: object) -> None:
+    """Run the queries of a lazy result inside the recording.
+
+    A generator or other iterator, or a Django ``QuerySet``, sends its SQL
+    only when it is iterated; returned as is, the block would record nothing.
+    """
+    if isinstance(result, Iterator) or callable(getattr(result, "_fetch_all", None)):
+        for _ in result:  # type: ignore[attr-defined]
+            pass
 
 
 async def _resolve(value: object) -> object:

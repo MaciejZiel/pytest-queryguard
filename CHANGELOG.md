@@ -22,10 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `assert_queries_do_not_grow(fn, sizes=(1, 10), *, setup=None)` and its
   awaitable `assert_queries_do_not_grow_async()`: run the same code for each
   size (a number of rows, seeded by `setup` outside the recording) and fail
-  with `QueryBudgetExceeded` when a larger size sends more statements than
-  the smallest one. The failure lists the count per size and each statement
-  that grew, with its line, its count per size and a fix; it returns the
-  `QueryLog` of each size. SQLAlchemy and Django, sync and async
+  with `QueryBudgetExceeded` when a statement runs more often at a larger
+  size than at the smallest one. The failure lists the count per size and
+  each statement that grew, with its line, its count per size and a fix; it
+  returns the `QueryLog` of each size. SQLAlchemy and Django, sync and async
   ([Reading the queries](docs/python-api.md#the-count-must-not-grow-assert_queries_do_not_grow),
   [the scaling recipe](docs/recipes-query-count-scaling.md)).
 

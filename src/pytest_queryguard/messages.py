@@ -8,6 +8,7 @@ from .detectors import (
     Detection,
     RelationshipFinding,
     WriteLoopFinding,
+    normalize,
 )
 from .errors import Failure
 from .events import (
@@ -39,6 +40,7 @@ from .findings import (
     docs_url,
 )
 from .indexes import table_label
+from .sqltext import skip_prefix
 
 _SQL_LIMIT = 200
 _REPEAT_FIX = [
@@ -655,27 +657,25 @@ def _growth_fix(event: StatementEvent, fix: str) -> list[str]:
     django = event.orm == ORM_DJANGO
     if fix == "relationship":
         name = event.relationship or ""
+        model = name.partition(".")[0]
         if django:
-            field = name.rpartition(".")[2]
             return [
-                f"  fix: load {name} with the parent query, e.g.",
-                f'       .select_related("{field}"), or .prefetch_related("{field}")',
-                "       for a to-many relationship",
+                f"  fix: load {name} with the query that loads the {model} rows:",
+                "       select_related() for a foreign key or one-to-one,",
+                "       prefetch_related() for a to-many relationship",
             ]
         return [
-            f"  fix: load {name} with the parent query, e.g.",
-            f"       .options(selectinload({name})), or joinedload() for a many-to-one",
+            f"  fix: load {name} with the query that loads the {model} rows:",
+            f"       .options(joinedload({name})) for a many-to-one,",
+            f"       .options(selectinload({name})) for a collection",
         ]
     if fix == "write":
-        if django:
-            return [
-                "  fix: write the rows together: Model.objects.bulk_create(rows),",
-                "       bulk_update(rows, fields) or filter(pk__in=ids).delete()",
-            ]
-        return [
-            "  fix: write the rows together: session.add_all(rows) and one flush,",
-            "       or one bulk INSERT, UPDATE or DELETE for all of them",
-        ]
+        start = skip_prefix(event.sql) or 0
+        verb = event.sql[start : start + 6].upper()
+        fixes = _WRITE_FIX_DJANGO if django else _WRITE_FIX
+        return list(fixes.get(verb, fixes["INSERT"]))
+    if _IN_LIST in normalize(event.sql):
+        return list(_BATCHED_FIX)
     return list(_REPEAT_FIX_DJANGO if django else _REPEAT_FIX)
 
 
@@ -693,12 +693,20 @@ def format_growth(
     ``repeat``).
     """
     per_size = ", ".join(f"{count} at size {size}" for size, count in counts.items())
-    lines = [f"queryguard: the number of statements grows with the size: {per_size}"]
+    sizes = list(counts)
+    if any(counts[size] > counts[sizes[0]] for size in sizes[1:]):
+        head = f"the number of statements grows with the size: {per_size}"
+    else:
+        head = (
+            "a statement runs more often at a larger size "
+            f"(statements in total: {per_size})"
+        )
+    lines = [f"queryguard: {head}"]
     for event, by_size, fix in grown:
         runs = ", ".join(
             f"{_times(count)} at size {size}" for size, count in by_size.items()
         )
-        if event.relationship is not None and fix == "relationship":
+        if event.relationship is not None and not event.column_load:
             runs += f" (loads {event.relationship})"
         site = event.callsite
         lines.extend(
