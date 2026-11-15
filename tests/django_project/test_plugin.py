@@ -267,6 +267,11 @@ def test_nested_serializer_of_a_viewset(client, db):
     assert client.get("/api/author-set/").status_code == 200
 
 
+def test_template_response_of_a_function_view(client, db):
+    seed()
+    assert client.get("/books/later/").status_code == 200
+
+
 def test_no_middleware_of_the_project(settings, client, db):
     settings.MIDDLEWARE = [m for m in settings.MIDDLEWARE if "PassThrough" not in m]
     seed()
@@ -315,7 +320,7 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
     monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     project.makepyfile(test_declarative=DECLARATIVE)
     result = _run(project, "test_declarative.py", "--queryguard-json=out.json")
-    result.assert_outcomes(passed=2, failed=6)
+    result.assert_outcomes(passed=2, failed=7)
     tests = json.loads((project.path / "out.json").read_text())["tests"]
     labels = {
         key.split("::")[-1]: [f["label"] for f in value["findings"]]
@@ -324,6 +329,7 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
     assert labels == {
         "test_nested_serializer_of_a_generic_view": ["Author.books"],
         "test_nested_serializer_of_a_viewset": ["Author.books"],
+        "test_template_response_of_a_function_view": ["Book.author"],
         "test_no_middleware_of_the_project": ["Author.books"],
         "test_two_requests_from_two_lines": ["Author.books"],
         "test_template_of_a_generic_view": ["Book.author"],
@@ -349,6 +355,13 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
         ],
         "test_nested_serializer_of_a_viewset": [
             ("views.py", "AuthorViewSet", ["test_nested_serializer_of_a_viewset"])
+        ],
+        "test_template_response_of_a_function_view": [
+            (
+                "views.py",
+                "book_list_later",
+                ["test_template_response_of_a_function_view"],
+            )
         ],
         "test_no_middleware_of_the_project": [
             ("views.py", "AuthorList", ["test_no_middleware_of_the_project"])

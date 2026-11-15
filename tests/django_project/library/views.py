@@ -4,6 +4,7 @@ import io
 from collections.abc import AsyncIterator, Iterator
 
 from django.http import FileResponse, HttpRequest, JsonResponse, StreamingHttpResponse
+from django.template.response import TemplateResponse
 from rest_framework import generics, serializers, viewsets
 
 from .models import Author, Book
@@ -49,6 +50,13 @@ class AuthorList(generics.ListAPIView):
 class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Author.objects.all()
     serializer_class = AuthorSerializer
+
+
+def book_list_later(request: HttpRequest) -> TemplateResponse:
+    # rendered by Django after the view returned: no line of it on the stack
+    return TemplateResponse(
+        request, "library/book_list.html", {"object_list": Book.objects.all()}
+    )
 
 
 def book_titles(request: HttpRequest) -> JsonResponse:

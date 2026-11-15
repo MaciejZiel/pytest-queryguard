@@ -14,6 +14,7 @@ urlpatterns = [
     path("api/authors/", views.AuthorList.as_view()),
     path("api/author-set/", views.AuthorViewSet.as_view({"get": "list"})),
     path("books/", views.book_titles),
+    path("books/later/", views.book_list_later),
     path("books/three/", views.three_books),
     path("books/<int:pk>/", views.one_book),
     # async views, for the async test client
