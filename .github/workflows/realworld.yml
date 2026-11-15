@@ -47,7 +47,7 @@ on:
         required: false
         default: ""
       profile:
-        description: "Run the pytest runs without and with the plugin under cProfile (baseline.prof, plugin.prof in the artifact; the timings are then not comparable with other runs)"
+        description: "Run the pytest runs without and with the plugin under cProfile (baseline.prof, plugin.prof in the artifact; the timings are then not comparable with other runs; the other tools and manage.py test projects are not run or profiled)"
         type: boolean
         default: false
 
@@ -236,11 +236,12 @@ jobs:
               PYTHONPATH="$RUNNER_TEMP/probe${PYTHONPATH:+:$PYTHONPATH}" \
               timeout -s INT -k 30 10m "${test_command[@]}" "$@" > "$OUT/$name.log" 2>&1
             else
-              local python=(python)
-              if [ "$PROFILE" = true ] && [ "$name" != zeal ] && [ "$name" != nplusone ]; then
-                python=(python -m cProfile -o "$OUT/$name.prof")
+              local python=(python -m pytest)
+              if [ "$PROFILE" = true ]; then
+                # python -m cProfile would exit 0 whatever pytest returned
+                python=(python -c 'import cProfile, sys, pytest; p = cProfile.Profile(); code = p.runcall(pytest.main, sys.argv[2:]); p.dump_stats(sys.argv[1]); sys.exit(int(code))' "$OUT/$name.prof")
               fi
-              timeout -s INT -k 30 10m "${python[@]}" -m pytest "${args[@]}" "$@" \
+              timeout -s INT -k 30 10m "${python[@]}" "${args[@]}" "$@" \
                 --junitxml="$OUT/$name.xml" > "$OUT/$name.log" 2>&1
             fi
             code=$?
@@ -272,7 +273,7 @@ jobs:
             --queryguard-json="$OUT/queryguard.json" \
             --queryguard-sarif="$OUT/queryguard.sarif" \
             ${plugin_args[0]:+"${plugin_args[@]}"}
-          if [ "$SUITE" = django ]; then
+          if [ "$SUITE" = django ] && [ "$PROFILE" != true ]; then
             # The other N+1 tools for Django, each installed only now, so the
             # two runs above did not have it. zeal's own warning is ignored by
             # its text: some projects turn warnings into errors.

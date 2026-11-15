@@ -505,7 +505,8 @@ def _classify_frames(frames: list[FrameType], library: bool) -> Origin:
 
 # (library, id(code), f_lasti, ...) of the frames from the first application
 # frame up to the test -> (their code objects, the Origin), see _origin.
-# Emptied with the call paths (new_measurement) and when the test code changes.
+# Kept across measurements; emptied when the test code changes, and all at
+# once when full.
 _origins: dict[tuple[object, ...], tuple[tuple[CodeType, ...], Origin]] = {}
 # A suite runs a few thousand distinct stacks; kept across tests, so the
 # stacks of each test are classified once (django-cms: 57 % misses at 1024
@@ -776,6 +777,25 @@ def _in_test_code(filename: str, frame: FrameType) -> bool:
 _MAX_READ_PATH = 32
 
 
+def outer_frame_id() -> int:
+    """The id() of the first frame outwards from the caller that is not of an
+    internal library: the application's line (or the library's, or the
+    hook's) that the statement or load came from. While that frame runs, two
+    calls that give the same id have the same stack from there outwards."""
+    kinds = _kinds
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None:
+        filename = frame.f_code.co_filename
+        try:
+            kind = kinds[filename]
+        except KeyError:
+            kind = _kind(filename)
+        if kind & ~_SPECIAL != _INTERNAL:
+            return id(frame)
+        frame = frame.f_back
+    return 0
+
+
 def read_path() -> tuple[tuple[str, int], ...]:
     """The application lines from the caller outwards, as (file, line).
 
@@ -795,7 +815,7 @@ def read_path() -> tuple[tuple[str, int], ...]:
             kind = _kind(filename)
         if kind == _APP:
             found[(filename, frame.f_lineno)] = None
-        elif kind == _HOOK:
+        elif kind & ~_SPECIAL == _HOOK:
             break
         frame = frame.f_back
     path = tuple(found)
