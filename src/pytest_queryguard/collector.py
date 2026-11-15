@@ -649,6 +649,7 @@ def pop(collector: QueryCollector) -> None:
             del _stack[i]
             break
     _rebuild()
+    callsite.end_measurement()
     _maybe_idle()
 
 

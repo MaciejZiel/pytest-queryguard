@@ -418,10 +418,25 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   or mix it into a test case, so it changes nothing for a project that does
   not. See [Django](django.md#without-pytest-managepy-test).
 
+`tests/django_project/test_public_api.py` snapshots the Django surface the
+same way, so that a change is deliberate while it is experimental and can
+follow the deprecation policy once it is not: `pytest_queryguard.django.__all__`,
+`QueryGuardRunner`'s `--queryguard-mode` and its keyword argument, the keys
+and defaults of `QUERYGUARD` (the ini options' names without the prefix), the
+labels of the findings Django code produces (`Book.author`, `Author.books`,
+`Book.body`, ...), the loader each fix names (`select_related()`,
+`prefetch_related()`, `only()`), and the Django versions and databases CI
+tests. The wording around a fix is not public, as for SQLAlchemy.
+
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
 [In your editor](editor.md) are documentation, not API: they follow the
 output they read and may change in any release.
+The VS Code extension in `editors/vscode` (see
+[In your editor](editor.md#vs-code-the-extension)) has its own version
+number. It reads the public keys of the JSON and SARIF reports and, for the
+SQL and the fix in its hover, the text of a finding's message; when that
+text changes, the hover shows the whole message.
 
 Everything else listed under "What is public" follows the deprecation policy.
 `tests/test_public_api.py` still snapshots the experimental ini options and

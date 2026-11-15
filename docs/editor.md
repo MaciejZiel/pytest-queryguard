@@ -2,13 +2,43 @@
 
 Since 0.10.0.
 
-pytest-queryguard has no editor extension. Its output is regular enough for
-the tools editors already have: a problem matcher turns the test run and the
-[static check](static-check.md) into entries of VS Code's Problems panel,
-and its [SARIF file](sarif.md) opens in a SARIF viewer. Nothing here is
+A VS Code extension marks the findings of the last test run on their lines
+(see below; not in the Marketplace yet). Without it, the output is regular
+enough for the tools editors already have: a problem matcher turns the test
+run and the [static check](static-check.md) into entries of VS Code's Problems
+panel, and its [SARIF file](sarif.md) opens in a SARIF viewer. Nothing here is
 specific to a release of pytest-queryguard beyond the lines it reads, which
 are not a stable interface (see [Stability](stability.md#what-is-not-public)):
 if a matcher stops matching after an upgrade, check this page.
+
+## VS Code: the extension
+
+Since 1.1.0 the repository has a VS Code extension in
+[`editors/vscode`](https://github.com/MaciejZiel/pytest-queryguard/tree/main/editors/vscode).
+It reads the `--queryguard-json` report (or the `--queryguard-sarif` file) of
+the last run and shows each finding as a squiggle and a **Problems** entry on
+its line. The hover has the SQL, how many times it ran, the suggested fix and
+the tests that found it; the quick actions open the documentation of the
+finding and, with a SARIF report, apply the fix that adds the loader option.
+Its commands run pytest on the current file, the test at the cursor or the
+whole project and mark what the run found; it also reloads the report
+whenever something else writes it, such as a run from the terminal.
+
+```console
+python -m pytest --queryguard-json=queryguard.json
+```
+
+is all it needs from the project: `queryguard.json` in the workspace folder
+is the file it reads by default.
+
+It is not published to the Marketplace or Open VSX yet. Until it is, install
+the `.vsix` that the repository's `vscode` workflow builds (the
+`pytest-queryguard-vsix` artifact of a run on `main`) with
+`code --install-extension pytest-queryguard-<version>.vsix`, or build it
+yourself; the settings, the limits and the build and publishing steps are in
+[its README](https://github.com/MaciejZiel/pytest-queryguard/blob/main/editors/vscode/README.md).
+The extension has its own version number and is not part of the package's
+API (see [Stability](stability.md#experimental)).
 
 ## VS Code: tasks with problem matchers
 
@@ -114,7 +144,3 @@ The cheap path is narrower here:
   to the working directory, so the output is plain text.
 - JetBrains IDEs show SARIF files through their Qodana integration, which
   is built for Qodana's own reports; it has not been tried with these files.
-
-An editor extension that shows the findings of the last test run on their
-lines is tracked in
-[#249](https://github.com/MaciejZiel/pytest-queryguard/issues/249).
