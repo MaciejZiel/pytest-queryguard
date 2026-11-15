@@ -69,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- `tests/django_project/test_public_api.py` snapshots the Django surface, as
+  `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,
+  `QueryGuardRunner`'s `--queryguard-mode`, the `QUERYGUARD` keys and
+  defaults, the labels of Django findings and the loader each fix names, and
+  the Django versions and databases CI tests
+  ([Stability](docs/stability.md#experimental)).
 - The overhead baseline has entries for two more CPU models of
   `ubuntu-latest`, which fell back to the highest entry: Intel Xeon 6973P-C
   (dropped when the baseline was recorded again) and Xeon Platinum 8370C
