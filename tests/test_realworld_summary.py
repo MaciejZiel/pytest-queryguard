@@ -527,13 +527,22 @@ def test_the_project_list_is_well_formed(name: str) -> None:
     projects = data["projects"]
     # a full run is one job per project on shared runners; the "projects"
     # input of realworld.yml runs a part of a longer list
-    assert 4 <= len(projects) <= 12
+    assert 4 <= len(projects) <= 14
     names = [p["name"] for p in projects]
     assert len(set(names)) == len(names)
     keys = {"name", "repository", "ref", "python", "workdir", "install"}
     keys |= {"prepare", "pytest_args", "postgres", "env"}
+    # a Django project's own: MySQL, and manage.py test (realworld_runner.py)
+    optional = {"mysql", "test_command"} if "django" in name else set()
     for project in projects:
-        assert set(project) == keys, project["name"]
+        assert keys <= set(project) <= keys | optional, project["name"]
+        if project.get("mysql"):
+            assert {"DATABASE_NAME", "DATABASE_PASSWORD"} <= set(project["env"])
+        if project.get("test_command"):
+            # split on spaces; the runner records the outcomes in one process
+            assert not project["pytest_args"], project["name"]
+            assert '"' not in project["test_command"], project["name"]
+            assert "--parallel" not in project["test_command"], project["name"]
         assert project["ref"] and project["ref"] not in ("main", "master", "HEAD")
         assert project["repository"].count("/") == 1
         assert "," not in project["name"]

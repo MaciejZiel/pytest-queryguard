@@ -181,6 +181,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- The real-world harness (`.github/workflows/realworld.yml`) runs MySQL for a
+  project that asks for it, and `manage.py test` projects under
+  `QueryGuardRunner` (`scripts/realworld_runner.py` writes the JUnit XML and
+  JSON the summary reads). New: django-oscar on MySQL 8.4, django-allauth on
+  Django 6.0 and django-taggit; results in
+  [Django](docs/django.md#mysql-django-60-and-managepy-test-2026-11-15).
+
 - `tests/django_project/test_public_api.py` snapshots the Django surface, as
   `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,
   `QueryGuardRunner`'s `--queryguard-mode`, the `QUERYGUARD` keys and
