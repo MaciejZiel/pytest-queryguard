@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 import warnings
 from collections.abc import Callable, Iterator
@@ -106,9 +107,11 @@ def test_a_lazy_load_per_row_fails_with_the_counts_and_the_fix(
         "queryguard: the number of statements grows with the size: "
         "2 at size 1, 11 at size 10, 51 at size 50"
     )
+    # SQLAlchemy 2.0 adds column labels (customers.id AS customers_id)
+    shown = [re.sub(r" AS \w+", "", line) for line in lines]
     assert (
         "  SELECT customers.id, customers.name FROM customers "
-        "WHERE customers.id = ?" in lines
+        "WHERE customers.id = ?" in shown
     )
     assert (
         "  ran 1 time at size 1, 10 times at size 10, 50 times at size 50 "
