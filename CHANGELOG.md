@@ -7,12 +7,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- N+1 detection without pytest, for Django projects that run
+  `manage.py test` (experimental): `pytest_queryguard.django.QueryGuardRunner`,
+  a `DiscoverRunner` set with `TEST_RUNNER`, measures `setUp()`, the test
+  method and `tearDown()` of every test as the plugin does and fails or warns
+  with the plugin's report; `QueryGuardTestCase` does the same for the test
+  cases it is mixed into, under any runner. Settings in `QUERYGUARD = {...}`
+  with the ini options' names, `--queryguard-mode` on the command line; works
+  with `--parallel`. No baseline, JSON, SARIF, budget files, strict mode or
+  index check without pytest yet
+  ([Django](docs/django.md#without-pytest-managepy-test)).
+
+### Changed
+
+- Baseline labels no longer depend on the database: a `repeated-statement`
+  or `write-loop` entry is written and compared without schema qualifiers,
+  identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,
+  `:id_1`, `$1`, with a PostgreSQL cast) and SQLAlchemy 2.0's column aliases,
+  and a `missing-index` entry without the table's schema. One baseline now
+  matches on SQLite and PostgreSQL and on SQLAlchemy 2.0 and 2.1. A file
+  written by an earlier release still matches and is rewritten in the new
+  form by the next `--queryguard-update-baseline`; reports, JSON, SARIF
+  fingerprints and ignore patterns keep the full label
+  ([Baseline](docs/baseline.md#what-an-entry-is)).
+
+### Fixed
+
+- Django (experimental): each request of the `AsyncClient` counts on its own
+  on Django 5.2 and 6.0 too, as it did on 6.1 and as requests of the sync
+  test client always did. Before 6.1, `Signal.asend` runs the receivers of
+  `request_started` in a task of their own, so the requests of a test were
+  counted together per connection, and lookups each request makes once (the
+  user, its permissions, the session) were reported as an N+1. Seen on
+  strawberry-django, whose GraphQL test client sends each query through
+  `AsyncClient`: 34 false `relationship-load` findings (30 of
+  `User.user_permissions`, 4 of `Project.milestones`).
+- Django (experimental): a streamed body (`StreamingHttpResponse`,
+  `FileResponse`) that a test reads from an `AsyncClient` response after the
+  call returned counts in its request, on every Django version.
+- Django (experimental): a helper that gets one object and reads its relation
+  is no longer an N+1 when it runs once from each of two lines (one request
+  that handles two sessions, say): the parents of one query line are grouped
+  by the call path of the read too, which every pass of a loop shares, so the
+  same helper in a loop is still found. Seen on django-allauth, `UserSession.user` read by
+  `create_from_request()` for the token's and the cookie's session (3 false
+  `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
+- Django (experimental): a streamed body of the sync test client counts in
+  its own request also when the test reads the bodies of several requests in
+  turn (before, in the last request's, then per connection), and the test's
+  own statements after the call, before or without reading the body, no
+  longer count in that request.
+- `track()` on a generator function (sync or async) no longer counts the
+  statements of the code that consumes the generator between items, and two
+  such generators read in turn each end their own unit; before, the unit stayed
+  current between items, and the first generator to end finished the unit of
+  the other.
+
 ### Documentation
 
+- [Django](docs/django.md#five-more-projects-2026-11-14): the test suites of
+  five more open-source Django projects (paperless-ngx, Tandoor,
+  django-allauth, strawberry-django, Label Studio; 5,478 tests). The plugin
+  changed no test's outcome and reported no internal error. Of 51 finding
+  sites read, 37 were true, 12 debatable and 2 false; both false ones are
+  fixed above. The five projects are in
+  `scripts/realworld_django_projects.json`. The
+  [Django design note](docs/design-django.md#5-out-of-experimental) lists
+  what is still missing before the Django support stops being experimental.
 - [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
 
 ### Internal
 
+- `tests/inapp/test_request_lifecycle.py`: one matrix of a request's lifecycle
+  phases (streamed sync and async bodies, close callbacks, files, background
+  tasks, errors half way through a body, `HEAD`, mounted applications,
+  middleware order, concurrent and interleaved requests) for the ASGI and WSGI
+  middleware, `track()` and the Django test clients
+  (`tests/django_project/test_request_lifecycle.py`), each request checked to keep exactly its own
+  statements; and a checklist in CONTRIBUTING.md, linked from the pull request
+  template, for code that scopes something to a request.
+- The overhead baseline has entries for two more CPU models of
+  `ubuntu-latest`, which fell back to the highest entry: Intel Xeon 6973P-C
+  (dropped when the baseline was recorded again) and Xeon Platinum 8370C
+  (never recorded), from green logs of the release gate's overhead job run
+  alone on `main`. Xeon 6975P-C did not come up in 80 jobs and still falls
+  back. See [Releasing](docs/releasing.md#when-a-threshold-has-to-change).
 - The nightly Python 3.16 job installs the dev group without fastapi and pydantic (pydantic-core has no 3.16 build yet) and skips the fastapi tests (the `fastapi_project` fixture now skips when fastapi is missing), so it runs the plugin's tests again instead of failing in `uv sync`.
 
 ## [1.0.0] - 2026-11-14

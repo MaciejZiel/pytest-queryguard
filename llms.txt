@@ -218,7 +218,7 @@ Findings follow `queryguard_mode`. Exclude small lookup tables with `queryguard_
 - The index check needs PostgreSQL 16 or newer and a sync engine or an async engine on asyncpg; other async drivers (such as psycopg async) are skipped with a notice. It reads index and column definitions from the catalog once per session and drops that cache on DDL it sees through SQLAlchemy; DDL run another way is not seen. It checks only `SELECT` and `WITH` statements and judges plans, not data. Join conditions alone are never reported.
 - Partitioned tables are reported under the partition's name.
 - The SQLite index check reads the plan SQLite chose, so it is less precise than the PostgreSQL one (see docs/index-check-sqlite.md).
-- Unused eager loads are detected only by the experimental, off-by-default check, and not for Django. A baseline records the SQL text of `repeated-statement` findings, which SQLAlchemy 2.0 and 2.1 render differently.
+- Unused eager loads are detected only by the experimental, off-by-default check, and not for Django. Since 1.1.0 baseline labels of `repeated-statement`, `write-loop` and `missing-index` entries leave out schema qualifiers, identifier quotes, the placeholder style and SQLAlchemy 2.0 column aliases, so one baseline matches on SQLite and PostgreSQL and on SQLAlchemy 2.0 and 2.1; files written before still match.
 
 ## Docs
 

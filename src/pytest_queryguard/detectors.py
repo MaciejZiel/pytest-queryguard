@@ -16,6 +16,7 @@ from .events import (
     ColumnLoadEvent,
     RelationshipLoadEvent,
     StatementEvent,
+    query_line,
     read_key,
 )
 from .findings import (
@@ -415,7 +416,9 @@ def _n_plus_one_groups(
 
     As in strict mode, the parents are grouped by the query line that loaded
     them, and a group needs ``threshold`` distinct parents, so two
-    single-object lookups at two lines are no N+1 (#307). A parent whose
+    single-object lookups at two lines are no N+1 (#307), nor are two at one
+    line whose objects are read through two call paths (``query_line``,
+    Django: a lookup helper called from two lines). A parent whose
     query is unknown (made by the test, loaded before the measurement, read
     by two queries) is grouped by the line that read the relationship
     instead: a loop reads it at one line, straight-line code that reads the
@@ -425,13 +428,13 @@ def _n_plus_one_groups(
     application is known counts for every group.
     """
     unknown: dict[object, list[RelationshipLoadEvent]] = {}
-    groups: dict[CallSite, list[RelationshipLoadEvent]] = {}
+    groups: dict[object, list[RelationshipLoadEvent]] = {}
     for load in loads:
-        parent = load.parent
-        if parent is None or parent.callsite is None:
+        line = query_line(load)
+        if line is None:
             unknown.setdefault(read_key(load), []).append(load)
         else:
-            groups.setdefault(parent.callsite, []).append(load)
+            groups.setdefault(line, []).append(load)
     # read at an unknown line (no frame of the application): may be any line
     anywhere = unknown.pop(None, [])
     # every load of an unknown parent read at a line, whatever its call path

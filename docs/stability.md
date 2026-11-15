@@ -78,7 +78,7 @@ release.
 
 | What | Format key | Public | Not public |
 |---|---|---|---|
-| Baseline file (`--queryguard-baseline`, see [Baseline](baseline.md)) | `"version": 1` | `findings`, each with `kind`, `label`, `file`, `function` (the identity of a finding) | the order of the entries |
+| Baseline file (`--queryguard-baseline`, see [Baseline](baseline.md)) | `"version": 1` | `findings`, each with `kind`, `label`, `file`, `function` (the identity of a finding; since 1.1.0 the label of a `repeated-statement`, `write-loop` or `missing-index` entry is written and compared without what depends on the database, and a label in the full form still matches, see [Baseline](baseline.md#what-an-entry-is)) | the order of the entries |
 | Budget file (`--queryguard-budgets`, see [Budgets](budgets.md#lock-todays-counts-the-budget-file)) | `"format": 1` | `budgets`: test node id to a number of queries | the order of the entries |
 | Query counts (`--queryguard-json`, see [CI](ci.md#query-counts-as-json)) | `"format": 1` | the keys documented there: `tool`, `complete`, and per test `statements`, `by_verb`, `db_time`, `truncated`, `max_queries_marker`, `findings` (`kind`, `label`, `count`, `file`, `function`, `line`, `stack`, `baselined`) | `tool.version`, the text of a finding's `message`, the order of tests and findings |
 | SARIF file (`--queryguard-sarif`, see [SARIF](sarif.md)) | SARIF 2.1.0 | the rule ids `queryguard/<kind>`, one per finding kind; the fingerprint key `queryguardIdentity/v1` in `partialFingerprints` and the identity it hashes, so code scanning alerts stay the same alerts after an upgrade; the result `properties` `count`, `label`, `tests` and `peakCount` | rule names, descriptions and help, message text, `primaryLocationLineHash`, `codeFlows`, `fixes` (experimental, see below) |
@@ -408,6 +408,12 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
   databases it supports. Options, files and APIs shared with SQLAlchemy keep
   their guarantees; only what they contain for Django is experimental. See
   [Django](django.md).
+- The Django test runner for `manage.py test` (since 1.1.0),
+  `pytest_queryguard.django`: `QueryGuardRunner`, `QueryGuardTestCase`, the
+  `QUERYGUARD` setting and its keys, `--queryguard-mode`, and the failures
+  and warnings it reports. It is used only when you set it as `TEST_RUNNER`
+  or mix it into a test case, so it changes nothing for a project that does
+  not. See [Django](django.md#without-pytest-managepy-test).
 
 The agent skill (`skills/pytest-queryguard/SKILL.md`), the agent rules in
 [Coding agents](agents.md) and the editor settings in
