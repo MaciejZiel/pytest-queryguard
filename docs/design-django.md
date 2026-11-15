@@ -513,12 +513,10 @@ Status on 2026-11-15, after 1.0.0 and 11 real projects (14,423 tests, see
 experimental since 0.10.0. This is what still blocks dropping that label in
 1.1.0:
 
-1. **Locations behind a project's middleware.** When the rows are read
-   with no line of the project in the call (a DRF `ModelSerializer` under a
-   generic view), the finding points at the first project frame on the
-   stack. In paperless-ngx, Tandoor and Label Studio that frame is a
-   middleware's `get_response(request)` line. Such a frame needs to be
-   passed over, so the finding names the view or the test line instead.
+1. ~~**Locations behind a project's middleware.**~~ Done in 1.1.0: when no
+   line of the project runs between Django's call of the view and the
+   statement, the finding names the view class or function, with the test
+   line as its caller; project middlewares are passed over.
 2. **Repetition that test code drives.** 11 of the 51 sites read in the
    second run, and most of the 28 debatable ones of the first, are app code
    that runs once per pass of a loop in the test, or once per fixture made

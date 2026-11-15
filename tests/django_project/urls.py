@@ -12,6 +12,7 @@ urlpatterns = [
     path("api/books/", views.BookList.as_view()),
     path("api/books-fixed/", views.BookListFixed.as_view()),
     path("api/authors/", views.AuthorList.as_view()),
+    path("api/author-set/", views.AuthorViewSet.as_view({"get": "list"})),
     path("books/", views.book_titles),
     path("books/three/", views.three_books),
     path("books/<int:pk>/", views.one_book),

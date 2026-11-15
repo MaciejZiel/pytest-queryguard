@@ -4,7 +4,7 @@ import io
 from collections.abc import AsyncIterator, Iterator
 
 from django.http import FileResponse, HttpRequest, JsonResponse, StreamingHttpResponse
-from rest_framework import generics, serializers
+from rest_framework import generics, serializers, viewsets
 
 from .models import Author, Book
 
@@ -42,6 +42,11 @@ class AuthorSerializer(serializers.ModelSerializer):
 
 
 class AuthorList(generics.ListAPIView):
+    queryset = Author.objects.all()
+    serializer_class = AuthorSerializer
+
+
+class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Author.objects.all()
     serializer_class = AuthorSerializer
 

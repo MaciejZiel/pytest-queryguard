@@ -262,6 +262,11 @@ def test_nested_serializer_of_a_generic_view(client, db):
     assert client.get("/api/authors/").status_code == 200
 
 
+def test_nested_serializer_of_a_viewset(client, db):
+    seed()
+    assert client.get("/api/author-set/").status_code == 200
+
+
 def test_template_of_a_generic_view(client, db):
     seed()
     assert client.get("/books/list/").status_code == 200
@@ -297,7 +302,7 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
     monkeypatch.setenv("PYTEST_ADDOPTS", INNER_ADDOPTS)
     project.makepyfile(test_declarative=DECLARATIVE)
     result = _run(project, "test_declarative.py", "--queryguard-json=out.json")
-    result.assert_outcomes(passed=2, failed=3)
+    result.assert_outcomes(passed=2, failed=4)
     tests = json.loads((project.path / "out.json").read_text())["tests"]
     labels = {
         key.split("::")[-1]: [f["label"] for f in value["findings"]]
@@ -305,8 +310,35 @@ def test_n_plus_ones_of_views_with_no_line_of_the_project_are_reported(
     }
     assert labels == {
         "test_nested_serializer_of_a_generic_view": ["Author.books"],
+        "test_nested_serializer_of_a_viewset": ["Author.books"],
         "test_template_of_a_generic_view": ["Book.author"],
         "test_generic_view_called_directly": ["Author.books"],
         "test_loop_in_the_test": [],
         "test_serializer_used_by_the_test": [],
+    }
+    # No line of the project runs between the view and the statements: the
+    # location is the view, not the project's middleware on the stack, with
+    # the test's line as its caller; for a view of Django's (ListView), the
+    # test's line
+    locations = {
+        key.split("::")[-1]: [
+            (Path(f["file"]).name, f["function"], [s["function"] for s in f["stack"]])
+            for f in value["findings"]
+        ]
+        for key, value in tests.items()
+        if value["findings"]
+    }
+    assert locations == {
+        "test_nested_serializer_of_a_generic_view": [
+            ("views.py", "AuthorList", ["test_nested_serializer_of_a_generic_view"])
+        ],
+        "test_nested_serializer_of_a_viewset": [
+            ("views.py", "AuthorViewSet", ["test_nested_serializer_of_a_viewset"])
+        ],
+        "test_template_of_a_generic_view": [
+            ("test_declarative.py", "test_template_of_a_generic_view", [])
+        ],
+        "test_generic_view_called_directly": [
+            ("test_declarative.py", "test_generic_view_called_directly", [])
+        ],
     }

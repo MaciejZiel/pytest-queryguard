@@ -55,6 +55,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `create_from_request()` for the token's and the cookie's session (3 false
   `relationship-load` findings). Corpus scenarios `clean_37` and `bug_38`.
 
+- Django (experimental): a finding of a view that runs no line of the project
+  between Django and the query (a DRF generic view with a class-level
+  `queryset` and its `ModelSerializer`, a `TemplateResponse` rendered after
+  the view returned) names the view class or function, with the test line
+  that made the request as its caller. It named the first project frame on
+  the stack, which in most projects is a middleware's
+  `get_response(request)` line: seen on paperless-ngx, Tandoor and Label
+  Studio. A view of Django's own (`ListView` in the URLconf) points at the
+  test line, as it did without a project middleware.
+- Django (experimental): the async ORM calls of an async view under a sync
+  middleware of the project name the line that awaited them, not the
+  middleware's `get_response(request)` line, which asgiref's thread had on
+  its stack.
+
 ### Documentation
 
 - [Django](docs/django.md#five-more-projects-2026-11-14): the test suites of

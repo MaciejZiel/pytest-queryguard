@@ -4,7 +4,7 @@ import itertools
 import os
 import sys
 import sysconfig
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import CodeType, FrameType
 from typing import Any, NamedTuple
@@ -333,6 +333,8 @@ def _site_origin(
     skipped: FrameType | None = None  # the first method of a Session subclass
     walking = True  # before the hook call that ran the test
     library = False  # a _LIBRARY frame since the statement
+    dispatch = _dispatch
+    dispatched: FrameType | None = None  # the frame that called a view
     kinds = _kinds
     internal = _INTERNAL
     frame: FrameType | None = first
@@ -355,7 +357,10 @@ def _site_origin(
             frame = frame.f_back
             continue
         if kind:
-            if kind == _HOOK and walking:
+            if kind == _BOUNDARY:
+                if walking and id(frame.f_code) in _boundaries:
+                    break  # the rest of the stack did not make this call
+            elif kind == _HOOK and walking:
                 walking = False
                 if not want_site:
                     break
@@ -363,6 +368,8 @@ def _site_origin(
                 # an installed Session subclass (SQLModel's exec()) is part of
                 # the session, not an application installed in site-packages
                 library = True
+                if dispatch and dispatched is None and id(frame.f_code) in dispatch:
+                    dispatched = frame
             frame = frame.f_back
             continue
         if _is_session_method(frame):
@@ -370,7 +377,12 @@ def _site_origin(
                 skipped = frame
             frame = frame.f_back
             continue
-        site = None if sites is None else _site(frame, sites)
+        if sites is None:
+            site = None
+        elif dispatched is not None and walking:
+            site = _view_site(dispatched, frame, sites)
+        else:
+            site = _site(frame, sites)
         if not walking:
             return site, NO_ORIGIN  # found above the test: no call path
         return site, _origin(frame, library, parents)
@@ -491,6 +503,7 @@ _MAX_ORIGINS = 1024
 _kinds: dict[str, int] = {}
 _MAX_KINDS = 4096
 _APP, _INTERNAL, _HOOK, _LIBRARY = 0, 1, 2, 3
+_BOUNDARY = 4  # an internal file that holds a function of _boundaries
 _TEST_LIBRARIES = frozenset(
     {
         "factory",
@@ -565,6 +578,8 @@ def _kind(filename: str) -> int:
         stop = _hook_caller()
         if stop and os.path.normcase(filename).startswith(stop):
             kind = _HOOK
+        elif filename in _boundary_files:
+            kind = _BOUNDARY
         else:
             kind = _INTERNAL if _known_library(filename) else _LIBRARY
             if kind == _INTERNAL and _runs_the_application(filename):
@@ -749,10 +764,13 @@ def read_path() -> tuple[tuple[str, int], ...]:
     """
     found: dict[tuple[str, int], None] = {}
     stop = _hook_caller()
+    boundaries = _boundaries
     frame: FrameType | None = sys._getframe(1)
     while frame is not None:
         filename = frame.f_code.co_filename
         if stop and os.path.normcase(filename).startswith(stop):
+            break
+        if boundaries and id(frame.f_code) in boundaries:
             break
         if not _is_internal(filename):
             found[(filename, frame.f_lineno)] = None
@@ -778,6 +796,108 @@ def _site(frame: FrameType, sites: Sites) -> CallSite:
     return site
 
 
+# A request that reaches the database with no line of the project between
+# the framework's call of the view and the statement (a DRF generic view and
+# its ModelSerializer, a TemplateResponse rendered after the view returned):
+# the first application frame on the stack is then a middleware's
+# ``get_response(request)`` line, or the line of the test that made the
+# request. The call site is the view instead (see register_views).
+# id(code) -> code of the functions that call the view (Django's
+# BaseHandler._get_response), and of those that take a request in
+# (BaseHandler.get_response): the middlewares run between the two.
+_dispatch: dict[int, CodeType] = {}
+_request_entries: dict[int, CodeType] = {}
+# id(code) -> code of the functions that run a call handed over from other
+# code in a thread of their own (asgiref's SyncToAsync.thread_handler): the
+# frames beyond them did not make the call (they are whatever the thread ran
+# before, a sync middleware of an async request), so the walk for the call
+# site ends there. _boundary_files are their files: the frames of those
+# files are of the kind _BOUNDARY, the others need no lookup.
+_boundaries: dict[int, CodeType] = {}
+_boundary_files: frozenset[str] = frozenset()
+# The frame of a _dispatch function -> (file, first line, name) of the view
+# it called, or None when that is not known.
+_view_of: Callable[[FrameType], tuple[str, int, str] | None] | None = None
+
+
+def register_frames(
+    dispatch: Iterable[CodeType],
+    entries: Iterable[CodeType],
+    view_of: Callable[[FrameType], tuple[str, int, str] | None],
+    boundaries: Iterable[CodeType],
+) -> None:
+    """Frames of a web framework that the walk for the call site treats apart.
+
+    ``dispatch`` are the code objects of the functions that call a view,
+    ``entries`` those of the functions that take a request in, and
+    ``view_of`` gives the view a ``dispatch`` frame called: the view, not
+    the middleware, is the call site of a statement no line of the project
+    runs. The walk ends at a frame of ``boundaries`` (see _boundaries).
+    """
+    global _view_of, _boundary_files
+    _dispatch.clear()
+    _dispatch.update((id(code), code) for code in dispatch)
+    _request_entries.clear()
+    _request_entries.update((id(code), code) for code in entries)
+    _view_of = view_of
+    _boundaries.clear()
+    _boundaries.update((id(code), code) for code in boundaries)
+    _boundary_files = frozenset(code.co_filename for code in _boundaries.values())
+    _kinds.clear()
+
+
+def _outside_request(frame: FrameType | None) -> FrameType | None:
+    """The first application frame outside the request ``frame`` is in.
+
+    The application frames inside are middlewares; the first one outside is
+    the line that made the request (a test's ``client.get()``). None when
+    there is none before the hook call that ran the test (a live server's
+    thread).
+    """
+    stop = _hook_caller()
+    outside = False
+    while frame is not None:
+        code = frame.f_code
+        if stop and os.path.normcase(code.co_filename).startswith(stop):
+            return None
+        if id(code) in _request_entries:
+            outside = True
+        elif (
+            outside
+            and not _is_internal(code.co_filename)
+            and not _is_session_method(frame)
+        ):
+            return _outer(frame) if code.co_name in _INLINED else frame
+        frame = frame.f_back
+    return None
+
+
+def _view_site(dispatched: FrameType, first: FrameType, sites: Sites) -> CallSite:
+    """The call site of a statement that the view ``dispatched`` called ran
+    with no line of the project between them: ``first`` is the first
+    application frame outwards (a middleware, or the test).
+
+    The view's own first line when the view is the project's code, with the
+    lines outside the request as its callers; else the line that made the
+    request, else ``first``.
+    """
+    outside = _outside_request(first)
+    view = _view_of(dispatched) if _view_of is not None else None
+    if view is None or _kind(view[0]) != _APP:
+        return _site(outside if outside is not None else first, sites)
+    site = sites.get(view)
+    if site is None:
+        if len(sites) >= _MAX_SITES:
+            sites.clear()
+        site = sites[view] = CallSite(
+            filename=view[0],
+            lineno=view[1],
+            function=view[2],
+            callers=_callers(outside, _stack_depth) if outside is not None else (),
+        )
+    return site
+
+
 def _first_external(
     frame: FrameType | None, sites: Sites, skipped: list[FrameType] | None = None
 ) -> CallSite | None:
@@ -785,20 +905,34 @@ def _first_external(
 
     A method of a Session subclass is passed over (see _is_session_method);
     the first one is appended to ``skipped``, the call site to use when no
-    other application frame is found.
+    other application frame is found. A frame that called a view on the way
+    names the view instead (see _view_site).
     """
     internal = _internal
+    dispatch = _dispatch
+    boundary_files = _boundary_files
+    dispatched: FrameType | None = None
     while frame is not None:
         filename = frame.f_code.co_filename
         try:
             skip = internal[filename]
         except KeyError:
             skip = internal[filename] = _classify(filename)
+        if (
+            boundary_files
+            and filename in boundary_files
+            and id(frame.f_code) in _boundaries
+        ):
+            return None
         if not skip:
             if not _is_session_method(frame):
+                if dispatched is not None:
+                    return _view_site(dispatched, frame, sites)
                 return _site(frame, sites)
             if skipped is not None and not skipped:
                 skipped.append(frame)
+        elif dispatch and dispatched is None and id(frame.f_code) in dispatch:
+            dispatched = frame
         frame = frame.f_back
     return None
 
