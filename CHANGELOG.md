@@ -103,6 +103,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- `tests/django_project/test_public_api.py` snapshots the Django surface, as
+  `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,
+  `QueryGuardRunner`'s `--queryguard-mode`, the `QUERYGUARD` keys and
+  defaults, the labels of Django findings and the loader each fix names, and
+  the Django versions and databases CI tests
+  ([Stability](docs/stability.md#experimental)).
 - `tests/inapp/test_request_lifecycle.py`: one matrix of a request's lifecycle
   phases (streamed sync and async bodies, close callbacks, files, background
   tasks, errors half way through a body, `HEAD`, mounted applications,

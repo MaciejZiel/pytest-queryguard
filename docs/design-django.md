@@ -525,11 +525,11 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    frozen.
 3. **Work spread over threads** (django-oscar's concurrency test) still
    counts together with `queryguard_scope = test`.
-4. **Freeze the Django surface**: the labels and fix wording of Django
-   findings, the `QUERYGUARD` settings and `QueryGuardRunner` of
-   `manage.py test`, and the supported Django versions and databases.
-   `tests/test_public_api.py` has to snapshot it, as the 1.0 freeze did for
-   SQLAlchemy ([1.0 freeze](design-1.0-freeze.md)).
+4. ~~**Freeze the Django surface**~~ Done in 1.1.0:
+   `tests/django_project/test_public_api.py` snapshots `__all__` of
+   `pytest_queryguard.django`, the runner's option, the `QUERYGUARD` keys
+   and defaults, the labels and the loader each fix names, and the Django
+   versions and databases of CI ([Stability](stability.md#experimental)).
 5. **Coverage the real-project runs lack**: no project ran on MySQL or on
    Django 6.0, only DRF ran on 6.1, and `QueryGuardRunner` has not run on a
    `manage.py test` project yet. Most Django projects found for outreach use
