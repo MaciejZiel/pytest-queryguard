@@ -80,7 +80,8 @@ it("offers to open the documentation", async () => {
   );
   const docs = actions.find((a) => a.title === "Open queryguard docs: relationship-load");
   assert.ok(docs, `actions: ${actions.map((a) => a.title).join(", ")}`);
-  assert.equal(docs.command?.command, "vscode.open");
+  // VS Code hands the command of a provided action back as its internal form
+  assert.ok(["vscode.open", "_workbench.open"].includes(docs.command?.command ?? ""), docs.command?.command);
 });
 
 it("reads a SARIF report and applies its fix", async () => {
@@ -103,6 +104,13 @@ it("reads a SARIF report and applies its fix", async () => {
       document.lineAt(8).text,
       "    for order in session.scalars(select(Order).options(joinedload(Order.customer))).all():",
     );
+    // the lines have changed: the fix is not offered again
+    const after = await vscode.commands.executeCommand<vscode.CodeAction[]>(
+      "vscode.executeCodeActionProvider",
+      orders,
+      new vscode.Range(9, 0, 9, 0),
+    );
+    assert.ok(!after.some((a) => a.title === fix.title), `actions: ${after.map((a) => a.title).join(", ")}`);
   } finally {
     await vscode.window.showTextDocument(document);
     await vscode.commands.executeCommand("workbench.action.files.revert");

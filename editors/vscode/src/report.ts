@@ -93,6 +93,9 @@ export interface MessageParts {
  */
 export function parseMessage(message: string): MessageParts {
   const lines = message.replace(/\r\n/g, "\n").split("\n");
+  // a SARIF result merged from several tests starts with a line of totals
+  // ("Seen in 3 tests: ... The test with the earliest line:")
+  if (lines.length > 1 && /^Seen in \d+ tests: .*:$/.test(lines[0])) lines.shift();
   const parts: MessageParts = { headline: (lines[0] ?? "").trim() };
   const sections: Partial<Record<"sql" | "fix" | "docs", string[]>> = {};
   let open: string[] | undefined;
@@ -152,7 +155,7 @@ export function parseReport(text: string): Report {
   throw new ReportError("neither a --queryguard-json nor a SARIF file");
 }
 
-function finish(partial: Omit<Finding, "headline" | "sql" | "hint" | "docs">): Finding {
+function finish(partial: Omit<Finding, "headline" | "sql" | "hint" | "docs" | "fix"> & { fix?: Fix }): Finding {
   const parts = parseMessage(partial.message);
   return {
     ...partial,
@@ -191,17 +194,12 @@ function parseJson(data: Record<string, unknown>): Report {
         seen.baselined = seen.baselined && baselined;
         if (count > seen.count) seen.count = count;
         if (line < seen.line) {
-          seen.line = line;
+          // like SARIF: the earliest line, with that test's message and callers
+          const earliest = finish({ ...seen, line, stack: jsonStack(raw.stack), message: str(raw.message) });
+          Object.assign(seen, earliest);
         }
         continue;
       }
-      const stack: Frame[] = Array.isArray(raw.stack)
-        ? raw.stack.filter(isRecord).map((frame) => ({
-            file: str(frame.file),
-            line: int(frame.line),
-            function: str(frame.function),
-          }))
-        : [];
       byIdentity.set(
         key,
         finish({
@@ -216,7 +214,7 @@ function parseJson(data: Record<string, unknown>): Report {
           tests: [nodeId],
           level: "warning",
           baselined,
-          stack,
+          stack: jsonStack(raw.stack),
           message: str(raw.message),
         }),
       );
@@ -227,6 +225,14 @@ function parseJson(data: Record<string, unknown>): Report {
     complete: data.complete !== false,
     findings: [...byIdentity.values()],
   };
+}
+
+function jsonStack(raw: unknown): Frame[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(isRecord)
+    .map((frame) => ({ file: str(frame.file), line: int(frame.line), function: str(frame.function) }))
+    .filter((frame) => frame.file && frame.line > 0);
 }
 
 function sarifLevel(value: unknown): Level {

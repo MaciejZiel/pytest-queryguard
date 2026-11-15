@@ -195,3 +195,35 @@ test("the docs table matches the plugin's", () => {
     assert.equal(docsUrl(kinds[name]), `https://maciejziel.github.io/pytest-queryguard/${page}`, name);
   }
 });
+
+test("a merged SARIF message keeps the finding's own first line as the headline", () => {
+  const parts = parseMessage(
+    "Seen in 3 tests: 12 times in total, up to 4 times in one test. The test with the earliest line:\n" +
+      "Order.customer was lazy-loaded 4 times\nsql: SELECT 1",
+  );
+  assert.equal(parts.headline, "Order.customer was lazy-loaded 4 times");
+  assert.equal(parts.sql, "SELECT 1");
+});
+
+test("a merged JSON finding takes the message and callers of its earliest line", () => {
+  const report = parseReport(
+    jsonReport({
+      "t.py::a": [finding({ line: 40, message: "at forty", stack: [{ file: "t.py", line: 5, function: "a" }] })],
+      "t.py::b": [
+        finding({
+          line: 12,
+          message: "at twelve",
+          stack: [
+            { file: "t.py", line: 9, function: "b" },
+            { file: "t.py", line: null, function: "broken" },
+          ],
+        }),
+      ],
+    }),
+  );
+  const [merged] = report.findings;
+  assert.equal(merged.line, 12);
+  assert.equal(merged.headline, "at twelve");
+  assert.deepEqual(merged.stack, [{ file: "t.py", line: 9, function: "b" }], "a frame without a line is dropped");
+  assert.equal(merged.testCount, 2);
+});

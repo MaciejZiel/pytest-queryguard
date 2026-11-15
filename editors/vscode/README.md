@@ -34,8 +34,11 @@ the new report.
 
 The marks follow the report file: when anything writes it (a run from the
 terminal, a task, the commands above), they are replaced. A run that was
-interrupted (a collection error, Ctrl-C, a usage error) writes no report, so
-the marks of the previous run stay; the command says so.
+interrupted (a collection error, `-x`, Ctrl-C) writes a JSON report marked
+incomplete, so the marks cover only the tests that ran, and no SARIF file, so
+the marks of the previous run stay; the commands warn when pytest stopped
+early, and the **queryguard** output channel says when a report is
+incomplete.
 
 With `"queryguard.reportFile": "queryguard.sarif"` the extension reads the
 [SARIF file](https://maciejziel.github.io/pytest-queryguard/sarif.html)
@@ -67,6 +70,8 @@ the tests and lists baselined findings.
   words it differently, the hover shows the whole message instead.
 - **Run pytest on the Test at the Cursor** finds the test by indentation, so a
   line of a multi-line string that starts at column 0 hides the test above it.
+- The fix of a SARIF finding is offered only while the lines it edits are as
+  they were when the report was read; run the tests again after editing them.
 
 See [In your editor](https://maciejziel.github.io/pytest-queryguard/editor.html)
 for the other ways to see findings in VS Code and PyCharm.

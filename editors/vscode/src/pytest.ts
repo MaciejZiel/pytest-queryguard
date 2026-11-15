@@ -10,6 +10,8 @@ const HEADER = /^(\s*)(?:async\s+def|def|class)\s+(\w+)/;
  * from the line through the blocks that enclose it, by indentation.
  */
 export function testAt(lines: readonly string[], line: number): string[] | undefined {
+  // on a decorator: the function it decorates
+  while (line + 1 < lines.length && /^\s*@/.test(lines[line])) line++;
   let limit = Infinity;
   const names: string[] = [];
   let test: string | undefined;

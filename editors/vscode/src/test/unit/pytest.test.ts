@@ -42,6 +42,8 @@ test("testAt finds the test that encloses a line", () => {
   assert.deepEqual(testAt(SOURCE, line("return 2")), ["TestOrders", "test_method"]);
   assert.deepEqual(testAt(SOURCE, line("assert inner()")), ["TestOrders", "test_method"]);
   assert.deepEqual(testAt(SOURCE, line("pass")), ["TestOrders", "test_async"]);
+  // on the decorator of a test
+  assert.deepEqual(testAt(SOURCE, line("@pytest.mark.slow")), ["TestOrders", "test_method"]);
 });
 
 test("testAt finds no test outside test functions", () => {

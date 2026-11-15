@@ -14,10 +14,20 @@ import { nodeId, pytestArgs, relativeForPytest, resolveReportPath, testAt } from
 
 const SOURCE = "queryguard";
 
+/** A SARIF fix with its files found and the lines it expects to edit. */
+interface ResolvedInsertion {
+  uri: vscode.Uri;
+  position: vscode.Position;
+  text: string;
+  /** The line as it was when the report was loaded. */
+  expected: string;
+}
+
 interface Located {
   finding: Finding;
   uri: vscode.Uri;
   range: vscode.Range;
+  fix?: { description: string; insertions: ResolvedInsertion[] };
 }
 
 interface FolderSettings {
@@ -68,6 +78,22 @@ class Findings implements vscode.HoverProvider, vscode.CodeActionProvider {
     this.located.clear();
   }
 
+  private pending: NodeJS.Timeout | undefined;
+
+  /** Reloads soon, once for several writes of the report in a row. */
+  scheduleReload(): void {
+    if (this.pending) clearTimeout(this.pending);
+    this.pending = setTimeout(() => {
+      this.pending = undefined;
+      this.reload();
+    }, 200);
+  }
+
+  dispose(): void {
+    if (this.pending) clearTimeout(this.pending);
+    this.diagnostics.dispose();
+  }
+
   /** Reads the report of every workspace folder and replaces the diagnostics. */
   reload(): void {
     this.clear();
@@ -101,15 +127,18 @@ class Findings implements vscode.HoverProvider, vscode.CodeActionProvider {
           unresolved++;
           continue;
         }
-        if (!fileLines.has(file)) {
-          try {
-            fileLines.set(file, fs.readFileSync(file, "utf8").split(/\r?\n/));
-          } catch {
-            fileLines.set(file, undefined);
+        const linesOf = (name: string) => {
+          if (!fileLines.has(name)) {
+            try {
+              fileLines.set(name, fs.readFileSync(name, "utf8").split(/\r?\n/));
+            } catch {
+              fileLines.set(name, undefined);
+            }
           }
-        }
+          return fileLines.get(name);
+        };
         const uri = vscode.Uri.file(file);
-        const range = lineRange(fileLines.get(file), finding.line - 1);
+        const range = lineRange(linesOf(file), finding.line - 1);
         const diagnostic = new vscode.Diagnostic(
           range,
           diagnosticMessage(finding),
@@ -133,7 +162,7 @@ class Findings implements vscode.HoverProvider, vscode.CodeActionProvider {
         entry.items.push(diagnostic);
         perFile.set(key, entry);
         const located = this.located.get(key) ?? [];
-        located.push({ finding, uri, range });
+        located.push({ finding, uri, range, fix: resolveFix(finding, bases, linesOf) });
         this.located.set(key, located);
       }
       if (unresolved) {
@@ -159,17 +188,23 @@ class Findings implements vscode.HoverProvider, vscode.CodeActionProvider {
     return new vscode.Hover(contents, here[0].range);
   }
 
-  provideCodeActions(document: vscode.TextDocument, range: vscode.Range | vscode.Selection): vscode.CodeAction[] {
+  async provideCodeActions(
+    document: vscode.TextDocument,
+    range: vscode.Range | vscode.Selection,
+  ): Promise<vscode.CodeAction[]> {
     const actions: vscode.CodeAction[] = [];
     const seen = new Set<string>();
     for (let line = range.start.line; line <= range.end.line; line++) {
-      for (const { finding, uri } of this.at(document, line)) {
+      for (const { finding, uri, fix } of this.at(document, line)) {
         const diagnostic = this.diagnostics
           .get(uri)
           ?.find((d) => d.range.start.line === line && (d.code as { value: string }).value === finding.kind);
-        if (finding.fix) {
-          const fixAction = new vscode.CodeAction(finding.fix.description, vscode.CodeActionKind.QuickFix);
-          fixAction.edit = this.fixEdit(uri, finding);
+        if (fix && (await fixStillApplies(fix.insertions))) {
+          const fixAction = new vscode.CodeAction(fix.description, vscode.CodeActionKind.QuickFix);
+          fixAction.edit = new vscode.WorkspaceEdit();
+          for (const insertion of fix.insertions) {
+            fixAction.edit.insert(insertion.uri, insertion.position, insertion.text);
+          }
           fixAction.isPreferred = true;
           if (diagnostic) fixAction.diagnostics = [diagnostic];
           actions.push(fixAction);
@@ -184,19 +219,41 @@ class Findings implements vscode.HoverProvider, vscode.CodeActionProvider {
     }
     return actions;
   }
+}
 
-  private fixEdit(uri: vscode.Uri, finding: Finding): vscode.WorkspaceEdit {
-    const edit = new vscode.WorkspaceEdit();
-    const folder = vscode.workspace.getWorkspaceFolder(uri);
-    const s = folder ? settings(folder) : undefined;
-    const bases = s ? [s.cwd, path.dirname(s.reportPath), s.folder.uri.fsPath] : [];
-    for (const insertion of finding.fix?.insertions ?? []) {
-      const file = resolveReportPath(insertion.file, bases, fs.existsSync);
-      const target = file ? vscode.Uri.file(file) : uri;
-      edit.insert(target, new vscode.Position(insertion.line - 1, insertion.column - 1), insertion.text);
-    }
-    return edit;
+/**
+ * The fix of a finding with its files resolved, or undefined when a file is
+ * not found or a position is outside the file as it is now.
+ */
+function resolveFix(
+  finding: Finding,
+  bases: string[],
+  linesOf: (file: string) => string[] | undefined,
+): Located["fix"] {
+  if (!finding.fix) return undefined;
+  const insertions: ResolvedInsertion[] = [];
+  for (const insertion of finding.fix.insertions) {
+    const file = resolveReportPath(insertion.file, bases, fs.existsSync);
+    const expected = file ? linesOf(file)?.[insertion.line - 1] : undefined;
+    if (!file || expected === undefined || insertion.column - 1 > expected.length) return undefined;
+    insertions.push({
+      uri: vscode.Uri.file(file),
+      position: new vscode.Position(insertion.line - 1, insertion.column - 1),
+      text: insertion.text,
+      expected,
+    });
   }
+  return { description: finding.fix.description, insertions };
+}
+
+/** False once a line the fix edits has changed, e.g. by applying the fix. */
+async function fixStillApplies(insertions: ResolvedInsertion[]): Promise<boolean> {
+  for (const insertion of insertions) {
+    const document = await vscode.workspace.openTextDocument(insertion.uri);
+    const line = insertion.position.line;
+    if (line >= document.lineCount || document.lineAt(line).text !== insertion.expected) return false;
+  }
+  return true;
 }
 
 async function pythonFor(s: FolderSettings): Promise<string> {
@@ -271,12 +328,15 @@ async function run(scope: Scope, findings: Findings, output: vscode.OutputChanne
         child.on("close", (exitCode) => resolve(exitCode));
       }),
   );
-  findings.reload();
-  // 0: passed, 1: tests failed, 5: no tests collected; the rest wrote no report
+  findings.scheduleReload();
+  // 0: passed, 1: tests failed, 5: no tests collected. 2 to 4 (interrupted,
+  // internal or usage error): the JSON report says the run is incomplete,
+  // the SARIF file is not written.
   if (code !== 0 && code !== 1 && code !== 5) {
     output.show(true);
     void vscode.window.showWarningMessage(
-      `queryguard: pytest exited with ${code ?? "an error"}; the report was not updated. See the output.`,
+      `queryguard: pytest exited with ${code ?? "an error"} before the run finished; the marks may be ` +
+        "incomplete or from an earlier run. See the output.",
     );
   }
 }
@@ -284,7 +344,7 @@ async function run(scope: Scope, findings: Findings, output: vscode.OutputChanne
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("queryguard");
   const findings = new Findings(output);
-  context.subscriptions.push(output, findings.diagnostics);
+  context.subscriptions.push(output, findings);
 
   const selector: vscode.DocumentSelector = { scheme: "file", language: "python" };
   context.subscriptions.push(
@@ -309,7 +369,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(vscode.Uri.file(path.dirname(reportPath)), path.basename(reportPath)),
       );
-      const reload = () => findings.reload();
+      const reload = () => findings.scheduleReload();
       watcher.onDidCreate(reload);
       watcher.onDidChange(reload);
       watcher.onDidDelete(reload);
