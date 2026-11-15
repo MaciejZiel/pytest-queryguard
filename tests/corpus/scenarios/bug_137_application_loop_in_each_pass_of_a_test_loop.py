@@ -16,6 +16,7 @@ from ..kit import BUG, REL
 VERDICT = BUG
 KINDS = frozenset({REL})
 TEST_SIDE = "bug_137_application_loop_in_each_pass_of_a_test_loop"
+PATCH = True
 setup = shop.setup
 
 
