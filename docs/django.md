@@ -268,7 +268,8 @@ object makes separate requests, each looking up its session and user once,
 and that is no loop of the application. The rest of the test counts as a
 whole. With `queryguard_scope = session`, statements outside a request also
 count per database connection, as a Session does for SQLAlchemy. Requests of
-the `AsyncClient` count per connection before Django 6.1. See
+the `AsyncClient` (and of an ASGI handler) count on their own too, on every
+supported Django version. See
 [Several sessions or requests](several-sessions.md).
 
 The N+1s of test code are left out by default, as for SQLAlchemy
