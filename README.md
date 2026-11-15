@@ -7,11 +7,10 @@
 [![Docs](https://img.shields.io/badge/docs-maciejziel.github.io-blue)](https://maciejziel.github.io/pytest-queryguard/)
 <!-- mcp-name: io.github.MaciejZiel/pytest-queryguard (owner check of the MCP Registry, read from the PyPI description) -->
 
-A pytest plugin that fails a test when the SQLAlchemy 2 or Django ORM code it runs sends
-one query per row (an N+1 query: a lazy load in a loop), and enforces query-count
-budgets (an `assertNumQueries` for SQLAlchemy). Sync, async and FastAPI code; nothing to
-import or configure. A test database holds a few rows, so such code passes its tests and
-sends hundreds of queries in production. This test passes without the plugin:
+A pytest plugin that fails a test when the SQLAlchemy 2 or Django ORM code it runs sends one query per row (an
+N+1 query: a lazy load in a loop), and enforces query-count budgets (an `assertNumQueries` for SQLAlchemy).
+Sync, async and FastAPI code; nothing to import or configure. A test database holds a few rows, so such code
+passes its tests and sends hundreds of queries in production. This test passes without the plugin:
 
 ```python
 def test_list_orders(session):
