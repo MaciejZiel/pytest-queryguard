@@ -558,7 +558,46 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    wall-time overhead from 14.6 % and 15.0 % (two runs of `main`) to 13.2 %
    and 14.2 %. No cheap win is left that would bring it near the noise:
    the walk itself is the cost, and only a sampled or lazily computed call
-   path would remove it, which is a redesign.
+   path would remove it, which is a redesign. Left as is: django-cms is the
+   only one of fourteen projects above the noise of a single run, and a
+   redesign of the walk is not a 1.1.0 change.
+
+### Where it stands (2026-11-15, end of the 1.1.0 work)
+
+All fourteen projects of the harness ran on `main` with every change above
+([run 43747770042](https://github.com/MaciejZiel/pytest-queryguard/actions/runs/43747770042),
+[All fourteen with the 1.1.0 changes](django.md#all-fourteen-with-the-110-changes-2026-11-15)):
+19,024 tests without a changed outcome and without an internal warning or
+error. The findings that fell away against `main` before this work are
+the test code's repetition, now counted in the test-code section (django-cms
+299, Label Studio 139, paperless-ngx 30), plus paperless-ngx's middleware
+locations, which now name the views.
+
+What is left, none of it a blocker in my reading:
+
+- **Overhead on django-cms** (item 7): 13 % to 16 % in single runs; the
+  other thirteen projects between −7 % and +11 %, within the noise of one
+  run each.
+- **Known limits**, documented in [Limitations](limitations.md) and
+  [Django](django.md): a thread whose target is a function of the
+  application counts with the test even when the test started it; loops of
+  an `async` test that await the application keep counting together; a
+  loop of the application that the test's data gives one row per call is
+  taken for the test's repetition; under ASGI, a DRF generic view behind a
+  sync project middleware still names the middleware (its thread has no
+  view call on the stack); strict mode raises at the second pass of a loop
+  of the test, as it did.
+- **Coverage**: one small `manage.py test` suite (django-taggit) and one
+  MySQL project, whose own suite fails 281 tests on MySQL.
+
+**Verdict:** ready to drop the experimental label in 1.1.0. The seven
+blockers are done or, for the overhead, measured and explained; the
+surface is snapshotted; the last full run changed no test and reported no
+internal error on fourteen projects, two databases besides SQLite and
+Django 5.2 to 6.1. Before the release: run the full harness once more on
+the release candidate, and decide whether the test-code classification of
+loops of the test (item 2) should stay the default, since it moves about
+470 findings of three projects out of the failures.
 
 ## Sources
 
