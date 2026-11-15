@@ -202,8 +202,9 @@ test errors (the message starts with `queryguard:`; `-W` cannot name
 **Test code** is the modules of the test cases the runner loaded, the files
 below a `tests` or `test` folder of the current directory, and factories, as
 under pytest: with the default `test_code = off` a loop in the test method or
-`setUp()` is not reported, a loop in a view, serializer or model method it
-calls is. `ignore()` blocks work as under pytest.
+`setUp()` is not reported, nor is a query that a loop of the test makes the
+application run once per pass ([Loops of the test](how-detection-works.md#loops-of-the-test));
+a loop in a view, serializer or model method it calls is. `ignore()` blocks work as under pytest.
 
 **`--parallel`** works, with `fork`, `spawn` and `forkserver` workers: each
 worker measures its tests and the failures come back as any test failure;
@@ -282,8 +283,11 @@ other requests. See
 
 The N+1s of test code are left out by default, as for SQLAlchemy
 (`queryguard_test_code`, see [Test code](how-detection-works.md#test-code)):
-a loop in the test function, a fixture or a factory is not reported, a loop
-in a view, serializer or model method the test calls is. So is a loop in a
+a loop in the test function, a fixture or a factory is not reported, nor is
+a query that a loop of the test makes the application run once per pass
+(objects created one by one whose `post_save` receiver reads a relation, a
+helper called per case; see [Loops of the test](how-detection-works.md#loops-of-the-test)).
+A loop in a view, serializer or model method the test calls is. So is a loop in a
 view that runs no line of your project, through the test client or called
 directly: a generic view with a class-level `queryset`, its nested serializer
 or its template, the admin. A serializer or template the test uses itself

@@ -457,6 +457,8 @@ def make_finding(detection: Detection, *, cwd: Path | None = None) -> Finding:
         line=None if site is None else site.lineno,
         count=detection.count,
         stack=stack,
+        # a repetition that test code drives is the test code's (detectors._driven)
+        test_code=detection.driven,
     )
 
 
@@ -898,7 +900,8 @@ def format_test_code_summary(left_out: Mapping[str, int]) -> list[str]:
         (
             f"{findings} N+1 {noun} in test code left out ({len(left_out)} {where}): "
             "the statements ran only in test modules, conftest.py, factories or "
-            "helpers under tests/, not in the application."
+            "helpers under tests/, or once in each call that a loop of the test "
+            "made into the application."
         ),
         (
             f"To see {them}: pytest -o queryguard_test_code=warn, or set "

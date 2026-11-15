@@ -42,6 +42,10 @@ def book_lines_fixed():
 
 def authors_one_by_one(ids):
     return [Author.objects.get(pk=pk).name for pk in ids]
+
+
+def one_author(pk):
+    return Author.objects.get(pk=pk).name
 """
 
 CASES = """
@@ -268,6 +272,41 @@ def test_test_code_and_fail_on(tmp_path: Path) -> None:
         "test_repeated": "ok",
     }, mixed.stderr
     assert "kind: repeated-statement" in mixed.stderr
+
+
+DRIVEN = """
+from django.test import TestCase
+
+from shop import one_author
+from tests.django_project.library.seed import seed
+
+
+class Authors(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        seed()
+
+    def test_one_call_per_case(self):
+        for pk in range(1, 7):
+            self.assertTrue(one_author(pk))
+"""
+
+
+def test_a_loop_of_the_test_is_the_test_codes(tmp_path: Path) -> None:
+    # the application gets one author per call: the repetition is the loop
+    # of the test's, left out with the default test_code "off"
+    project = _project(tmp_path, DRIVEN, None)
+    result = _run(project)
+    assert _outcomes(result.stderr) == {"test_one_call_per_case": "ok"}, result.stderr
+    assert "QueryGuardWarning" not in result.stderr
+    (tmp_path / "qg_settings.py").write_text(
+        (tmp_path / "qg_settings.py").read_text()
+        + "QUERYGUARD = {'test_code': 'warn'}\n"
+    )
+    warned = _run(project)
+    assert warned.returncode == 0, warned.stderr
+    assert "QueryGuardWarning" in warned.stderr
+    assert "the same statement ran 6 times" in warned.stderr
 
 
 PARALLEL = """

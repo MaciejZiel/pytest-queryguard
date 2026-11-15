@@ -517,12 +517,17 @@ experimental since 0.10.0. This is what still blocks dropping that label in
    line of the project runs between Django's call of the view and the
    statement, the finding names the view class or function, with the test
    line as its caller; project middlewares are passed over.
-2. **Repetition that test code drives.** 11 of the 51 sites read in the
-   second run, and most of the 28 debatable ones of the first, are app code
-   that runs once per pass of a loop in the test, or once per fixture made
-   one by one. Decide whether a pass of a test loop is a unit of its own,
-   as a request is, and write the rule down before the finding kinds are
-   frozen.
+2. ~~**Repetition that test code drives.**~~ Done in 1.1.0, as a test-code
+   classification rather than a new rule: each statement and load records
+   the call that test code made into the application, and a finding whose
+   every call ran the statement once (or read the relationship of one
+   object) is the test code's repetition, which `queryguard_test_code`
+   governs ([Loops of the test](how-detection-works.md#loops-of-the-test)).
+   A pass of a test loop is a unit, as a request is, only when the
+   application did the work once in it. Fixtures and assertions on separate
+   lines were already calls on separate lines. Corpus `clean_143` is the
+   arrange-loop case seen on another Django project (a service called per
+   row by the test, five tests marked).
 3. ~~**Work spread over threads**~~ Done in 1.1.0: the connection of a
    thread that test code started counts on its own, as a request does
    (django-oscar's concurrency test); the live server's requests already

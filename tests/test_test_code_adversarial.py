@@ -4,7 +4,9 @@ Each session lays out a project the way real suites do (an installed app, an
 app under a folder whose name starts with "test", Django-style ``tests.py``,
 fixtures and conftest factories that call the app, step files, test loops
 that drive an app helper) and checks that the application's N+1 still fails
-with the default configuration.
+with the default configuration. A loop of the test that calls the
+application once per pass, where the application runs the query once, is
+the test code's repetition and is left out (detectors._driven).
 """
 
 from __future__ import annotations
@@ -35,6 +37,11 @@ def lookup(session, name):
 
 def lookups(session, names):
     return [lookup(session, name) for name in names]
+
+
+def names_lazily(session):
+    for order in session.query(Order).all():
+        yield order.customer.name
 """
 
 NAMES = "['c1', 'c2', 'c3', 'c4', 'c5']"
@@ -230,23 +237,48 @@ def test_step_definitions_calling_the_application(project: Any) -> None:
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "application"),
     [
-        # a loop of the test, one app query per pass
-        f"    for name in {NAMES}:\n        lookup(session, name)",
+        # a loop of the test, one app query per pass: the test code's
+        # repetition (detectors._driven), left out with "off"
+        (f"    for name in {NAMES}:\n        lookup(session, name)", False),
         # the loop in a helper under tests/, the query in the application
-        f"    helpers.each({NAMES}, lambda n: lookup(session, n))",
+        (f"    helpers.each({NAMES}, lambda n: lookup(session, n))", False),
         # the app's own loop, called from two lines of the test
         (
-            "    lookups(session, ['c1', 'c2', 'c3'])\n"
-            "    lookups(session, ['c4', 'c5', 'c6'])"
+            (
+                "    lookups(session, ['c1', 'c2', 'c3'])\n"
+                "    lookups(session, ['c4', 'c5', 'c6'])"
+            ),
+            True,
         ),
-        # the app's own loop, called from a comprehension of the test
-        "    [lookups(session, [n]) for n in " + NAMES + "]",
+        # the app's own loop over one name, from a comprehension of the test
+        ("    [lookups(session, [n]) for n in " + NAMES + "]", False),
+        # the app's own loop over two names, from a loop of the test
+        (f"    for name in {NAMES}[:3]:\n        lookups(session, [name, name])", True),
+        # two generators of the application, read in turns by the test's loop:
+        # each is one call of the application, its loop the application's
+        (
+            (
+                "    other = make_sync_session()\n"
+                "    for a, b in zip(names_lazily(session), names_lazily(other)):\n"
+                "        assert a == b"
+            ),
+            True,
+        ),
     ],
-    ids=["test-loop", "helper-loop", "two-lines", "comprehension"],
+    ids=[
+        "test-loop",
+        "helper-loop",
+        "two-lines",
+        "comprehension",
+        "both-loops",
+        "two-generators",
+    ],
 )
-def test_loops_that_drive_an_application_helper(project: Any, body: str) -> None:
+def test_loops_that_drive_an_application_helper(
+    project: Any, body: str, application: bool
+) -> None:
     project.makepyfile(shop=APP)
     _write(
         project.path,
@@ -260,12 +292,16 @@ def test_loops_that_drive_an_application_helper(project: Any, body: str) -> None
         "sys.path.insert(0, os.path.dirname(__file__))\n"
         "import helpers\n"
         "from qgmodels import make_sync_session\n"
-        "from shop import lookup, lookups\n\n\n"
+        "from shop import lookup, lookups, names_lazily\n\n\n"
         "def test_drive():\n"
         "    session = make_sync_session()\n" + body + "\n",
     )
     result = project.runpytest("tests/test_drive.py")
-    _fails_with_app_finding(result, "shop.py")
+    if application:
+        _fails_with_app_finding(result, "shop.py")
+    else:
+        result.assert_outcomes(passed=1)
+        result.stdout.fnmatch_lines(["*in test code left out*"])
 
 
 def test_a_loop_that_dispatches_on_type(project: Any) -> None:

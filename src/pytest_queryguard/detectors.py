@@ -146,6 +146,9 @@ class RelationshipFinding:
     parent_path: tuple[tuple[str, bool], ...] = ()
     # The ORM that recorded the loads (events.ORM_*): the wording of the fix.
     orm: str = ORM_SQLALCHEMY
+    # Test code drives the repetition (see _driven): it belongs with the test
+    # code's findings (queryguard_test_code).
+    driven: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +163,7 @@ class RepeatFinding:
     scopes: int = 1
     scoped: bool = False
     orm: str = ORM_SQLALCHEMY
+    driven: bool = False  # see RelationshipFinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +177,7 @@ class WriteLoopFinding:
     scopes: int = 1
     scoped: bool = False
     orm: str = ORM_SQLALCHEMY
+    driven: bool = False  # see RelationshipFinding
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,6 +196,7 @@ class ColumnLoadFinding:
     base: str | None = None  # the class the query selected, for CAUSE_POLYMORPHIC
     single_table: bool = False  # CAUSE_POLYMORPHIC: the columns are in its table
     orm: str = ORM_SQLALCHEMY
+    driven: bool = False  # see RelationshipFinding
 
     @property
     def label(self) -> str:
@@ -360,6 +366,29 @@ def _scope_count(items: Sequence[_T], scope: Callable[[_T], object]) -> int:
     return len({scope(item) for item in items})
 
 
+def _driven(items: Sequence[Any], key: Callable[[Any], object] = id) -> bool:
+    """Whether test code drives the repetition of ``items``.
+
+    It does when each of them ran in a call that test code made into the
+    application (``StatementEvent.call``: a pass of a loop in the test, a
+    fixture or a factory making its objects one by one, a test helper called
+    per case), and each call ran one of them (distinct by ``key``): the
+    application does the work once per call, as it does in production for
+    each request or job. A call that ran two is a loop (or a repetition) of
+    the application itself, however short, and keeps the finding the
+    application's.
+    """
+    calls: dict[int, object] = {}
+    for item in items:
+        call = item.call
+        if call is None:
+            return False
+        value = key(item)
+        if calls.setdefault(call, value) != value:
+            return False
+    return len(calls) > 1
+
+
 def _hidden(
     sieve: Sieve | None,
     events: Sequence[Any],
@@ -478,6 +507,7 @@ def _relationship_findings(
     scoped: bool = False,
     sieve: Sieve | None = None,
     test_code: bool | None = None,
+    drive: bool = False,
 ) -> list[RelationshipFinding]:
     by_name: dict[str, list[RelationshipLoadEvent]] = {}
     for load in _side(collector.relationship_loads, test_code):
@@ -487,11 +517,14 @@ def _relationship_findings(
     # test lines call the application again: the lazy loads of every test
     # line count together there, and so they do here.
     units = _units(collector, scoped, paths=collector.strict is None)
+    # nor does it know yet whether test code drives the repetition
+    drive = drive and collector.strict is None
     found: list[RelationshipFinding] = []
     for name, loads in by_name.items():
         best: list[RelationshipLoadEvent] | None = None
         best_parents = 0
         best_dropped: list[IgnoreBlock] = []
+        driven: tuple[list[RelationshipLoadEvent], int, list[IgnoreBlock]] | None = None
         held: list[IgnoreBlock] = []
         for scope_loads in _split(loads, lambda load: load.scope, units):
             groups = _n_plus_one_groups(scope_loads, threshold)
@@ -510,8 +543,15 @@ def _relationship_findings(
                 continue
             group = _merge(scope_loads, shown)
             parents = len({load.parent_key for load in group})
-            if parents > best_parents:
+            if drive and _driven(group, _parent_key):
+                if driven is None or parents > driven[1]:
+                    driven = (group, parents, dropped)
+            elif parents > best_parents:
                 best, best_parents, best_dropped = group, parents, dropped
+        is_driven = best is None and driven is not None
+        if is_driven:
+            assert driven is not None
+            best, best_parents, best_dropped = driven
         if best is None:
             _note_hidden(sieve, held)
             continue
@@ -548,9 +588,14 @@ def _relationship_findings(
                 scoped,
                 *_parents(best),
                 best[-1].orm,
+                is_driven,
             )
         )
     return sorted(found, key=lambda f: -f.count)
+
+
+def _parent_key(load: RelationshipLoadEvent) -> object:
+    return load.parent_key
 
 
 def _column_load_findings(
@@ -559,6 +604,7 @@ def _column_load_findings(
     scoped: bool = False,
     sieve: Sieve | None = None,
     test_code: bool | None = None,
+    drive: bool = False,
 ) -> list[ColumnLoadFinding]:
     groups: dict[
         tuple[str, tuple[str, ...], str, str | None, bool], list[ColumnLoadEvent]
@@ -577,13 +623,25 @@ def _column_load_findings(
     for (owner, attrs, cause, base, single_table), all_loads in groups.items():
         best: list[ColumnLoadEvent] | None = None
         best_keys = 0
+        driven: tuple[list[ColumnLoadEvent], int] | None = None
         held: list[IgnoreBlock] = []
         for loads in _split(all_loads, lambda load: load.scope, units):
             keys = len({load.instance_key for load in loads})
-            if keys >= threshold and keys > best_keys:
+            if keys < threshold:
+                continue
+            if drive and _driven(loads, _instance_key):
+                if (driven is None or keys > driven[1]) and not _hidden(
+                    sieve, loads, KIND_COLUMN_LOAD, held
+                ):
+                    driven = (loads, keys)
+            elif keys > best_keys:
                 if _hidden(sieve, loads, KIND_COLUMN_LOAD, held):
                     continue
                 best, best_keys = loads, keys
+        is_driven = best is None and driven is not None
+        if is_driven:
+            assert driven is not None
+            best, best_keys = driven
         if best is None:
             _note_hidden(sieve, held)
             continue
@@ -603,9 +661,14 @@ def _column_load_findings(
                 base,
                 single_table,
                 best[0].orm,
+                is_driven,
             )
         )
     return sorted(found, key=lambda f: -f.count)
+
+
+def _instance_key(load: ColumnLoadEvent) -> object:
+    return load.instance_key
 
 
 def _value_rows(sql: str) -> int:
@@ -644,6 +707,7 @@ def _write_loop_findings(
     scoped: bool = False,
     sieve: Sieve | None = None,
     test_code: bool | None = None,
+    drive: bool = False,
 ) -> list[WriteLoopFinding]:
     """The same write, one row per statement, from one line.
 
@@ -665,6 +729,7 @@ def _write_loop_findings(
     for (sql, _), all_stmts in groups.items():
         best: list[StatementEvent] | None = None
         best_count = 0
+        driven: tuple[list[StatementEvent], int] | None = None
         held: list[IgnoreBlock] = []
         for stmts in _split(all_stmts, lambda s: s.scope, units):
             # All statements of one ORM flush count as one write: the unit of
@@ -673,10 +738,21 @@ def _write_loop_findings(
             # further.
             flushes = {s.flush for s in stmts if s.flush is not None}
             count = len(flushes) + sum(1 for s in stmts if s.flush is None)
-            if count >= threshold and count > best_count:
+            if count < threshold:
+                continue
+            if drive and _driven(stmts, _write_key):
+                if (driven is None or count > driven[1]) and not _hidden(
+                    sieve, stmts, KIND_WRITE_LOOP, held
+                ):
+                    driven = (stmts, count)
+            elif count > best_count:
                 if _hidden(sieve, stmts, KIND_WRITE_LOOP, held):
                     continue
                 best, best_count = stmts, count
+        is_driven = best is None and driven is not None
+        if is_driven:
+            assert driven is not None
+            best, best_count = driven
         if best is None:
             _note_hidden(sieve, held)
             continue
@@ -692,9 +768,16 @@ def _write_loop_findings(
                 1 if scoped else _scope_count(best, lambda s: s.scope),
                 scoped,
                 best[0].orm,
+                is_driven,
             )
         )
     return sorted(found, key=lambda f: -f.count)
+
+
+def _write_key(stmt: StatementEvent) -> object:
+    """A write as the write-loop rule counts it: the statements of one flush
+    are one."""
+    return ("flush", stmt.flush) if stmt.flush is not None else id(stmt)
 
 
 # Statements the database's own catalogs answer, which SQLAlchemy and Alembic
@@ -1065,6 +1148,7 @@ def _small_repeat_findings(
     skip: frozenset[str] = frozenset(),
     sieve: Sieve | None = None,
     test_code: bool | None = None,
+    drive: bool = False,
 ) -> list[RepeatFinding]:
     """A few runs of one statement from one line, each with other parameters.
 
@@ -1079,6 +1163,7 @@ def _small_repeat_findings(
         if key in skip or _paginates(all_stmts[0].sql):
             continue
         best: list[StatementEvent] | None = None
+        driven: list[StatementEvent] | None = None
         held: list[IgnoreBlock] = []
         for stmts in _split(all_stmts, lambda s: s.scope, units):
             if not small <= len(stmts) < threshold or _batching(stmts):
@@ -1090,10 +1175,20 @@ def _small_repeat_findings(
             if len(sites) != 1 or None in sites:
                 continue
             runs = {(_WS.sub(" ", s.sql), repr(s.parameters)) for s in stmts}
-            if len(runs) == len(stmts) and (best is None or len(stmts) > len(best)):
+            if len(runs) != len(stmts):
+                continue
+            if drive and _driven(stmts):
+                if (driven is None or len(stmts) > len(driven)) and not _hidden(
+                    sieve, stmts, KIND_REPEAT, held
+                ):
+                    driven = stmts
+            elif best is None or len(stmts) > len(best):
                 if _hidden(sieve, stmts, KIND_REPEAT, held):
                     continue
                 best = stmts
+        is_driven = best is None and driven is not None
+        if is_driven:
+            best = driven
         if best is None:
             _note_hidden(sieve, held)
         else:
@@ -1106,6 +1201,7 @@ def _small_repeat_findings(
                     1 if scoped else _scope_count(best, lambda s: s.scope),
                     scoped,
                     best[0].orm,
+                    is_driven,
                 )
             )
     return sorted(found, key=lambda f: -f.count)
@@ -1117,6 +1213,7 @@ def _repeat_findings(
     scoped: bool = False,
     sieve: Sieve | None = None,
     test_code: bool | None = None,
+    drive: bool = False,
 ) -> tuple[list[RepeatFinding], set[str]]:
     """The findings, and the statements a finding inside ignore() blocks had."""
     units = _units(collector, scoped)
@@ -1124,14 +1221,23 @@ def _repeat_findings(
     hidden: set[str] = set()
     for key, all_stmts in _repeat_groups(collector, test_code).items():
         best: list[StatementEvent] | None = None
+        driven: list[StatementEvent] | None = None
         held: list[IgnoreBlock] = []
         for stmts in _split(all_stmts, lambda s: s.scope, units):
-            if len(stmts) < threshold or (best is not None and len(stmts) <= len(best)):
+            if len(stmts) < threshold or _batching(stmts):
                 continue
-            if not _batching(stmts):
+            if drive and _driven(stmts):
+                if (driven is None or len(stmts) > len(driven)) and not _hidden(
+                    sieve, stmts, KIND_REPEAT, held
+                ):
+                    driven = stmts
+            elif best is None or len(stmts) > len(best):
                 if _hidden(sieve, stmts, KIND_REPEAT, held):
                     continue
                 best = stmts
+        is_driven = best is None and driven is not None
+        if is_driven:
+            best = driven
         if best is None:
             if held:
                 hidden.add(key)
@@ -1147,6 +1253,7 @@ def _repeat_findings(
                 1 if scoped else _scope_count(best, lambda s: s.scope),
                 scoped,
                 best[0].orm,
+                is_driven,
             )
         )
     return sorted(found, key=lambda f: -f.count), hidden
@@ -1173,24 +1280,26 @@ def detect(
 
     ``test_code`` False counts only the statements and loads of the
     application, True only those of the test code (``StatementEvent.test_code``),
-    None all of them.
+    None all of them. With False, a finding whose repetition test code drives
+    (see _driven) is marked ``driven``: it belongs with the test code's.
     """
     if collector.truncated:
         sieve = None
     scoped = scope == SCOPE_SESSION
+    drive = test_code is False
     findings: list[Detection] = []
     findings.extend(
         _relationship_findings(
-            collector, relationship_threshold, scoped, sieve, test_code
+            collector, relationship_threshold, scoped, sieve, test_code, drive
         )
     )
     findings.extend(
         _column_load_findings(
-            collector, column_load_threshold, scoped, sieve, test_code
+            collector, column_load_threshold, scoped, sieve, test_code, drive
         )
     )
     repeats, hidden = _repeat_findings(
-        collector, repeat_threshold, scoped, sieve, test_code
+        collector, repeat_threshold, scoped, sieve, test_code, drive
     )
     findings.extend(repeats)
     if small_repeat_threshold is not None and small_repeat_threshold < repeat_threshold:
@@ -1203,12 +1312,13 @@ def detect(
                 frozenset(f.sql for f in repeats) | hidden,
                 sieve,
                 test_code,
+                drive,
             )
         )
     if write_loop_threshold is not None:
         findings.extend(
             _write_loop_findings(
-                collector, write_loop_threshold, scoped, sieve, test_code
+                collector, write_loop_threshold, scoped, sieve, test_code, drive
             )
         )
     return findings

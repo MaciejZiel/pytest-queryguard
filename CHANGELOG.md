@@ -66,6 +66,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A loop of the test that calls the application once per pass, where each
+  call runs a statement or reads a relationship once (a case per pass, a page
+  per request, objects created one by one whose `post_save` receiver or event
+  listener reads a row), is the test code's repetition, not an N+1 of the
+  application: with the default `queryguard_test_code = off` it is counted in
+  the test-code section at the end of the run instead of failing the test,
+  `warn` reports it as a warning and `fail` as before. Each statement and load
+  records the call that test code made into the application; a call that runs
+  the statement twice or more is still the application's loop. Most of the
+  findings judged "debatable" in the Django real-project runs were of this
+  kind. Which code counts as test code is not public API (see
+  [Stability](docs/stability.md#what-is-not-public)); strict mode, which
+  decides at the lazy load, still raises at the second pass. See
+  [Loops of the test](docs/how-detection-works.md#loops-of-the-test); corpus
+  scenarios `clean_142`, `clean_143` and `bug_137`. Seen also on a Django
+  project's suite, where five tests needed a `queryguard_ignore` marker for
+  an arrange step that calls a service in a loop.
 - Baseline labels no longer depend on the database: a `repeated-statement`
   or `write-loop` entry is written and compared without schema qualifiers,
   identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,
