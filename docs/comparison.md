@@ -15,7 +15,7 @@ SARIF for adoption. These are the features of the current release; the
 [measured runs](#what-i-measured) are of the dated versions named below.
 queryspy is the closest
 alternative, with its own middleware and panel; pytest-querycount writes
-budgets into your tests; for Django, pytest-queryguard's support is experimental ([Django](django.md)) and django-zeal covers Django too. The
+budgets into your tests; for Django, django-zeal is the established tool and pytest-queryguard covers it too ([Django](django.md), no longer experimental since 1.1.0). The
 [matrix](#feature-matrix), [where the others are ahead](#where-the-others-are-ahead)
 and [choosing](#choosing) have the details.
 
@@ -47,7 +47,7 @@ and [choosing](#choosing) have the details.
 
 | Tool | Version (release date) | First release on PyPI | Targets | License |
 |---|---|---|---|---|
-| pytest-queryguard | 1.0.0 (2026-11-14) | 2026-10-10 | SQLAlchemy 2; Django (experimental) | MIT |
+| pytest-queryguard | 1.0.0 (2026-11-14) | 2026-10-10 | SQLAlchemy 2; Django (experimental until 1.1.0) | MIT |
 | [queryspy](https://github.com/sqla-native/queryspy) | 0.6.0 (2026-10-22) | 2026-08-04 | SQLAlchemy 2.0+, Python 3.11+ | MIT |
 | [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) | 0.4.0 (2026-09-27) | 2026-09-27 | SQLAlchemy 2.x | MIT |
 | [nplusone](https://github.com/jmcarp/nplusone) | 1.0.0 (2018-05-21) | 2015-06-30 | Django, SQLAlchemy, Peewee | MIT |
@@ -186,8 +186,8 @@ not work.
   through pg8000 and asyncpg, once more with psycopg 3 (see the [FAQ](faq.md));
   and on MySQL 8.4 and MariaDB 11.8 through PyMySQL and aiomysql.
 - **Django.** django-zeal and nplusone have covered Django for years;
-  pytest-queryguard's Django support is new in 0.10.0 and experimental (see
-  [Django](django.md)).
+  pytest-queryguard's Django support is new in 0.10.0 and left experimental
+  in 1.1.0 (see [Django](django.md)).
 - **Budgets in the test source.** `pytest-querycount --querycount-write-budgets`
   edits your tests to add an exact `max_queries` marker to each, so the
   budget is visible next to the test it limits. pytest-queryguard records
@@ -539,8 +539,8 @@ pytest-queryguard only.
   marker; I did not test installing both). For budgets kept in a file next to
   the tests, pytest-queryguard's [budget file](budgets.md#lock-todays-counts-the-budget-file).
 - You are on Django: django-zeal is the established choice;
-  pytest-queryguard's [Django support](django.md) is experimental since
-  0.10.0. django-nplus1 and django-query-doctor were read, not run (see above).
+  pytest-queryguard's [Django support](django.md) is newer (0.10.0) and
+  left experimental in 1.1.0. django-nplus1 and django-query-doctor were read, not run (see above).
 - You want to assert exact SQL: pytest-capquery, after checking its license.
 - You have nplusone on an old SQLAlchemy: see
   [Migrating from nplusone](migrating-from-nplusone.md). If you only want

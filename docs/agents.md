@@ -4,7 +4,7 @@ Since 0.10.0.
 
 A coding agent writes data-access code fast, and an N+1 query passes every
 test that only checks results. pytest-queryguard fails those tests, for
-SQLAlchemy 2 and for the Django ORM ([experimental](django.md)); the files
+SQLAlchemy 2 and for the [Django ORM](django.md); the files
 on this page tell an agent (Claude Code, Cursor, Codex, Copilot and other
 tools that read `AGENTS.md`) to run them, read the findings as data, apply the
 suggested loader option (`joinedload`/`selectinload`, or

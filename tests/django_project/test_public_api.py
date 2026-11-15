@@ -4,10 +4,11 @@ The Django counterpart of ``tests/test_public_api.py``, which runs without
 Django: ``pytest_queryguard.django`` (the ``manage.py test`` runner, its
 settings and its command-line option), the labels of the findings Django
 code produces, the fix each one names, and the Django versions and databases
-the support is tested on. While the Django support is experimental
-(docs/stability.md#experimental) a change here may go into a minor release;
-once it is not, this follows the deprecation policy. Either way, update the
-snapshot in the same commit, so the change is visible in review.
+the support is tested on. Since 1.1.0 the labels, fixes and versions follow
+the deprecation policy (docs/stability.md#what-is-public); the runner is
+still experimental (docs/stability.md#experimental), so a change to it may go
+into a minor release. Either way, update the snapshot in the same commit, so
+the change is visible in review.
 """
 
 from __future__ import annotations

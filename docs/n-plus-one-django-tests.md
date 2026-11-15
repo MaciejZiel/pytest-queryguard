@@ -11,9 +11,9 @@ fails and the report names the line and the `select_related()` or
 pip install "pytest-queryguard[django]" pytest-django
 ```
 
-It needs Django 5.2, 6.0 or 6.1. The Django support is **experimental** in
-this release: its findings and options may still change in a minor release
-(see [Stability](stability.md#experimental)).
+It needs Django 5.2, 6.0 or 6.1. Since 1.1.0 the Django support is no longer
+experimental: its findings follow the
+[stability policy](stability.md#what-is-public) like the rest of the plugin.
 
 ## Example
 

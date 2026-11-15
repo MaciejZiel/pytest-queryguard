@@ -8,8 +8,8 @@ description: Find, fix and prevent N+1 queries and other repeated SQL in SQLAlch
 pytest-queryguard is a pytest plugin: once installed, every test fails when
 its code runs an N+1 query, with no marker or code change. It measures; do
 not guess from reading the code when you can run the tests. It supports
-SQLAlchemy 2 (sync, async, FastAPI, Flask-SQLAlchemy, SQLModel) and,
-experimentally, the Django ORM next to pytest-django.
+SQLAlchemy 2 (sync, async, FastAPI, Flask-SQLAlchemy, SQLModel) and the
+Django ORM next to pytest-django.
 
 ## 1. Check that it is installed
 

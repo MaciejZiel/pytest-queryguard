@@ -282,7 +282,7 @@ The numbers depend on your machine and database.
 
 ## Does it work with Django, Peewee or raw SQL?
 
-Django's ORM, experimentally: see [Django](django.md). Not with Peewee or
+Django's ORM, yes (no longer experimental since 1.1.0): see [Django](django.md). Not with Peewee or
 Tortoise ORM. Raw SQL that
 goes through SQLAlchemy (`text()`, Core) is seen; a raw DB-API connection that
 SQLAlchemy does not manage is not.

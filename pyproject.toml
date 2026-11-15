@@ -37,7 +37,7 @@ keywords = [
     "performance",
 ]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 4 - Beta",
     "Environment :: Plugins",
     "Framework :: Django",
     "Framework :: Django :: 5.2",
@@ -63,7 +63,7 @@ classifiers = [
 dependencies = ["pytest>=8", "sqlalchemy>=2.0.13"]
 
 [project.optional-dependencies]
-# The Django integration (experimental); docs/django.md.
+# The Django integration; docs/django.md.
 django = ["django>=5.2"]
 # The same requirement as the core dependency, so it changes nothing today. A
 # later minor release may move SQLAlchemy out of the core dependencies into
