@@ -1,7 +1,7 @@
 # Accuracy on a corpus of realistic code
 
 How often does pytest-queryguard report code that is fine, and how often does it
-miss code that is not? This page measures that on a corpus of 280 small
+miss code that is not? This page measures that on a corpus of 283 small
 scenarios, publishes the numbers, and lists every disagreement. The scenarios
 were written by the author of the plugin, so read the numbers as a regression
 baseline and a list of known limits, not as a benchmark of how the plugin does on
@@ -9,9 +9,9 @@ your code.
 
 ## Method
 
-- The corpus is in `tests/corpus/scenarios`: one module per scenario, 136 marked
+- The corpus is in `tests/corpus/scenarios`: one module per scenario, 137 marked
   **BUG** (an N+1, a row-by-row write, a cartesian load, an eager load or columns
-  loaded for nothing: what a reviewer would ask to fix) and 144 marked **CLEAN**
+  loaded for nothing: what a reviewer would ask to fix) and 146 marked **CLEAN**
   (code that is fine, including the fixes: `selectinload`, `joinedload`,
   `contains_eager`, `load_only`, bulk statements, pagination, caches). The
   docstring of each module says which, and why. The verdict is mine, from reading
@@ -117,6 +117,21 @@ ran, 135 BUG and 143 CLEAN. All numbers on this page are for those and SQLite (t
 [MySQL and MariaDB](#on-mysql-and-mariadb)), except the PostgreSQL run, which is the earlier 141-scenario measurement and says so,
 and the comparison with other tools, which ran the same 278 scenarios in
 GitHub Actions on 2026-11-10.
+
+Three scenarios of loops of the test were added on 2026-11-15, after these
+measurements: `clean_142_requests_in_a_test_loop` (a loop of the test
+that calls a handler once per pass; the test code's repetition, see
+[Loops of the test](how-detection-works.md#loops-of-the-test)),
+`clean_143_service_called_per_case_in_a_test_loop` (an arrange step that
+calls a service with a limit check per row, as in a Django project's
+suite, where five tests needed a marker for it) and
+`bug_137_application_loop_in_each_pass_of_a_test_loop` (a handler that
+reads a relationship per row in each pass). In every configuration
+`bug_137` is a `relationship-load` TP and `clean_142` is clean, except in
+strict mode, which reports `clean_142` as it reports `clean_140`;
+`clean_143` is clean in every configuration. With them
+the `relationship-load` rows below are 53 TP (strict: 53 TP, 2 FP); the
+other rows do not change.
 
 ## Results, default configuration
 

@@ -16,13 +16,23 @@
   counted on its own; `Session`s begun from the same lines add up. Calls on
   separate lines are told apart by their call path, also in one shared
   `Session` (see [Calls on separate lines](how-detection-works.md#calls-on-separate-lines)),
-  but a loop in the test that calls the application once per pass (ten
-  requests in a `for` loop, a `commit()` per object that fires an event
-  listener of the application) has one call path, as a loop in the
-  application has, and is reported: the stack cannot tell which of the two
-  loops. Set `queryguard_scope = session` to count per `Session`; that has
-  limits of its own, listed in [Tests with several sessions or
-  requests](several-sessions.md).
+  and a loop in the test that calls the application once per pass, where
+  each call runs the statement once, is test code's repetition (see
+  [Loops of the test](how-detection-works.md#loops-of-the-test)). A loop in
+  the test whose calls each run the statement twice or more is reported as
+  the application's, also when the second run is no loop (a helper that
+  looks one row up twice). The other way round, a loop of the application
+  that the test's data gives one row per call (a customer with one order,
+  in a loop of the test over customers) is taken for the test's repetition:
+  give the test two rows, or set `queryguard_test_code = fail`. A generator
+  or coroutine of the application that the test's loop resumes is one call,
+  so loops of an `async` test that await the application keep counting
+  together. To tell calls apart, the plugin keeps the frame of the last
+  call into the application of each thread until the next statement or the
+  end of the test, with that call's local variables; a test that checks an
+  object of that call is garbage-collected right after it can see it alive. Set `queryguard_scope = session` to count per
+  `Session`; that has limits of its own, listed in [Tests with several
+  sessions or requests](several-sessions.md).
 - Test code is told from the application by file (see
   [Test code](how-detection-works.md#test-code)): test modules, `conftest.py`,
   files below a `tests` or `test` directory of the rootdir, and modules that

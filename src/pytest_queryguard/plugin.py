@@ -47,6 +47,7 @@ from .baseline import BaselineError, Identity, sorted_identities
 from .callsite import (
     DEFAULT_STACK_DEPTH,
     TestCode,
+    set_track_calls,
     swap_stack_depth,
     swap_test_code,
     trim_to_user_code,
@@ -139,6 +140,7 @@ _outer_no_plpgsql = pytest.StashKey[indexes.EngineSet]()
 _outer_root = pytest.StashKey[Path | None]()
 _outer_stack_depth = pytest.StashKey[int]()
 _outer_test_code = pytest.StashKey[TestCode]()
+_outer_track_calls = pytest.StashKey[bool]()
 _test_code = pytest.StashKey[TestCode]()
 _settings = pytest.StashKey["_Settings"]()
 _report = pytest.StashKey[list[tuple[str, int]]]()
@@ -1219,6 +1221,8 @@ def _configure(config: pytest.Config) -> None:
     # A nested session (pytester) may change the database; start afresh.
     catalog.reset()
     settings = _read_settings(config)
+    # the calls into the application, for the test-code split (detectors._driven)
+    config.stash[_outer_track_calls] = set_track_calls(settings.test_code != "fail")
     config.stash[_outer_stack_depth] = swap_stack_depth(_stack_depth(config))
     config.stash[_settings] = settings
     _active.append(settings)
@@ -1305,6 +1309,9 @@ def _restore_test_code(config: pytest.Config) -> None:
     if _outer_test_code in config.stash:
         swap_test_code(config.stash[_outer_test_code])
         del config.stash[_outer_test_code]
+    if _outer_track_calls in config.stash:
+        set_track_calls(config.stash[_outer_track_calls])
+        del config.stash[_outer_track_calls]
 
 
 def _restore_stack_depth(config: pytest.Config) -> None:
@@ -1520,8 +1527,12 @@ def _findings(
     detections = _detect(collector, settings, sieve, False if split else None)
     findings = make_findings(detections, cwd=root)
     if fixes and settings.fixing:
+        # a repetition that test code drives (detectors._driven) is the test
+        # code's: no patch when it is only counted
         findings = [
-            _with_fix(finding, detection, root, settings.started)
+            finding
+            if detection.driven and settings.test_code == "off"
+            else _with_fix(finding, detection, root, settings.started)
             for finding, detection in zip(findings, detections, strict=True)
         ]
     if split and _has_test_code(collector):

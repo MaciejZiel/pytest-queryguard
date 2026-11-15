@@ -62,8 +62,8 @@ SUMMARY = [
     "*= queryguard: test code =*",
     (
         "1 N+1 finding in test code left out (1 test): the statements ran only in "
-        "test modules, conftest.py, factories or helpers under tests/, not in the "
-        "application."
+        "test modules, conftest.py, factories or helpers under tests/, or once in "
+        "each call that a loop of the test made into the application."
     ),
     (
         "To see it: pytest -o queryguard_test_code=warn, or set queryguard_test_code "
@@ -337,12 +337,21 @@ def test_lookups_on_separate_lines_are_no_loop(project: Any) -> None:
 @pytest.mark.parametrize(
     ("body", "reported"),
     [
-        ("    for name in NAMES:\n        lookup(session, name)", True),
+        # a loop of the test, one lookup per call of the application: the
+        # test code's (detectors._driven), left out by default
+        ("    for name in NAMES:\n        lookup(session, name)", False),
         ("    lookups(session, NAMES)", True),
         # four passes of a loop and a run on a line of its own: four runs
         ("    lookup(session, 'c0')\n    lookups(session, NAMES[:4])", False),
+        # the application's loop, twice per pass of the test's loop
+        ("    for name in NAMES[:3]:\n        lookups(session, [name, name])", True),
     ],
-    ids=["loop-in-the-test", "loop-in-the-application", "loop-and-one-line"],
+    ids=[
+        "loop-in-the-test",
+        "loop-in-the-application",
+        "loop-and-one-line",
+        "both-loops",
+    ],
 )
 def test_a_loop_is_reported(project: Any, body: str, reported: bool) -> None:
     project.makepyfile(
@@ -357,7 +366,35 @@ def test_a_loop_is_reported(project: Any, body: str, reported: bool) -> None:
         result.assert_outcomes(passed=1)
         return
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*the same statement ran 5 times*"])
+    result.stdout.fnmatch_lines(["*the same statement ran [56] times*"])
+
+
+def test_a_loop_of_the_test_is_the_test_codes(project: Any) -> None:
+    # Each pass calls the application once, and the application runs the
+    # lookup once: no loop of the application. It is the test code's
+    # repetition: counted at the end with "off", a warning with "warn", and
+    # a failure, as before 1.1.0, with "fail".
+    project.makepyfile(
+        test_a="from qgmodels import make_sync_session\n"
+        "from shop import lookup\n\n\n"
+        "def test_loop():\n"
+        "    session = make_sync_session()\n"
+        "    for name in ['c1', 'c2', 'c3', 'c4', 'c5']:\n"
+        "        lookup(session, name)\n"
+    )
+    result = project.runpytest()
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*1 N+1 finding in test code left out*"])
+    result = project.runpytest("-o", "queryguard_test_code=warn")
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*QueryGuardWarning: queryguard: N+1 detected*",
+            "*the same statement ran 5 times*",
+        ]
+    )
+    result = project.runpytest("-o", "queryguard_test_code=fail")
+    result.assert_outcomes(failed=1)
 
 
 REQUESTS = """
@@ -387,7 +424,8 @@ def test_strict_mode_counts_the_lazy_loads_of_all_lines(project: Any) -> None:
     result.stdout.fnmatch_lines(["*NPlusOneDetected*Order.customer*"])
 
 
-def test_requests_in_a_loop_of_the_test_are_reported(project: Any) -> None:
+def test_requests_in_a_loop_of_the_test_are_the_test_codes(project: Any) -> None:
+    # each request reads the customer of its one order: once per call
     project.makepyfile(
         test_a="""
         from qgmodels import make_sync_session
@@ -401,6 +439,9 @@ def test_requests_in_a_loop_of_the_test_are_reported(project: Any) -> None:
         """
     )
     result = project.runpytest()
+    result.assert_outcomes(passed=1)
+    result.stdout.fnmatch_lines(["*N+1 findings in test code left out*"])
+    result = project.runpytest("-o", "queryguard_test_code=fail")
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*Order.customer was lazy-loaded*"])
 

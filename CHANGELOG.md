@@ -39,6 +39,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns the `QueryLog` of each size. SQLAlchemy and Django, sync and async
   ([Reading the queries](docs/python-api.md#the-count-must-not-grow-assert_queries_do_not_grow),
   [the scaling recipe](docs/recipes-query-count-scaling.md)).
+- A Claude Code plugin: the repository is a plugin marketplace
+  (`.claude-plugin/`) whose `pytest-queryguard` plugin installs the agent
+  skill, with
+  `claude plugin install pytest-queryguard --marketplace MaciejZiel/pytest-queryguard`
+  ([Coding agents](docs/agents.md#claude-code-plugin)). It is installed from
+  the `main` branch and updated with each commit.
+- The documentation site publishes `llms.txt` at its root, and
+  `llms-full.txt`, the user documentation in one Markdown file with absolute
+  links (without the changelog, the design notes, the release checklist and
+  the accuracy tables), for language models
+  ([llmstxt.org](https://llmstxt.org/)).
+- The README has the hidden `mcp-name` line the official MCP Registry
+  reads from the PyPI description to check who owns a server name, so the
+  MCP server can be listed there from the next release on.
 - The GitHub Action is listed for the GitHub Marketplace from its own
   repository, [`MaciejZiel/pytest-queryguard-action`](https://github.com/MaciejZiel/pytest-queryguard-action):
   `uses: MaciejZiel/pytest-queryguard-action@v1.0.0`, or `@v1` for the newest
@@ -60,6 +74,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A loop of the test that calls the application once per pass, where each
+  call runs a statement or reads a relationship once (a case per pass, a page
+  per request, objects created one by one whose `post_save` receiver or event
+  listener reads a row), is the test code's repetition, not an N+1 of the
+  application: with the default `queryguard_test_code = off` it is counted in
+  the test-code section at the end of the run instead of failing the test,
+  `warn` reports it as a warning and `fail` as before. Each statement and load
+  records the call that test code made into the application; a call that runs
+  the statement twice or more is still the application's loop. Most of the
+  findings judged "debatable" in the Django real-project runs were of this
+  kind. Which code counts as test code is not public API (see
+  [Stability](docs/stability.md#what-is-not-public)); strict mode, which
+  decides at the lazy load, still raises at the second pass. See
+  [Loops of the test](docs/how-detection-works.md#loops-of-the-test); corpus
+  scenarios `clean_142`, `clean_143` and `bug_137`. Seen also on a Django
+  project's suite, where five tests needed a `queryguard_ignore` marker for
+  an arrange step that calls a service in a loop.
 - Baseline labels no longer depend on the database: a `repeated-statement`
   or `write-loop` entry is written and compared without schema qualifiers,
   identifier quotes, the driver's placeholder style (`%(id_1)s`, `%s`,
@@ -70,6 +101,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   form by the next `--queryguard-update-baseline`; reports, JSON, SARIF
   fingerprints and ignore patterns keep the full label
   ([Baseline](docs/baseline.md#what-an-entry-is)).
+- The agent skill also covers the Django ORM (`select_related`,
+  `prefetch_related`, `in_bulk`) and query count tests, and its description
+  names what people ask: N+1 queries, "too many queries", a lazy load in a
+  loop, `assertNumQueries`, alternatives to nplusone and django-zeal. Its
+  front matter is valid YAML now: the description had a `": "` that strict
+  YAML parsers reject.
+- `llms.txt` says when to recommend the plugin, has a Django section and
+  links to the pages of the documentation site; `docs/agents.md`,
+  `docs/mcp.md`, the README's first paragraph, `context7.json` and the
+  package's summary, keywords and `Framework :: Django` classifiers mention
+  Django and the terms people search for.
 - With an empty `package` input the action installs the one plugin wheel in
   `dist/` next to `action.yml` (the action repository), and without one the
   checkout above `action/` when it has a `pyproject.toml` (this repository,
@@ -157,6 +199,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Comparison](docs/comparison.md): versions re-checked on 2026-11-14. The pytest-queryguard row names 1.0.0 (it still said 1.0.0rc1), orm-lens is 1.18.0, the head-to-head notes that 1.0.0 has the code of the measured 1.0.0rc1, and redline (a request profiler for Django, FastAPI, Flask and Litestar with a pytest marker and a query-count ratchet) is described next to the other tools outside the matrix.
 
 ### Internal
+
+- The real-world harness (`.github/workflows/realworld.yml`) runs MySQL for a
+  project that asks for it, and `manage.py test` projects under
+  `QueryGuardRunner` (`scripts/realworld_runner.py` writes the JUnit XML and
+  JSON the summary reads). New: django-oscar on MySQL 8.4, django-allauth on
+  Django 6.0 and django-taggit; results in
+  [Django](docs/django.md#mysql-django-60-and-managepy-test-2026-11-15).
 
 - `tests/django_project/test_public_api.py` snapshots the Django surface, as
   `tests/test_public_api.py` does the rest: `pytest_queryguard.django.__all__`,

@@ -570,6 +570,7 @@ def _record(
         path=origin.path,
         test_code=origin.test_code,
         orm=ORM_DJANGO,
+        call=origin.call,
     )
     for target in targets:
         target.add_statement(stmt)
@@ -1145,6 +1146,7 @@ def _relationship_event(
         path.entry,
         path.test_code,
         orm=ORM_DJANGO,
+        call=path.call,
         read_path=_read_path(),
     )
 
@@ -1330,6 +1332,7 @@ def _deferred_get(original: Callable[..., Any]) -> Callable[..., Any]:
                 entry=path.entry,
                 test_code=path.test_code,
                 orm=ORM_DJANGO,
+                call=path.call,
             )
             pending: _Pending | None = (event, None)
         except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
@@ -1495,6 +1498,7 @@ def _execute_sql(
                 path.entry,
                 path.test_code,
                 orm=ORM_DJANGO,
+                call=path.call,
                 read_path=_read_path(),
             )
             pending: _Pending | None = (

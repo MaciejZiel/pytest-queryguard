@@ -71,7 +71,10 @@ The default scope tells them apart by the call path of each statement (see
 the requests sent from separate lines of the test are calls on separate
 lines, and each request's lookup and lazy load count on their own. Requests
 sent in a loop of the test have one call path, as an N+1 in the application
-has, and add up; so do requests handled in another thread, as above.
+has, and add up; a statement or load that each request runs once is then
+the test code's repetition (see
+[Loops of the test](how-detection-works.md#loops-of-the-test)). Requests
+handled in another thread add up, as above.
 
 ## The option
 
