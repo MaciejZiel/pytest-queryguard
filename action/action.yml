@@ -1,7 +1,7 @@
 name: pytest-queryguard
 description: >-
-  Run pytest with pytest-queryguard and upload its findings (N+1 queries,
-  repeated statements, missing indexes) to GitHub code scanning as SARIF.
+  Run pytest with pytest-queryguard and upload N+1 queries, repeated
+  statements and missing indexes to code scanning.
 author: MaciejZiel
 branding:
   icon: database
