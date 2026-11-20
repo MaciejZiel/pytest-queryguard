@@ -51,6 +51,7 @@ In short, the kinds and what they do by default:
 | [`missing-index`](#missing-index) | a SELECT no index can serve | off (`--queryguard-index-check`) |
 | [`unused-eager-load`](#unused-eager-load-experimental) | an eager-loaded relationship the test never reads | off, experimental |
 | [`unused-columns`](#unused-columns-experimental) | wide rows of which the test reads few columns | off, experimental |
+| [`queryset-len`](#queryset-len-experimental) | a Django queryset loaded by `len()` or `bool()` whose rows are never read | off, experimental |
 
 "Fails" is in the default `queryguard_mode = fail`; in `warn` mode every kind
 only warns, and [budgets](budgets.md) fail either way.
@@ -493,6 +494,10 @@ Off by default. See [Unused eager loads](unused-eager-load.md).
 ### unused-columns (experimental)
 
 Off by default. See [Unused columns](unused-columns.md).
+
+### queryset-len (experimental)
+
+Django only, off by default. See [Django](django.md#queryset-len-experimental).
 
 ### cartesian-load
 

@@ -94,7 +94,8 @@ the class and the cause otherwise, as in `Book (expired)`, `Book (refresh)` or
 `unused-eager-load` (the relationship, as in `Order.customer`),
 `unused-columns` (the class, as in `Account`),
 `cartesian-load` (the two collections, as in
-`Customer.notes + Customer.orders`) and
+`Customer.notes + Customer.orders`),
+`queryset-len` (the call and the model, as in `len(Book)` or `bool(Book)`) and
 `missing-index` (the table, with its schema as in the report; see below for
 the spellings a table name accepts). `file` is
 relative to pytest's rootdir, with forward slashes. Findings that no longer

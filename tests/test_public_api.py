@@ -126,6 +126,7 @@ EXPECTED_INI = {
     "queryguard_write_loop_threshold": "0",
     "queryguard_unused_eager_load": "off",
     "queryguard_unused_columns": "off",
+    "queryguard_queryset_len": "off",
     "queryguard_cartesian_load": "warn",
     "queryguard_test_code": "off",
     "queryguard_strict": "False",
@@ -686,6 +687,7 @@ EXPECTED_SARIF_RULES = [
     "queryguard/unused-columns",
     "queryguard/cartesian-load",
     "queryguard/missing-index",
+    "queryguard/queryset-len",
 ]
 EXPECTED_SARIF_FINGERPRINT = "queryguardIdentity/v1"
 EXPECTED_SARIF_PROPERTIES = ["count", "label", "tests", "peakCount"]
@@ -700,6 +702,7 @@ EXPECTED_KINDS = [
     "unused-columns",
     "cartesian-load",
     "missing-index",
+    "queryset-len",
 ]
 
 

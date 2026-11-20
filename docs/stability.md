@@ -144,7 +144,8 @@ follows them too:
 - Options with a fixed set of values ignore case and surrounding spaces.
   How strongly a check reports is always spelled `off`, `warn` or `fail`
   (`queryguard_mode`, `queryguard_cartesian_load`,
-  `queryguard_unused_eager_load`, `queryguard_unused_columns`);
+  `queryguard_unused_eager_load`, `queryguard_unused_columns`,
+  `queryguard_queryset_len`);
   `queryguard_hypopg` takes `auto`, `on` or `off`.
 - Finding kinds are lowercase words joined by hyphens (`relationship-load`).
   They are part of a finding's identity (baseline, SARIF fingerprint,
@@ -391,6 +392,9 @@ command-line flags are marked `EXPERIMENTAL` in `pytest --help`.
 - `queryguard_unused_columns` and the `unused-columns` finding kind (rule
   `queryguard/unused-columns` in SARIF), with its thresholds. See
   [Unused columns](unused-columns.md).
+- `queryguard_queryset_len` and the `queryset-len` finding kind (rule
+  `queryguard/queryset-len` in SARIF), Django only. See
+  [Django](django.md#queryset-len-experimental).
 - The missing-index check on MySQL and MariaDB (tested in CI on MySQL 8.4 and
   MariaDB 11.8; see [the MySQL and MariaDB page](index-check-mysql.md)).
 - The in-application mode's `page_report` setting (since 0.8.0): its

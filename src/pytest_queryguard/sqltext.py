@@ -85,6 +85,15 @@ _BEGIN_MODIFIERS = frozenset(
 _WORD = re.compile(r"[A-Za-z]+")
 
 
+def first_word(sql: str) -> str | None:
+    """The first keyword, upper case, after leading comments and whitespace."""
+    start = skip_prefix(sql)
+    if start is None:
+        return None
+    word = _WORD.match(sql, start)
+    return None if word is None else word[0].upper()
+
+
 def is_transaction_control(sql: str) -> bool:
     """Whether the statement only opens, ends or marks a transaction.
 

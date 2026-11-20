@@ -14,6 +14,7 @@ const KIND_DOCS: Record<string, string> = {
   "unused-eager-load": "unused-eager-load.html",
   "cartesian-load": "how-detection-works.html#cartesian-load",
   "unused-columns": "unused-columns.html",
+  "queryset-len": "django.html#queryset-len-experimental",
 };
 
 /** The page and section of the documentation that explain a finding kind. */

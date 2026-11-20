@@ -11,6 +11,7 @@ KIND_WRITE_LOOP = "write-loop"
 KIND_UNUSED_EAGER_LOAD = "unused-eager-load"
 KIND_CARTESIAN_LOAD = "cartesian-load"
 KIND_UNUSED_COLUMNS = "unused-columns"
+KIND_QUERYSET_LEN = "queryset-len"
 
 SEVERITY_ERROR = "error"
 
@@ -29,6 +30,7 @@ _KIND_DOCS = {
     KIND_UNUSED_EAGER_LOAD: "unused-eager-load.html",
     KIND_CARTESIAN_LOAD: "how-detection-works.html#cartesian-load",
     KIND_UNUSED_COLUMNS: "unused-columns.html",
+    KIND_QUERYSET_LEN: "django.html#queryset-len-experimental",
 }
 
 
@@ -100,7 +102,8 @@ class Finding:
     normalized statement, for ``column-load`` the class and the deferred
     attributes (``Child.blob``) or its cause (``Parent (expired)``), for ``write-loop`` the normalized
     INSERT, UPDATE or DELETE, for ``unused-eager-load`` the relationship
-    (``Order.customer``), for ``unused-columns`` the class (``Customer``),
+    (``Order.customer``), for ``unused-columns`` the class (``Customer``), for ``queryset-len``
+    the call and the model (``len(Book)``, ``bool(Book)``),
     for ``missing-index`` the table. ``file`` and
     ``function`` say where it first happened: ``file`` is relative to pytest's
     rootdir (in the in-application mode, to the current directory), with

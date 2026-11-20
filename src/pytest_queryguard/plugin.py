@@ -27,6 +27,7 @@ from . import (
     fixpatch,
     hypopg,
     indexes,
+    queryset_len,
     routes,
     sarif,
     testjson,
@@ -74,6 +75,7 @@ from .findings import (
     KIND_CARTESIAN_LOAD,
     KIND_COLUMN_LOAD,
     KIND_MISSING_INDEX,
+    KIND_QUERYSET_LEN,
     KIND_RELATIONSHIP,
     KIND_REPEAT,
     KIND_UNUSED_COLUMNS,
@@ -124,6 +126,7 @@ _MODES = ("fail", "warn", "off")
 _EAGER_MODES = ("off", "warn", "fail")
 _eager_enabled = pytest.StashKey[bool]()
 _columns_enabled = pytest.StashKey[bool]()
+_queryset_len_enabled = pytest.StashKey[bool]()
 _cartesian_enabled = pytest.StashKey[bool]()
 _strict_enabled = pytest.StashKey[bool]()
 _internal_reported = pytest.StashKey[bool]()
@@ -204,6 +207,7 @@ class _Settings:
         # node id: with --dist each every worker runs every test)
         self.test_code_left_out: dict[str, int] = {}
         self.unused_columns = "off"  # queryguard_unused_columns
+        self.queryset_len = "off"  # queryguard_queryset_len
         self.strict = False  # queryguard_strict
         # budgets: queryguard_max_queries, the budget file and its update
         self.default_budget: int | None = None
@@ -564,6 +568,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="off",
     )
     parser.addini(
+        "queryguard_queryset_len",
+        "EXPERIMENTAL: report Django querysets that len() or bool() (if qs:) "
+        "loads in full only to count them or test them, whose rows are never "
+        "read: off (default), warn or fail",
+        default="off",
+    )
+    parser.addini(
         "queryguard_budgets",
         "Budget file (relative to the rootdir): each test listed in it fails above "
         "its number of queries, unless it has a max_queries marker",
@@ -908,6 +919,10 @@ def _unused_columns(config: pytest.Config) -> str:
     return _choice(config, "queryguard_unused_columns", _EAGER_MODES)
 
 
+def _queryset_len(config: pytest.Config) -> str:
+    return _choice(config, "queryguard_queryset_len", _EAGER_MODES)
+
+
 def _index_check(config: pytest.Config) -> bool:
     return _flag(config, "queryguard_index_check")
 
@@ -1116,6 +1131,7 @@ def _read_settings(config: pytest.Config) -> _Settings:
     settings.cartesian = _cartesian_mode(config)
     settings.test_code = _test_code_mode(config)
     settings.unused_columns = _unused_columns(config)
+    settings.queryset_len = _queryset_len(config)
     settings.strict = _strict(config)
     settings.default_budget = _default_budget(config)
     settings.route_budgets, settings.route_default = _route_budgets(config)
@@ -1242,6 +1258,9 @@ def _configure(config: pytest.Config) -> None:
         if settings.unused_columns != "off":
             config.stash[_columns_enabled] = True  # set first: undone even if it fails
             _sqlalchemy_check("unused_columns").enable()
+        if settings.queryset_len != "off":
+            config.stash[_queryset_len_enabled] = True
+            queryset_len.enable()
         if settings.cartesian != "off":
             config.stash[_cartesian_enabled] = True
             enable_cartesian()
@@ -1280,6 +1299,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     steps: tuple[Callable[[], object], ...] = (
         lambda: _disable_eager(config),
         lambda: _disable_columns(config),
+        lambda: _disable_queryset_len(config),
         lambda: _disable_cartesian(config),
         lambda: _disable_strict(config),
         lambda: swap_error(stash.get(_outer_error, None)),
@@ -1336,6 +1356,12 @@ def _disable_columns(config: pytest.Config) -> None:
     if config.stash.get(_columns_enabled, False):
         config.stash[_columns_enabled] = False
         _sqlalchemy_check("unused_columns").disable()
+
+
+def _disable_queryset_len(config: pytest.Config) -> None:
+    if config.stash.get(_queryset_len_enabled, False):
+        config.stash[_queryset_len_enabled] = False
+        queryset_len.disable()
 
 
 def _disable_eager(config: pytest.Config) -> None:
@@ -1428,6 +1454,8 @@ def _fails(settings: _Settings, finding: Finding) -> bool:
     if finding.kind == KIND_CARTESIAN_LOAD and settings.cartesian != "fail":
         return False
     if finding.kind == KIND_UNUSED_COLUMNS and settings.unused_columns != "fail":
+        return False
+    if finding.kind == KIND_QUERYSET_LEN and settings.queryset_len != "fail":
         return False
     return settings.fails(finding.kind)
 
@@ -1558,6 +1586,10 @@ def _findings(
                 trackers.columns, cwd=root, sieve=sieve
             )
         )
+    if trackers.querysets is not None:
+        findings.extend(
+            queryset_len.findings(trackers.querysets, cwd=root, sieve=sieve)
+        )
     if settings.cartesian != "off" and collector.cartesian_loads:
         findings.extend(
             _sqlalchemy_check("cartesian").findings(collector, cwd=root, sieve=sieve)
@@ -1620,6 +1652,9 @@ def _in_blocks(collector: QueryCollector, trackers: _Trackers) -> bool:
         collector.column_loads,
         collector.cartesian_loads,
         () if trackers.eager is None else trackers.eager.loads,
+        ()
+        if trackers.querysets is None
+        else list(trackers.querysets.evaluations.values()),
     )
     if any(event.ignores for group in events for event in group):
         return True
@@ -1863,6 +1898,8 @@ def _analysed_kinds(
         kinds.append(KIND_UNUSED_EAGER_LOAD)
     if trackers.columns is not None:
         kinds.append(KIND_UNUSED_COLUMNS)
+    if trackers.querysets is not None:
+        kinds.append(KIND_QUERYSET_LEN)
     if settings.cartesian != "off":
         kinds.append(KIND_CARTESIAN_LOAD)
     if collector.index_check:
@@ -3282,14 +3319,19 @@ class _Trackers:
 
     eager: eager.Tracker | None = None
     columns: unused_columns.Tracker | None = None
+    querysets: queryset_len.Tracker | None = None
 
     def stop(self) -> None:
         try:
             if self.eager is not None:
                 _sqlalchemy_check("eager").stop(self.eager)
         finally:
-            if self.columns is not None:
-                _sqlalchemy_check("unused_columns").stop(self.columns)
+            try:
+                if self.columns is not None:
+                    _sqlalchemy_check("unused_columns").stop(self.columns)
+            finally:
+                if self.querysets is not None:
+                    queryset_len.stop(self.querysets)
 
 
 def _start_trackers(settings: _Settings) -> _Trackers:
@@ -3309,7 +3351,9 @@ def _start_trackers(settings: _Settings) -> _Trackers:
         if tracker is not None and eager is not None:
             eager.stop(tracker)
         raise
-    return _Trackers(tracker, columns)
+    # the Django check: started last, it cannot fail
+    querysets = queryset_len.start() if queryset_len.is_enabled() else None
+    return _Trackers(tracker, columns, querysets)
 
 
 def _start_measuring(

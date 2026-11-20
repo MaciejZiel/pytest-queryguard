@@ -61,6 +61,7 @@ A test fails when, inside the test function, one of these finding kinds is found
 - `cartesian-load` (warns by default, `queryguard_cartesian_load = off|warn|fail`): one `SELECT` that joins two collections side by side, whose rows grow as their product;
 - `unused-eager-load` (experimental, off by default, `queryguard_unused_eager_load = off|warn|fail`): a relationship loaded with `selectinload`, `joinedload`, `subqueryload` or `immediateload` and never read. See docs/unused-eager-load.md;
 - `unused-columns` (experimental, off by default, `queryguard_unused_columns = off|warn|fail`): a query loads rows of a class with at least 8 columns and the test reads at most half of them (keys the ORM needs count as read); the fix line suggests `.options(load_only(...))`. See docs/unused-columns.md;
+- `queryset-len` (experimental, off by default, Django only, `queryguard_queryset_len = off|warn|fail`): `len(qs)` or `bool(qs)` (`if qs:`) in the application loads a queryset's rows and nothing reads them afterwards (hint: `.count()` or `.exists()`). See docs/django.md;
 - `missing-index` (opt-in): see below.
 
 Since 0.10.0, N+1 findings of test code are left out by default (`queryguard_test_code = off`): a finding whose statements all ran in test code (a collected test module, `conftest.py`, a file below a `tests` or `test` directory of the rootdir, a module that defines a factory_boy or polyfactory factory), with no frame of the application on the stack. They do not fail the test; the run ends with a `queryguard: test code` section that counts them, names up to five tests and says how to see them (`pytest -o queryguard_test_code=warn`). A loop in the application that test code calls is reported as usual. So to try the plugin, put the N+1 loop in an application module and call it from the test. `warn` reports test-code findings as a `QueryGuardWarning`, `fail` like the application's. See docs/how-detection-works.md#test-code.
@@ -186,9 +187,10 @@ Ini options, read from `[tool.pytest.ini_options]`, pytest 9's `[tool.pytest]`, 
 | `queryguard_test_code` | since 0.10.0; `off`, `warn`, `fail`: what N+1 findings of test code do (`off`: counted in a summary section only) | `off` |
 | `queryguard_unused_eager_load` | `off`, `warn`, `fail` | `off` |
 | `queryguard_unused_columns` | `off`, `warn`, `fail` | `off` |
+| `queryguard_queryset_len` | `off`, `warn`, `fail`: Django querysets loaded by `len()` or `bool()` whose rows are never read (kind `queryset-len`) | `off` |
 | `queryguard_cartesian_load` | `off`, `warn`, `fail`: one SELECT that joins two collections side by side (kind `cartesian-load`) | `warn` |
 | `queryguard_strict` | `true`, `false`: raise `NPlusOneDetected` at the lazy load that makes the N+1 | `false` |
-| `queryguard_fail_on` | finding kinds (`fnmatch`) per line; other kinds only warn | empty (every kind fails, except `cartesian-load`, `unused-eager-load` and `unused-columns` unless their own option is `fail`) |
+| `queryguard_fail_on` | finding kinds (`fnmatch`) per line; other kinds only warn | empty (every kind fails, except `cartesian-load`, `unused-eager-load`, `unused-columns` and `queryset-len` unless their own option is `fail`) |
 | `queryguard_max_events` | integer >= 0 (`0`: no limit) | `10000` |
 | `queryguard_stack_depth` | integer >= 0: callers shown under a finding's first location (`0`: none) | `3` |
 | `queryguard_ignore` | `KIND LABEL [file=GLOB] [function=GLOB] [stack=GLOB]` per line (`stack`: any reported frame, `file` or `file:function`, up to `queryguard_stack_depth` callers) | empty |

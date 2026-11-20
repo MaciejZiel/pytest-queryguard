@@ -15,7 +15,8 @@ was started from.
   `queryguard/repeated-statement`, `queryguard/column-load`,
   `queryguard/write-loop`, `queryguard/unused-eager-load`,
   `queryguard/unused-columns`, `queryguard/cartesian-load`,
-  `queryguard/missing-index`), each with a description and a fix hint. All
+  `queryguard/missing-index`, `queryguard/queryset-len`), each with a
+  description and a fix hint. All
   rules are always listed, the experimental ones too when their option is
   `off`.
 - One result per finding identity (kind, label, file, function), so the same
