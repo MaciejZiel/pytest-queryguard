@@ -58,7 +58,7 @@ and [choosing](#choosing) have the details.
 | [django-nplus1](https://github.com/oliverhaas/django-nplus1) | 0.6.2 (2026-10-04) | 2026-04-05 | Django | MIT |
 | [django-query-doctor](https://github.com/hassanzaibhay/django-query-doctor) | 2.3.0 (2026-08-01) | 2026-03-14 | Django | MIT |
 | [n-plus-one-sniffer](https://github.com/async-workflows/n-plus-one-sniffer) | not on PyPI (repository created 2026-07-18) | not on PyPI | SQLAlchemy 2.0+ | MIT (repository) |
-| [orm-lens](https://github.com/FROWNINGdev/orm-lens) | 1.18.0 (2026-11-11) | 2026-07-12 as django-orm-lens, 2026-10-31 as orm-lens | Django; SQLAlchemy models in preview since 2026-10-31 | MIT |
+| [orm-lens](https://github.com/FROWNINGdev/orm-lens) | 1.18.1 (2026-11-17) | 2026-07-12 as django-orm-lens, 2026-10-31 as orm-lens | Django; SQLAlchemy models in preview since 2026-10-31 | MIT |
 
 Release dates come from the PyPI JSON API on 2026-10-12, re-checked on 2026-10-13 and 2026-11-05;
 the rows of pytest-queryguard, django-nplus1, django-query-doctor and
@@ -137,6 +137,35 @@ documentation on 2026-11-14; none of them was run:
   of per-test query counts that may only go down. Its documentation says
   the marker needs an instrumented in-process test client and checks each
   captured request; a test that sends no request fails the assertion.
+
+### Django query counters and snapshots
+
+With Django no longer experimental in 1.1.0, these Django tools count,
+record or assert queries rather than look for N+1 by relationship. What
+follows was read in their PyPI descriptions and documentation on
+2026-11-20 (versions and dates from the PyPI JSON API that day); none of
+them was run, and none is in the matrix.
+
+| Tool | Version (release date) | What it does |
+|---|---|---|
+| pytest-django's [`django_assert_num_queries`](https://pytest-django.readthedocs.io/en/latest/helpers.html#django-assert-num-queries) | 4.14.0 (2026-08-10) | A fixture that asserts an exact (or, with `django_assert_max_num_queries`, a maximum) number of queries in a block; the pytest form of Django's `assertNumQueries()`. |
+| [inline-snapshot-django](https://github.com/adamchainz/inline-snapshot-django) | 1.4.0 (2026-02-12) | `snapshot_queries()` records the normalized SQL of a block and compares it with an [inline-snapshot](https://github.com/15r10nk/inline-snapshot) list stored in the test, which inline-snapshot writes and updates for you. By the author of django-perf-rec. |
+| [django-perf-rec](https://github.com/adamchainz/django-perf-rec) | 4.31.0 (2025-09-18) | Records the queries and cache operations of a block to a YAML file next to the test and fails when they change. |
+| [django-assert-queries](https://github.com/beanbaginc/django-assert-queries) | 3.0 (2026-11-11) | `assert_queries()` compares each executed query with an expected list of its model, tables and `where` clause (as a `Q` object), and prints a diff of every query that does not match. |
+| [django-query-guard](https://github.com/atiqur-rahman-pro/django-query-guard) | 0.2.1 (2026-08-07) | A `query_guard` marker and context manager with `max_queries` and a repeated-normalized-query check (2 repeats by default), an HTML report and a JSON run history. |
+| [pytest-django-queries](https://github.com/NyanKiyoshi/pytest-django-queries) | 1.3.0 (2026-03-01) | Counts the queries of marked tests (`count_queries`) and builds a coverage-style report, with a command to diff two runs. |
+| [django-queryhunter](https://github.com/PaulGilmartin/django-queryhunter) | 1.1.0 (2025-07-17) | A context manager and middleware that report, for each line of application code, how many queries it ran and how long they took. |
+| [django-query-counter](https://github.com/conformist-mw/django-query-counter) | 0.7.0 (2026-10-02) | A decorator and middleware that print the query count, the duplicated queries and the slowest ones to the console; for views, management commands and Celery tasks. |
+
+What pytest-queryguard does differently: it needs no marker, fixture or
+expected list, names the relationship behind an N+1 and suggests
+`select_related()` or `prefetch_related()`, and has a baseline, SARIF and
+the missing-index check. What it does not have: snapshots of the statements
+themselves (its budgets are counts, and [`assert_queries_do_not_grow()`](python-api.md#the-count-must-not-grow-assert_queries_do_not_grow)
+compares counts), cache operations, or assertions on the model and
+`where` clause of each query. If you want a test to pin the exact SQL a
+view runs, inline-snapshot-django or django-assert-queries do that and can
+run alongside pytest-queryguard.
 
 pytest-capquery's PyPI metadata has no license field. Its README badge and the
 `LICENSE` file in its GitHub repository are Creative Commons
