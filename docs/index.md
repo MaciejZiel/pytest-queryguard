@@ -29,9 +29,7 @@ pip install pytest-queryguard
 ```
 
 It is on by default: there is nothing to import or configure. These pages
-describe 1.1.0rc1, a release candidate: `pip install --pre pytest-queryguard`
-installs it, a plain `pip install` gives 1.0.0, without the parts marked
-"since 1.1.0". See [Getting started](getting-started.md#install). If pytest
+describe 1.1.0, see [Getting started](getting-started.md#install). If pytest
 does not know an option, check the [changelog](../CHANGELOG.md) for the
 release that added it.
 

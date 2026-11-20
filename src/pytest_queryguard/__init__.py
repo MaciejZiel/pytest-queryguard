@@ -19,7 +19,7 @@ from .warnings import (
     QueryGuardWarning,
 )
 
-__version__ = "1.1.0rc1"
+__version__ = "1.1.0"
 
 __all__ = [
     "CallSite",
