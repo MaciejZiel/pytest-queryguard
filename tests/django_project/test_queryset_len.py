@@ -460,6 +460,7 @@ def project(
 ) -> pytest.Pytester:
     root = Path(__file__).resolve().parents[2]
     monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "tests.django_project.settings")
+    monkeypatch.setenv("QUERYGUARD_DJANGO_TEST_NAME", "test_qg_inner")
     monkeypatch.setenv(
         "PYTHONPATH", os.pathsep.join([str(root), os.environ.get("PYTHONPATH", "")])
     )
