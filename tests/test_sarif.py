@@ -244,6 +244,7 @@ RULE_NAMES = {
     "unused-columns": "UnusedColumns",
     "cartesian-load": "CartesianLoad",
     "missing-index": "MissingIndex",
+    "queryset-len": "QuerysetLen",
 }
 
 

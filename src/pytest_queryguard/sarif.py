@@ -23,6 +23,7 @@ from .findings import (
     KIND_CARTESIAN_LOAD,
     KIND_COLUMN_LOAD,
     KIND_MISSING_INDEX,
+    KIND_QUERYSET_LEN,
     KIND_RELATIONSHIP,
     KIND_REPEAT,
     KIND_UNUSED_COLUMNS,
@@ -121,6 +122,14 @@ _RULES: dict[str, Rule] = {
         "without a usable index.",
         "Add an index on the filtered or joined columns (see the finding for "
         "the columns), or ignore the table if it is small.",
+    ),
+    KIND_QUERYSET_LEN: Rule(
+        "QuerysetLen",
+        "A Django queryset is loaded only to count it or test it (experimental)",
+        "len() or bool() (if qs:) ran a queryset's full SELECT and kept every "
+        "row, and nothing read the rows afterwards.",
+        "Use qs.count() for the number of rows and qs.exists() to test whether "
+        "there are any; neither loads the rows.",
     ),
 }
 KINDS = tuple(_RULES)

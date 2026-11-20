@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Django: the experimental `queryset-len` check reports a queryset that
+  `len(qs)` or `bool(qs)` (`if qs:`, `not qs`) in the application loads in
+  full when nothing reads its rows afterwards, and names `.count()` or
+  `.exists()` as the fix. Off by default: `queryguard_queryset_len = warn`
+  or `fail`. Left out: calls made by Django or another library (`get()`,
+  templates), calls in test code, sliced querysets, and querysets the
+  function may hand to other code
+  ([Django](docs/django.md#queryset-len-experimental)).
+
 ## [1.1.0] - 2026-11-20
 
 1.1.0 is the code of 1.1.0rc1, released five days earlier without reports of

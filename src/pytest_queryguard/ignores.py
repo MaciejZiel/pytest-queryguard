@@ -9,6 +9,7 @@ from .findings import (
     KIND_CARTESIAN_LOAD,
     KIND_COLUMN_LOAD,
     KIND_MISSING_INDEX,
+    KIND_QUERYSET_LEN,
     KIND_RELATIONSHIP,
     KIND_REPEAT,
     KIND_UNUSED_COLUMNS,
@@ -27,6 +28,7 @@ KINDS = (
     KIND_UNUSED_COLUMNS,
     KIND_CARTESIAN_LOAD,
     KIND_MISSING_INDEX,
+    KIND_QUERYSET_LEN,
 )
 _OPTION = re.compile(r"\s+(file|function|stack)=(\S+)$")
 

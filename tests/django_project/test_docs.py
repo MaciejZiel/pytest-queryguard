@@ -47,7 +47,10 @@ def _files(doc: Path) -> dict[str, str]:
 
 
 def _project(
-    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+    files: dict[str, str],
+    *args: str,
 ) -> pytest.RunResult:
     # the ini file names the settings, as in a project of its own
     monkeypatch.delenv("DJANGO_SETTINGS_MODULE", raising=False)
@@ -62,7 +65,9 @@ def _project(
     (pytester.path / "tests" / "__init__.py").write_text("")
     (pytester.path / "settings.py").write_text(SETTINGS)
     pytester.makeini("[pytest]\nDJANGO_SETTINGS_MODULE = settings\npythonpath = .\n")
-    return pytester.runpytest_subprocess("-p", "no:cacheprovider", "-p", "no:randomly")
+    return pytester.runpytest_subprocess(
+        "-p", "no:cacheprovider", "-p", "no:randomly", *args
+    )
 
 
 def _pick(files: dict[str, str], *names: str) -> dict[str, str]:
@@ -79,6 +84,8 @@ def test_the_pages_show_these_files() -> None:
         "tests/test_add_book.py",
         "library/listing.py",
         "library/tests.py",
+        "library/notify.py",
+        "tests/test_notify.py",
     }
     assert set(_files(LANDING)) == {
         "library/models.py",
@@ -140,6 +147,24 @@ def test_the_scaling_recipe_fails_without_select_related(
     assert "2 at size 1, 11 at size 10, 51 at size 50" in out
     assert "(loads Book.author)" in out
     assert "select_related() for a foreign key or one-to-one," in out
+
+
+def test_the_queryset_len_example(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = _pick(
+        _files(DOC), "library/models.py", "library/notify.py", "tests/test_notify.py"
+    )
+    result = _project(
+        pytester, monkeypatch, files, "-o", "queryguard_queryset_len=fail"
+    )
+    result.assert_outcomes(failed=1)
+    shown = next(b for b in _blocks("text") if "kind: queryset-len" in b)
+    out = result.stdout.str()
+    for line in shown.splitlines():
+        assert line in out, line
+    # off by default
+    _project(pytester, monkeypatch, files).assert_outcomes(passed=1)
 
 
 def test_the_runner_example(tmp_path: Path) -> None:

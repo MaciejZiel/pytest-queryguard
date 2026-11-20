@@ -35,11 +35,17 @@ process (and again for a new import of Django, as pytester sessions make):
   their statements form one unit of work, which the write-loop rule counts once;
 - ``send`` and ``send_robust`` of the model signals (``post_save``, ...): the
   receivers of a signal that a related manager's write or a ``delete()`` sends
-  read and write as usual.
+  read and write as usual;
+- ``QuerySet.__len__`` and ``__bool__`` (a queryset loaded only to count it,
+  the experimental ``queryset-len`` check, see ``queryset_len.py``) and the
+  methods that read its rows afterwards: ``__iter__``, ``__aiter__``,
+  ``__getitem__``, ``contains`` and ``__getstate__``. They pass straight
+  through unless that check tracks a test.
 
 What other tools got wrong, avoided here: no closure or other unpicklable
 object is put on a queryset or an instance (the marks and origins pickle as a
-plain ``object()``); no result cache is read or written; model instances are
+plain ``object()``); no result cache is read or written (the queryset-len
+check only looks whether it is still None); model instances are
 never compared or hashed (custom ``__eq__``); every patch passes straight
 through while nothing is measured, and never lets a plugin bug reach the
 code under test (the error is recorded and measurement stops, as for the
@@ -60,7 +66,7 @@ from contextvars import ContextVar
 from types import FrameType
 from typing import Any
 
-from . import blocks, callsite, collector, errors, sqltext
+from . import blocks, callsite, collector, errors, queryset_len, sqltext
 from .callsite import (
     NO_ORIGIN,
     Origin,
@@ -175,6 +181,11 @@ _units = itertools.count(1)
 # running in this thread through asgiref's sync_to_async: the thread itself
 # has no frame of the application. asgiref copies the context into it.
 _async_site: ContextVar[Any] = ContextVar("queryguard_django_async_site", default=None)
+# The len() or bool() of a queryset running in this context, for the
+# queryset-len check: its first SELECT is the statement the finding shows.
+_counted: ContextVar[queryset_len.Evaluation | None] = ContextVar(
+    "queryguard_django_counted", default=None
+)
 
 
 class _Rows(threading.local):
@@ -277,6 +288,17 @@ def _install() -> None:
     # delete() reads the rows of a cascade with the queryset it was called on,
     # which may be a related manager's: that SELECT is no read of the relation
     _patch(query.QuerySet, "delete", _writing_method)
+    # the queryset-len check: a queryset run by len() or bool(), and every
+    # read of its rows afterwards
+    queryset = query.QuerySet
+    for name in _READERS:
+        if name in vars(queryset):
+            _patch(queryset, name, _reading)
+    _patch(queryset, "__len__", lambda o: _counting(o, queryset, queryset_len.HOW_LEN))
+    _patch(
+        queryset, "__bool__", lambda o: _counting(o, queryset, queryset_len.HOW_BOOL)
+    )
+    _patch(queryset, "count", _count)
     # ... but the receivers of the signals such a write sends (post_save of
     # author.books.create(), post_delete of a queryset's delete()) are the
     # application's code: their reads are reads
@@ -531,6 +553,10 @@ def _record(
 ) -> StatementEvent:
     sql = str(sql)
     write = sqltext.is_write(sql)
+    if not write:
+        counted = _counted.get()
+        if counted is not None and counted.sql is None and _is_select(sql):
+            counted.sql = sql
     ignores = blocks.current()
     full = collector.full_active()
     pending = None
@@ -1592,5 +1618,85 @@ def _in_unit(original: Callable[..., Any]) -> Callable[..., Any]:
             return original(self, *args, **kwargs)
         finally:
             _unit.reset(token)
+
+    return method
+
+
+# --- querysets loaded only to count them (queryset-len) ---------------------
+
+# The QuerySet methods that read the rows of a queryset run before.
+_READERS = ("__iter__", "__aiter__", "__getitem__", "contains", "__getstate__")
+_SELECT = frozenset({"SELECT", "WITH", "VALUES", "TABLE"})
+
+
+def _is_select(sql: str) -> bool:
+    """Whether the statement is a query (not the SET or version probe Django
+    runs on a new connection)."""
+    return sqltext.first_word(sql) in _SELECT
+
+
+def _own_readers(cls: Any, base: Any) -> bool:
+    """Whether a QuerySet subclass reads its rows through methods of its own
+    (an ``__iter__`` that reads ``_result_cache``), which ``used()`` misses."""
+    return any(
+        getattr(cls, name, None) is not vars(base).get(name) for name in _READERS
+    )
+
+
+def _counting(
+    original: Callable[[Any], Any], base: Any, how: str
+) -> Callable[[Any], Any]:
+    """``QuerySet.__len__`` or ``__bool__``: note a queryset they make run."""
+
+    @functools.wraps(original)
+    def method(self: Any) -> Any:
+        tracker = queryset_len.current
+        if tracker is None:
+            return original(self)
+        if getattr(self, "_result_cache", None) is not None:
+            if how == queryset_len.HOW_LEN and tracker.open:
+                queryset_len.counted(tracker, self)
+            return original(self)
+        if _machinery.get() or _failed():
+            return original(self)
+        cls = type(self)
+        if cls is not base and _own_readers(cls, base):
+            return original(self)
+        evaluation = queryset_len.begin(self, how, sys._getframe(1))
+        if evaluation is None:
+            return original(self)
+        token = _counted.set(evaluation)
+        try:
+            result = original(self)
+        finally:
+            _counted.reset(token)
+        queryset_len.finish(evaluation, self, result)
+        return result
+
+    return method
+
+
+def _count(original: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """``QuerySet.count``: on a queryset ``bool()`` ran, it counts its rows."""
+
+    @functools.wraps(original)
+    def count(self: Any) -> Any:
+        tracker = queryset_len.current
+        if tracker is not None and tracker.open:
+            queryset_len.counted(tracker, self)
+        return original(self)
+
+    return count
+
+
+def _reading(original: Callable[..., Any]) -> Callable[..., Any]:
+    """A method that reads the rows of a queryset run before: they are used."""
+
+    @functools.wraps(original)
+    def method(self: Any, *args: Any, **kwargs: Any) -> Any:
+        tracker = queryset_len.current
+        if tracker is not None and tracker.open:
+            queryset_len.used(tracker, self)
+        return original(self, *args, **kwargs)
 
     return method

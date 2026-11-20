@@ -231,6 +231,7 @@ Django support: its settings and reports may change in a minor release. See the 
 | `repeated-statement` | one SELECT shape run 5 or more times: `get()`, `filter(...).exists()`, `refresh_from_db()` or a serializer method that queries, per item; also through one object's relation (`author.books.get(pk=pk)` per item) | `in_bulk(ids)` or `filter(pk__in=ids)` |
 | `missing-index` (off by default) | a SELECT that no index serves, on SQLite, PostgreSQL (psycopg 2 or 3) and MySQL; see [Index check](index-check.md) | the index to create |
 | `write-loop` (off by default) | one INSERT, UPDATE or DELETE per row: `save()`, `create()`, `delete()` in a loop | `bulk_create()`, `bulk_update()`, `queryset.update()`, `filter(pk__in=ids).delete()` |
+| `queryset-len` (off by default, experimental) | `len(qs)`, `bool(qs)` or `if qs:` that loads every row of a queryset, whose rows nothing reads afterwards; see [below](#queryset-len-experimental) | `.count()` for `len()`, `.exists()` for `bool()` |
 
 The rules, thresholds, options, markers and files are the ones described in
 [How detection works](how-detection-works.md) and the
@@ -294,6 +295,88 @@ directly: a generic view with a class-level `queryset`, its nested serializer
 or its template, the admin. A serializer or template the test uses itself
 (to build the expected data) is test code. A call of the async ORM, which runs in a thread of asgiref with no
 line of the test on its stack, always counts as the application's.
+
+### queryset-len (experimental)
+
+`len(qs)` and `bool(qs)` (`if qs:`, `not qs`) run the queryset's whole
+`SELECT` and keep every row, so that a later loop over `qs` needs no second
+query. When nothing reads the rows, `qs.count()` (a `SELECT COUNT(*)`) or
+`qs.exists()` (a `SELECT` with `LIMIT 1`) gives the same answer without
+loading them. Off by default; `queryguard_queryset_len = warn` reports such a
+queryset as a warning, `fail` fails the test (in `fail` mode):
+
+```python
+# library/notify.py
+from library.models import Book
+
+
+def notify_new_books(author, outbox):
+    books = Book.objects.filter(author=author)
+    if books:  # loads every row: books.exists() would do
+        outbox.append(f"{author.name} has new books")
+```
+
+```python
+# tests/test_notify.py
+from library.models import Author, Book
+from library.notify import notify_new_books
+
+
+def test_notify_new_books(db):
+    author = Author.objects.create(name="Ann")
+    Book.objects.create(title="First", author=author)
+    outbox = []
+    notify_new_books(author, outbox)
+    assert outbox == ["Ann has new books"]
+```
+
+```text
+queryguard: queryset loaded only to count it (experimental)
+
+  bool() of a Book queryset (if qs:, not qs) loaded all its rows only to test whether there are any; the rows were never used
+  first at library/notify.py:7 in notify_new_books
+    called from tests/test_notify.py:10 in test_notify_new_books
+  kind: queryset-len  label: bool(Book)
+  docs: https://maciejziel.github.io/pytest-queryguard/django.html#queryset-len-experimental
+  statement: SELECT "library_book"."id", "library_book"."title", "library_book"."author_id" FROM "library_book" WHERE "library_book"."author_id" = %s
+  fix: qs.exists(), which runs a SELECT with LIMIT 1 and loads no rows
+```
+
+The label is the call and the model: `len(Book)` or `bool(Book)`. One
+finding stands for every evaluation of that label in one function, with
+their count. `if qs:` followed by `len(qs)` or `qs.count()`, which count the
+loaded rows, is reported as `len()`: `qs.count()` alone does both. Any number of rows is reported, an empty result too: the test
+data is small, the table in production is not. Ignore a finding with the
+`queryguard_ignore` marker or option (`queryset-len bool(Book)`), an
+`ignore("queryset-len")` block or the baseline, as any other.
+
+It reports only what it is sure of, and misses a case rather than report
+a false one. Not reported:
+
+- the rows are read later in the test: a loop over `qs`, `list(qs)` (which
+  calls `len()` first), `qs[0]`, `qs.first()` on an ordered queryset,
+  `qs.contains(obj)`, `obj in qs`, `async for`, pickling it (a cache);
+- `len()` or `bool()` called by Django or another library rather than by your
+  code: `get()`, a template's `{% if books %}`, Django REST framework. They
+  may read the result cache directly;
+- a call in test code (`assert len(qs) == 3` in a test, a fixture or a
+  factory): assertions of the test are not the application's queries;
+- a queryset with a slice (`bool(qs[:1])`, a `LIMIT`), one already
+  evaluated (a prefetched relation, a queryset looped over before) and
+  `qs.none()`, which runs no query;
+- a queryset of a `QuerySet` subclass that overrides `__iter__`,
+  `__getitem__` or another method that reads the rows: it may read them
+  without the plugin seeing it;
+- a queryset the counting function may hand to other code: one it got as an
+  argument or from a closure, or a local variable it reads more than once
+  (`if not books: raise Http404` and then `return books`); also a queryset
+  still referenced when the test ends.
+
+What it cannot see: rows read by code that bypasses the queryset's methods
+(`qs._result_cache`), or read only after the test. A function whose
+queryset lives on an attribute (`if self.books:`) and is read by another
+method that the test never calls is reported. Only the pytest plugin runs it,
+not [`manage.py test`](#without-pytest-managepy-test).
 
 ## Collecting queries without failing the test
 
