@@ -22,7 +22,7 @@ It needs no marker and no code change: installed, it checks every test.
 pip install pytest-queryguard
 ```
 
-This file describes 1.1.0rc1, a release candidate installed with `pip install --pre pytest-queryguard`; a plain `pip install pytest-queryguard` gives 1.0.0, without the parts marked "since 1.1.0". Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. `pytest-queryguard[sqlalchemy]` installs the same today, and keeps SQLAlchemy installed if a later minor release moves it out of the core dependencies (docs/stability.md). For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
+This file describes 1.1.0. Needs Python 3.10+, pytest 8+ and SQLAlchemy 2.0.13+. The plugin registers itself through the `pytest11` entry point: there is nothing to import or configure. `pytest-queryguard[sqlalchemy]` installs the same today, and keeps SQLAlchemy installed if a later minor release moves it out of the core dependencies (docs/stability.md). For async code on SQLAlchemy 2.1+, also install `sqlalchemy[asyncio]` (greenlet).
 
 ## Quick start
 

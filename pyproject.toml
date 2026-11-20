@@ -37,7 +37,7 @@ keywords = [
     "performance",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Plugins",
     "Framework :: Django",
     "Framework :: Django :: 5.2",

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-20
+
+1.1.0 is the code of 1.1.0rc1, released five days earlier without reports of
+problems; see that entry for what is new since 1.0.0 and the two changes to
+watch when upgrading.
+
+### Changed
+
+- The package's classifier is `Development Status :: 5 - Production/Stable`
+  again (1.1.0rc1 had `4 - Beta`).
+
 ### Documentation
 
 - Link the launch article on dev.to from the README and the docs index, the
@@ -3454,7 +3465,8 @@ First release.
 - An internal error disables the plugin with a single warning instead of
   failing the test suite.
 
-[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.1.0rc1...HEAD
+[Unreleased]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.1.0rc1...v1.1.0
 [1.1.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0...v1.1.0rc1
 [1.0.0]: https://github.com/MaciejZiel/pytest-queryguard/compare/v1.0.0rc1...v1.0.0
 [1.0.0rc1]: https://github.com/MaciejZiel/pytest-queryguard/compare/v0.10.0...v1.0.0rc1
