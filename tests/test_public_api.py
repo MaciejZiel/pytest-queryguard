@@ -103,6 +103,7 @@ EXPECTED_QUERYLOG = {
     "db_time": "property",
     "queries": "property",
     "slowest": "(self, n: 'int' = 5) -> 'tuple[Query, ...]'",
+    "snapshot": "(self) -> 'list[str]'",
 }
 
 # Public members of QueryGuardFixture, what the queryguard fixture gives a test.
@@ -111,6 +112,7 @@ EXPECTED_FIXTURE = {
     "max_queries": "(self, limit: 'int') -> 'AbstractContextManager[QueryLog]'",
     "num_queries": "(self, expected: 'int') -> 'AbstractContextManager[QueryLog]'",
     "queries": "property",
+    "snapshot": "(self) -> 'list[str]'",
 }
 
 EXPECTED_INI = {

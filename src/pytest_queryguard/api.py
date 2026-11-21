@@ -18,6 +18,7 @@ from .messages import (
     format_time_budget,
     make_findings,
 )
+from .sqltext import fingerprint, is_transaction_control
 from .warnings import QueryGuardInternalWarning, default, renamed, warn_internal
 
 
@@ -234,7 +235,7 @@ class QueryLog:
 
     def _finish(self, earlier: BaseException | None) -> BaseException | None:
         self._error = internal_error() or earlier
-        self._frozen = self._snapshot()  # built once; the log no longer changes
+        self._frozen = self._convert()  # built once; the log no longer changes
         self._frozen_db_time = self._collector.db_time
         self._done = True
         return self._error
@@ -248,9 +249,9 @@ class QueryLog:
         """Every recorded statement, in the order it ran."""
         if self._done:
             return self._frozen
-        return self._snapshot()
+        return self._convert()
 
-    def _snapshot(self) -> tuple[Query, ...]:
+    def _convert(self) -> tuple[Query, ...]:
         return tuple(_to_query(event) for event in list(self._collector.statements))
 
     def __len__(self) -> int:
@@ -297,6 +298,23 @@ class QueryLog:
             raise ValueError(f"n must be a non-negative integer, got {n!r}")
         timed = [q for q in self.queries if q.duration is not None]
         return tuple(sorted(timed, key=lambda q: q.duration or 0.0, reverse=True)[:n])
+
+    def snapshot(self) -> list[str]:
+        """The recorded statements as short texts without their values.
+
+        For a snapshot test: ``assert log.snapshot() == snapshot([...])`` with
+        inline-snapshot, or a plain list. Each statement keeps its clause
+        keywords and table names, and the rest of each clause becomes ``...``,
+        as in ``"SELECT ... FROM book WHERE ... LIMIT ..."``; other statements
+        are kept with their literals and parameters as ``...``. Statements
+        that only open, end or mark a transaction (BEGIN, COMMIT, SAVEPOINT,
+        RELEASE, ROLLBACK) are left out. See docs/snapshots.md.
+        """
+        return [
+            fingerprint(q.sql)
+            for q in self.queries
+            if not is_transaction_control(q.sql)
+        ]
 
     def assert_no_nplusone(
         self,
@@ -519,10 +537,10 @@ class QueryGuardFixture:
         _check_count("expected", expected)
         return _measure(expected, None, local=True, exact=True)
 
-    def _started_log(self) -> QueryLog:
+    def _started_log(self, name: str = "queries") -> QueryLog:
         if self._state in ("new", "unused"):
             raise RuntimeError(
-                "queryguard.queries counts the statements of the test function, "
+                f"queryguard.{name} counts the statements of the test function, "
                 "which has not run: read it in the test or in a fixture's teardown"
             )
         return self._log
@@ -541,6 +559,10 @@ class QueryGuardFixture:
     def count(self) -> int:
         """The number of statements in ``queries``."""
         return self._started_log().count
+
+    def snapshot(self) -> list[str]:
+        """``queries`` as short texts without their values, as ``QueryLog.snapshot()``."""
+        return self._started_log("snapshot()").snapshot()
 
     def __repr__(self) -> str:
         count = "-" if self._state in ("new", "unused") else self._log.count

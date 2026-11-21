@@ -160,12 +160,18 @@ them was run, and none is in the matrix.
 What pytest-queryguard does differently: it needs no marker, fixture or
 expected list, names the relationship behind an N+1 and suggests
 `select_related()` or `prefetch_related()`, and has a baseline, SARIF and
-the missing-index check. What it does not have: snapshots of the statements
-themselves (its budgets are counts, and [`assert_queries_do_not_grow()`](python-api.md#the-count-must-not-grow-assert_queries_do_not_grow)
-compares counts), cache operations, or assertions on the model and
-`where` clause of each query. If you want a test to pin the exact SQL a
-view runs, inline-snapshot-django or django-assert-queries do that and can
-run alongside pytest-queryguard.
+the missing-index check. It also has statement snapshots (unreleased, in
+the next version): [`log.snapshot()`](snapshots.md) gives the statements
+of a block as short texts without values, which a test compares with a list
+it keeps, by hand or with inline-snapshot, as inline-snapshot-django does;
+for SQLAlchemy as well as Django. Its texts are not inline-snapshot-django's
+(they keep the clause keywords and tables, as in
+`SELECT ... FROM library_book WHERE ... LIMIT ...`, and leave out
+savepoints), so a test moved from one to the other gets new snapshots.
+What it does not have: cache operations, the database alias of each
+statement, or assertions on the model and `where` clause of each query.
+If you want a test to pin the exact SQL a view runs, django-assert-queries
+does that and can run alongside pytest-queryguard.
 
 pytest-capquery's PyPI metadata has no license field. Its README badge and the
 `LICENSE` file in its GitHub repository are Creative Commons
@@ -225,7 +231,8 @@ not work.
   and never edits your code.
 - **Exact SQL assertions and snapshots.** pytest-capquery asserts the exact
   statements and transaction events of a block and keeps `.sql` snapshots;
-  pytest-queryguard looks for patterns and does not assert exact SQL.
+  pytest-queryguard's [snapshots](snapshots.md) are of statement shapes
+  without values, and it does not assert exact SQL.
 - **A missing-index check exists elsewhere too.** pytest-querycount has its
   own PostgreSQL check, based on the same idea (plan with sequential scans
   disabled); pytest-queryguard is not alone in having one.

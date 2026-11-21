@@ -44,6 +44,7 @@ pages = [
   { title = "Ignoring findings", file = "ignoring.md", description = "Leave out single findings or whole kinds with an ignore() block, the queryguard_ignore marker and option, and baselines." },
   { title = "Several sessions or requests", file = "several-sessions.md", description = "Count repeated statements per Session or connection checkout, for tests that make several independent requests." },
   { title = "Reading the queries", file = "python-api.md", description = "Read the SQL statements, durations and call sites of a block in a test with record_queries and QueryLog, and check that the count does not grow with the rows." },
+  { title = "Snapshots of the statements", file = "snapshots.md", description = "Pin which SQL statements a test runs with QueryLog.snapshot(), a list of short statement texts without values, by hand or with inline-snapshot, for SQLAlchemy and Django." },
   { title = "In-application mode", file = "in-app.md", description = "Run the N+1 rules and query budgets on every request of a running FastAPI, Starlette or Flask app, with an optional development panel." },
 ]
 

@@ -382,4 +382,5 @@ open, so a race there costs accuracy, not the test run.
   `raiseload` gives a hard error with no plugin (see the first question).
   Repeated statements, budgets and the index check are still beyond it.
 - You need to assert the exact SQL a block sends: that is a snapshot tool's
-  job; this plugin looks for patterns.
+  job; this plugin looks for patterns. Its [snapshots](snapshots.md) pin
+  which statements run and on which tables, without the values.
