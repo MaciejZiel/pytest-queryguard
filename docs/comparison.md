@@ -570,6 +570,9 @@ pytest-queryguard only.
 - You are on Django: django-zeal is the established choice;
   pytest-queryguard's [Django support](django.md) is newer (0.10.0) and
   left experimental in 1.1.0. django-nplus1 and django-query-doctor were read, not run (see above).
+  To move tests from django-zeal, see
+  [Migrating from django-zeal](migrating-from-zeal.md); zeal also runs
+  outside tests (middleware, Celery), which pytest-queryguard does not.
 - You want to assert exact SQL: pytest-capquery, after checking its license.
 - You have nplusone on an old SQLAlchemy: see
   [Migrating from nplusone](migrating-from-nplusone.md). If you only want

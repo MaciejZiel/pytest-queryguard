@@ -140,23 +140,22 @@ nplusone has had no release since 1.0.0 (2018-05-21). It patches
 `select()`-style query (`session.scalars(select(Order))`), and on SQLAlchemy
 2.1 `import nplusone.ext.sqlalchemy` fails. The
 [migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-nplusone.html)
-has a find-and-replace table: delete the profiler fixture and the imports,
-`NPLUSONE_WHITELIST` becomes `queryguard_ignore`, `NPLUSONE_RAISE = False`
-becomes `queryguard_mode = "warn"`, `signals.ignore()` becomes
-`pytest_queryguard.ignore()`, and a before and after of one project.
+has a find-and-replace table (`NPLUSONE_WHITELIST` becomes `queryguard_ignore`,
+`NPLUSONE_RAISE = False` becomes `queryguard_mode = "warn"`).
 
 ## Coming from queryspy?
 
-queryspy reports N+1s but fails a test only with `--queryspy-strict` or
-`queryspy_fail_on`; pytest-queryguard fails by default, so start with
-`queryguard_mode = "warn"` if you ran queryspy without them. Its markers and
-helpers have equivalents (`@pytest.mark.queryspy(max_queries=3)` is
-`@pytest.mark.max_queries(3)`, `assert_max_queries()` is `max_queries()`,
-`no_n_plus_one()` is `record_queries()` with `assert_no_nplusone()`), and two
-defaults differ: repeats and column reloads need 5 runs here, not 2, and
-loops in test code are counted, not reported. The
+queryspy fails a test only with `--queryspy-strict` or `queryspy_fail_on`;
+pytest-queryguard fails by default, so start with `queryguard_mode = "warn"`.
+Repeats and column reloads need 5 runs here, not 2. The
 [migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-queryspy.html)
-has the full find-and-replace table.
+maps every marker and helper (`@pytest.mark.queryspy(max_queries=3)` is
+`@pytest.mark.max_queries(3)`).
+
+## Coming from django-zeal?
+
+The [migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-zeal.html)
+maps every zeal setting and runs both tools side by side before zeal is removed.
 
 ## Missing indexes
 

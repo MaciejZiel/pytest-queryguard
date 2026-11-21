@@ -55,7 +55,7 @@ What it does not do (ORMs other than SQLAlchemy and [Django](django.md)) and whe
 [Comparison with other tools](comparison.md) and [Limitations](limitations.md).
 How often it is right, on a corpus of 283 scenarios: [Accuracy](accuracy.md).
 Coming from another tool: [nplusone](migrating-from-nplusone.md),
-[queryspy](migrating-from-queryspy.md).
+[queryspy](migrating-from-queryspy.md), [django-zeal](migrating-from-zeal.md).
 
 ## Where to go
 
