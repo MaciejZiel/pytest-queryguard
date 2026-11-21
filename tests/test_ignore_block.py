@@ -103,6 +103,78 @@ def test_glob():
     _run(pytester).assert_outcomes(passed=2)
 
 
+def test_a_label_narrows_the_block(pytester: pytest.Pytester) -> None:
+    # label= matches as the queryguard_ignore marker does: fnmatch, the label
+    # written out exactly, one pattern or a list; without kinds, every kind.
+    _project(
+        pytester,
+        """
+def test_label():
+    with ignore("relationship-load", label="Order.customer"):
+        loop(make_sync_session())
+
+
+def test_label_glob_list_any_kind():
+    with ignore(label=["Order.items", "Order.cust*"]):
+        loop(make_sync_session())
+
+
+def test_other_label():
+    with ignore("relationship-load", label="Order.items"):
+        loop(make_sync_session())
+
+
+def test_label_of_another_kind():
+    with ignore("repeated-statement", label="Order.customer"):
+        loop(make_sync_session())
+""",
+    )
+    result = _run(pytester)
+    result.assert_outcomes(passed=2, failed=2)
+    result.stdout.fnmatch_lines(
+        [
+            "FAILED*test_other_label*",
+            "FAILED*test_label_of_another_kind*",
+        ],
+        consecutive=False,
+    )
+    result.stdout.fnmatch_lines(
+        [
+            "ignore() blocks that left out no finding in this run:",
+            "  test_suite.py:*: ignore('relationship-load', label='Order.items')",
+            "  test_suite.py:*: ignore('repeated-statement', label='Order.customer')",
+        ]
+    )
+    stale = result.stdout.str().split("left out no finding")[1]
+    assert stale.count("  test_suite.py:") == 2  # the blocks that matched are not
+
+
+def test_a_label_matches_a_table_as_the_marker_does(
+    pytester: pytest.Pytester,
+) -> None:
+    _project(
+        pytester,
+        """
+def test_bare_name():
+    session = make_sync_session()
+    with ignore("missing-index", label="ord*"):
+        session.query(Order).filter(Order.customer_id == 1).count()
+
+
+def test_other_table():
+    session = make_sync_session()
+    with ignore("missing-index", label="customers"):
+        session.query(Order).filter(Order.customer_id == 2).count()
+""",
+    )
+    result = _run(pytester, "--queryguard-index-check")
+    result.assert_outcomes(passed=1, failed=1)
+    result.stdout.fnmatch_lines(
+        ["  test_suite.py:*: ignore('missing-index', label='customers')"]
+    )
+    result.stdout.fnmatch_lines(["FAILED*test_other_table*"])
+
+
 def test_a_finding_partly_outside_the_block_is_reported(
     pytester: pytest.Pytester,
 ) -> None:
@@ -487,6 +559,27 @@ def test_strict_partly():
 """
 
 
+def test_strict_mode_raises_inside_a_block_for_another_label(
+    pytester: pytest.Pytester,
+) -> None:
+    _project(
+        pytester,
+        """
+def test_strict_label():
+    with ignore(label="Order.customer"):
+        loop(make_sync_session())
+
+
+def test_strict_other_label():
+    with ignore(label="Order.items"):
+        loop(make_sync_session())
+""",
+    )
+    result = _run(pytester, "--queryguard-strict")
+    result.assert_outcomes(passed=1, failed=1)
+    result.stdout.fnmatch_lines(["FAILED*test_strict_other_label*"])
+
+
 def test_strict_mode_does_not_raise_inside_the_block(
     pytester: pytest.Pytester,
 ) -> None:
@@ -819,6 +912,48 @@ def test_kinds_are_checked() -> None:
         ignore(1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="reason"):
         ignore("*", reason=1)  # type: ignore[arg-type]
+
+
+def test_labels_are_checked() -> None:
+    with pytest.raises(TypeError, match="at least one finding kind.*or a label"):
+        ignore(label=None)
+    with pytest.raises(TypeError, match="string or a list of strings"):
+        ignore("*", label=1)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="at least one label pattern"):
+        ignore(label=[])
+    with pytest.raises(TypeError, match="non-empty string"):
+        ignore(label=["Order.customer", ""])
+    with pytest.raises(ValueError, match="matches no finding kind"):
+        ignore("relationship", label="Order.customer")
+
+
+def test_a_label_block_matches_the_label_as_the_marker_does() -> None:
+    block = ignore(label=("Order.customer", "ARRAY[?, ?]"))
+    assert block.kinds == ()
+    assert block.matches("relationship-load", "Order.customer")
+    assert block.matches("unused-eager-load", "Order.customer")
+    assert block.matches("repeated-statement", "ARRAY[?, ?]")  # written out exactly
+    assert not block.matches("relationship-load", "Order.items")
+    assert block.for_kind("write-loop")
+    table = ignore("missing-index", label="public.orders")
+    assert table.matches("missing-index", "orders", ("public", "orders"))
+    assert not table.matches("missing-index", "orders", ("audit", "orders"))
+    assert not table.matches("relationship-load", "public.orders")
+    assert block.describe() == "ignore(label=['Order.customer', 'ARRAY[?, ?]'])"
+    assert table.describe() == "ignore('missing-index', label='public.orders')"
+
+
+def test_assert_no_nplusone_leaves_out_a_labelled_block() -> None:
+    session = make_sync_session()
+    with record_queries() as log, ignore(label="Order.customer"):
+        for order in session.query(Order).all():
+            _ = order.customer.name
+    log.assert_no_nplusone()
+    with record_queries() as log, ignore(label="Order.items"):
+        for order in session.query(Order).all():
+            _ = order.customer.name
+    with pytest.raises(AssertionError, match="Order.customer"):
+        log.assert_no_nplusone()
 
 
 def test_a_generator_function_cannot_be_decorated() -> None:

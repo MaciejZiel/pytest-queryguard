@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   templates), calls in test code, sliced querysets, and querysets the
   function may hand to other code
   ([Django](docs/django.md#queryset-len-experimental)).
+- `pytest_queryguard.ignore()` takes `label=`, a label pattern or a list of
+  them, matched as the `queryguard_ignore` marker matches its patterns:
+  `with ignore("relationship-load", label="Book.author"):` leaves out that
+  relationship's N+1 and still reports the others made in the block. With
+  `label`, the kinds may be left out (`ignore(label="Book.author")`, every
+  kind). The [static check](docs/static-check.md) and the stale-ignores
+  summary take the label into account
+  ([Ignoring findings](docs/ignoring.md#the-ignore-block)).
 
 ## [1.1.0] - 2026-11-20
 

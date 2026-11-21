@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from . import sarif
+from .ignores import label_matches
 from .messages import loader_query
 
 RULE_ID = "queryguard/static-relationship-load"
@@ -1026,7 +1027,7 @@ class _File:
         path: tuple[tuple[str, bool], ...],
         keys: tuple[str, ...],
     ) -> None:
-        if self.in_ignore_block(node):
+        if self.in_ignore_block(node, path[-1][0]):
             return
         key = (binding.loop_line, tuple(label for label, _ in path))
         line = getattr(node, "end_lineno", None) or node.lineno
@@ -1056,12 +1057,12 @@ class _File:
         if old is None or (finding.line, finding.column) < (old.line, old.column):
             self.findings[key] = finding
 
-    def in_ignore_block(self, node: ast.AST) -> bool:
+    def in_ignore_block(self, node: ast.AST, label: str) -> bool:
         """Whether ``node`` runs inside pytest-queryguard's ``ignore()`` for this rule.
 
         A ``with ignore(...)`` block around it, or ``@ignore(...)`` on a function
         around it: the plugin leaves out a relationship-load whose lazy loads
-        all ran there.
+        all ran there. ``label`` is the relationship the finding names.
         """
         if not self.ignore_imported:
             return False
@@ -1074,13 +1075,17 @@ class _File:
                 blocks, inside = parent.decorator_list, True
             else:
                 blocks, inside = [], False
-            if inside and any(self.ignores(block) for block in blocks):
+            if inside and any(self.ignores(block, label) for block in blocks):
                 return True
             child, parent = parent, self.parents.get(parent)
         return False
 
-    def ignores(self, node: ast.expr) -> bool:
-        """Whether ``node`` is ``ignore(...)`` of pytest-queryguard for this rule."""
+    def ignores(self, node: ast.expr, label: str) -> bool:
+        """Whether ``node`` is ``ignore(...)`` of pytest-queryguard for this rule.
+
+        With ``label=``, also whether a pattern matches ``label``; arguments
+        it cannot read may be for this finding, so they count as a match.
+        """
         if not isinstance(node, ast.Call):
             return False
         func = node.func
@@ -1092,15 +1097,38 @@ class _File:
             return False
         if full not in ("pytest_queryguard.ignore", "pytest_queryguard.blocks.ignore"):
             return False
-        for arg in node.args:
-            if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
-                return True  # kinds it cannot read: may be this one
-            if fnmatchcase(_PLUGIN_KIND, arg.value):
-                return True
-        return False
+        labels = next((kw.value for kw in node.keywords if kw.arg == "label"), None)
+        if any(kw.arg is None for kw in node.keywords):
+            return True  # ignore(**options): may be for this one
+        if not _kind_may_match(node.args, labels is not None):
+            return False
+        return labels is None or _label_may_match(labels, label)
 
     def results(self) -> list[Finding]:
         return [f for k, f in self.findings.items() if k not in self.suppressed]
+
+
+def _kind_may_match(args: Sequence[ast.expr], labelled: bool) -> bool:
+    """Whether the kinds of an ``ignore()`` call may match the plugin's kind."""
+    if not args:
+        return labelled  # ignore(label=...) is for every kind
+    for arg in args:
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+            return True  # kinds it cannot read: may be this one
+        if fnmatchcase(_PLUGIN_KIND, arg.value):
+            return True
+    return False
+
+
+def _label_may_match(node: ast.expr, label: str) -> bool:
+    """Whether ``label=`` of an ``ignore()`` call may match ``label``."""
+    patterns = node.elts if isinstance(node, (ast.List, ast.Tuple)) else [node]
+    for pattern in patterns:
+        if not (isinstance(pattern, ast.Constant) and isinstance(pattern.value, str)):
+            return True  # a pattern it cannot read: may be this one
+        if label_matches(pattern.value, label):
+            return True
+    return False
 
 
 def _functions(node: ast.AST, prefix: str) -> Iterator[tuple[ast.AST, str]]:

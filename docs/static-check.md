@@ -137,9 +137,10 @@ These are left out on purpose, to keep false positives rare:
   those objects usually come from the identity map, without a query. This
   does not apply when the target is the class of the loop's own query.
 - A read inside pytest-queryguard's `ignore()` for `relationship-load`
-  (or a pattern that matches it): a `with ignore(...)` block around the
-  read, or `@ignore(...)` on a function around it, as the plugin leaves
-  those out.
+  (or a pattern that matches it), and, when it has a `label`, for the
+  relationship read (`label="Order.customer"`): a `with ignore(...)` block
+  around the read, or `@ignore(...)` on a function around it, as the plugin
+  leaves those out.
 - A relationship that the function sets or refreshes on each object before
   reading it: `session.refresh(obj, ["rel"])` (or `attribute_names=`) or
   `set_committed_value(obj, "rel", value)` in an earlier loop over the same

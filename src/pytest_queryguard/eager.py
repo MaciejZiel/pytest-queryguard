@@ -296,7 +296,7 @@ def unused(tracker: Tracker, sieve: blocks.Sieve | None = None) -> list[EagerLoa
             continue
         if load.parent is not None and not _was_read(tracker, *load.parent):
             continue  # the relationship above is the finding
-        if sieve is not None and sieve.drops(group, KIND_UNUSED_EAGER_LOAD):
+        if sieve is not None and sieve.drops(group, KIND_UNUSED_EAGER_LOAD, load.label):
             continue
         found.append(load)
     return found

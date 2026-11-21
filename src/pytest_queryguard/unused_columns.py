@@ -378,7 +378,9 @@ def unused(tracker: Tracker, sieve: blocks.Sieve | None = None) -> list[Unused]:
         used = {k for k in loaded if k in group.reads or k in columns.needed}
         if len(used) > len(loaded) * MAX_READ_SHARE:
             continue
-        if sieve is not None and sieve.drops_tags(group.ignores, KIND_UNUSED_COLUMNS):
+        if sieve is not None and sieve.drops_tags(
+            group.ignores, KIND_UNUSED_COLUMNS, group.label
+        ):
             continue
         found.append(
             Unused(
