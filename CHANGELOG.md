@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `QueryLog.snapshot()` and `queryguard.snapshot()` give the recorded
+  statements as a list of short texts without values, such as
+  `"SELECT ... FROM book WHERE ... LIMIT ..."`, for snapshot tests with a
+  plain list or with inline-snapshot (not a dependency), for SQLAlchemy and
+  Django. Clause keywords and table names are kept, the rest of each clause
+  is `...`, and the text is the same on SQLite, PostgreSQL and MySQL;
+  transaction control and savepoints are left out
+  ([Snapshots of the statements](docs/snapshots.md)).
 - Django: the experimental `queryset-len` check reports a queryset that
   `len(qs)` or `bool(qs)` (`if qs:`, `not qs`) in the application loads in
   full when nothing reads its rows afterwards, and names `.count()` or

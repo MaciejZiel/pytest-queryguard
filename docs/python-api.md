@@ -67,6 +67,11 @@ inside the block to include their completed timings.
 to get one, and its constructor may change in any release. Use the class for
 type hints only.
 
+`log.snapshot()` gives the statements as a list of short texts without
+their values, such as `"SELECT ... FROM customer WHERE ..."`, for a
+snapshot test written by hand or with inline-snapshot (see
+[Snapshots of the statements](snapshots.md)).
+
 `log.assert_no_nplusone()` applies the plugin's N+1 rules to the block:
 relationship loads, repeated statements and column loads, plus small repeats
 and write loops when asked for. It raises `NPlusOneDetected`, a subclass of
@@ -142,7 +147,7 @@ The `queryguard` fixture gives a `QueryLog` from
 `queryguard.max_queries(n)` and `queryguard.num_queries(n)` blocks that
 counts only the statements of the test's own thread or asyncio task, and
 without `assert_no_nplusone()`, and the statements of the whole test as
-`queryguard.queries` (see
+`queryguard.queries`, with `queryguard.count` and `queryguard.snapshot()` (see
 [Budgets in a test with the `queryguard` fixture](budgets.md#budgets-in-a-test-with-the-queryguard-fixture)).
 
 Recording changes nothing else. The plugin's N+1 detection, budgets and
