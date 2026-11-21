@@ -38,7 +38,7 @@ class IgnoreBlock:
     Not constructible by users: call ``ignore()``.
     """
 
-    __slots__ = ("_labelled", "_matched", "kinds", "labels", "reason", "site")
+    __slots__ = ("_matched", "kinds", "labels", "reason", "site")
 
     def __init__(
         self,
@@ -52,8 +52,6 @@ class IgnoreBlock:
         self.reason = reason
         self.site = site  # where ignore() was called: the with or the decorator
         self._matched: dict[str, bool] = {}  # kind -> matches, filled on use
-        # (label, table) -> matches, filled on use when there are labels
-        self._labelled: dict[tuple[str, tuple[str | None, str] | None], bool] = {}
 
     def for_kind(self, kind: str) -> bool:
         """True when the block's kinds match ``kind``, whatever the label."""
@@ -76,16 +74,11 @@ class IgnoreBlock:
         """
         if not self.for_kind(kind):
             return False
-        if not self.labels:
-            return True
-        key = (label, table)
-        matched = self._labelled.get(key)
-        if matched is None:
-            matched = any(
-                label_matches(pattern, label, table) for pattern in self.labels
-            )
-            self._labelled[key] = matched
-        return matched
+        # not cached: a block decorating a helper lives for the whole run,
+        # and statement labels are many (fnmatch caches the patterns)
+        return not self.labels or any(
+            label_matches(pattern, label, table) for pattern in self.labels
+        )
 
     def __enter__(self) -> Self:
         _blocks.set((*_blocks.get(), self))
@@ -198,7 +191,9 @@ def _labels(label: object) -> tuple[str, ...]:
         return ()
     patterns = (label,) if isinstance(label, str) else label
     if not isinstance(patterns, (list, tuple)):
-        raise TypeError(f"label must be a string or a list of strings, got {label!r}")
+        raise TypeError(
+            f"label must be a string, or a list or tuple of strings, got {label!r}"
+        )
     if not patterns:
         raise TypeError(f"label needs at least one label pattern, got {label!r}")
     checked: list[str] = []

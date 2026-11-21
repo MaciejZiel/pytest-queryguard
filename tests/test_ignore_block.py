@@ -917,7 +917,7 @@ def test_kinds_are_checked() -> None:
 def test_labels_are_checked() -> None:
     with pytest.raises(TypeError, match="at least one finding kind.*or a label"):
         ignore(label=None)
-    with pytest.raises(TypeError, match="string or a list of strings"):
+    with pytest.raises(TypeError, match="a string, or a list or tuple of strings"):
         ignore("*", label=1)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="at least one label pattern"):
         ignore(label=[])

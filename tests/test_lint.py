@@ -1278,6 +1278,18 @@ def test_reads_that_do_not_load_per_row(models: lint.Models, code: str) -> None:
                 return [o.customer.name for o in session.scalars(select(Order))]
         """,
         """
+        from pytest_queryguard import ignore
+        def f(session, opts):
+            with ignore("repeated-statement", **opts):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
+        from pytest_queryguard import ignore
+        def f(session):
+            with ignore(label=None):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
         from contextlib import suppress as ignore
         def f(session):
             with ignore("relationship-load"):

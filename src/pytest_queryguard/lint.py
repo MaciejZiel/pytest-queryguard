@@ -1098,11 +1098,14 @@ class _File:
         if full not in ("pytest_queryguard.ignore", "pytest_queryguard.blocks.ignore"):
             return False
         labels = next((kw.value for kw in node.keywords if kw.arg == "label"), None)
-        if any(kw.arg is None for kw in node.keywords):
-            return True  # ignore(**options): may be for this one
-        if not _kind_may_match(node.args, labels is not None):
+        if isinstance(labels, ast.Constant) and labels.value is None:
+            labels = None  # label=None: no label
+        options = any(kw.arg is None for kw in node.keywords)  # ignore(**options)
+        if not _kind_may_match(node.args, labels is not None or options):
             return False
-        return labels is None or _label_may_match(labels, label)
+        if labels is None:
+            return True  # a label in **options may be this one, or none
+        return _label_may_match(labels, label)
 
     def results(self) -> list[Finding]:
         return [f for k, f in self.findings.items() if k not in self.suppressed]
