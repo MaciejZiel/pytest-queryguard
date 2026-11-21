@@ -8,6 +8,7 @@ from .api import (
     QueryLog,
     max_db_time,
     max_queries,
+    max_statement_time,
     record_queries,
 )
 from .blocks import ignore
@@ -37,6 +38,7 @@ __all__ = [
     "ignore",
     "max_db_time",
     "max_queries",
+    "max_statement_time",
     "record_queries",
 ]
 

@@ -18,6 +18,7 @@ from pytest_queryguard import (
     QueryLog,
     max_db_time,
     max_queries,
+    max_statement_time,
     record_queries,
 )
 
@@ -145,7 +146,13 @@ def test_nested_logs_both_count_the_time(engine: Engine) -> None:
 
 @pytest.mark.sqlite_only("a Python function that waits for the test")
 @pytest.mark.parametrize(
-    "make_log", [record_queries, lambda: max_queries(2), lambda: max_db_time(60)]
+    "make_log",
+    [
+        record_queries,
+        lambda: max_queries(2),
+        lambda: max_db_time(60),
+        lambda: max_statement_time(60),
+    ],
 )
 def test_a_late_completion_does_not_change_a_finished_logs_db_time(
     make_log: Callable[[], AbstractContextManager[QueryLog]],
@@ -190,8 +197,10 @@ def test_a_late_completion_does_not_change_a_finished_logs_db_time(
 
 
 @pytest.mark.sqlite_only("a Python function that waits for the test")
+@pytest.mark.parametrize("make_budget", [max_db_time, max_statement_time])
 def test_the_time_budget_judges_the_total_fixed_at_the_blocks_end(
     monkeypatch: pytest.MonkeyPatch,
+    make_budget: Callable[[float], AbstractContextManager[QueryLog]],
 ) -> None:
     # A statement started in another thread finishes right after the log is
     # fixed and before the verdict. Its time must not decide the budget.
@@ -223,10 +232,11 @@ def test_the_time_budget_judges_the_total_fixed_at_the_blocks_end(
     monkeypatch.setattr(QueryLog, "_finish", finish_then_complete)
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            with max_db_time(0.1) as log:
+            with make_budget(0.1) as log:
                 pending = pool.submit(_run, engine, "select slow_after_release()")
                 assert started.wait(timeout=10)
             assert log.db_time < 0.1
+            assert log[-1].duration is None
     finally:
         release.set()
         engine.dispose()
@@ -307,6 +317,75 @@ def test_max_queries_failure_shows_the_database_time(engine: Engine) -> None:
     assert "  database time: " in message
     assert "  slowest:" in message
     assert "select nap" in message.split("slowest:")[1].splitlines()[1]
+
+
+# ------------------------------------------------------------ max_statement_time
+
+
+def test_max_statement_time_passes_under_the_limit(engine: Engine) -> None:
+    with max_statement_time(5):
+        _run(engine, "select 1")
+        _run(engine, "select 2")
+
+
+def test_max_statement_time_fails_on_one_slow_statement(engine: Engine) -> None:
+    with (
+        pytest.raises(QueryBudgetExceeded) as caught,
+        max_statement_time(SLEEP / 2) as log,
+    ):
+        _run(engine, "select 1")
+        _run(engine, f"select nap({SLEEP})")
+    message = str(caught.value)
+    lines = message.splitlines()
+    assert lines[0].startswith("queryguard: a statement took ")
+    assert "over the budget of 15.0 ms per statement" in lines[0]
+    over = lines[lines.index("  over the budget:") + 1 :]
+    # the fast statement is listed only if it was slow too (a loaded runner)
+    assert any(
+        f"select nap({SLEEP})" in line and "test_timing.py" in line for line in over
+    )
+    assert log.db_time > 0  # the log is still there
+
+
+def test_max_statement_time_is_not_a_total(engine: Engine) -> None:
+    # Three statements over the limit in total, none over it alone.
+    with max_statement_time(60) as log:
+        for _ in range(3):
+            _run(engine, "select 1")
+    assert log.count == 3
+
+
+def test_max_statement_time_zero_fails_on_any_timed_statement(engine: Engine) -> None:
+    with pytest.raises(QueryBudgetExceeded), max_statement_time(0):
+        _run(engine, "select 1")
+
+
+def test_max_statement_time_with_no_statements_passes() -> None:
+    with max_statement_time(0):
+        pass
+
+
+def test_max_statement_time_does_not_judge_a_statement_that_raised(
+    engine: Engine,
+) -> None:
+    with (
+        max_statement_time(0) as log,
+        pytest.raises(Exception, match="no such table|doesn't exist"),
+    ):
+        _run(engine, "select * from missing")
+    assert log[0].duration is None
+
+
+@pytest.mark.parametrize("bad", [-1, -0.1, True, None, "1", float("nan"), float("inf")])
+def test_max_statement_time_rejects_an_invalid_limit(bad: Any) -> None:
+    with pytest.raises(ValueError, match="non-negative number"):
+        max_statement_time(bad)
+
+
+def test_max_statement_time_does_not_hide_an_error(engine: Engine) -> None:
+    with pytest.raises(RuntimeError, match="boom"), max_statement_time(0):
+        _run(engine, "select 1")
+        raise RuntimeError("boom")
 
 
 # ------------------------------------------------------------ the marker
@@ -438,6 +517,108 @@ def test_the_time_counts_statements_beyond_the_event_cap(
     # the slow statement is the second one, which is not stored
     result.stdout.fnmatch_lines(["*exceeded the budget of 10.0 ms (2 statements)*"])
     result.stdout.fnmatch_lines(["*1 more statement was not stored*"])
+
+
+def test_statement_marker_fails_over_the_limit(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=_marked("@pytest.mark.max_statement_time(0.01)"))
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*a statement took * over the budget of 10.0 ms per statement*",
+            "*over the budget:*",
+            "*select nap(0.05)*test_a.py*",
+        ]
+    )
+
+
+def test_statement_marker_passes_under_the_limit(project: pytest.Pytester) -> None:
+    project.makepyfile(
+        test_a=_marked("@pytest.mark.queryguard_max_statement_time(seconds=30)")
+    )
+    project.runpytest("--strict-markers").assert_outcomes(passed=1)
+
+
+def test_statement_marker_fails_even_in_off_mode(project: pytest.Pytester) -> None:
+    project.makepyfile(test_a=_marked("@pytest.mark.max_statement_time(0.01)"))
+    result = project.runpytest("--queryguard-mode=off")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*over the budget of 10.0 ms per statement*"])
+
+
+@pytest.mark.parametrize(
+    ("marker", "message"),
+    [
+        (
+            "max_statement_time('x')",
+            "*max_statement_time*test_timed*non-negative number*",
+        ),
+        (
+            "max_statement_time(-1)",
+            "*max_statement_time*test_timed*non-negative number*",
+        ),
+        ("max_statement_time(1, 2)", "*max_statement_time*takes a single argument*"),
+        ("max_statement_time(1, seconds=1)", "*max_statement_time*twice*"),
+        (
+            "queryguard_max_statement_time(float('inf'))",
+            "*queryguard_max_statement_time on *non-negative number*",
+        ),
+    ],
+)
+def test_statement_marker_rejects_a_bad_limit(
+    project: pytest.Pytester, marker: str, message: str
+) -> None:
+    project.makepyfile(test_a=_marked(f"@pytest.mark.{marker}"))
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines([message])
+
+
+def test_the_prefixed_statement_marker_wins(project: pytest.Pytester) -> None:
+    project.makepyfile(
+        test_a=_marked(
+            "@pytest.mark.queryguard_max_statement_time(30)\n"
+            "@pytest.mark.max_statement_time(0)"
+        )
+    )
+    project.runpytest().assert_outcomes(passed=1)
+
+
+def test_all_three_budgets_are_reported_in_one_failure(
+    project: pytest.Pytester,
+) -> None:
+    project.makepyfile(
+        test_a=_marked(
+            "@pytest.mark.max_queries(1)\n@pytest.mark.max_db_time(0.01)\n"
+            "@pytest.mark.max_statement_time(0.01)"
+        )
+    )
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*expected at most 1 query, got 2*",
+            "*database time * exceeded*",
+            "*a statement took * per statement*",
+        ]
+    )
+
+
+def test_the_statement_time_counts_statements_beyond_the_event_cap(
+    project: pytest.Pytester,
+) -> None:
+    project.makeini("[pytest]\nqueryguard_max_events = 1\n")
+    project.makepyfile(test_a=_marked("@pytest.mark.max_statement_time(0.01)"))
+    result = project.runpytest()
+    result.assert_outcomes(failed=1)
+    # the slow statement is the second one, which is not stored
+    result.stdout.fnmatch_lines(
+        [
+            "*a statement took * per statement (* of the 1 stored statement, 2 in all)*",
+            "*the slowest one (*) was not stored; raise queryguard_max_events*",
+            "*1 more statement was not stored*",
+        ]
+    )
 
 
 def test_marker_is_registered(project: pytest.Pytester) -> None:

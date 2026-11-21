@@ -309,6 +309,45 @@ a `duration` (seconds), and the log has `db_time` and `slowest(n)`.
 `@pytest.mark.queryguard_max_db_time(0.25)` (since 0.8.0) is the same marker
 under the plugin's own prefix, chosen the same way as `queryguard_max_queries`.
 
+## A time budget per statement with `max_statement_time`
+
+`max_db_time` limits the total; `max_statement_time` fails when
+any one statement takes longer than the limit, the way a "slow query" alert
+in production would:
+
+```python
+import pytest
+from pytest_queryguard import max_statement_time
+
+
+@pytest.mark.max_statement_time(0.5)  # seconds, for each statement
+def test_report(client):
+    client.get("/reports/monthly")
+
+
+def test_search(service):
+    with max_statement_time(0.2):
+        service.search("shoes")
+```
+
+The time of a statement is its `Query.duration`: wall time around the cursor
+call, as for `max_db_time`. It grows on a loaded machine or a busy CI runner
+and with the first connection to the database, so set the limit well above
+the usual time of the slowest statement (several times it), to catch a
+statement that got much slower rather than noise. The failure lists the
+statements over the limit, slowest first (at most ten), with the line that
+issued them. A statement that raised has no duration and is not judged. The
+context manager judges the durations fixed when the block ends, like
+`db_time`, so a statement still running in another thread then is not judged
+either; the marker, like `max_db_time`, judges at the end of the test what
+has finished by then. Past
+`queryguard_max_events` the slowest time still counts, but the statement may
+not be listed. The marker fails whatever `queryguard_mode` is set to;
+`@pytest.mark.queryguard_max_statement_time(0.5)` is the same marker under the
+plugin's own prefix. Like `max_db_time`, it has no ini option and no
+`QUERYGUARD` setting for the Django test runner, and the in-application mode
+does not apply it.
+
 ## pytest-querycount and the `max_queries` marker
 
 [pytest-querycount](https://github.com/ldavidsm/pytest-querycount) registers a
@@ -324,7 +363,7 @@ pytest-querycount 0.4.0), each reads every `max_queries` marker:
 - `pytest --querycount-write-budgets` writes `max_queries` markers into your
   test files, and pytest-queryguard then enforces them too.
 
-`max_db_time` and the other markers of pytest-queryguard do not clash. To keep
+`max_db_time`, `max_statement_time` and the other markers of pytest-queryguard do not clash. To keep
 the budgets of the two plugins apart, use the prefixed markers for
 pytest-queryguard, which pytest-querycount does not read:
 

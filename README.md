@@ -43,7 +43,7 @@ Python 3.10+, pytest 8+, SQLAlchemy 2.0.13+; tested on SQLite, PostgreSQL 14 to 
 | Repeated statement | on | one `SELECT` runs 5 or more times: ORM, Core or `text()` |
 | Column reloads | on | 5 or more objects reload a deferred or expired column one by one |
 | Cartesian joins | on, warns | one query `joinedload`s two collections side by side, so its rows grow as their product (`fail` makes it fail) |
-| Query and time budgets | per test | `@pytest.mark.max_queries(n)` or `max_db_time(seconds)` is exceeded |
+| Query and time budgets | per test | `@pytest.mark.max_queries(n)`, `max_db_time(seconds)` or `max_statement_time(seconds)` is exceeded |
 | Row-by-row writes | opt-in | one `INSERT`, `UPDATE` or `DELETE` runs once per row from one line |
 | Missing index, with the `CREATE INDEX` | opt-in | no index can serve a filter (PostgreSQL 16+, SQLite, MySQL, MariaDB) |
 | Unused eager loads | experimental, off | a relationship is eager-loaded and never read |
@@ -256,7 +256,7 @@ Django support too. Experimental features (static check, MCP server, route budge
 |---|---|
 | [How detection works](https://maciejziel.github.io/pytest-queryguard/how-detection-works.html) | The rules, the thresholds and why |
 | [Configuration reference](https://maciejziel.github.io/pytest-queryguard/configuration.html) | Ini options, flags, markers |
-| [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html) | `max_queries`, `max_db_time`, a budget file |
+| [Budgets and timing](https://maciejziel.github.io/pytest-queryguard/budgets.html) | `max_queries`, `max_db_time`, `max_statement_time`, a budget file |
 | [Baseline](https://maciejziel.github.io/pytest-queryguard/baseline.html), [CI and Action](https://maciejziel.github.io/pytest-queryguard/ci.html), [SARIF](https://maciejziel.github.io/pytest-queryguard/sarif.html) | Adoption and code scanning |
 | [Recipes](https://maciejziel.github.io/pytest-queryguard/recipes.html) | FastAPI, Flask-SQLAlchemy, SQLModel, Litestar, pytest-asyncio, Factory Boy, query counts that must not grow, Sentry N+1 issues, legacy projects, CI |
 | [In-application mode](https://maciejziel.github.io/pytest-queryguard/in-app.html) | The same rules per request in a running app; a development panel |

@@ -32,8 +32,9 @@ changes by accident.
   message, not public, like the others.
 - The pytest integration: the ini options (`queryguard_*`), the command-line
   flags (`--queryguard-*`, `--no-queryguard-*`), their defaults and accepted
-  values, the markers (`max_queries`, `max_db_time`, `queryguard_max_queries`,
-  `queryguard_max_db_time`, `queryguard_ignore` and its alias `allow_nplusone`,
+  values, the markers (`max_queries`, `max_db_time`, `max_statement_time`,
+  `queryguard_max_queries`, `queryguard_max_db_time`,
+  `queryguard_max_statement_time`, `queryguard_ignore` and its alias `allow_nplusone`,
   `allow_missing_index`) and the `queryguard` fixture.
 - The meaning of the finding kinds and of the labels and patterns used by
   the `queryguard_ignore` option and marker, so that an existing ignore keeps
@@ -150,8 +151,8 @@ follows them too:
 - Finding kinds are lowercase words joined by hyphens (`relationship-load`).
   They are part of a finding's identity (baseline, SARIF fingerprint,
   ignore patterns) and never change.
-- Every time is in seconds, as a float: the `max_db_time` marker and context
-  manager, `Query.duration`, `QueryLog.db_time`, `db_time` in the
+- Every time is in seconds, as a float: the `max_db_time` and
+  `max_statement_time` markers and context managers, `Query.duration`, `QueryLog.db_time`, `db_time` in the
   `--queryguard-json` file, and in the in-application mode
   `Settings.min_db_time`, `RequestReport.duration` and
   `RequestReport.db_time` (`RequestReport.started` is a Unix time). The MCP

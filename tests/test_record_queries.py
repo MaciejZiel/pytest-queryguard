@@ -606,6 +606,7 @@ def test_public_names() -> None:
         "ignore",
         "max_db_time",
         "max_queries",
+        "max_statement_time",
         "record_queries",
     ]
     for name in pytest_queryguard.__all__:

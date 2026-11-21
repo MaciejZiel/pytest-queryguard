@@ -155,8 +155,8 @@ It is Rails' `strict_loading!(mode: :n_plus_one_only)` and Laravel's
   ignore patterns with `file=`/`function=` and baseline entries match it.
   The analysis at the end still runs: SARIF, `--queryguard-json` and the
   summary include the N+1, and the exception replaces the report's text.
-- A query or database-time budget the test went over before the access
-  (`max_queries` or `max_db_time` marker, `queryguard_max_queries`, the
+- A query or time budget the test went over before the access
+  (`max_queries`, `max_db_time` or `max_statement_time` marker, `queryguard_max_queries`, the
   budget file, a `max_queries()` block) is shown under the N+1 in the
   exception, with the statements counted until the test stopped. A budget
   the rest of the test would have gone over is not known.

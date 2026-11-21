@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import overload
 
 from .backends import install
@@ -15,6 +15,7 @@ from .messages import (
     display_root,
     format_budget,
     format_findings,
+    format_statement_time_budget,
     format_time_budget,
     make_findings,
 )
@@ -25,7 +26,8 @@ class QueryBudgetExceeded(AssertionError):
     """Raised when a block goes over its budget.
 
     That is more SQL statements than ``max_queries()`` allows, more database
-    time than ``max_db_time()`` allows, or, for the fixture's
+    time than ``max_db_time()`` allows, a statement slower than
+    ``max_statement_time()`` allows, or, for the fixture's
     ``num_queries()``, any other number of statements than expected (fewer
     count only when recording was complete: not after an internal error).
     ``assert_queries_do_not_grow()`` raises it when a larger size runs more
@@ -44,10 +46,12 @@ def _measure(
     *,
     local: bool = False,
     exact: bool = False,
+    statement_limit: float | None = None,
 ) -> Iterator[QueryLog]:
     """The budget block; ``local`` counts only this thread's or task's statements.
 
-    With ``exact``, any other number of statements than ``limit`` fails.
+    With ``exact``, any other number of statements than ``limit`` fails;
+    ``statement_limit`` is the most seconds any one statement may take.
     """
     # The budget failure is raised here; pytest should show the user's with block.
     __tracebackhide__ = True
@@ -73,7 +77,13 @@ def _measure(
             # the N+1 instead of being lost with the block's end
             try:
                 text = _budget_failure(
-                    log, collector, limit, time_limit, exact=exact, too_few=False
+                    log,
+                    collector,
+                    limit,
+                    time_limit,
+                    exact=exact,
+                    too_few=False,
+                    statement_limit=statement_limit,
                 )
                 if text is not None:
                     add_to_strict_error(stopped, text)
@@ -89,7 +99,13 @@ def _measure(
         )
     # After an internal error statements may be missing: too few is no verdict.
     text = _budget_failure(
-        log, collector, limit, time_limit, exact=exact, too_few=error is None
+        log,
+        collector,
+        limit,
+        time_limit,
+        exact=exact,
+        too_few=error is None,
+        statement_limit=statement_limit,
     )
     if text is not None:
         raise QueryBudgetExceeded(text)
@@ -103,6 +119,7 @@ def _budget_failure(
     *,
     exact: bool,
     too_few: bool,
+    statement_limit: float | None = None,
 ) -> str | None:
     """The failure text of a finished budget block, or None when it kept to it.
 
@@ -127,6 +144,19 @@ def _budget_failure(
             cwd=display_root(),
             db_time=db_time,
         )
+    if statement_limit is not None:
+        # judged on the durations fixed with the log, as the total is: a
+        # statement unfinished when the block ended has none
+        slowest = log.slowest(1)
+        if slowest and (slowest[0].duration or 0.0) > statement_limit:
+            # the message too: one that finished since is shown unfinished
+            judged = [
+                event if query.duration is not None else replace(event, duration=None)
+                for event, query in zip(collector.statements, log.queries, strict=False)
+            ]
+            return format_statement_time_budget(
+                statement_limit, judged, cwd=display_root()
+            )
     return None
 
 
@@ -161,6 +191,26 @@ def max_db_time(seconds: float) -> AbstractContextManager[QueryLog]:
     the block spends outside the database. The failure lists the slowest
     statements.
     """
+    _check_seconds(seconds)
+    return _measure(None, float(seconds))
+
+
+def max_statement_time(seconds: float) -> AbstractContextManager[QueryLog]:
+    """Fail when any one statement of the block takes more than ``seconds``.
+
+    Yields the same ``QueryLog`` as ``record_queries()``.
+
+    The time is ``Query.duration``: wall time around the cursor call, so a
+    loaded machine makes it longer; pick a limit well above the usual time.
+    A statement that raised, or was still running in another thread when the
+    block ended, has no duration and is not judged. The failure lists the
+    statements over the limit, slowest first.
+    """
+    _check_seconds(seconds)
+    return _measure(None, None, statement_limit=float(seconds))
+
+
+def _check_seconds(seconds: object) -> None:
     if (
         isinstance(seconds, bool)
         or not isinstance(seconds, (int, float))
@@ -168,7 +218,6 @@ def max_db_time(seconds: float) -> AbstractContextManager[QueryLog]:
         or seconds == float("inf")
     ):
         raise ValueError(f"seconds must be a non-negative number, got {seconds!r}")
-    return _measure(None, float(seconds))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

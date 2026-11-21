@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   templates), calls in test code, sliced querysets, and querysets the
   function may hand to other code
   ([Django](docs/django.md#queryset-len-experimental)).
+- `max_statement_time(seconds)`: a time budget for each statement, as the
+  marker (also `queryguard_max_statement_time`) and the context manager. Any
+  one statement slower than the limit fails the test or block, and the
+  failure lists the statements over it with their call sites, slowest first.
+  The time is wall time around the cursor call, as for `max_db_time`: use a
+  generous limit ([Budgets](docs/budgets.md#a-time-budget-per-statement-with-max_statement_time)).
 
 ## [1.1.0] - 2026-11-20
 

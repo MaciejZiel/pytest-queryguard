@@ -134,8 +134,9 @@ What is public API, and what is not, is defined on the
 [Stability and versioning](stability.md) page. In short: the names in
 `pytest_queryguard.__all__` and the pytest options, markers and finding kinds
 are public; the constructors of `QueryLog`, `Query` and `CallSite` are not.
-`record_queries()` reads the queries; `max_queries()` and `max_db_time()` yield
-the same `QueryLog`, so `with max_queries(3) as log:` also gives `log.count`,
+`record_queries()` reads the queries; `max_queries()`, `max_db_time()` and
+`max_statement_time()` (any one statement over the limit fails)
+yield the same `QueryLog`, so `with max_queries(3) as log:` also gives `log.count`,
 `log.queries` and `log.slowest()`.
 
 The `queryguard` fixture gives a `QueryLog` from

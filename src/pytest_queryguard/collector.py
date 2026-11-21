@@ -112,6 +112,8 @@ class QueryCollector:
     cartesian_load_count: int = 0
     # Seconds the statements took, all of them, stored or only counted.
     db_time: float = 0.0
+    # Seconds the slowest of them took, stored or only counted.
+    max_duration: float = 0.0
     # Strict mode (queryguard_strict): called with a lazy load, the call site
     # of the first lazy load of its group and the number of parents, once the
     # relationship has been lazy-loaded for ``strict_threshold`` parents that
@@ -501,11 +503,14 @@ class QueryCollector:
             runs[tags] = None
 
     def add_db_time(self, seconds: float) -> None:
+        """Count the time of one finished statement."""
         if _FREE_THREADED:
             with self._lock:
                 self.db_time += seconds
+                self.max_duration = max(self.max_duration, seconds)
         else:
             self.db_time += seconds
+            self.max_duration = max(self.max_duration, seconds)
 
 
 def note_index_reruns(
