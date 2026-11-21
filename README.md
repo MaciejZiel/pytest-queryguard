@@ -158,6 +158,19 @@ loops in test code are counted, not reported. The
 [migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-queryspy.html)
 has the full find-and-replace table.
 
+## Coming from django-zeal?
+
+pytest-queryguard checks Django tests with no fixture and nothing in
+`INSTALLED_APPS`: delete the `zeal_context()` fixture, `ZEAL_ALLOWLIST`
+becomes `queryguard_ignore`, `ZEAL_RAISE = False` becomes
+`queryguard_mode = "warn"`, and `zeal_ignore()` becomes a
+`queryguard_ignore` marker or `pytest_queryguard.ignore()`. It does not
+replace zeal outside tests (its middleware in the running app, Celery
+workers) or its `nplusone_detected` signal. The
+[migration guide](https://maciejziel.github.io/pytest-queryguard/migrating-from-zeal.html)
+maps every zeal setting and runs both tools side by side before zeal is
+removed.
+
 ## Missing indexes
 
 A test database holds a few rows, so a query that reads the whole table is as

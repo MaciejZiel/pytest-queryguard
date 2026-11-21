@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function may hand to other code
   ([Django](docs/django.md#queryset-len-experimental)).
 
+### Documentation
+
+- [Migrating from django-zeal](docs/migrating-from-zeal.md): every setting,
+  function and integration of django-zeal 2.3.0 with its pytest-queryguard
+  equivalent, or a plain "no equivalent" (its middleware outside tests,
+  Celery, the `nplusone_detected` signal), a before and after, and a
+  migration that runs both tools side by side and records a baseline before
+  zeal is removed.
+
 ## [1.1.0] - 2026-11-20
 
 1.1.0 is the code of 1.1.0rc1, released five days earlier without reports of

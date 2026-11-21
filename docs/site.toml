@@ -32,6 +32,7 @@ pages = [
   { title = "Performance", file = "performance.md", description = "What pytest-queryguard costs per statement and per test suite, how it was measured on SQLite and PostgreSQL, and what was optimised." },
   { title = "Migrating from nplusone", file = "migrating-from-nplusone.md", description = "Move from nplusone, which does not see SQLAlchemy 2-style queries and does not import on 2.1, to pytest-queryguard: what maps to what and what differs." },
   { title = "Migrating from queryspy", file = "migrating-from-queryspy.md", description = "Move from queryspy to pytest-queryguard: every queryspy option, marker and helper with its equivalent, and what differs." },
+  { title = "Migrating from django-zeal", file = "migrating-from-zeal.md", description = "Move Django tests from django-zeal to pytest-queryguard: every zeal setting, function and integration with its equivalent or none, a side-by-side run, a baseline and what differs." },
   { title = "Limitations", file = "limitations.md", description = "What pytest-queryguard does not see or judge: other ORMs, fixtures, drivers, plans and partial indexes." },
   { title = "FAQ", file = "faq.md", description = "Answers about overhead, raiseload, false positives, pytest-xdist, async drivers and more." },
 ]
