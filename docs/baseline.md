@@ -20,7 +20,7 @@ pytest --queryguard-baseline=queryguard-baseline.json --queryguard-update-baseli
 ```
 
 The run writes the file and does not fail on findings. Budgets
-(`max_queries`, `max_db_time`) are not findings: a test over its budget still
+(`max_queries`, `max_db_time`, `max_statement_time`) are not findings: a test over its budget still
 fails on this run and is never recorded, so fix the code or raise the budget.
 Run the whole suite to create the file, and again to prune it. Commit the file.
 

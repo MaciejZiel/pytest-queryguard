@@ -654,6 +654,66 @@ def format_time_budget(
     return "\n".join(lines)
 
 
+_SLOW_SHOWN = 10  # statements listed in a per-statement time budget failure
+
+
+def format_statement_time_budget(
+    limit: float,
+    statements: list[StatementEvent],
+    *,
+    cwd: Path | None = None,
+    total: int | None = None,
+    slowest: float | None = None,
+) -> str:
+    """The per-statement time budget failure, with the statements over it.
+
+    ``statements`` are the stored ones; those that took more than ``limit``
+    are listed, slowest first. ``total`` is the real count and ``slowest`` the
+    real slowest time when not all statements are stored.
+    """
+    over = sorted(
+        (s for s in statements if s.duration is not None and s.duration > limit),
+        key=lambda s: s.duration or 0.0,
+        reverse=True,
+    )
+    shown = len(statements)
+    got = shown if total is None else total
+    worst = max([slowest or 0.0, *(s.duration or 0.0 for s in over)])
+    if got > shown:
+        stored = "statement" if shown == 1 else "statements"
+        counted = f"{len(over)} of the {shown} stored {stored}, {got} in all"
+    else:
+        counted = f"{len(over)} of {got} {'statement' if got == 1 else 'statements'}"
+    lines = [
+        (
+            f"queryguard: a statement took {format_duration(worst)}, over the "
+            f"budget of {format_duration(limit)} per statement ({counted})"
+        ),
+        "",
+    ]
+    if over:
+        lines.append("  over the budget:")
+    for stmt in over[:_SLOW_SHOWN]:
+        line = f"    {format_duration(stmt.duration or 0.0):>9}  {_truncate(stmt.sql)}"
+        if stmt.callsite is not None:
+            line += f"  ({_location(stmt.callsite, cwd)})"
+        lines.append(line)
+    if len(over) > _SLOW_SHOWN:
+        lines.append(f"    ... and {len(over) - _SLOW_SHOWN} more")
+    if not over or worst > (over[0].duration or 0.0):
+        lines.append(
+            f"  the slowest one ({format_duration(worst)}) was not stored; raise "
+            "queryguard_max_events to see it"
+        )
+    if got > shown:
+        missing = got - shown
+        lines.append(
+            f"  ... {missing} more {'statement was' if missing == 1 else 'statements were'} not stored "
+            "(queryguard_max_events), so the list may be incomplete"
+        )
+    return "\n".join(lines)
+
+
 def _times(count: int) -> str:
     return "1 time" if count == 1 else f"{count} times"
 

@@ -41,6 +41,7 @@ EXPECTED_ALL = [
     "ignore",
     "max_db_time",
     "max_queries",
+    "max_statement_time",
     "record_queries",
 ]
 
@@ -56,6 +57,7 @@ EXPECTED_FUNCTIONS = {
     "ignore": "(*kinds: 'str', reason: 'str | None' = None) -> 'IgnoreBlock'",
     "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
     "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryLog]'",
+    "max_statement_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
     "record_queries": "() -> 'AbstractContextManager[QueryLog]'",
 }
 
@@ -167,9 +169,11 @@ EXPECTED_MARKERS = [
     "allow_nplusone",
     "max_db_time",
     "max_queries",
+    "max_statement_time",
     "queryguard_ignore",
     "queryguard_max_db_time",
     "queryguard_max_queries",
+    "queryguard_max_statement_time",
     "queryguard_route_budgets",
 ]
 

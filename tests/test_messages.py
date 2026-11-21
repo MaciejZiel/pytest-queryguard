@@ -12,6 +12,7 @@ from pytest_queryguard.messages import (
     format_findings,
     format_index_findings,
     format_index_notes,
+    format_statement_time_budget,
 )
 
 CWD = Path("/work/project")
@@ -502,3 +503,58 @@ def test_relationship_message_counts_other_parent_sites() -> None:
     assert "  parents loaded at a.py:3 in f and 2 other places" in lines
     # No known chain: the hint is the relationship's own class, as before.
     assert lines[-1] == "       select(Order).options(selectinload(Order.customer))"
+
+
+def _timed(sql: str, duration: float | None, line: int = 7) -> StatementEvent:
+    site = CallSite(filename="/work/project/app/a.py", lineno=line, function="run")
+    return StatementEvent(sql, site, None, duration=duration)
+
+
+def test_statement_time_message_lists_the_slow_ones_slowest_first() -> None:
+    statements = [
+        _timed("SELECT 1", 0.001),
+        _timed("SELECT slow", 0.25, line=8),
+        _timed("SELECT unfinished", None),
+        _timed("SELECT slower", 1.5, line=9),
+    ]
+    assert format_statement_time_budget(0.1, statements, cwd=CWD).splitlines() == [
+        (
+            "queryguard: a statement took 1.50 s, over the budget of 100.0 ms per "
+            "statement (2 of 4 statements)"
+        ),
+        "",
+        "  over the budget:",
+        "       1.50 s  SELECT slower  (app/a.py:9 in run)",
+        "     250.0 ms  SELECT slow  (app/a.py:8 in run)",
+    ]
+
+
+def test_statement_time_message_caps_the_list() -> None:
+    statements = [_timed(f"SELECT {i}", 1.0 + i) for i in range(12)]
+    lines = format_statement_time_budget(0.5, statements, cwd=CWD).splitlines()
+    assert "(12 of 12 statements)" in lines[0]
+    assert lines[3].strip().startswith("12.00 s  SELECT 11")
+    assert lines[-1] == "    ... and 2 more"
+
+
+def test_statement_time_message_beyond_the_event_cap() -> None:
+    # The slowest statement was not stored: only its time is known.
+    statements = [_timed("SELECT 1", 0.001)]
+    lines = format_statement_time_budget(
+        0.1, statements, cwd=CWD, total=3, slowest=0.4
+    ).splitlines()
+    assert lines == [
+        (
+            "queryguard: a statement took 400.0 ms, over the budget of 100.0 ms per "
+            "statement (0 of the 1 stored statement, 3 in all)"
+        ),
+        "",
+        (
+            "  the slowest one (400.0 ms) was not stored; raise "
+            "queryguard_max_events to see it"
+        ),
+        (
+            "  ... 2 more statements were not stored (queryguard_max_events), so the "
+            "list may be incomplete"
+        ),
+    ]

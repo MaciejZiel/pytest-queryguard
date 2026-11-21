@@ -95,6 +95,7 @@ from .messages import (
     format_index_notes,
     format_stale_baseline,
     format_stale_ignores,
+    format_statement_time_budget,
     format_strict,
     format_test_code_summary,
     format_time_budget,
@@ -1187,6 +1188,16 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line(
         "markers",
+        "max_statement_time(seconds): fail the test if any one of its SQL "
+        "statements takes more than that many seconds.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "queryguard_max_statement_time(seconds): max_statement_time under a name "
+        "no other plugin reads; it wins over max_statement_time.",
+    )
+    config.addinivalue_line(
+        "markers",
         "queryguard_ignore(*labels, kind=..., file=..., function=..., stack=...): "
         "do not report N+1 query findings for this test; with arguments, only "
         "the findings they match (fnmatch patterns).",
@@ -2023,8 +2034,9 @@ def _other_budget(
     return None, None
 
 
-def _time_budget(item: pytest.Item) -> float | None:
-    found = _budget_marker(item, "max_db_time")
+def _time_budget(item: pytest.Item, marker_name: str = "max_db_time") -> float | None:
+    """The limit in seconds of ``max_db_time`` (or ``max_statement_time``)."""
+    found = _budget_marker(item, marker_name)
     if found is None:
         return None
     name, marker = found
@@ -2073,14 +2085,34 @@ def _time_budget_report(
         return None
 
 
+def _statement_time_report(
+    item: pytest.Item, collector: QueryCollector, limit: float
+) -> str | None:
+    """The per-statement time failure text, or None; a bug here never fails the test."""
+    try:
+        if collector.max_duration <= limit:
+            return None
+        return format_statement_time_budget(
+            limit,
+            collector.statements,
+            cwd=item.config.rootpath,
+            total=collector.statement_count,
+            slowest=collector.max_duration,
+        )
+    except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
+        record_error(exc, "statement-time budget report")
+        return None
+
+
 def _budget_texts(
     item: pytest.Item,
     collector: QueryCollector,
     limit: int | None,
     time_limit: float | None,
     source: str | None,
+    statement_limit: float | None = None,
 ) -> list[str]:
-    """The failure texts of the test's query and database-time budgets."""
+    """The failure texts of the test's query, database-time and statement budgets."""
     texts: list[str] = []
     if limit is not None:
         budget = _budget_report(item, collector, limit, source)
@@ -2090,6 +2122,10 @@ def _budget_texts(
         time_budget = _time_budget_report(item, collector, time_limit)
         if time_budget is not None:
             texts.append(time_budget)
+    if statement_limit is not None:
+        statement_budget = _statement_time_report(item, collector, statement_limit)
+        if statement_budget is not None:
+            texts.append(statement_budget)
     return texts
 
 
@@ -3069,6 +3105,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         if limit is None:
             limit, source = _other_budget(item, settings)
         time_limit = _time_budget(item)
+        statement_limit = _time_budget(item, "max_statement_time")
         route_budgets = _route_config(item, settings)
     except Exception as exc:  # noqa: BLE001  # a plugin bug must never break the user suite
         record_error(exc, "start of the measurement")
@@ -3079,6 +3116,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         settings.mode == "off"
         and limit is None
         and time_limit is None
+        and statement_limit is None
         and route_budgets is None
     ):
         return (yield)
@@ -3099,6 +3137,7 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
             settings,
             budgets=limit is not None
             or time_limit is not None
+            or statement_limit is not None
             or route_budgets is not None,
             index_check=index_check and not exempt_all,
         )
@@ -3179,7 +3218,9 @@ def pytest_runtest_call(item: pytest.Item) -> Generator[None, Any, Any]:
         if other_error is None:
             # a test that fails with its own error has its budgets unjudged,
             # as any failing test
-            budget_texts = _budget_texts(item, collector, limit, time_limit, source)
+            budget_texts = _budget_texts(
+                item, collector, limit, time_limit, source, statement_limit
+            )
             budget_texts.extend(route_texts)
         parts, warn_texts = _results(
             item,

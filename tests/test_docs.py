@@ -54,6 +54,8 @@ def test_every_marker_is_in_the_reference(pytester: pytest.Pytester) -> None:
         "queryguard_ignore",
         "queryguard_max_queries",
         "queryguard_max_db_time",
+        "max_statement_time",
+        "queryguard_max_statement_time",
     }, markers
     missing = sorted(m for m in markers if f"`{m}" not in reference)
     assert not missing, f"docs/configuration.md does not document {missing}"
