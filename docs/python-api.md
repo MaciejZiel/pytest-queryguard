@@ -199,8 +199,8 @@ SQLAlchemy and Django, and its failure.
 
 ## Leaving out a block: `ignore()`
 
-`ignore(*kinds, reason=None)` leaves out the findings of the given kinds that
-the code inside the block makes, for the plugin, for
+`ignore(*kinds, label=None, reason=None)` leaves out the findings of the given
+kinds (and labels) that the code inside the block makes, for the plugin, for
 `log.assert_no_nplusone()` and for the [in-application mode](in-app.md):
 
 ```python
@@ -212,14 +212,24 @@ with ignore("relationship-load", reason="one-off export"):
 
 @ignore("repeated-statement")
 def warm_cache(session): ...
+
+
+with ignore("relationship-load", label="Book.author"):
+    render_catalogue(session)
 ```
 
 - `kinds`: one or more finding kinds (`"relationship-load"`,
   `"repeated-statement"`, `"column-load"`, `"write-loop"`,
   `"unused-eager-load"`, `"unused-columns"`, `"cartesian-load"`,
   `"missing-index"`, `"queryset-len"`) or `fnmatch`
-  patterns for them, such as `"*"`. None, or a pattern that matches no kind,
-  raises `TypeError` or `ValueError`.
+  patterns for them, such as `"*"`. None (without `label`), or a pattern that
+  matches no kind, raises `TypeError` or `ValueError`.
+- `label`: a label pattern or a list of them (`"Book.author"`,
+  `["len(Book)", "Order.*"]`), matched as the `queryguard_ignore` marker
+  matches its patterns; the block then leaves out only the findings with such
+  a label. With `label`, the kinds may be left out: `ignore(label="Book.author")`
+  is for every kind, like the marker without `kind=`. Anything else than a
+  non-empty string or a non-empty list of them raises `TypeError`.
 - `reason`: a string for the reader; not used.
 
 It returns a context manager that is also a decorator, for a function or a
@@ -229,7 +239,7 @@ nested or from several tasks at once. Its class is not public: use it only
 through `ignore()`.
 
 A finding is left out only when everything it counts ran inside a block for
-its kind, in the thread or asyncio task that entered the block or in a task
+its kind (and label), in the thread or asyncio task that entered the block or in a task
 created inside it. Threads started inside the block are not covered unless
 they run in a copy of the context. A block that left out nothing in the whole
 run is listed as stale in the session summary. The details are in

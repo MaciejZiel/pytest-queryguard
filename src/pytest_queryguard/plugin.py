@@ -85,7 +85,7 @@ from .findings import (
     SourceFix,
 )
 from .ignores import IgnoreRule, apply_rules, check_kind, parse_rules
-from .indexes import scan_key, select_findings
+from .indexes import scan_key, select_findings, table_label
 from .messages import (
     _display_path,
     format_budget,
@@ -1839,7 +1839,13 @@ def _blocked_scans(
         )
     found: set[int] = set()
     for scan in selected:
-        hidden = blocks.covering_tags(runs[scan_key(scan.issue)], KIND_MISSING_INDEX)
+        issue = scan.issue
+        hidden = blocks.covering_tags(
+            runs[scan_key(issue)],
+            KIND_MISSING_INDEX,
+            table_label(issue),
+            (issue.schema, issue.table),
+        )
         if hidden:
             sieve.note(hidden)
             found.add(id(scan))
@@ -1878,7 +1884,7 @@ def _note_blocks(
     if stopped or _nplusone_ignores(item)[0]:
         return
     for block in list(collector.blocks_entered.values()):
-        if not any(block.matches(kind) for kind in kinds):
+        if not any(block.for_kind(kind) for kind in kinds):
             continue
         where = _block_site(block, root)
         if where is not None:

@@ -74,11 +74,7 @@ class IgnoreRule:
         return self.stack is None or _stack_matches(finding, self.stack)
 
     def _label_matches(self, finding: Finding) -> bool:
-        if finding.label == self.label or fnmatchcase(finding.label, self.label):
-            return True
-        # A table is also matched by any spelling of its name (bare, schema
-        # qualified, quoted or not), as in queryguard_index_ignore_tables.
-        return finding.table is not None and table_matches(self.label, *finding.table)
+        return label_matches(self.label, finding.label, finding.table)
 
     def __str__(self) -> str:
         text = f"{self.kind} {self.label}"
@@ -89,6 +85,23 @@ class IgnoreRule:
         if self.stack is not None:
             text += f" stack={self.stack}"
         return text
+
+
+def label_matches(
+    pattern: str, label: str, table: tuple[str | None, str] | None = None
+) -> bool:
+    """Whether a label pattern matches a finding's ``label`` (and ``table``).
+
+    The pattern matches as ``fnmatch`` (case-sensitive) or written out
+    exactly, and for a ``missing-index`` finding (``table`` is its schema and
+    table) as any spelling of the table name. The marker, the ini option and
+    ``ignore(label=...)`` all match labels with it.
+    """
+    if label == pattern or fnmatchcase(label, pattern):
+        return True
+    # A table is also matched by any spelling of its name (bare, schema
+    # qualified, quoted or not), as in queryguard_index_ignore_tables.
+    return table is not None and table_matches(pattern, *table)
 
 
 def _frame_matches(file: str, function: str | None, pattern: str) -> bool:

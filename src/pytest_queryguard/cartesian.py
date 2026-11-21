@@ -374,7 +374,9 @@ def findings(
         grouped.setdefault(load.collections, []).append(load)
     result = []
     for collections, loads in grouped.items():
-        if sieve is not None and sieve.drops(loads, KIND_CARTESIAN_LOAD):
+        if sieve is not None and sieve.drops(
+            loads, KIND_CARTESIAN_LOAD, label(collections)
+        ):
             continue
         first = loads[0]
         site = first.callsite

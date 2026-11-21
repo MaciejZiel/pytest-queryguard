@@ -262,9 +262,25 @@ def migrate_legacy_rows(session): ...
 The kinds are the ones above, or `fnmatch` patterns for them (`"*"` for every
 kind); an unknown kind raises `ValueError`. `reason` is for the reader only.
 
+`label` narrows the block to the findings with that label, a pattern or a list
+of patterns matched exactly as the [marker](#the-queryguard_ignore-marker-and-option)
+matches its patterns (`fnmatch`, the label written out exactly, any spelling of
+a table name for `missing-index`). With `label`, the kinds may be left out, for
+every kind, as the marker without `kind=` is:
+
+```python
+with ignore("relationship-load", label="Book.author", reason="#812"):
+    render_catalogue(session)  # an N+1 on Book.publisher is still reported
+
+
+@ignore(label=["len(Book)", "Book.*"])
+def legacy_dashboard(request): ...
+```
+
 A finding is left out when every statement or load it counts ran inside a
-block for its kind. One of them outside the block is enough to report the
-finding in full, with every load counted, as if the block were not there.
+block for its kind (and label, when the block has one). One of them outside
+the block is enough to report the finding in full, with every load counted,
+as if the block were not there.
 This catches the usual slip, a lazy load that happens after the block:
 
 ```python

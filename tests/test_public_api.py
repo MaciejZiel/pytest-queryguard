@@ -53,7 +53,10 @@ EXPECTED_FUNCTIONS = {
         "(fn: 'Callable[[Any], object]', sizes: 'Iterable[int]' = (1, 10), *, "
         "setup: 'Callable[[int], object] | None' = None) -> 'dict[int, QueryLog]'"
     ),
-    "ignore": "(*kinds: 'str', reason: 'str | None' = None) -> 'IgnoreBlock'",
+    "ignore": (
+        "(*kinds: 'str', label: 'str | list[str] | tuple[str, ...] | None' = None, "
+        "reason: 'str | None' = None) -> 'IgnoreBlock'"
+    ),
     "max_db_time": "(seconds: 'float') -> 'AbstractContextManager[QueryLog]'",
     "max_queries": "(limit: 'int') -> 'AbstractContextManager[QueryLog]'",
     "record_queries": "() -> 'AbstractContextManager[QueryLog]'",

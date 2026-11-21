@@ -398,6 +398,22 @@ def test_a_block_for_another_kind_does_not() -> None:
     assert [f.label for f in _findings(run, blocks.Sieve())] == ["len(Book)"]
 
 
+def test_a_block_for_the_label_leaves_it_out_and_another_label_does_not() -> None:
+    # as django-zeal's allowlist scopes by model: ignore(label=...) only
+    def labelled() -> None:
+        with ignore(label="len(Book)"):
+            count_books()
+
+    def other() -> None:
+        with ignore("queryset-len", label="len(Author)"):
+            count_books()
+
+    sieve = blocks.Sieve()
+    assert _findings(labelled, sieve) == []
+    assert sieve.used
+    assert [f.label for f in _findings(other, blocks.Sieve())] == ["len(Book)"]
+
+
 def test_async_iteration_reads_the_rows() -> None:
     import asyncio
 

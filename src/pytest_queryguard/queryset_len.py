@@ -306,7 +306,7 @@ def unused(
     return [
         group
         for group in groups.values()
-        if sieve is None or not sieve.drops(group, KIND_QUERYSET_LEN)
+        if sieve is None or not sieve.drops(group, KIND_QUERYSET_LEN, group[0].label)
     ]
 
 

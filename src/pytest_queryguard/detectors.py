@@ -200,9 +200,14 @@ class ColumnLoadFinding:
 
     @property
     def label(self) -> str:
-        if self.cause == CAUSE_DEFERRED and self.attributes:
-            return f"{self.owner}.{','.join(self.attributes)}"
-        return f"{self.owner} ({self.cause})"
+        return _column_label(self.owner, self.attributes, self.cause)
+
+
+def _column_label(owner: str, attributes: tuple[str, ...], cause: str) -> str:
+    """``Book.summary`` (deferred columns) or ``Book (expired)``: a column-load label."""
+    if cause == CAUSE_DEFERRED and attributes:
+        return f"{owner}.{','.join(attributes)}"
+    return f"{owner} ({cause})"
 
 
 Detection = RelationshipFinding | RepeatFinding | ColumnLoadFinding | WriteLoopFinding
@@ -393,16 +398,17 @@ def _hidden(
     sieve: Sieve | None,
     events: Sequence[Any],
     kind: str,
+    label: str,
     held: list[IgnoreBlock],
 ) -> bool:
-    """True when ``events`` all ran inside ignore() blocks for ``kind``.
+    """True when ``events`` all ran inside ignore() blocks for ``kind`` and ``label``.
 
     The blocks go to ``held``; they count as used (``_note_hidden``) only
     when no other group of the same finding is reported instead.
     """
     if sieve is None:
         return False
-    blocks = covering(events, kind)
+    blocks = covering(events, kind, label)
     held.extend(blocks)
     return bool(blocks)
 
@@ -536,7 +542,7 @@ def _relationship_findings(
             shown = [
                 group
                 for group in groups
-                if not _hidden(sieve, group, KIND_RELATIONSHIP, dropped)
+                if not _hidden(sieve, group, KIND_RELATIONSHIP, name, dropped)
             ]
             if not shown:
                 held.extend(dropped)
@@ -621,6 +627,7 @@ def _column_load_findings(
     units = _units(collector, scoped)
     found: list[ColumnLoadFinding] = []
     for (owner, attrs, cause, base, single_table), all_loads in groups.items():
+        label = _column_label(owner, attrs, cause)
         best: list[ColumnLoadEvent] | None = None
         best_keys = 0
         driven: tuple[list[ColumnLoadEvent], int] | None = None
@@ -631,11 +638,11 @@ def _column_load_findings(
                 continue
             if drive and _driven(loads, _instance_key):
                 if (driven is None or keys > driven[1]) and not _hidden(
-                    sieve, loads, KIND_COLUMN_LOAD, held
+                    sieve, loads, KIND_COLUMN_LOAD, label, held
                 ):
                     driven = (loads, keys)
             elif keys > best_keys:
-                if _hidden(sieve, loads, KIND_COLUMN_LOAD, held):
+                if _hidden(sieve, loads, KIND_COLUMN_LOAD, label, held):
                     continue
                 best, best_keys = loads, keys
         is_driven = best is None and driven is not None
@@ -742,11 +749,11 @@ def _write_loop_findings(
                 continue
             if drive and _driven(stmts, _write_key):
                 if (driven is None or count > driven[1]) and not _hidden(
-                    sieve, stmts, KIND_WRITE_LOOP, held
+                    sieve, stmts, KIND_WRITE_LOOP, sql, held
                 ):
                     driven = (stmts, count)
             elif count > best_count:
-                if _hidden(sieve, stmts, KIND_WRITE_LOOP, held):
+                if _hidden(sieve, stmts, KIND_WRITE_LOOP, sql, held):
                     continue
                 best, best_count = stmts, count
         is_driven = best is None and driven is not None
@@ -1179,11 +1186,11 @@ def _small_repeat_findings(
                 continue
             if drive and _driven(stmts):
                 if (driven is None or len(stmts) > len(driven)) and not _hidden(
-                    sieve, stmts, KIND_REPEAT, held
+                    sieve, stmts, KIND_REPEAT, key, held
                 ):
                     driven = stmts
             elif best is None or len(stmts) > len(best):
-                if _hidden(sieve, stmts, KIND_REPEAT, held):
+                if _hidden(sieve, stmts, KIND_REPEAT, key, held):
                     continue
                 best = stmts
         is_driven = best is None and driven is not None
@@ -1228,11 +1235,11 @@ def _repeat_findings(
                 continue
             if drive and _driven(stmts):
                 if (driven is None or len(stmts) > len(driven)) and not _hidden(
-                    sieve, stmts, KIND_REPEAT, held
+                    sieve, stmts, KIND_REPEAT, key, held
                 ):
                     driven = stmts
             elif best is None or len(stmts) > len(best):
-                if _hidden(sieve, stmts, KIND_REPEAT, held):
+                if _hidden(sieve, stmts, KIND_REPEAT, key, held):
                     continue
                 best = stmts
         is_driven = best is None and driven is not None

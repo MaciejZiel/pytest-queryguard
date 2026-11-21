@@ -329,12 +329,14 @@ class QueryCollector:
         if self.strict_by_scope or not self.counts_units():
             if group.report is None:
                 group.report = self._report_site(load, scope)
-            if load.ignores and covers(load.ignores, KIND_RELATIONSHIP):
+            if load.ignores and covers(
+                load.ignores, KIND_RELATIONSHIP, load.relationship
+            ):
                 return None
             first, other_lines = group.report
             site = first or group.first or load.callsite
             return group, _ALL, (site, other_lines), self._strict_count(group, load)
-        if load.ignores and covers(load.ignores, KIND_RELATIONSHIP):
+        if load.ignores and covers(load.ignores, KIND_RELATIONSHIP, load.relationship):
             return None
         unit = self.unit_of(load.scope)
         if unit in group.suppressed_units:

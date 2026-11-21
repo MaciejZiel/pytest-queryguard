@@ -6,7 +6,7 @@ told apart by a context variable instead: entering it adds it to the blocks of
 the current thread or asyncio task, and every event the listeners record
 carries the blocks active where it was recorded (one ``ContextVar.get`` per
 event). A finding is left out when every event it counts was recorded inside a
-block for its kind. A thread started inside the block does not see it unless
+block for its kind and label. A thread started inside the block does not see it unless
 it runs in a copy of the context (``asyncio.to_thread``,
 ``contextvars.copy_context().run``); a task created inside it does.
 """
@@ -24,7 +24,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from .events import CallSite
-from .ignores import check_kind
+from .ignores import check_kind, label_matches
 
 if TYPE_CHECKING:
     from typing_extensions import Self
@@ -38,22 +38,47 @@ class IgnoreBlock:
     Not constructible by users: call ``ignore()``.
     """
 
-    __slots__ = ("_matched", "kinds", "reason", "site")
+    __slots__ = ("_matched", "kinds", "labels", "reason", "site")
 
     def __init__(
-        self, kinds: tuple[str, ...], reason: str | None, site: CallSite | None
+        self,
+        kinds: tuple[str, ...],
+        reason: str | None,
+        site: CallSite | None,
+        labels: tuple[str, ...] = (),
     ) -> None:
-        self.kinds = kinds
+        self.kinds = kinds  # as written; empty (with labels) for every kind
+        self.labels = labels  # label patterns; empty for every label
         self.reason = reason
         self.site = site  # where ignore() was called: the with or the decorator
         self._matched: dict[str, bool] = {}  # kind -> matches, filled on use
 
-    def matches(self, kind: str) -> bool:
+    def for_kind(self, kind: str) -> bool:
+        """True when the block's kinds match ``kind``, whatever the label."""
         matched = self._matched.get(kind)
         if matched is None:
-            matched = any(fnmatchcase(kind, pattern) for pattern in self.kinds)
+            matched = not self.kinds or any(
+                fnmatchcase(kind, pattern) for pattern in self.kinds
+            )
             self._matched[kind] = matched
         return matched
+
+    def matches(
+        self, kind: str, label: str, table: tuple[str | None, str] | None = None
+    ) -> bool:
+        """True when the block is for a finding of ``kind`` labelled ``label``.
+
+        A label pattern matches as in the ``queryguard_ignore`` marker
+        (``ignores.label_matches``); ``table`` is the schema and table of a
+        ``missing-index`` finding.
+        """
+        if not self.for_kind(kind):
+            return False
+        # not cached: a block decorating a helper lives for the whole run,
+        # and statement labels are many (fnmatch caches the patterns)
+        return not self.labels or any(
+            label_matches(pattern, label, table) for pattern in self.labels
+        )
 
     def __enter__(self) -> Self:
         _blocks.set((*_blocks.get(), self))
@@ -108,7 +133,12 @@ class IgnoreBlock:
 
     def describe(self) -> str:
         """``ignore('relationship-load')`` as written, for the stale-block report."""
-        return f"ignore({', '.join(repr(kind) for kind in self.kinds)})"
+        args = [repr(kind) for kind in self.kinds]
+        if len(self.labels) == 1:
+            args.append(f"label={self.labels[0]!r}")
+        elif self.labels:
+            args.append(f"label={list(self.labels)!r}")
+        return f"ignore({', '.join(args)})"
 
     def __repr__(self) -> str:
         where = (
@@ -117,19 +147,28 @@ class IgnoreBlock:
         return f"<{self.describe()}{where}>"
 
 
-def ignore(*kinds: str, reason: str | None = None) -> IgnoreBlock:
+def ignore(
+    *kinds: str,
+    label: str | list[str] | tuple[str, ...] | None = None,
+    reason: str | None = None,
+) -> IgnoreBlock:
     """Leave out the findings of these kinds that happen inside the block.
 
     ``kinds`` are finding kinds (``"relationship-load"``, ...) or ``fnmatch``
-    patterns for them (``"*"`` for all). A finding is left out when every
-    statement or load it counts ran inside the block, in the thread or asyncio
-    task that entered it (or in a task created inside it). Also a decorator.
-    ``reason`` is for the reader. Budgets are not affected.
+    patterns for them (``"*"`` for all). ``label`` narrows the block to the
+    findings with that label: a pattern or a list of patterns, matched as the
+    ``queryguard_ignore`` marker matches them (``"Order.customer"``,
+    ``"len(Book)"``); with ``label``, the kinds may be left out, for every
+    kind. A finding is left out when every statement or load it counts ran
+    inside the block, in the thread or asyncio task that entered it (or in a
+    task created inside it). Also a decorator. ``reason`` is for the reader.
+    Budgets are not affected.
     """
-    if not kinds:
+    labels = _labels(label)
+    if not kinds and not labels:
         raise TypeError(
             "ignore() needs at least one finding kind, such as "
-            "'relationship-load', or '*' for every kind"
+            "'relationship-load', or '*' for every kind, or a label"
         )
     for kind in kinds:
         if not isinstance(kind, str) or not kind:
@@ -143,7 +182,28 @@ def ignore(*kinds: str, reason: str | None = None) -> IgnoreBlock:
         lineno=frame.f_lineno,
         function=frame.f_code.co_name,
     )
-    return IgnoreBlock(kinds, reason, site)
+    return IgnoreBlock(kinds, reason, site, labels)
+
+
+def _labels(label: object) -> tuple[str, ...]:
+    """The label patterns of ``ignore(label=...)``, checked."""
+    if label is None:
+        return ()
+    patterns = (label,) if isinstance(label, str) else label
+    if not isinstance(patterns, (list, tuple)):
+        raise TypeError(
+            f"label must be a string, or a list or tuple of strings, got {label!r}"
+        )
+    if not patterns:
+        raise TypeError(f"label needs at least one label pattern, got {label!r}")
+    checked: list[str] = []
+    for pattern in patterns:
+        if not isinstance(pattern, str) or not pattern:
+            raise TypeError(
+                f"a label pattern must be a non-empty string, got {pattern!r}"
+            )
+        checked.append(pattern)
+    return tuple(checked)
 
 
 # The blocks the current thread or task is in, innermost last.
@@ -193,17 +253,27 @@ class _Tagged(Protocol):
     def ignores(self) -> tuple[IgnoreBlock, ...]: ...
 
 
-def covering(events: Iterable[_Tagged], kind: str) -> tuple[IgnoreBlock, ...]:
-    """The blocks that leave out a finding of ``kind`` made of ``events``.
+# A finding's (schema, table), for missing-index; None for the other kinds.
+Table = tuple[str | None, str] | None
 
-    Empty unless every event was recorded inside a block for ``kind``; then
-    the innermost such block of each event, in order of first use.
+
+def covering(
+    events: Iterable[_Tagged], kind: str, label: str, table: Table = None
+) -> tuple[IgnoreBlock, ...]:
+    """The blocks that leave out a finding of ``kind`` and ``label`` made of ``events``.
+
+    Empty unless every event was recorded inside a block for the finding
+    (``IgnoreBlock.matches``); then the innermost such block of each event,
+    in order of first use.
     """
-    return covering_tags((event.ignores for event in events), kind)
+    return covering_tags((event.ignores for event in events), kind, label, table)
 
 
 def covering_tags(
-    runs: Iterable[tuple[IgnoreBlock, ...]], kind: str
+    runs: Iterable[tuple[IgnoreBlock, ...]],
+    kind: str,
+    label: str,
+    table: Table = None,
 ) -> tuple[IgnoreBlock, ...]:
     """``covering`` for the tags of each event (or run) instead of the events."""
     found: dict[IgnoreBlock, None] = {}
@@ -211,7 +281,7 @@ def covering_tags(
         if not tags:
             return ()
         for block in reversed(tags):
-            if block.matches(kind):
+            if block.matches(kind, label, table):
                 found[block] = None
                 break
         else:
@@ -219,9 +289,9 @@ def covering_tags(
     return tuple(found)
 
 
-def covers(tags: tuple[IgnoreBlock, ...], kind: str) -> bool:
-    """True when one of ``tags`` (an event's blocks) is a block for ``kind``."""
-    return any(block.matches(kind) for block in tags)
+def covers(tags: tuple[IgnoreBlock, ...], kind: str, label: str) -> bool:
+    """True when one of ``tags`` (an event's blocks) is for ``kind`` and ``label``."""
+    return any(block.matches(kind, label) for block in tags)
 
 
 class Sieve:
@@ -247,12 +317,18 @@ class Sieve:
                 else:
                     recording.blocks_used.update(new)
 
-    def drops(self, events: Iterable[_Tagged], kind: str) -> bool:
+    def drops(self, events: Iterable[_Tagged], kind: str, label: str) -> bool:
         """True when the finding made of ``events`` is left out (see ``covering``)."""
-        return self.drops_tags((event.ignores for event in events), kind)
+        return self.drops_tags((event.ignores for event in events), kind, label)
 
-    def drops_tags(self, runs: Iterable[tuple[IgnoreBlock, ...]], kind: str) -> bool:
+    def drops_tags(
+        self,
+        runs: Iterable[tuple[IgnoreBlock, ...]],
+        kind: str,
+        label: str,
+        table: Table = None,
+    ) -> bool:
         """``drops`` for the tags of each event (or run) instead of the events."""
-        found = covering_tags(runs, kind)
+        found = covering_tags(runs, kind, label, table)
         self.note(found)
         return bool(found)

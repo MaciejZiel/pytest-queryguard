@@ -1184,6 +1184,25 @@ def test_an_output_file_that_cannot_be_written_is_an_error(
             for o in session.scalars(select(Order)):
                 print(o.customer.name)
         """,
+        # ignore() for the relationship's label, with or without the kind
+        """
+        from pytest_queryguard import ignore
+        def f(session):
+            with ignore("relationship-load", label="Order.customer"):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
+        from pytest_queryguard import ignore
+        def f(session):
+            with ignore(label=["Order.items", "Order.cust*"]):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
+        from pytest_queryguard import ignore
+        def f(session, labels):
+            with ignore("relationship-load", label=labels):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
         # the relationship was set or refreshed per object first (bug_119, bug_121)
         """
         def f(session):
@@ -1244,6 +1263,30 @@ def test_reads_that_do_not_load_per_row(models: lint.Models, code: str) -> None:
         from pytest_queryguard import ignore
         def f(session):
             with ignore("repeated-statement"):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
+        from pytest_queryguard import ignore
+        def f(session):
+            with ignore("relationship-load", label="Order.items"):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
+        from pytest_queryguard import ignore
+        def f(session):
+            with ignore("repeated-statement", label="Order.customer"):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
+        from pytest_queryguard import ignore
+        def f(session, opts):
+            with ignore("repeated-statement", **opts):
+                return [o.customer.name for o in session.scalars(select(Order))]
+        """,
+        """
+        from pytest_queryguard import ignore
+        def f(session):
+            with ignore(label=None):
                 return [o.customer.name for o in session.scalars(select(Order))]
         """,
         """
